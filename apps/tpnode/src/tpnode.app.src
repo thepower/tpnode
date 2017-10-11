@@ -1,0 +1,15 @@
+{application, tpnode,
+ [
+  {description, "ThePower Node"},
+  {vsn, "0.1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  lager,
+                  tinymq,
+                  cowboy
+                 ]},
+  {mod, { tpnode, []}},
+  {env, []}
+ ]}.
