@@ -33,12 +33,29 @@ init([]) ->
                           {sessions, []},
                           {nb_acceptors, 100},
                           {host, '_'},
-                          {port, 43280},
+                          {port, 
+                           application:get_env(tpnode,rpcport,43280)
+                          },
                           {ip, {0,0,0,0,0,0,0,0}},
                           {public, "public"}
                          ]),
+    case application:get_env(tpnode, neighbours) of
+        {ok, Neighbours} when is_list(Neighbours) ->
+            lists:foreach(
+              fun(Node) ->
+                      net_adm:ping(Node)
+              end, Neighbours);
+        _ -> 
+            ok
+    end,
+
     {ok, { {one_for_one, 5, 10}, 
            [
+            {
+             h2ldb,
+             {h2leveldb, start_link, [ [] ]},
+             permanent, 5000, worker, []
+            },
             { blockchain, {blockchain,start_link,[]}, permanent, 5000, worker, []},
             { mkblock, {mkblock,start_link,[]}, permanent, 5000, worker, []},
             { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []}

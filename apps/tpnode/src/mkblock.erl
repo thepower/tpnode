@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0,binarize/1,sign/1,verify/2,extract/1]).
+-export([start_link/0,sign/1,verify/1,extract/1,mkblock/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -71,10 +71,28 @@ handle_cast(process, #{preptxl:=PreTXL}=State) ->
             end, #{}, TXL),
     %lager:info("Tx addrs ~p",[Addrs]),
     {Success,Failed}=try_process(TXL,Addrs,[],[]),
-    lager:info("Success ~p",[Success]),
+%    lists:foreach(
+%      fun(Se) ->
+%              lager:info("Success ~p",[Se])
+%      end, Success),
     %lager:info("Failed ~p",[Failed]),
     gen_server:cast(txpool,{failed,Failed}),
-    {noreply, State};
+    #{header:=#{height:=Last_Height},hash:=Last_Hash}=gen_server:call(blockchain,last_block),
+    Blk=sign(
+          mkblock(#{
+            txs=>Success, 
+            parent=>Last_Hash,
+            height=>Last_Height+1
+           })
+         ),
+    lists:foreach(
+      fun(Pid)-> 
+              gen_server:cast(Pid, {new_block, Blk}) 
+      end, 
+      pg2:get_members(blockchain)
+     ),
+    lager:info("New block ~p",[Blk]),
+    {noreply, State#{preptxl=>[]}};
 
 handle_cast(_Msg, State) ->
     lager:info("unknown cast ~p",[_Msg]),
@@ -130,18 +148,17 @@ try_process([{TxID,#{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,from:
 
 
 
-binarize(#{ txs:=Txs, parent:=Parent, height:=H, timestamp:=T  }) ->
+mkblock(#{ txs:=Txs, parent:=Parent, height:=H }) ->
     BTxs=binarizetx(Txs),
     TxHash=crypto:hash(sha256,BTxs),
-    Header = <<(size(Parent)+8+8+32):8/integer,
-               H:64/integer, %8
-               T:64/integer, %8
+    BHeader = <<H:64/integer, %8
                TxHash/binary, %32
-               Parent/binary,
-               BTxs/binary
+               Parent/binary
              >>,
-    %<<Header/binary,BTxs/binary>>,
-    Header.
+    #{header=>#{parent=>Parent,height=>H,txs=>TxHash},
+      hash=>crypto:hash(sha256,BHeader),
+      txs=>Txs,
+      sign=>[]}.
 
 
 binarizetx([]) ->
@@ -160,24 +177,48 @@ extract(<<TxIDLen:8/integer,TxLen:16/integer,Body/binary>>) ->
     <<TxID:TxIDLen/binary,Tx:TxLen/binary,Rest/binary>> = Body,
     [{TxID,tx:unpack(Tx)}|extract(Rest)].
 
-sign(TX) when is_map(TX) ->
-    sign(binarize(TX));
+sign(Blk) when is_map(Blk) ->
+    %Blk=mkblock(TX),
+    Hash=maps:get(hash,Blk),
+    Sign=signhash(Hash),
+    Blk#{
+      sign=>[Sign|maps:get(sign,Blk,[])]
+     }.
 
-sign(TXBin) when is_binary(TXBin) ->
-    Hash=crypto:hash(sha256,TXBin),
-    signhash(Hash).
+verify(#{ txs:=Txs, header:=#{parent:=Parent, height:=H}, hash:=HdrHash, sign:=Sigs }) ->
+    BTxs=binarizetx(Txs),
+    TxHash=crypto:hash(sha256,BTxs),
+    BHeader = <<H:64/integer, %8
+               TxHash/binary, %32
+               Parent/binary
+             >>,
+    Hash=crypto:hash(sha256,BHeader),
+    if Hash =/= HdrHash ->
+           false;
+       true ->
+           {ok, TK}=application:get_env(tpnode,trusted_keys),
+           Trusted=lists:map(
+                     fun(K) ->
+                             hex:parse(K)
+                     end,
+                     TK),
+           {true,lists:foldl(
+             fun({PubKey,Sig},{Succ,Fail}) ->
+                     case lists:member(PubKey,Trusted) of
+                         false ->
+                             {Succ, Fail+1};
+                         true ->
+                             case secp256k1:secp256k1_ecdsa_verify(Hash, Sig, PubKey) of
+                                 correct ->
+                                     {[{PubKey,Sig}|Succ], Fail};
+                                 _ ->
+                                     {Succ, Fail+1}
+                             end
+                     end
+             end, {[],0}, Sigs)}
+    end.
 
-
-verify(<<HdrSize:8/integer,Rest/binary>>,_Signature) ->
-    ParentSize=HdrSize-8-8-32,
-    <<H:64/integer, %8
-      T:64/integer, %8
-      TxHash:32/binary, %32
-      Parent:ParentSize/binary
-    >>=Rest,
-    {H,T,TxHash,Parent,Txs}.
-
-
+    
 signhash(MsgHash) ->
     {ok,K1}=application:get_env(tpnode,privkey),
     {secp256k1:secp256k1_ec_pubkey_create(hex:parse(K1), true),

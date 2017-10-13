@@ -13,7 +13,7 @@ start() ->
     application:ensure_all_started(?MODULE).
 
 stop() ->
-    io:format("Stopping tower\n"),
+    io:format("Stopping tpnode\n"),
     application:stop(tpnode),
     io:format("Stopping cowboy listener\n"),
     cowboy:stop_listener(axiom_listener),
