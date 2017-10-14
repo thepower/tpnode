@@ -59,22 +59,32 @@ handle_cast({prepare, _Node, Txs}, #{preptxl:=PreTXL,timer:=T1}=State) ->
 
 handle_cast(process, #{preptxl:=PreTXL}=State) ->
     TXL=lists:keysort(1,PreTXL),
-    Addrs=lists:foldl(
-            fun({_,#{from:=F}},Acc) ->
+    Addrs1=lists:foldl(
+            fun({_,#{from:=F,cur:=Cur}},Acc) ->
                     case maps:get(F,Acc,undefined) of
                         undefined ->
-                            AddrInfo=gen_server:call(blockchain,{get_addr,F}),
-                            maps:put(F,AddrInfo,Acc);
+                            AddrInfo=gen_server:call(blockchain,{get_addr,F,Cur}),
+                            maps:put({F,Cur},AddrInfo,Acc);
                         _ ->
                             Acc
                     end
             end, #{}, TXL),
+    Addrs=lists:foldl(
+            fun({_,#{to:=T,cur:=Cur}},Acc) ->
+                    case maps:get(T,Acc,undefined) of
+                        undefined ->
+                            AddrInfo=gen_server:call(blockchain,{get_addr,T,Cur}),
+                            maps:put({T,Cur},AddrInfo,Acc);
+                        _ ->
+                            Acc
+                    end
+            end, Addrs1, TXL),
     %lager:info("Tx addrs ~p",[Addrs]),
-    {Success,Failed}=try_process(TXL,Addrs,[],[]),
-%    lists:foreach(
-%      fun(Se) ->
-%              lager:info("Success ~p",[Se])
-%      end, Success),
+    {Success,Failed,NewBal}=try_process(TXL,Addrs,[],[]),
+    maps:fold(
+      fun(Adr,Se,_) ->
+              lager:info("NewBal ~p: ~p",[Adr,Se])
+      end, [], NewBal),
     %lager:info("Failed ~p",[Failed]),
     gen_server:cast(txpool,{failed,Failed}),
     #{header:=#{height:=Last_Height},hash:=Last_Hash}=gen_server:call(blockchain,last_block),
@@ -82,7 +92,8 @@ handle_cast(process, #{preptxl:=PreTXL}=State) ->
           mkblock(#{
             txs=>Success, 
             parent=>Last_Hash,
-            height=>Last_Height+1
+            height=>Last_Height+1,
+            bals=>NewBal
            })
          ),
     lists:foreach(
@@ -91,8 +102,23 @@ handle_cast(process, #{preptxl:=PreTXL}=State) ->
       end, 
       pg2:get_members(blockchain)
      ),
-    lager:info("New block ~p",[Blk]),
-    {noreply, State#{preptxl=>[]}};
+    lager:info("New block ~p",[maps:without([header,sign],Blk)]),
+    %{noreply, State#{preptxl=>[]}};
+    {noreply, State};
+
+
+handle_cast(testtx, State) ->
+    PreTXL=[{<<"14ED4436D1F3FAAB-noded57D9KidJHaHxyKBqyM8T8eBRjDxRGWhZC-43">>,
+             #{amount => 0.5,cur => <<"FTT">>,extradata => <<"{}">>,
+               from => <<"13hFFWeBsJYuAYU8wTLPo6LL1wvGrTHPYC">>,
+               public_key =>
+               <<"043E9FD2BBA07359FAA4EDC9AC53046EE530418F97ECDEA77E0E98288E6E56178D79D6A023323B0047886DAFEAEDA1F9C05633A536C70C513AB84799B32F20E2DD">>,
+               seq => 11,
+               signature =>
+               <<"30440220249519BA3EE863A6F1AA8526C91DAC9614E871199289035F0078DCC0827406C302201340585DE6A8B847E718F4E10395A46C31E4E9CB8EBA344402B23C7AB2ECC374">>,
+               timestamp => 1507843268,to => <<"12m93G3sVaa8oyvAYenRsvE1qy4DFgL71o">>}}],
+    handle_cast(process, State#{preptxl=>PreTXL});
+
 
 handle_cast(_Msg, State) ->
     lager:info("unknown cast ~p",[_Msg]),
@@ -111,53 +137,71 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-try_process([],_Addresses,Success,Failed) ->
-    {Success, Failed};
+try_process([],Addresses,Success,Failed) ->
+    {Success, Failed, Addresses};
 
-try_process([{TxID,#{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,from:=From}=Tx}|Rest],Addresses,Success,Failed) ->
-    Address=maps:get(From,Addresses,#{}),
-    #{amount:=CurAmount,
-      seq:=CurSeq,
-      t:=CurT
-     }=Currency=maps:get(Cur,Address,#{amount =>0,seq => 1,t=>0}),
+try_process([{TxID,#{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,to:=To,from:=From}=Tx}|Rest],Addresses,Success,Failed) ->
+    lager:error("FC ~p",[Addresses]),
+    FCurrency=maps:get({From,Cur},Addresses,#{amount =>0,seq => 1,t=>0}),
+    #{amount:=CurFAmount,
+      seq:=CurFSeq,
+      t:=CurFTime
+     }=FCurrency,
+    #{amount:=CurTAmount
+     }=TCurrency=maps:get({To,Cur},Addresses,#{amount =>0,seq => 1,t=>0}),
     try
-        NewAmount=if CurAmount >= Amount ->
-                         CurAmount - Amount;
+        NewFAmount=if CurFAmount >= Amount ->
+                         CurFAmount - Amount;
                      true ->
-                         throw ('insufficient_fund')
+                         case lists:member(
+                                From,
+                                application:get_env(tpnode,endless,[])
+                               ) of
+                             true ->
+                                 CurFAmount - Amount;
+                             false ->
+                                 throw ('insufficient_fund')
+                         end
                   end,
-        NewSeq=if CurSeq < Seq ->
+        NewTAmount=CurTAmount + Amount,
+        NewSeq=if CurFSeq < Seq ->
                       Seq;
                   true ->
                       throw ('bad_seq')
                end,
-        NewT=if CurT < Timestamp ->
+        NewTime=if CurFTime < Timestamp ->
                     Timestamp;
                 true ->
                     throw ('bad_timestamp')
              end,
-        NewAddresses=maps:put(From,maps:put(Cur,Currency#{
-                                                amount=>NewAmount,
-                                                seq=>NewSeq,
-                                                t=>NewT
-                                               },Address),Addresses),
+        NewF=FCurrency#{
+               amount=>NewFAmount,
+               seq=>NewSeq,
+               t=>NewTime
+              },
+        NewT=TCurrency#{
+               amount=>NewTAmount
+              },
+        NewAddresses=maps:put({From,Cur},NewF,maps:put({To,Cur},NewT,Addresses)),
         try_process(Rest,NewAddresses,[{TxID,Tx}|Success],Failed)
     catch throw:X ->
               try_process(Rest,Addresses,Success,[{TxID,X}|Failed])
     end.
 
-
-
-mkblock(#{ txs:=Txs, parent:=Parent, height:=H }) ->
+mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals }) ->
     BTxs=binarizetx(Txs),
     TxHash=crypto:hash(sha256,BTxs),
+    BalsBin=bals2bin(Bals),
+    BalsHash=crypto:hash(sha256,BalsBin),
     BHeader = <<H:64/integer, %8
                TxHash/binary, %32
-               Parent/binary
+               Parent/binary,
+               BalsHash/binary
              >>,
     #{header=>#{parent=>Parent,height=>H,txs=>TxHash},
       hash=>crypto:hash(sha256,BHeader),
       txs=>Txs,
+      bals=>Bals,
       sign=>[]}.
 
 
@@ -185,12 +229,15 @@ sign(Blk) when is_map(Blk) ->
       sign=>[Sign|maps:get(sign,Blk,[])]
      }.
 
-verify(#{ txs:=Txs, header:=#{parent:=Parent, height:=H}, hash:=HdrHash, sign:=Sigs }) ->
+verify(#{ txs:=Txs, header:=#{parent:=Parent, height:=H}, hash:=HdrHash, sign:=Sigs, bals:=Bals }) ->
     BTxs=binarizetx(Txs),
     TxHash=crypto:hash(sha256,BTxs),
+    BalsBin=bals2bin(Bals),
+    BalsHash=crypto:hash(sha256,BalsBin),
     BHeader = <<H:64/integer, %8
                TxHash/binary, %32
-               Parent/binary
+               Parent/binary,
+               BalsHash/binary
              >>,
     Hash=crypto:hash(sha256,BHeader),
     if Hash =/= HdrHash ->
@@ -224,4 +271,19 @@ signhash(MsgHash) ->
     {secp256k1:secp256k1_ec_pubkey_create(hex:parse(K1), true),
      secp256k1:secp256k1_ecdsa_sign(MsgHash, hex:parse(K1), default, <<>>)}.
 
+bals2bin(NewBal) ->
+    lists:foldl(
+      fun({{Addr,Cur},
+           #{amount:=Amount,
+             seq:=Seq,
+             t:=T
+            }
+          },Acc) ->
+              <<Acc/binary,Addr/binary,":",Cur/binary,":",
+                (integer_to_binary(trunc(Amount*1000000000)))/binary,":",
+                (integer_to_binary(Seq))/binary,":",
+                (integer_to_binary(T))/binary,"\n">>
+      end, <<>>,
+      lists:keysort(1,maps:to_list(NewBal))
+     ).
 

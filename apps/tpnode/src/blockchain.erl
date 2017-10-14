@@ -65,6 +65,22 @@ init(_Args) ->
         },
     {ok, Res}.
 
+handle_call({get_addr, Addr, RCur}, _From, #{table:=Table}=State) ->
+    case tables:lookup(address,Addr,Table) of
+        {ok,E} ->
+            {reply,
+             lists:foldl(
+               fun(#{cur:=Cur}=E1,_A) when Cur==RCur -> 
+                       maps:with([amount,seq,t],E1);
+                  (_,A) ->
+                       A
+               end, 
+               #{amount => 0,seq => 0,t => 0},
+               E), State};
+        _ ->
+            {reply, not_found, State}
+    end;
+
 handle_call({get_addr, Addr}, _From, #{table:=Table}=State) ->
     case tables:lookup(address,Addr,Table) of
         {ok,E} ->
@@ -72,7 +88,7 @@ handle_call({get_addr, Addr}, _From, #{table:=Table}=State) ->
              lists:foldl(
                fun(#{cur:=Cur}=E1,A) -> 
                        maps:put(Cur,
-                                maps:without(['address','_id'],E1),
+                                maps:with([amount,seq,t,cur],E1),
                                 A)
                end, 
                #{},
@@ -101,16 +117,33 @@ handle_call(last_block_height, _From, #{lastblock:=#{header:=#{height:=H}}}=Stat
 handle_call(last_block, _From, #{lastblock:=LB}=State) ->
     {reply, LB, State};
 
+handle_call({get_block,BlockHash}, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
+    Block=if BlockHash==last -> LB;
+             true ->
+                 ldb:read_key(LDB,
+                              <<"block:",BlockHash/binary>>,
+                              undefined)
+          end,
+    {reply, Block, State};
+
 handle_call(state, _From, State) ->
     {reply, State, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({new_block, Blk}, #{candidates:=Candidates,ldb:=LDB}=State) ->
+handle_cast({new_block, #{hash:=BlockHash}=_Blk}, 
+            #{ldb:=_LDB,
+              prevblock:=#{hash:=PBlockHash}=_PBlk
+             }=State) when BlockHash==PBlockHash ->
+    lager:info("Extra confirmation of prev. block"),
+    {noreply, State};
+
+
+
+handle_cast({new_block, #{hash:=BlockHash}=Blk}, #{candidates:=Candidates,ldb:=LDB}=State) ->
     MinSig=2,
     try
-        #{hash:=BlockHash}=Blk,
         {true,{Success,_}}=mkblock:verify(Blk),
         lager:info("New block arrived ~p", [BlockHash]),
         lager:info("deails ~p", [maps:with([header],Blk)]),

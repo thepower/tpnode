@@ -41,6 +41,54 @@ h(<<"GET">>, [<<"address">>,Addr], _Req) ->
       }
     };
 
+h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
+    BlockHash0=if(BlockId == <<"last">>) -> last;
+                true ->
+                    hex:parse(BlockId)
+              end,
+    #{hash:=BlockHash,
+      header:=#{ parent:=BlockParent, txs:=TXs }=BlockHeader,
+      sign:=Signs
+     }=Block0=gen_server:call(blockchain,{get_block,BlockHash0}),
+    Bals=maps:fold(
+           fun({Addr,Cur},Val,Acc) ->
+                   maps:put(Addr,
+                            maps:put(Cur,Val,
+                                     maps:get(Addr,Acc,#{})
+                                    ),
+                            Acc)
+           end, 
+           #{},
+           maps:get(bals,Block0,#{})
+          ),
+    lager:info("Bals ~p",[Bals]),
+    Block1=Block0#{
+            hash=>bin2hex:dbin2hex(BlockHash),
+            header=>BlockHeader#{
+                      parent=>bin2hex:dbin2hex(BlockParent),
+                      txs=>bin2hex:dbin2hex(TXs)
+                     },
+            sign=>lists:map(
+                    fun({Public,Signature}) ->
+                            #{ nodeid=>address:pub2addr(node,Public),
+                               public_key=> bin2hex:dbin2hex(Public),
+                               signature=> bin2hex:dbin2hex(Signature)
+                             }
+                    end, Signs),
+            bals=>Bals
+           },
+    Block=case maps:get(child,Block1,undefined) of
+              undefined -> Block1;
+              Child ->
+                  maps:put(child,bin2hex:dbin2hex(Child),Block1)
+          end,
+    {200,
+     [{<<"Content-Type">>, <<"application/json">>}],
+     #{ result => <<"ok">>,
+        block => Block
+      }
+    };
+
 h(<<"POST">>, [<<"tx">>,<<"new">>], Req) ->
     {{RemoteIP,_Port},_}=cowboy_req:peer(Req),
     Body=apixiom:bodyjs(Req),
