@@ -139,9 +139,7 @@ handle_cast({new_block, #{hash:=BlockHash}=_Blk},
     lager:info("Extra confirmation of prev. block"),
     {noreply, State};
 
-
-
-handle_cast({new_block, #{hash:=BlockHash}=Blk}, #{candidates:=Candidates,ldb:=LDB}=State) ->
+handle_cast({new_block, #{hash:=BlockHash}=Blk}, #{candidates:=Candidates,ldb:=LDB,table:=Tbl}=State) ->
     MinSig=2,
     try
         {true,{Success,_}}=mkblock:verify(Blk),
@@ -168,6 +166,13 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk}, #{candidates:=Candidates,ldb:=L
                                  BlockHash,
                                  maps:get(lastblock,State)
                                 ),
+                     NewTable=maps:fold(
+                                fun({Addr,Cur},Val,Acc) ->
+                                        updatebal(Addr,Cur,Val,Acc)
+                                end, 
+                                Tbl,
+                                maps:get(bals,MBlk,#{})
+                               ),
 
                      save_block(LDB,LastBlock,false),
                      save_block(LDB,MBlk,true),
@@ -175,6 +180,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk}, #{candidates:=Candidates,ldb:=L
                      {noreply, State#{
                                  prevblock=> LastBlock,
                                  lastblock=> MBlk,
+                                 table=>NewTable,
                                  candidates=>#{}
                                 }
                      };
@@ -257,3 +263,34 @@ save_block(LDB,Block,IsLast) ->
            ok
     end.
 
+addrbal(Addr, RCur, Table) ->
+    case tables:lookup(address,Addr,Table) of
+        {ok,E} ->
+            lists:foldl(
+              fun(#{cur:=Cur}=E1,_A) when Cur==RCur -> 
+                      E1;
+                 (_,A) ->
+                      A
+              end, 
+              none,
+              E);
+        _ ->
+            none
+    end.
+
+updatebal(Addr, RCur, NewVal, Table) ->
+    case addrbal(Addr, RCur, Table) of
+        none -> 
+            {ok,_,T2}=tables:insert(maps:merge(
+                                      #{
+                                      address=>Addr,
+                                      cur=>RCur,
+                                      amount=>0,
+                                      t=>0,
+                                      seq=>0
+                                     },NewVal), Table),
+            T2;
+        #{'_id':=EID}=Exists -> 
+            {ok, T2}=tables:update('_id',EID,maps:merge(Exists,NewVal),Table),
+            T2
+    end.

@@ -32,7 +32,7 @@ h(Method, [<<"event">>|_]=Path, Req) ->
 	tower_lphandler:h(Method, Path, Req); 
 
 h(<<"GET">>, [<<"address">>,Addr], _Req) ->
-    Info=gen_server:call(blockchain,{get_addr, <<"13hFFWeBsJYuAYU8wTLPo6LL1wvGrTHPYC">>}),
+    Info=gen_server:call(blockchain,{get_addr, Addr}),
     {200,
      [{<<"Content-Type">>, <<"application/json">>}],
      #{ result => <<"ok">>,

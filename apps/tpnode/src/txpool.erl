@@ -43,6 +43,7 @@ handle_call(state, _Form, State) ->
     {reply, State, State};
 
 handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
+    try
     case tx:verify(BinTx) of
         {ok, Tx} -> 
             TxID=generate_txid(Node),
@@ -52,6 +53,9 @@ handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
                                  }};
         Err ->
             {reply, {error, Err}, State}
+    end
+    catch Ec:Ee ->
+              {reply, {error, {Ec,Ee}}, State}
     end;
 
 handle_call(_Request, _From, State) ->

@@ -57,6 +57,7 @@ init([]) ->
              permanent, 5000, worker, []
             },
             { blockchain, {blockchain,start_link,[]}, permanent, 5000, worker, []},
+            { synchronizer, {synchronizer,start_link,[]}, permanent, 5000, worker, []},
             { mkblock, {mkblock,start_link,[]}, permanent, 5000, worker, []},
             { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []}
            ]} }.

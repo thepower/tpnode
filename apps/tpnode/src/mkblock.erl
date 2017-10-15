@@ -64,7 +64,7 @@ handle_cast(process, #{preptxl:=PreTXL}=State) ->
                     case maps:get(F,Acc,undefined) of
                         undefined ->
                             AddrInfo=gen_server:call(blockchain,{get_addr,F,Cur}),
-                            maps:put({F,Cur},AddrInfo,Acc);
+                            maps:put({F,Cur},AddrInfo#{keep=>false},Acc);
                         _ ->
                             Acc
                     end
@@ -74,13 +74,17 @@ handle_cast(process, #{preptxl:=PreTXL}=State) ->
                     case maps:get(T,Acc,undefined) of
                         undefined ->
                             AddrInfo=gen_server:call(blockchain,{get_addr,T,Cur}),
-                            maps:put({T,Cur},AddrInfo,Acc);
+                            maps:put({T,Cur},AddrInfo#{keep=>false},Acc);
                         _ ->
                             Acc
                     end
             end, Addrs1, TXL),
     %lager:info("Tx addrs ~p",[Addrs]),
-    {Success,Failed,NewBal}=try_process(TXL,Addrs,[],[]),
+    {Success,Failed,NewBal0}=try_process(TXL,Addrs,[],[]),
+    NewBal=maps:filter(
+             fun(_,V) ->
+                     maps:get(keep,V,true)
+             end, NewBal0),
     maps:fold(
       fun(Adr,Se,_) ->
               lager:info("NewBal ~p: ~p",[Adr,Se])
@@ -103,8 +107,8 @@ handle_cast(process, #{preptxl:=PreTXL}=State) ->
       pg2:get_members(blockchain)
      ),
     lager:info("New block ~p",[maps:without([header,sign],Blk)]),
-    %{noreply, State#{preptxl=>[]}};
-    {noreply, State};
+    {noreply, State#{preptxl=>[]}};
+    %{noreply, State};
 
 
 handle_cast(testtx, State) ->
@@ -174,14 +178,14 @@ try_process([{TxID,#{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,to:=T
                 true ->
                     throw ('bad_timestamp')
              end,
-        NewF=FCurrency#{
+        NewF=maps:remove(keep,FCurrency#{
                amount=>NewFAmount,
                seq=>NewSeq,
                t=>NewTime
-              },
-        NewT=TCurrency#{
+              }),
+        NewT=maps:remove(keep,TCurrency#{
                amount=>NewTAmount
-              },
+              }),
         NewAddresses=maps:put({From,Cur},NewF,maps:put({To,Cur},NewT,Addresses)),
         try_process(Rest,NewAddresses,[{TxID,Tx}|Success],Failed)
     catch throw:X ->
