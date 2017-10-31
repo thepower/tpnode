@@ -32,7 +32,14 @@ h(Method, [<<"event">>|_]=Path, Req) ->
 	tower_lphandler:h(Method, Path, Req); 
 
 h(<<"GET">>, [<<"address">>,Addr], _Req) ->
-    Info=gen_server:call(blockchain,{get_addr, Addr}),
+    Info=maps:map(
+           fun(_K,V) ->
+                   maps:put(lastblk,
+                            bin2hex:dbin2hex(
+                              maps:get(lastblk,V,<<0,0,0,0,0,0,0,0>>)
+                             ),V)
+           end,gen_server:call(blockchain,{get_addr, Addr})),
+
     {200,
      [{<<"Content-Type">>, <<"application/json">>}],
      #{ result => <<"ok">>,
@@ -51,7 +58,8 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
       sign:=Signs
      }=Block0=gen_server:call(blockchain,{get_block,BlockHash0}),
     Bals=maps:fold(
-           fun({Addr,Cur},Val,Acc) ->
+           fun({Addr,Cur},Val0,Acc) ->
+                   Val=maps:put(lastblk,bin2hex:dbin2hex(maps:get(lastblk,Val0,<<0,0,0,0,0,0,0,0>>)),Val0),
                    maps:put(Addr,
                             maps:put(Cur,Val,
                                      maps:get(Addr,Acc,#{})
@@ -61,7 +69,6 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
            #{},
            maps:get(bals,Block0,#{})
           ),
-    lager:info("Bals ~p",[Bals]),
     Block1=Block0#{
             hash=>bin2hex:dbin2hex(BlockHash),
             header=>BlockHeader#{
@@ -89,6 +96,52 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
       }
     };
 
+
+h(<<"POST">>, [<<"register">>], Req) ->
+    {{RemoteIP,_Port},_}=cowboy_req:peer(Req),
+    Body=apixiom:bodyjs(Req),
+    Address=maps:get(<<"address">>,Body),
+    {ok,Config}=application:get_env(tpnode,tpfaucet),
+    Faucet=proplists:get_value(register,Config),
+    Tokens=proplists:get_value(tokens,Config),
+    Res=lists:foldl(fun({Coin,Amount},Acc) ->
+                        case proplists:get_value(Coin,Tokens,undefined) of
+                            undefined -> Acc;
+                            #{key:=Key,
+                              addr:=Adr} ->
+                                #{seq:=Seq}=gen_server:call(blockchain,{get_addr,Adr,Coin}),
+                                Tx=#{
+                                  amount=>Amount,
+                                  cur=>Coin,
+                                  extradata=>jsx:encode(#{
+                                               message=> <<"Welcome, ", Address/binary>>,
+                                               ipaddress => list_to_binary(inet:ntoa(RemoteIP))
+                                              }),
+                                  from=>Adr,
+                                  to=>Address,
+                                  seq=>Seq+1,
+                                  timestamp=>os:system_time()
+                                 },
+                                NewTx=tx:sign(Tx,address:parsekey(Key)),
+                                case txpool:new_tx(NewTx) of
+                                    {ok, TxID} ->
+                                        [#{c=>Coin,s=>Amount,tx=>TxID}|Acc];
+                                    {error, Error} ->
+                                        lager:error("Can't make tx: ~p",[Error]),
+                                        Acc
+                                end
+                        end
+                end,[],Faucet),
+    {200,
+     [{<<"Content-Type">>, <<"application/json">>}],
+     #{ result => <<"ok">>,
+        address=>Address,
+        info=>Res
+      }
+    };
+
+
+
 h(<<"POST">>, [<<"tx">>,<<"new">>], Req) ->
     {{RemoteIP,_Port},_}=cowboy_req:peer(Req),
     Body=apixiom:bodyjs(Req),
@@ -98,6 +151,7 @@ h(<<"POST">>, [<<"tx">>,<<"new">>], Req) ->
                   hex:parse(BArr);
               Any -> Any
           end,
+    lager:info_unsafe("New tx ~p",[BinTx]),
     case txpool:new_tx(BinTx) of
         {ok, Tx} -> 
             {200,

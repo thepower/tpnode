@@ -25,7 +25,7 @@ start_link() ->
 init([]) ->
     application:ensure_all_started(cowboy),
     application:ensure_all_started(tinymq),
-    {ok,_PID}=axiom:start(tpnode_handlers,
+    case axiom:start(tpnode_handlers,
                          [
                           {content_type,"text/html"},
                           {preprocessor, pre_hook},
@@ -38,7 +38,10 @@ init([]) ->
                           },
                           {ip, {0,0,0,0,0,0,0,0}},
                           {public, "public"}
-                         ]),
+                         ]) of
+        {ok,_PID} -> ok;
+        {error,{already_started,axiom}} -> ok
+    end,
     case application:get_env(tpnode, neighbours) of
         {ok, Neighbours} when is_list(Neighbours) ->
             lists:foreach(

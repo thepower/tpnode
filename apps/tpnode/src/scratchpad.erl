@@ -24,26 +24,6 @@ verify(<<Public:33/binary,Sig:71/binary,Message/binary>>) ->
     Msg32 = crypto:hash(sha256, Message),
     {Found,secp256k1:secp256k1_ecdsa_verify(Msg32, Sig, Public)}.
 
-parsekey(<<"0x",BKey/binary>>) ->
-    hex:parse(BKey);
-parsekey(Base58) ->
-    B58Decode=base58:decode(Base58),
-    KS=size(B58Decode)-5,
-    case B58Decode of
-        <<128,KeyBody:KS/binary,KC:4/binary>> ->
-            <<H3:4/binary,_/binary>>=
-            crypto:hash(sha256,
-                        crypto:hash(sha256,<<128:8/integer,KeyBody/binary>>)
-                       ),
-            if(KC==H3) ->
-                  KeyBody;
-              true ->
-                  error
-            end;
-        _ ->
-            error
-    end.
-
 
 gentx(BFrom,To,Amount,HPrivKey) when is_binary(BFrom)->
     From=binary_to_list(BFrom),
@@ -53,7 +33,7 @@ gentx(BFrom,To,Amount,HPrivKey) when is_binary(BFrom)->
     httpc:request(get,{"http://127.0.0.1:43280/api/address/"++From,[]},[],[{body_format,binary}]),
     #{<<"info">>:=C}=jsx:decode(Body,[return_maps]),
     #{<<"seq">>:=Seq}=maps:get(Cur,C,#{<<"amount">> => 0,<<"seq">> => 0}),
-    NewTx=tx:sign(#{
+    Tx=#{
       amount=>Amount,
       cur=>Cur,
       extradata=>jsx:encode(#{
@@ -63,8 +43,12 @@ gentx(BFrom,To,Amount,HPrivKey) when is_binary(BFrom)->
       to=>To,
       seq=>Seq+1,
       timestamp=>os:system_time()
-     },parsekey(HPrivKey)),
+     },
+    io:format("TX1 ~p.~n",[Tx]),
+    NewTx=tx:sign(Tx,address:parsekey(HPrivKey)),
+    io:format("TX2 ~p.~n",[NewTx]),
     BinTX=bin2hex:dbin2hex(NewTx),
+    io:format("TX3 ~p.~n",[BinTX]),
     {
     tx:unpack(NewTx),
     httpc:request(post,

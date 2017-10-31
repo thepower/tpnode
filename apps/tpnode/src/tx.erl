@@ -38,7 +38,16 @@ sign(#{
     io:format("~s~n",[Message]),
     Msg32 = crypto:hash(sha256, Message),
     Sig = secp256k1:secp256k1_ecdsa_sign(Msg32, PrivKey, default, <<>>),
-    <<Pub/binary,Sig/binary,Message/binary>>.
+    io:format("pub ~b sig ~b msg ~p~n",[
+                                        size(Pub),
+                                        size(Sig), 
+                                        size(Message)
+                                       ]),
+    <<(size(Pub)):8/integer,
+      (size(Sig)):8/integer,
+      Pub/binary,
+      Sig/binary,
+      Message/binary>>.
 
 split6(Bin, [_,_,_,_,_,_]=Acc) ->
     lists:reverse([Bin|Acc]);
@@ -121,20 +130,24 @@ pack(#{
                             [From,To,trunc(Amount*1000000000),Cur,Timestamp,Seq,Append])
              ),
     io:format("~s~n",[Message]),
-    <<Pub/binary,Sig/binary,Message/binary>>.
+    <<(size(Pub)):8/integer,
+      (size(Sig)):8/integer,
+      Pub/binary,
+      Sig/binary,
+      Message/binary>>.
 
-unpack(<<Pub:65/binary,Sig:70/binary,Message/binary>>) ->
+unpack(<<PubLen:8/integer,SigLen:8/integer,Tx/binary>>) ->
+    <<Pub:PubLen/binary,Sig:SigLen/binary,Message/binary>>=Tx,
     [From,To,SAmount,Cur,STimestamp,SSeq,ExtraJSON]=split6(Message,[]),
     Amount=binary_to_integer(SAmount),
-    #{
-               from => From,
-               to => To,
-               amount => Amount/1000000000,
-               cur => Cur,
-               timestamp => binary_to_integer(STimestamp),
-               seq => binary_to_integer(SSeq),
-               extradata => ExtraJSON,
-               public_key=>bin2hex:dbin2hex(Pub),
-               signature=>bin2hex:dbin2hex(Sig)
-         }.
+    #{ from => From,
+       to => To,
+       amount => Amount/1000000000,
+       cur => Cur,
+       timestamp => binary_to_integer(STimestamp),
+       seq => binary_to_integer(SSeq),
+       extradata => ExtraJSON,
+       public_key=>bin2hex:dbin2hex(Pub),
+       signature=>bin2hex:dbin2hex(Sig)
+     }.
 

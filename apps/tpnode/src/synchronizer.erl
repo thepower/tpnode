@@ -34,7 +34,7 @@ init(_Args) ->
        offsets=>#{},
        timer5=>erlang:send_after(5000, self(), selftimer5),
        ticktimer=>erlang:send_after(6000, self(), ticktimer),
-       tickms=>1000,
+       tickms=>10000,
        prevtick=>0
       }}.
 
@@ -59,13 +59,14 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(ticktimer, 
-            #{meandiff:=MeanDiff,ticktimer:=Tmr,tickms:=Delay,prevtick:=T0}=State) ->
+            #{meandiff:=MeanDiff,ticktimer:=Tmr,tickms:=Delay,prevtick:=_T0}=State) ->
     T=erlang:system_time(microsecond),
-    MeanMs=round((T-MeanDiff)/1000),
+    MeanMs=round((T+MeanDiff)/1000),
     Wait=Delay-(MeanMs rem Delay),
-    lager:info("Time to tick. Mean hospital time ~w, next in ~w, last ~w",
-               [(MeanMs rem 3600000)/1000,Wait,(T-T0)/1000]
-              ),
+%    lager:info("Time to tick. Mean hospital time ~w, next in ~w, last ~w",
+%               [(MeanMs rem 3600000)/1000,Wait,(T-_T0)/1000]
+%              ),
+    gen_server:cast(mkblock,process),
 
     catch erlang:cancel_timer(Tmr),
     {noreply,State#{
@@ -97,9 +98,9 @@ handle_info(selftimer5, #{timer5:=Tmr,offsets:=Offs}=State) ->
      ),
     MeanMs=round((T-MeanDiff)/1000),
     if(Friends==[]) ->
-          lager:info("I'm alone in universe my time ~w",[(MeanMs rem 3600000)/1000]);
+          lager:debug("I'm alone in universe my time ~w",[(MeanMs rem 3600000)/1000]);
       true ->
-          lager:info("I have ~b friends, and mean hospital time ~w, mean diff ~w",
+          lager:debug("I have ~b friends, and mean hospital time ~w, mean diff ~w",
                      [length(Friends),(MeanMs rem 3600000)/1000,MeanDiff/1000]
                     )
     end,

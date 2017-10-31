@@ -29,40 +29,25 @@ start_link() ->
 init(_Args) ->
     pg2:create(blockchain),
     pg2:join(blockchain,self()),
-    T0=tables:init(#{index=>[address,cur]}),
-    {ok,_,T1}=tables:insert(#{
-                address=><<"13hFFWeBsJYuAYU8wTLPo6LL1wvGrTHPYC">>,
-                cur=><<"FTT">>,
-                amount=>21.12,
-                t=>1507586415,
-                seq=>5
-               }, T0),
-    {ok,_,T2}=tables:insert(#{
-                address=><<"13hFFWeBsJYuAYU8wTLPo6LL1wvGrTHPYC">>,
-                cur=><<"KAKA">>,
-                amount=>1,
-                t=>1507586915,
-                seq=>1
-               }, T1),
-
-       NodeID=tpnode_tools:node_id(),
-       {ok,LDB}=ldb:open("db_"++binary_to_list(tpnode_tools:node_id())),
-       LastBlockHash=ldb:read_key(LDB,<<"lastblock">>,<<0,0,0,0,0>>),
-       LastBlock=ldb:read_key(LDB,
-                              <<"block:",LastBlockHash/binary>>,
-                              #{ hash=><<0,0,0,0,0>>,
-                                 header=>#{
-                                   height=>0
-                                  }
-                               }),
-       gen_server:cast(self(),synchronize),
-       Res=#{
-         table=>T2,
-         nodeid=>NodeID,
-         ldb=>LDB,
-         candidates=>#{},
-         lastblock=>LastBlock
-        },
+    NodeID=tpnode_tools:node_id(),
+    {ok,LDB}=ldb:open("db_"++binary_to_list(tpnode_tools:node_id())),
+    T2=load_bals(LDB),
+    LastBlockHash=ldb:read_key(LDB,<<"lastblock">>,<<0,0,0,0,0,0,0,0>>),
+    LastBlock=ldb:read_key(LDB,
+                           <<"block:",LastBlockHash/binary>>,
+                           #{ hash=><<0,0,0,0,0,0,0,0>>,
+                              header=>#{
+                                height=>0
+                               }
+                            }),
+    gen_server:cast(self(),synchronize),
+    Res=#{
+      table=>T2,
+      nodeid=>NodeID,
+      ldb=>LDB,
+      candidates=>#{},
+      lastblock=>LastBlock
+     },
     {ok, Res}.
 
 handle_call({get_addr, Addr, RCur}, _From, #{table:=Table}=State) ->
@@ -71,7 +56,7 @@ handle_call({get_addr, Addr, RCur}, _From, #{table:=Table}=State) ->
             {reply,
              lists:foldl(
                fun(#{cur:=Cur}=E1,_A) when Cur==RCur -> 
-                       maps:with([amount,seq,t],E1);
+                       maps:with([amount,seq,t,lastblk,preblk],E1);
                   (_,A) ->
                        A
                end, 
@@ -88,7 +73,7 @@ handle_call({get_addr, Addr}, _From, #{table:=Table}=State) ->
              lists:foldl(
                fun(#{cur:=Cur}=E1,A) -> 
                        maps:put(Cur,
-                                maps:with([amount,seq,t,cur],E1),
+                                maps:with([amount,seq,t,cur,lastblk,preblk],E1),
                                 A)
                end, 
                #{},
@@ -111,6 +96,21 @@ handle_call({synchronize, BlkId, PID}, _From, #{ldb:=LDB}=State) ->
             {reply, {ok, Block}, State}
     end;
 
+handle_call(loadbal, _, #{ldb:=LDB,table:=_T}=State) ->
+    X=case ldb:read_key(LDB, <<"bals">>,
+                   undefined
+                  ) of 
+          undefined ->
+                   tables:init(#{index=>[address,cur]});
+          Bin ->
+              tables:import(Bin,
+                            tables:init(#{index=>[address,cur]})
+                           )
+      end,
+
+    {reply, X, State};
+
+
 handle_call(last_block_height, _From, #{lastblock:=#{header:=#{height:=H}}}=State) ->
     {reply, H, State};
 
@@ -132,23 +132,59 @@ handle_call(state, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({new_block, #{hash:=BlockHash}=_Blk}, 
-            #{ldb:=_LDB,
-              prevblock:=#{hash:=PBlockHash}=_PBlk
+handle_cast({new_block, #{hash:=BlockHash}=Blk, _PID}, 
+            #{ldb:=LDB,
+              lastblock:=#{hash:=PBlockHash}=PBlk
              }=State) when BlockHash==PBlockHash ->
-    lager:info("Extra confirmation of prev. block"),
-    {noreply, State};
+    {true,{Success,_}}=mkblock:verify(Blk),
+    lager:info("Extra confirmation of prev. block ~s ~w",
+               [blkid(BlockHash),length(Success)]),
+    NewPBlk=case length(Success)>0 of
+                true ->
+                    OldSigs=maps:get(sign,PBlk),
+                    NewSigs=lists:usort(OldSigs++Success),
+                    MapFun=fun({H1,_}) -> erlang:crc32(H1) end,
+                    lager:info("from ~s Extra len ~p, ~p ~p",
+                               [node(),length(NewSigs),
+                               lists:map(MapFun,OldSigs),
+                               lists:map(MapFun,Success)
+                               ]),
+                    if(OldSigs=/=NewSigs) ->
+                          lager:info("~s Extra confirm Sig changed ~p",
+                                    [node(),length(NewSigs)]),
+                          PBlk1=PBlk#{sign=>NewSigs},
+                          save_block(LDB,PBlk1,false),
+                          PBlk1;
+                      true -> 
+                          lager:info("Extra confirm not changed ~w/~w",
+                                    [length(OldSigs),length(NewSigs)]),
+                          PBlk
+                    end;
+                _ -> PBlk
+            end,
+    {noreply, State#{lastblock=>NewPBlk}};
 
-handle_cast({new_block, #{hash:=BlockHash}=Blk}, #{candidates:=Candidates,ldb:=LDB,table:=Tbl}=State) ->
+handle_cast({new_block, Blk}, State) ->
+    handle_cast({new_block, Blk, self()}, State);
+
+handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}, 
+            #{candidates:=Candidates,ldb:=LDB,
+              lastblock:=#{hash:=LBlockHash}=LastBlock,
+              table:=Tbl}=State) ->
+
+    lager:info("New block ~s arrived ~s", 
+               [
+                blkid(BlockHash),
+                blkid(LBlockHash)
+               ]),
     MinSig=2,
     try
         {true,{Success,_}}=mkblock:verify(Blk),
-        lager:info("New block arrived ~p", [BlockHash]),
-        lager:info("deails ~p", [maps:with([header],Blk)]),
+        lager:info("~s from ~s New block ~w arrived ~s", 
+                   [node(),node(PID),maps:get(height,maps:get(header,Blk)), blkid(BlockHash)]),
         if length(Success)>0 ->
                MBlk=case maps:get(BlockHash,Candidates,undefined) of
                         undefined ->
-                            lager:info("Not found"),
                             Blk;
                         #{sign:=BSig}=ExBlk ->
                             NewSigs=lists:usort(BSig++Success),
@@ -157,25 +193,35 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk}, #{candidates:=Candidates,ldb:=L
                              }
                     end,
                SigLen=length(maps:get(sign,MBlk)),
-               lager:info("Signs ~b",[SigLen]),
-               if(SigLen>=MinSig) ->
+               %lager:info("Signs ~b",[SigLen]),
+               if SigLen>=MinSig %andalso BlockHash==LBlockHash 
+                  ->
                      %enough signs. Make block.
-                     lager:info("enough confirmations. Installing new block ~p",[BlockHash]),
-                     LastBlock=maps:put(
-                                 child,
-                                 BlockHash,
-                                 maps:get(lastblock,State)
-                                ),
+                     lager:info("enough confirmations. Installing new block ~s",[blkid(BlockHash)]),
                      NewTable=maps:fold(
                                 fun({Addr,Cur},Val,Acc) ->
-                                        updatebal(Addr,Cur,Val,Acc)
+                                        updatebal(Addr,Cur,Val,Acc,BlockHash)
                                 end, 
                                 Tbl,
                                 maps:get(bals,MBlk,#{})
                                ),
+                     NewPHash=maps:get(parent,maps:get(header,Blk)),
+
+                     if LBlockHash=/=NewPHash ->
+                            lager:info("Need resynchronize, height ~p/~p new block parent ~s, but my ~s",
+                                       [
+                                        maps:get(height,maps:get(header,Blk)),
+                                        maps:get(height,maps:get(header,LastBlock)),
+                                        blkid(NewPHash),
+                                        blkid(LBlockHash)
+                                       ]);
+                        true ->
+                            ok
+                     end,
 
                      save_block(LDB,LastBlock,false),
                      save_block(LDB,MBlk,true),
+                     save_bals(LDB, NewTable),
 
                      {noreply, State#{
                                  prevblock=> LastBlock,
@@ -184,14 +230,19 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk}, #{candidates:=Candidates,ldb:=L
                                  candidates=>#{}
                                 }
                      };
-                 true ->
-                             %not enough
-                             {noreply, State#{
-                                         candidates=>
-                                         maps:put(BlockHash,
-                                                  MBlk,
-                                                  Candidates)
-                                        }
+%                  SigLen>=MinSig ->
+%                      lager:info("Need resynchronize, new block parent ~p, but my ~p",
+%                                [LBlockHash, BlockHash]),
+%%                      gen_server:cast(self(),synchronize),
+%                      {noreply, State};
+                  true ->
+                      %not enough
+                      {noreply, State#{
+                                  candidates=>
+                                  maps:put(BlockHash,
+                                           MBlk,
+                                           Candidates)
+                                 }
                              }
                end;
            true ->
@@ -221,22 +272,31 @@ handle_cast({continue_sync, BlkId, PID}, #{ldb:=LDB}=State) ->
 
 handle_cast(synchronize, #{lastblock:=#{hash:=LastBlockId}}=State) ->
     Peers=pg2:get_members(blockchain)--[self()],
-    {MaxH,MaxPID}=hd(
-                    lists:reverse(
-                      lists:keysort(1,
-                                    lists:foldl(
-                                      fun(Pid,Acc) ->
-                                              [{gen_server:call(Pid,last_block_height),Pid}|Acc]
-                                      end,[], Peers
-                                     )
-                                   )
-                     )
-                   ),
-    lager:info("Peers ~p",[{MaxH,MaxPID}]),
-    lager:info("RunSync ~p",
-               [gen_server:call(MaxPID,{synchronize, LastBlockId, self()})]),
-    {noreply, State};
+    case lists:reverse(
+           lists:keysort(1,
+                         lists:foldl(
+                           fun(Pid,Acc) ->
+                                   try
+                                       [{gen_server:call(Pid,last_block_height),Pid}|Acc]
+                                   catch _:_ -> Acc
+                                   end
+                           end,[], Peers
+                          )
+                        )
+          ) of
+        [{MaxH,MaxPID}|_] ->
+            lager:info("Peers ~p",[{MaxH,MaxPID}]),
+            lager:info("RunSync ~p",
+                       [gen_server:call(MaxPID,{synchronize, LastBlockId, self()})]),
+            {noreply, State};
+        [] ->
+            lager:info("Nobody here, nothing to sync",[]),
+            {noreply, State}
+    end;
 
+handle_cast(savebal,#{ldb:=LDB,table:=T}=State) ->
+    save_bals(LDB,T),
+    {noreply, State};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -253,6 +313,23 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+save_bals(LDB, Table) ->
+    TD=tables:export(Table),
+    ldb:put_key(LDB,<<"bals">>,TD).
+
+load_bals(LDB) ->
+    case ldb:read_key(LDB, <<"bals">>,
+                      undefined
+                     ) of 
+        undefined ->
+            tables:init(#{index=>[address,cur]});
+        Bin ->
+            tables:import(Bin,
+                          tables:init(#{index=>[address,cur]})
+                         )
+    end.
+
 
 save_block(LDB,Block,IsLast) ->
     BlockHash=maps:get(hash,Block),
@@ -278,19 +355,32 @@ addrbal(Addr, RCur, Table) ->
             none
     end.
 
-updatebal(Addr, RCur, NewVal, Table) ->
+updatebal(Addr, RCur, NewVal, Table, BlockHash) ->
     case addrbal(Addr, RCur, Table) of
         none -> 
-            {ok,_,T2}=tables:insert(maps:merge(
-                                      #{
-                                      address=>Addr,
-                                      cur=>RCur,
-                                      amount=>0,
-                                      t=>0,
-                                      seq=>0
-                                     },NewVal), Table),
+            {ok,_,T2}=tables:insert(
+                        maps:put(
+                          lastblk,
+                          BlockHash,
+                          maps:merge(
+                            #{
+                            address=>Addr,
+                            cur=>RCur,
+                            amount=>0,
+                            t=>0,
+                            seq=>0
+                           },NewVal)
+                         ), Table),
             T2;
         #{'_id':=EID}=Exists -> 
-            {ok, T2}=tables:update('_id',EID,maps:merge(Exists,NewVal),Table),
+            {ok, T2}=tables:update('_id',EID,
+                                   maps:put(
+                                     lastblk,
+                                     BlockHash,
+                                     maps:merge(Exists,NewVal)
+                                  ),Table),
             T2
     end.
+
+blkid(<<X:8/binary,_/binary>>) ->
+    bin2hex:dbin2hex(X).

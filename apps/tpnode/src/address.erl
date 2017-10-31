@@ -1,6 +1,6 @@
 -module(address).
 
--export([pub2addr/2,pub2addrraw/2,check/1]).
+-export([pub2addr/2,pub2addrraw/2,check/1,parsekey/1]).
 
 pub2addr(node,Pub) ->
     Hash=crypto:hash(ripemd160,Pub),
@@ -26,5 +26,28 @@ check(Address) ->
                     crypto:hash(sha256,<<Ver:8/integer,RipeMD:20/binary>>)
                    ),
         {Check==H3,Ver}.
+
+parsekey(<<"0x",BKey/binary>>) ->
+    hex:parse(BKey);
+parsekey(Base58) ->
+    B58Decode=base58:decode(Base58),
+    KS=size(B58Decode)-5,
+    case B58Decode of
+        <<128,KeyBody:KS/binary,KC:4/binary>> ->
+            <<H3:4/binary,_/binary>>=
+            crypto:hash(sha256,
+                        crypto:hash(sha256,<<128:8/integer,KeyBody/binary>>)
+                       ),
+            if(KC==H3 andalso KS==32) ->
+                  KeyBody;
+              (KC==H3 andalso KS==33) ->
+                  <<KB:32/binary,_:1/binary>>=KeyBody,
+                  KB;
+              true ->
+                  error
+            end;
+        _ ->
+            error
+    end.
 
 

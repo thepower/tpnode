@@ -47,7 +47,7 @@ handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
     case tx:verify(BinTx) of
         {ok, Tx} -> 
             TxID=generate_txid(Node),
-            lager:info("TX ~p: ~p",[TxID,Tx]),
+            %lager:info("TX ~p: ~p",[TxID,Tx]),
             {reply, {ok, TxID}, State#{
                                   queue=>queue:in({TxID,Tx},Queue)
                                  }};
@@ -74,7 +74,7 @@ handle_cast(prepare, #{queue:=Queue,nodeid:=Node}=State) ->
       end, {Queue, []}, [1,2]),
     lists:foreach(
       fun(Pid)-> 
-              lager:info("Prepare to ~p",[Pid]),
+              %lager:info("Prepare to ~p",[Pid]),
               gen_server:cast(Pid, {prepare, Node, Res}) 
       end, 
       pg2:get_members(mkblock)

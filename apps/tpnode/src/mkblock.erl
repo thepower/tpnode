@@ -43,17 +43,28 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({prepare, _Node, Txs}, #{preptxl:=PreTXL,timer:=T1}=State) ->
-    lager:info("Prepare from node ~p ~b",[_Node,length(Txs)]),
+    %lager:info("Prepare from node ~p ~b",[_Node,length(Txs)]),
     T2=case catch erlang:read_timer(T1) of 
            I when is_integer(I) ->
                T1;
            _ -> erlang:send_after(5000,self(),process)
        end,
-
-    {noreply, State#{
-                preptxl=>PreTXL++Txs,
-                timer=>T2
-               }
+    
+    {noreply, 
+     case maps:get(parent, State, undefined) of
+         undefined ->
+             #{header:=#{height:=Last_Height},hash:=Last_Hash}=gen_server:call(blockchain,last_block),
+             State#{
+               preptxl=>PreTXL++Txs,
+               timer=>T2,
+               parent=>{Last_Height,Last_Hash}
+              };
+         _ ->
+             State#{
+               preptxl=>PreTXL++Txs,
+               timer=>T2
+              }
+     end
     };
 
 
@@ -91,7 +102,13 @@ handle_cast(process, #{preptxl:=PreTXL}=State) ->
       end, [], NewBal),
     %lager:info("Failed ~p",[Failed]),
     gen_server:cast(txpool,{failed,Failed}),
-    #{header:=#{height:=Last_Height},hash:=Last_Hash}=gen_server:call(blockchain,last_block),
+    %#{header:=#{height:=Last_Height},hash:=Last_Hash}=gen_server:call(blockchain,last_block),
+    {Last_Height,Last_Hash}=case maps:get(parent,State,undefined) of
+                                undefined ->
+                                    #{header:=#{height:=Last_Height1},hash:=Last_Hash1}=gen_server:call(blockchain,last_block),
+                                    {Last_Height1,Last_Hash1};
+                                {A,B} -> {A,B}
+                            end,
     Blk=sign(
           mkblock(#{
             txs=>Success, 
@@ -100,14 +117,21 @@ handle_cast(process, #{preptxl:=PreTXL}=State) ->
             bals=>NewBal
            })
          ),
+    lager:debug("Prepare block ~B txs ~p",[Last_Height+1,Success]),
+    lager:info("Created block ~w ~s: txs: ~w, bals: ~w",[
+                                                         Last_Height+1,
+                                                         blkid(maps:get(hash,Blk)),
+                                                         length(Success),
+                                                         maps:size(NewBal)
+                                                        ]),
     lists:foreach(
       fun(Pid)-> 
-              gen_server:cast(Pid, {new_block, Blk}) 
+              gen_server:cast(Pid, {new_block, Blk, self()}) 
       end, 
       pg2:get_members(blockchain)
      ),
-    lager:info("New block ~p",[maps:without([header,sign],Blk)]),
-    {noreply, State#{preptxl=>[]}};
+    gen_server:cast(txpool,prepare),
+    {noreply, State#{preptxl=>[],parent=>undefined}};
     %{noreply, State};
 
 
@@ -291,3 +315,5 @@ bals2bin(NewBal) ->
       lists:keysort(1,maps:to_list(NewBal))
      ).
 
+blkid(<<X:8/binary,_/binary>>) ->
+    bin2hex:dbin2hex(X).
