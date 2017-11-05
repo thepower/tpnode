@@ -96,10 +96,10 @@ handle_cast(process, #{preptxl:=PreTXL}=State) ->
              fun(_,V) ->
                      maps:get(keep,V,true)
              end, NewBal0),
-    maps:fold(
-      fun(Adr,Se,_) ->
-              lager:info("NewBal ~p: ~p",[Adr,Se])
-      end, [], NewBal),
+%    maps:fold(
+%      fun(Adr,Se,_) ->
+%              lager:info("NewBal ~p: ~p",[Adr,Se])
+%      end, [], NewBal),
     %lager:info("Failed ~p",[Failed]),
     gen_server:cast(txpool,{failed,Failed}),
     %#{header:=#{height:=Last_Height},hash:=Last_Hash}=gen_server:call(blockchain,last_block),
@@ -169,7 +169,7 @@ try_process([],Addresses,Success,Failed) ->
     {Success, Failed, Addresses};
 
 try_process([{TxID,#{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,to:=To,from:=From}=Tx}|Rest],Addresses,Success,Failed) ->
-    lager:error("FC ~p",[Addresses]),
+%    lager:error("FC ~p",[Addresses]),
     FCurrency=maps:get({From,Cur},Addresses,#{amount =>0,seq => 1,t=>0}),
     #{amount:=CurFAmount,
       seq:=CurFSeq,

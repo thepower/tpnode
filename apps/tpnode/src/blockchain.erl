@@ -197,7 +197,10 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
                if SigLen>=MinSig %andalso BlockHash==LBlockHash 
                   ->
                      %enough signs. Make block.
-                     lager:info("enough confirmations. Installing new block ~s",[blkid(BlockHash)]),
+                     lager:info("enough confirmations. Installing new block ~s h= ~b",
+                                [blkid(BlockHash),
+                                 maps:get(height,maps:get(header,Blk))
+                                ]),
                      NewTable=maps:fold(
                                 fun({Addr,Cur},Val,Acc) ->
                                         updatebal(Addr,Cur,Val,Acc,BlockHash)

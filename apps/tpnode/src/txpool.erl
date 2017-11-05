@@ -62,16 +62,7 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(prepare, #{queue:=Queue,nodeid:=Node}=State) ->
-    {Queue1,Res}=lists:foldl(
-      fun(_,{Q,Acc}) ->
-              {Element,Q1}=queue:out(Q),
-              case Element of 
-                  {value, E1} ->
-                      {Q1, [E1|Acc]};
-                  empty ->
-                      {Q1, Acc}
-              end
-      end, {Queue, []}, [1,2]),
+    {Queue1,Res}=pullx(1000,Queue,[]),
     lists:foreach(
       fun(Pid)-> 
               %lager:info("Prepare to ~p",[Pid]),
@@ -110,4 +101,15 @@ generate_txid(Node) ->
     Number=bin2hex:dbin2hex(binary:encode_unsigned(erlang:unique_integer([positive]))),
     iolist_to_binary([Timestamp,"-",Node,"-",Number]).
     
+pullx(0,Q,Acc) ->
+    {Q,Acc};
+
+pullx(N,Q,Acc) ->
+    {Element,Q1}=queue:out(Q),
+    case Element of 
+        {value, E1} ->
+           pullx(N-1, Q1, [E1|Acc]);
+        empty ->
+            {Q,Acc}
+    end.
 

@@ -9,21 +9,33 @@ before_filter(Req) ->
 after_filter(_,_) -> ok.
 
 after_filter(Req) ->
-%	{Origin,Req0}=cowboy_req:header(<<"origin">>,Req,<<"*">>),
+	{Origin,Req0}=cowboy_req:header(<<"origin">>,Req,<<"*">>),
 	%{AllHdrs,_}=cowboy_req:headers(Req),
 	%lager:info("Hdr ~p",[AllHdrs]),
-%	Req1=cowboy_req:set_resp_header(<<"Access-Control-Allow-Origin">>, Origin, Req0),
-%	Req2=cowboy_req:set_resp_header(<<"Access-Control-Allow-Methods">>, <<"GET, POST, OPTIONS">>, Req1),
-%	Req3=cowboy_req:set_resp_header(<<"Access-Control-Allow-Credentials">>, <<"true">>, Req2),
-%	Req4=cowboy_req:set_resp_header(<<"Access-Control-Max-Age">>, <<"86400">>, Req3),
-%	cowboy_req:set_resp_header(<<"Content-Type">>, <<"application/json">>, Req4).
-    Req.
+	Req1=cowboy_req:set_resp_header(<<"Access-Control-Allow-Origin">>, Origin, Req0),
+	Req2=cowboy_req:set_resp_header(<<"Access-Control-Allow-Methods">>, <<"GET, POST, OPTIONS">>, Req1),
+	Req3=cowboy_req:set_resp_header(<<"Access-Control-Allow-Credentials">>, <<"true">>, Req2),
+	Req4=cowboy_req:set_resp_header(<<"Access-Control-Max-Age">>, <<"86400">>, Req3),
+	Req5=cowboy_req:set_resp_header(<<"Access-Control-Allow-Headers">>, <<"Content-Type">>, Req4),
+	cowboy_req:set_resp_header(<<"Content-Type">>, <<"application/json">>, Req5).
 
 handle(Method, [<<"api">>|Path], Req) ->
 	apixiom:handle(Method, Path, Req, ?MODULE);
-	
+
 handle(<<"GET">>, [], _Req) ->
-    [<<"<h1>There is no web here, only API!</h1>">>].
+    [<<"<h1>There is no web here, only API!</h1>">>];
+
+handle(<<"GET">>, Path, _Req) ->
+    File=lists:flatten(lists:join("/",[binary_to_list(P) || P<-Path])),
+    case file:read_file("static/"++File) of
+        {error,enoent} ->
+            {404, "Not found"};
+        {error,eisdir} ->
+            {403, "Denied"};
+        {ok, Payload} ->
+            Payload
+    end.
+	
 
 h(Method, [<<"longpoll">>|_]=Path, Req) ->
 	tower_lphandler:h(Method, Path, Req); 
@@ -93,6 +105,50 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
      [{<<"Content-Type">>, <<"application/json">>}],
      #{ result => <<"ok">>,
         block => Block
+      }
+    };
+
+
+h(<<"POST">>, [<<"benchmark">>,N], _Req) ->
+    %{{RemoteIP,_Port},_}=cowboy_req:peer(Req),
+    Addresses=lists:map(
+        fun(_) ->
+                address:pub2addr(0,crypto:strong_rand_bytes(16))
+        end, lists:seq(1, binary_to_integer(N))),
+    {ok,Config}=application:get_env(tpnode,tpfaucet),
+    Tokens=proplists:get_value(tokens,Config),
+    Coin= <<"FTT">>,
+    #{key:=Key, addr:=Adr}=proplists:get_value(Coin,Tokens,undefined),
+    #{seq:=Seq0}=gen_server:call(blockchain,{get_addr,Adr,Coin}),
+    BinKey=address:parsekey(Key),
+
+    {_,Res}=lists:foldl(fun(Address,{Seq,Acc}) ->
+                                Tx=#{
+                                  amount=>1,
+                                  cur=>Coin,
+                                  extradata=>jsx:encode(#{
+                                               message=> <<"Preved, ", Address/binary>>
+                                              }),
+                                  from=>Adr,
+                                  to=>Address,
+                                  seq=>Seq,
+                                  timestamp=>os:system_time()
+                                 },
+                                NewTx=tx:sign(Tx,BinKey),
+                                case txpool:new_tx(NewTx) of
+                                    {ok, TxID} ->
+                                        {Seq+1,
+                                         [#{addr=>Address,tx=>TxID}|Acc]
+                                        };
+                                    {error, Error} ->
+                                        lager:error("Can't make tx: ~p",[Error]),
+                                        {Seq+1,Acc}
+                                end
+                        end,{Seq0+1,[]},Addresses),
+        {200,
+     [{<<"Content-Type">>, <<"application/json">>}],
+     #{ result => <<"ok">>,
+        address=>Res
       }
     };
 
@@ -169,6 +225,8 @@ h(<<"POST">>, [<<"tx">>,<<"new">>], Req) ->
             }
     end;
 
+h(<<"OPTIONS">>, _, _Req) ->
+    {200, [], ""};
 
 h(_Method, [<<"status">>], Req) ->
     {{RemoteIP,_Port},_}=cowboy_req:peer(Req),
