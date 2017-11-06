@@ -225,6 +225,8 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
                      save_block(LDB,LastBlock,false),
                      save_block(LDB,MBlk,true),
                      save_bals(LDB, NewTable),
+                     gen_server:cast(tpnode_ws_dispatcher,{new_block, MBlk}),
+                     
 
                      {noreply, State#{
                                  prevblock=> LastBlock,

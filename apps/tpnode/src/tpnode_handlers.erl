@@ -2,6 +2,7 @@
 %-compile(export_all).
 
 -export([handle/3,before_filter/1,after_filter/1,after_filter/2,h/3]).
+-export([prettify_block/1]).
 
 before_filter(Req) ->
 	apixiom:before_filter(Req).
@@ -65,43 +66,9 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
                 true ->
                     hex:parse(BlockId)
               end,
-    #{hash:=BlockHash,
-      header:=#{ parent:=BlockParent, txs:=TXs }=BlockHeader,
-      sign:=Signs
-     }=Block0=gen_server:call(blockchain,{get_block,BlockHash0}),
-    Bals=maps:fold(
-           fun({Addr,Cur},Val0,Acc) ->
-                   Val=maps:put(lastblk,bin2hex:dbin2hex(maps:get(lastblk,Val0,<<0,0,0,0,0,0,0,0>>)),Val0),
-                   maps:put(Addr,
-                            maps:put(Cur,Val,
-                                     maps:get(Addr,Acc,#{})
-                                    ),
-                            Acc)
-           end, 
-           #{},
-           maps:get(bals,Block0,#{})
-          ),
-    Block1=Block0#{
-            hash=>bin2hex:dbin2hex(BlockHash),
-            header=>BlockHeader#{
-                      parent=>bin2hex:dbin2hex(BlockParent),
-                      txs=>bin2hex:dbin2hex(TXs)
-                     },
-            sign=>lists:map(
-                    fun({Public,Signature}) ->
-                            #{ nodeid=>address:pub2addr(node,Public),
-                               public_key=> bin2hex:dbin2hex(Public),
-                               signature=> bin2hex:dbin2hex(Signature)
-                             }
-                    end, Signs),
-            bals=>Bals
-           },
-    Block=case maps:get(child,Block1,undefined) of
-              undefined -> Block1;
-              Child ->
-                  maps:put(child,bin2hex:dbin2hex(Child),Block1)
-          end,
-    {200,
+    Block=prettify_block(gen_server:call(blockchain,{get_block,BlockHash0})),
+    
+       {200,
      [{<<"Content-Type">>, <<"application/json">>}],
      #{ result => <<"ok">>,
         block => Block
@@ -178,6 +145,7 @@ h(<<"POST">>, [<<"register">>], Req) ->
                                   seq=>Seq+1,
                                   timestamp=>os:system_time()
                                  },
+                                lager:info("Sign tx ~p",[Tx]),
                                 NewTx=tx:sign(Tx,address:parsekey(Key)),
                                 case txpool:new_tx(NewTx) of
                                     {ok, TxID} ->
@@ -205,7 +173,8 @@ h(<<"POST">>, [<<"tx">>,<<"new">>], Req) ->
     BinTx=case maps:get(<<"tx">>,Body,undefined) of
               <<"0x",BArr/binary>> ->
                   hex:parse(BArr);
-              Any -> Any
+              Any -> 
+                  base64:decode(Any)
           end,
     lager:info_unsafe("New tx ~p",[BinTx]),
     case txpool:new_tx(BinTx) of
@@ -242,4 +211,40 @@ h(_Method, [<<"status">>], Req) ->
 
 %PRIVATE API
 
+prettify_block(#{hash:=BlockHash,
+                 header:=#{ parent:=BlockParent, txs:=TXs }=BlockHeader,
+                 sign:=Signs
+                }=Block0) ->
+    Bals=maps:fold(
+           fun({Addr,Cur},Val0,Acc) ->
+                   Val=maps:put(lastblk,bin2hex:dbin2hex(maps:get(lastblk,Val0,<<0,0,0,0,0,0,0,0>>)),Val0),
+                   maps:put(Addr,
+                            maps:put(Cur,Val,
+                                     maps:get(Addr,Acc,#{})
+                                    ),
+                            Acc)
+           end, 
+           #{},
+           maps:get(bals,Block0,#{})
+          ),
+    Block1=Block0#{
+             hash=>bin2hex:dbin2hex(BlockHash),
+             header=>BlockHeader#{
+                       parent=>bin2hex:dbin2hex(BlockParent),
+                       txs=>bin2hex:dbin2hex(TXs)
+                      },
+             sign=>lists:map(
+                     fun({Public,Signature}) ->
+                             #{ nodeid=>address:pub2addr(node,Public),
+                                public_key=> bin2hex:dbin2hex(Public),
+                                signature=> bin2hex:dbin2hex(Signature)
+                              }
+                     end, Signs),
+             bals=>Bals
+            },
+    case maps:get(child,Block1,undefined) of
+        undefined -> Block1;
+        Child ->
+            maps:put(child,bin2hex:dbin2hex(Child),Block1)
+    end.
 

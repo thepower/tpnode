@@ -36,6 +36,9 @@ init([]) ->
                           {port, 
                            application:get_env(tpnode,rpcport,43280)
                           },
+                          {routes, [
+                                    {"/api/ws", tpnode_ws, []}
+                                   ]},
                           {ip, {0,0,0,0,0,0,0,0}},
                           {public, "public"}
                          ]) of
@@ -60,6 +63,7 @@ init([]) ->
              permanent, 5000, worker, []
             },
             { blockchain, {blockchain,start_link,[]}, permanent, 5000, worker, []},
+            { ws_dispatcher, {tpnode_ws_dispatcher,start_link,[]}, permanent, 5000, worker, []},
             { synchronizer, {synchronizer,start_link,[]}, permanent, 5000, worker, []},
             { mkblock, {mkblock,start_link,[]}, permanent, 5000, worker, []},
             { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []}

@@ -1,0 +1,48 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<script type="text/javascript">
+var ws = new Object;
+
+function send()
+{
+    ws.send("hi!");
+    console.log('sent');
+}
+
+function open()
+{
+    if (!("WebSocket" in window)) {
+        alert("WebSocket NOT supported by your Browser!");
+        return;
+    }
+    console.log('open');
+    ws = new WebSocket("ws://"+window.location.host+"/api/ws");
+    ws.onopen = function() {
+        console.log('connected');
+        ws.send('{"sub":"block"}');
+        ws.send('{"sub":"addr","addr":"1ELxerXdNR1VkwqJ9Nzs2B9pxR4eVtAXY2","get":"bal,tx"}');
+        ws.send('{"sub":"addr","addr":"13hFFWeBsJYuAYU8wTLPo6LL1wvGrTHPYC","get":"tx"}');
+        ws.send('{"sub":"addr","addr":"1Cfox99B3P4w3pb8Ng54qah6HRFne65aMu","get":"bal"}');
+    };
+    ws.onmessage = function (evt)
+    {
+        var received_msg = evt.data;
+        console.log("Received: " + received_msg);
+        var txt = document.createTextNode(received_msg+"\n");
+        document.getElementById('messages').appendChild(txt);
+    };
+    ws.onclose = function()
+    {
+        // websocket is closed.
+        console.log('close');
+    };
+};
+open();
+</script>
+</head>
+<body>
+<pre id="messages">
+</pre>
+</body>
+</html>
