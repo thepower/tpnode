@@ -1,6 +1,10 @@
 -module(address).
 
--export([pub2addr/2,pub2addrraw/2,check/1,parsekey/1]).
+-export([pub2addr/2,pub2addrraw/2,check/1,parsekey/1,paddr/1]).
+
+paddr(PKey) ->
+    Crc=erlang:crc32(PKey),
+    <<"tp",(base58:encode( << Crc:32/integer, PKey/binary>> ))/binary>>.
 
 pub2addr(node,Pub) ->
     Hash=crypto:hash(ripemd160,Pub),

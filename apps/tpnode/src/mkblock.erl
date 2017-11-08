@@ -68,7 +68,25 @@ handle_cast({prepare, _Node, Txs}, #{preptxl:=PreTXL,timer:=T1}=State) ->
     };
 
 
-handle_cast(process, #{preptxl:=PreTXL}=State) ->
+
+handle_cast(testtx, State) ->
+    PreTXL=[{<<"14ED4436D1F3FAAB-noded57D9KidJHaHxyKBqyM8T8eBRjDxRGWhZC-43">>,
+             #{amount => 0.5,cur => <<"FTT">>,extradata => <<"{}">>,
+               from => <<"13hFFWeBsJYuAYU8wTLPo6LL1wvGrTHPYC">>,
+               public_key =>
+               <<"043E9FD2BBA07359FAA4EDC9AC53046EE530418F97ECDEA77E0E98288E6E56178D79D6A023323B0047886DAFEAEDA1F9C05633A536C70C513AB84799B32F20E2DD">>,
+               seq => 11,
+               signature =>
+               <<"30440220249519BA3EE863A6F1AA8526C91DAC9614E871199289035F0078DCC0827406C302201340585DE6A8B847E718F4E10395A46C31E4E9CB8EBA344402B23C7AB2ECC374">>,
+               timestamp => 1507843268,to => <<"12m93G3sVaa8oyvAYenRsvE1qy4DFgL71o">>}}],
+    handle_cast(process, State#{preptxl=>PreTXL});
+
+
+handle_cast(_Msg, State) ->
+    lager:info("unknown cast ~p",[_Msg]),
+    {noreply, State}.
+
+handle_info(process, #{preptxl:=PreTXL}=State) ->
     TXL=lists:keysort(1,PreTXL),
     Addrs1=lists:foldl(
             fun({_,#{from:=F,cur:=Cur}},Acc) ->
@@ -90,7 +108,6 @@ handle_cast(process, #{preptxl:=PreTXL}=State) ->
                             Acc
                     end
             end, Addrs1, TXL),
-    %lager:info("Tx addrs ~p",[Addrs]),
     {Success,Failed,NewBal0}=try_process(TXL,Addrs,[],[]),
     NewBal=maps:filter(
              fun(_,V) ->
@@ -130,27 +147,8 @@ handle_cast(process, #{preptxl:=PreTXL}=State) ->
       end, 
       pg2:get_members(blockchain)
      ),
-    gen_server:cast(txpool,prepare),
     {noreply, State#{preptxl=>[],parent=>undefined}};
-    %{noreply, State};
 
-
-handle_cast(testtx, State) ->
-    PreTXL=[{<<"14ED4436D1F3FAAB-noded57D9KidJHaHxyKBqyM8T8eBRjDxRGWhZC-43">>,
-             #{amount => 0.5,cur => <<"FTT">>,extradata => <<"{}">>,
-               from => <<"13hFFWeBsJYuAYU8wTLPo6LL1wvGrTHPYC">>,
-               public_key =>
-               <<"043E9FD2BBA07359FAA4EDC9AC53046EE530418F97ECDEA77E0E98288E6E56178D79D6A023323B0047886DAFEAEDA1F9C05633A536C70C513AB84799B32F20E2DD">>,
-               seq => 11,
-               signature =>
-               <<"30440220249519BA3EE863A6F1AA8526C91DAC9614E871199289035F0078DCC0827406C302201340585DE6A8B847E718F4E10395A46C31E4E9CB8EBA344402B23C7AB2ECC374">>,
-               timestamp => 1507843268,to => <<"12m93G3sVaa8oyvAYenRsvE1qy4DFgL71o">>}}],
-    handle_cast(process, State#{preptxl=>PreTXL});
-
-
-handle_cast(_Msg, State) ->
-    lager:info("unknown cast ~p",[_Msg]),
-    {noreply, State}.
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -178,6 +176,11 @@ try_process([{TxID,#{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,to:=T
     #{amount:=CurTAmount
      }=TCurrency=maps:get({To,Cur},Addresses,#{amount =>0,seq => 1,t=>0}),
     try
+        if Amount >= 0 -> 
+               ok;
+           true ->
+               throw ('bad_amount')
+        end,
         NewFAmount=if CurFAmount >= Amount ->
                          CurFAmount - Amount;
                      true ->

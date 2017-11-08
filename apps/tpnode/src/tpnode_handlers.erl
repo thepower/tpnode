@@ -51,7 +51,7 @@ h(<<"GET">>, [<<"address">>,Addr], _Req) ->
                             bin2hex:dbin2hex(
                               maps:get(lastblk,V,<<0,0,0,0,0,0,0,0>>)
                              ),V)
-           end,gen_server:call(blockchain,{get_addr, Addr})),
+           end,gen_server:call(blockchain,{get_addr, Addr},20000)),
 
     {200,
      [{<<"Content-Type">>, <<"application/json">>}],
@@ -118,6 +118,49 @@ h(<<"POST">>, [<<"benchmark">>,N], _Req) ->
         address=>Res
       }
     };
+
+h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
+    {{RemoteIP,_Port},_}=cowboy_req:peer(Req),
+    {ok,Config}=application:get_env(tpnode,tpfaucet),
+    Faucet=proplists:get_value(register,Config),
+    Tokens=proplists:get_value(tokens,Config),
+    Res=lists:foldl(fun({Coin,Amount},Acc) ->
+                        case proplists:get_value(Coin,Tokens,undefined) of
+                            undefined -> Acc;
+                            #{key:=Key,
+                              addr:=Adr} ->
+                                #{seq:=Seq}=gen_server:call(blockchain,{get_addr,Adr,Coin}),
+                                Tx=#{
+                                  amount=>Amount,
+                                  cur=>Coin,
+                                  extradata=>jsx:encode(#{
+                                               message=> <<"Welcome, ", Address/binary>>,
+                                               ipaddress => list_to_binary(inet:ntoa(RemoteIP))
+                                              }),
+                                  from=>Adr,
+                                  to=>Address,
+                                  seq=>Seq+1,
+                                  timestamp=>os:system_time()
+                                 },
+                                lager:info("Sign tx ~p",[Tx]),
+                                NewTx=tx:sign(Tx,address:parsekey(Key)),
+                                case txpool:new_tx(NewTx) of
+                                    {ok, TxID} ->
+                                        [#{c=>Coin,s=>Amount,tx=>TxID}|Acc];
+                                    {error, Error} ->
+                                        lager:error("Can't make tx: ~p",[Error]),
+                                        Acc
+                                end
+                        end
+                end,[],Faucet),
+    {200,
+     [{<<"Content-Type">>, <<"application/json">>}],
+     #{ result => <<"ok">>,
+        address=>Address,
+        info=>Res
+      }
+    };
+
 
 
 h(<<"POST">>, [<<"register">>], Req) ->

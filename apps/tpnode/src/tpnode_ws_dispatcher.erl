@@ -65,7 +65,7 @@ handle_cast(repeat, #{addrsub:=AS,blocksub:=BS}=State) ->
                                (_) -> false
                             end,
                             maps:get(txs,PrettyBlock)),
-                     TxJS=jsx:encode(#{tx=>BTxs,
+                     TxJS=jsx:encode(#{txs=>BTxs,
                                        address=>Address}),
                      lists:foreach(fun(Pid) ->
                                            erlang:send(Pid, {message, TxJS})

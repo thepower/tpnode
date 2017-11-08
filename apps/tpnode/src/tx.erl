@@ -18,7 +18,7 @@ sign(#{
     end,
     NewFrom=address:pub2addr(Fat,Pub),
     if NewFrom =/= From -> 
-           io:format("~s~n~s~n",[From,NewFrom]),
+           %io:format("~s~n~s~n",[From,NewFrom]),
            throw({invalid_key,mismatch_from_address});
        true -> ok
     end,
@@ -29,20 +29,20 @@ sign(#{
        true -> ok
     end,
 
-    Append=jsx:encode(maps:get(extradata,Tx,#{})),
+    Append=maps:get(extradata,Tx,<<"">>),
 
     Message=iolist_to_binary(
               io_lib:format("~s:~s:~b:~s:~b:~b:~s",
                             [From,To,trunc(1000000000*Amount),Currency,Timestamp,Seq,Append])
              ),
-    io:format("~s~n",[Message]),
+    %io:format("~s~n",[Message]),
     Msg32 = crypto:hash(sha256, Message),
     Sig = secp256k1:secp256k1_ecdsa_sign(Msg32, PrivKey, default, <<>>),
-    io:format("pub ~b sig ~b msg ~p~n",[
-                                        size(Pub),
-                                        size(Sig), 
-                                        size(Message)
-                                       ]),
+    %io:format("pub ~b sig ~b msg ~p~n",[
+    %                                    size(Pub),
+    %                                    size(Sig), 
+    %                                    size(Message)
+    %                                   ]),
     <<(size(Pub)):8/integer,
       (size(Sig)):8/integer,
       Pub/binary,
@@ -76,7 +76,7 @@ verify(#{
     end,
     NewFrom=address:pub2addr(Fat,Pub),
     if NewFrom =/= From -> 
-           io:format("~s~n~s~n",[From,NewFrom]),
+           %io:format("~s~n~s~n",[From,NewFrom]),
            throw({invalid_key,mismatch_from_address});
        true -> ok
     end,
@@ -129,7 +129,7 @@ pack(#{
               io_lib:format("~s:~s:~b:~s:~b:~b:~s",
                             [From,To,trunc(Amount*1000000000),Cur,Timestamp,Seq,Append])
              ),
-    io:format("~s~n",[Message]),
+    %io:format("~s~n",[Message]),
     <<(size(Pub)):8/integer,
       (size(Sig)):8/integer,
       Pub/binary,

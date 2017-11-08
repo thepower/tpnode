@@ -66,7 +66,9 @@ handle_info(ticktimer,
 %    lager:info("Time to tick. Mean hospital time ~w, next in ~w, last ~w",
 %               [(MeanMs rem 3600000)/1000,Wait,(T-_T0)/1000]
 %              ),
-    gen_server:cast(mkblock,process),
+    gen_server:cast(txpool,prepare),
+    erlang:send_after(200, whereis(mkblock), preocess),
+%    gen_server:cast(mkblock,process),
 
     catch erlang:cancel_timer(Tmr),
     {noreply,State#{
@@ -100,8 +102,8 @@ handle_info(selftimer5, #{timer5:=Tmr,offsets:=Offs}=State) ->
     if(Friends==[]) ->
           lager:debug("I'm alone in universe my time ~w",[(MeanMs rem 3600000)/1000]);
       true ->
-          lager:debug("I have ~b friends, and mean hospital time ~w, mean diff ~w",
-                     [length(Friends),(MeanMs rem 3600000)/1000,MeanDiff/1000]
+          lager:info("~s I have ~b friends, and mean hospital time ~w, mean diff ~w",
+                     [node(),length(Friends),(MeanMs rem 3600000)/1000,MeanDiff/1000]
                     )
     end,
 

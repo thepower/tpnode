@@ -36,7 +36,8 @@ start_link() ->
 init(_Args) ->
     {ok, #{
        queue=>queue:new(),
-       nodeid=>tpnode_tools:node_id()
+       nodeid=>tpnode_tools:node_id(),
+       inprocess=>hashqueue:new()
       }}.
 
 handle_call(state, _Form, State) ->
@@ -61,7 +62,11 @@ handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast(prepare, #{queue:=Queue,nodeid:=Node}=State) ->
+handle_cast(prepare, #{inprocess:=InProc0,queue:=Queue,nodeid:=Node}=State) ->
+    %case hashqueue:head(InProc0) of
+    %    empty -> ok;
+    %    _ -> lager:info("Still in process ~p",[InProc0])
+    %end,
     {Queue1,Res}=pullx(1000,Queue,[]),
     lists:foreach(
       fun(Pid)-> 
@@ -70,14 +75,47 @@ handle_cast(prepare, #{queue:=Queue,nodeid:=Node}=State) ->
       end, 
       pg2:get_members(mkblock)
      ),
-    {noreply, State#{queue=>Queue1}}; 
+    Time=erlang:system_time(seconds),
+    {InProc1,Queue2}=recovery_lost(InProc0,Queue1,Time),
+    ETime=Time+20,
+    {noreply, State#{
+                queue=>Queue2,
+                inprocess=>lists:foldl(
+                             fun({TxId,TxBody},Acc) ->
+                                     hashqueue:add(TxId,ETime,TxBody,Acc)
+                             end,
+                             InProc1,
+                             Res
+                            )
+               }
+    }; 
 
-handle_cast({failed, Txs}, State) ->
-    lists:foreach(
-      fun(Tx) ->
-              lager:info("TX failed ~p",[Tx])
-      end, Txs),
-    {noreply, State};
+handle_cast({done, Txs}, #{inprocess:=InProc0}=State) ->
+    InProc1=lists:foldl(
+      fun(Tx,Acc) ->
+              lager:info("TX pool tx done ~p",[Tx]),
+              hashqueue:remove(Tx,Acc)
+      end, 
+      InProc0,
+      Txs),
+    {noreply, State#{
+                inprocess=>InProc1
+               }
+    };
+
+handle_cast({failed, Txs}, #{inprocess:=InProc0}=State) ->
+    InProc1=lists:foldl(
+              fun({TxID,Reason},Acc) ->
+                      lager:info("TX pool tx failed ~p ~p",[TxID,Reason]),
+                      hashqueue:remove(TxID,Acc)
+              end, 
+              InProc0,
+              Txs),
+    {noreply, State#{
+                inprocess=>InProc1
+               }
+    };
+
 
 handle_cast(_Msg, State) ->
     lager:info("Unkown cast ~p",[_Msg]),
@@ -108,8 +146,28 @@ pullx(N,Q,Acc) ->
     {Element,Q1}=queue:out(Q),
     case Element of 
         {value, E1} ->
+            lager:info("Pull tx ~p",[E1]),
            pullx(N-1, Q1, [E1|Acc]);
         empty ->
             {Q,Acc}
     end.
+
+recovery_lost(InProc,Queue,Now) ->
+    case hashqueue:head(InProc) of
+        empty ->
+            {InProc, Queue};
+        I when is_integer(I) andalso I>=Now ->
+            {InProc, Queue};
+        I when is_integer(I) ->
+            case hashqueue:pop(InProc) of
+                {InProc1,empty} ->
+                    {InProc1, Queue};
+                {InProc1,{TxID,Tx}} ->
+                    recovery_lost(InProc1,queue:in({TxID,Tx},Queue),Now)
+            end
+    end.
+
+
+
+
 
