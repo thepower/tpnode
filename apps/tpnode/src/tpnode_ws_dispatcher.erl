@@ -121,7 +121,7 @@ handle_cast({new_block, Block}, #{addrsub:=AS,blocksub:=BS}=State) ->
                                        address=>Address}),
                      lists:foreach(fun(Pid) ->
                                            erlang:send(Pid, {message, TxJS})
-                                   end, BS);
+                                   end, Tx);
                  true ->
                      ok
               end,
@@ -132,7 +132,7 @@ handle_cast({new_block, Block}, #{addrsub:=AS,blocksub:=BS}=State) ->
                                         address=>Address}),
                      lists:foreach(fun(Pid) ->
                                            erlang:send(Pid, {message, BalJS})
-                                   end, BS);
+                                   end, Bal);
                  true ->
                      ok
               end,
