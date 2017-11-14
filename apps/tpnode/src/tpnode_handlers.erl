@@ -163,6 +163,54 @@ h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
 
 
 
+h(<<"POST">>, [<<"test">>,<<"request_fund">>], Req) ->
+%    {{RemoteIP,_Port},_}=cowboy_req:peer(Req),
+    Body=apixiom:bodyjs(Req),
+    Address=maps:get(<<"address">>,Body),
+    ReqAmount=maps:get(<<"amount">>,Body,10),
+    {ok,Config}=application:get_env(tpnode,tpfaucet),
+    Faucet=proplists:get_value(register,Config),
+    Tokens=proplists:get_value(tokens,Config),
+    Res=lists:foldl(fun({Coin,CAmount},Acc) ->
+                        case proplists:get_value(Coin,Tokens,undefined) of
+                            undefined -> Acc;
+                            #{key:=Key,
+                              addr:=Adr} ->
+                                Amount=min(CAmount,ReqAmount),
+                                #{seq:=Seq}=gen_server:call(blockchain,{get_addr,Adr,Coin}),
+                                Tx=#{
+                                  amount=>Amount,
+                                  cur=>Coin,
+                                  extradata=>jsx:encode(#{
+                                               message=> <<"Test fund">>
+                                              }),
+                                  from=>Adr,
+                                  to=>Address,
+                                  seq=>Seq+1,
+                                  timestamp=>os:system_time()
+                                 },
+                                lager:info("Sign tx ~p",[Tx]),
+                                NewTx=tx:sign(Tx,address:parsekey(Key)),
+                                case txpool:new_tx(NewTx) of
+                                    {ok, TxID} ->
+                                        [#{c=>Coin,s=>Amount,tx=>TxID}|Acc];
+                                    {error, Error} ->
+                                        lager:error("Can't make tx: ~p",[Error]),
+                                        Acc
+                                end
+                        end
+                end,[],Faucet),
+    {200,
+     [{<<"Content-Type">>, <<"application/json">>}],
+     #{ result => <<"ok">>,
+        address=>Address,
+        info=>Res
+      }
+    };
+
+
+
+
 h(<<"POST">>, [<<"register">>], Req) ->
     {{RemoteIP,_Port},_}=cowboy_req:peer(Req),
     Body=apixiom:bodyjs(Req),

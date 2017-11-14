@@ -2,3 +2,11 @@
 *.swp
 *.beam
 erl_crash.dump
+app*.config
+db_*
+deps/*
+log/*
+
+apps/*/ebin
+apps/*/.rebar
+.DS_STORE
