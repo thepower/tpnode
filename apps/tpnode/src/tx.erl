@@ -33,7 +33,7 @@ sign(#{
 
     Message=iolist_to_binary(
               io_lib:format("~s:~s:~b:~s:~b:~b:~s",
-                            [From,To,trunc(1000000000*Amount),Currency,Timestamp,Seq,Append])
+                            [From,To,trunc(1.0e9*Amount),Currency,Timestamp,Seq,Append])
              ),
     %io:format("~s~n",[Message]),
     Msg32 = crypto:hash(sha256, Message),
@@ -82,7 +82,7 @@ verify(#{
     end,
     Message=iolist_to_binary(
               io_lib:format("~s:~s:~b:~s:~b:~b:~s",
-                            [From,To,trunc(1000000000*Amount),Cur,Timestamp,Seq,ExtraJSON])
+                            [From,To,trunc(1.0e9*Amount),Cur,Timestamp,Seq,ExtraJSON])
              ),
     %io:format("~s~n",[Message]),
     Msg32 = crypto:hash(sha256, Message),
@@ -127,7 +127,7 @@ pack(#{
 
     Message=iolist_to_binary(
               io_lib:format("~s:~s:~b:~s:~b:~b:~s",
-                            [From,To,trunc(Amount*1000000000),Cur,Timestamp,Seq,Append])
+                            [From,To,trunc(Amount*1.0e9),Cur,Timestamp,Seq,Append])
              ),
     %io:format("~s~n",[Message]),
     <<(size(Pub)):8/integer,
@@ -142,7 +142,7 @@ unpack(<<PubLen:8/integer,SigLen:8/integer,Tx/binary>>) ->
     Amount=binary_to_integer(SAmount),
     #{ from => From,
        to => To,
-       amount => Amount/1000000000,
+       amount => Amount/1.0e9,
        cur => Cur,
        timestamp => binary_to_integer(STimestamp),
        seq => binary_to_integer(SSeq),

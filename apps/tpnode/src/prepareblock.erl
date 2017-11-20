@@ -1,4 +1,4 @@
--module(blockchain).
+-module(prepareblock).
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -30,7 +30,7 @@ init(_Args) ->
     pg2:create(blockchain),
     pg2:join(blockchain,self()),
     NodeID=tpnode_tools:node_id(),
-    {ok,LDB}=ldb:open("db_"++atom_to_list(node())),
+    {ok,LDB}=ldb:open("db_"++binary_to_list(tpnode_tools:node_id())),
     T2=load_bals(LDB),
     LastBlockHash=ldb:read_key(LDB,<<"lastblock">>,<<0,0,0,0,0,0,0,0>>),
     LastBlock=ldb:read_key(LDB,
@@ -40,8 +40,7 @@ init(_Args) ->
                                 height=>0
                                }
                             }),
-    lager:info("My last block hash ~s",
-               [bin2hex:dbin2hex(LastBlockHash)]),
+    gen_server:cast(self(),synchronize),
     Res=#{
       table=>T2,
       nodeid=>NodeID,
@@ -49,7 +48,7 @@ init(_Args) ->
       candidates=>#{},
       lastblock=>LastBlock
      },
-    {ok, run_sync(Res)}.
+    {ok, Res}.
 
 handle_call({get_addr, Addr, RCur}, _From, #{table:=Table}=State) ->
     case tables:lookup(address,Addr,Table) of
@@ -93,6 +92,24 @@ handle_call(fix_first_block, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
     end;
 
 
+handle_call({synchronize, BlkId, PID}, _From, #{ldb:=LDB}=State) ->
+    lager:info("SYNC: request from ~p block ~s",[node(PID),blkid(BlkId)]),
+    case ldb:read_key(LDB,
+                 <<"block:",BlkId/binary>>,
+                 undefined
+                ) of
+        undefined ->
+            lager:info("no_block ~p",[BlkId]),
+            {reply, noblock, State};
+        #{header:=#{},child:=Child}=Block ->
+            lager:info("send block ~p to ~p",[BlkId,node(PID)]),
+            gen_server:cast(self(),{continue_sync,Child,PID}),
+            {reply, {start, Block}, State};
+        #{header:=#{}}=Block ->
+            lager:info("last block ~p",[maps:get(header,Block)]),
+            {reply, {last, Block}, State}
+    end;
+
 handle_call(loadbal, _, #{ldb:=LDB,table:=_T}=State) ->
     X=case ldb:read_key(LDB, <<"bals">>,
                    undefined
@@ -129,17 +146,10 @@ handle_call(state, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({new_block, _BlockPayload,  PID}, 
-            #{ sync:=SyncPid }=State) when SyncPid=/=PID ->
-    lager:info("Ignore block from ~p ~p during sync with ~p ~p",[node(PID),PID,node(SyncPid),SyncPid]),
-    {noreply, State};
-
 handle_cast({new_block, #{hash:=BlockHash}=Blk, _PID}, 
             #{ldb:=LDB,
               lastblock:=#{hash:=PBlockHash}=PBlk
              }=State) when BlockHash==PBlockHash ->
-    lager:info("Arrived block from ~p Verify block with ~p",
-               [node(_PID),maps:keys(Blk)]),
     {true,{Success,_}}=mkblock:verify(Blk),
     lager:info("Extra confirmation of prev. block ~s ~w",
                [blkid(BlockHash),length(Success)]),
@@ -243,9 +253,10 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
                                         blkid(NewPHash),
                                         blkid(LBlockHash)
                                        ]),
-                            {noreply, run_sync(State#{
+                            gen_server:cast(self(),synchronize),
+                            {noreply, State#{
                                         candidates=>#{}
-                                       })
+                                       }
                             };
                         true ->
                             %normal block installation
@@ -303,7 +314,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
               {noreply, State}
     end;
 
-handle_cast({continue_sync, BlkId, PID, Limit}, #{ldb:=LDB}=State) ->
+handle_cast({continue_sync, BlkId, PID}, #{ldb:=LDB}=State) ->
     case ldb:read_key(LDB,
                  <<"block:",BlkId/binary>>,
                  undefined
@@ -313,13 +324,42 @@ handle_cast({continue_sync, BlkId, PID, Limit}, #{ldb:=LDB}=State) ->
         #{header:=#{},child:=Child}=Block ->
             lager:info("SYNC: next block ~p to ~p",[Block,node(PID)]),
             gen_server:cast(PID,{new_block,Block}),
-            gen_server:cast(self(),{continue_sync,Child,PID, Limit-1});
+            gen_server:cast(self(),{continue_sync,Child,PID});
         #{header:=#{}}=Block ->
             lager:info("SYNC: last block ~p to ~p",[Block,node(PID)]),
             gen_server:cast(PID,{new_block,Block}),
             gen_server:cast(PID,{sync,done})
     end,
     {noreply, State};
+
+handle_cast(synchronize, #{lastblock:=#{hash:=LastBlockId}}=State) ->
+    Peers=pg2:get_members(blockchain)--[self()],
+    case lists:reverse(
+           lists:keysort(1,
+                         lists:foldl(
+                           fun(Pid,Acc) ->
+                                   try
+                                       H=gen_server:call(Pid,last_block_height),
+                                       lager:info("Node ~s height ~p",[node(Pid),H]),
+                                       [{H,Pid}|Acc]
+                                   catch _:_ -> Acc
+                                   end
+                           end,[], Peers
+                          )
+                        )
+          ) of
+        [{MaxH,MaxPID}|_] ->
+            lager:info("Peers ~p",[{MaxH,MaxPID}]),
+            lager:info("RunSync ~p",
+                       [gen_server:call(MaxPID,{synchronize, LastBlockId, self()})]),
+            {noreply, State#{
+                        sync=>MaxPID
+                       }
+            };
+        [] ->
+            lager:info("Nobody here, nothing to sync",[]),
+            {noreply, State}
+    end;
 
 handle_cast(savebal,#{ldb:=LDB,table:=T}=State) ->
     save_bals(LDB,T),
@@ -332,7 +372,6 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    lager:error("Terminate blockchain ~p",[_Reason]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -451,33 +490,4 @@ first_block(LDB, Next, Child) ->
         Block ->
             lager:info("Unknown block ~p",[Block])
     end.
-
-run_sync(#{lastblock:=#{hash:=LastBlockId}}=State) ->
-    Peers=pg2:get_members(blockchain)--[self()],
-    case lists:reverse(
-           lists:keysort(1,
-                         lists:foldl(
-                           fun(Pid,Acc) ->
-                                   try
-                                       H=gen_server:call(Pid,last_block_height),
-                                       lager:info("Node ~s height ~p",[node(Pid),H]),
-                                       [{H,Pid}|Acc]
-                                   catch _:_ -> Acc
-                                   end
-                           end,[], Peers
-                          )
-                        )
-          ) of
-        [{MaxH,MaxPID}|_] ->
-            lager:info("Sync with ~p height ~p from block ~p",
-                       [node(MaxPID),MaxH,LastBlockId]),
-            gen_server:cast(MaxPID,{continue_sync, LastBlockId, self(), 10}),
-            State#{
-              sync=>MaxPID
-             };
-        [] ->
-            lager:info("Nobody here, nothing to sync",[]),
-            State
-    end.
-
 

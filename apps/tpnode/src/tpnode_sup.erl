@@ -25,26 +25,6 @@ start_link() ->
 init([]) ->
     application:ensure_all_started(cowboy),
     application:ensure_all_started(tinymq),
-    case axiom:start(tpnode_handlers,
-                         [
-                          {content_type,"text/html"},
-                          {preprocessor, pre_hook},
-                          {postprocessor, post_hook},
-                          {sessions, []},
-                          {nb_acceptors, 100},
-                          {host, '_'},
-                          {port, 
-                           application:get_env(tpnode,rpcport,43280)
-                          },
-                          {routes, [
-                                    {"/api/ws", tpnode_ws, []}
-                                   ]},
-                          {ip, {0,0,0,0,0,0,0,0}},
-                          {public, "public"}
-                         ]) of
-        {ok,_PID} -> ok;
-        {error,{already_started,axiom}} -> ok
-    end,
     case application:get_env(tpnode, neighbours) of
         {ok, Neighbours} when is_list(Neighbours) ->
             lists:foreach(
@@ -54,18 +34,14 @@ init([]) ->
         _ -> 
             ok
     end,
-
+    
     {ok, { {one_for_one, 5, 10}, 
            [
-            {
-             h2ldb,
-             {h2leveldb, start_link, [ [] ]},
-             permanent, 5000, worker, []
-            },
             { blockchain, {blockchain,start_link,[]}, permanent, 5000, worker, []},
             { ws_dispatcher, {tpnode_ws_dispatcher,start_link,[]}, permanent, 5000, worker, []},
-            { synchronizer, {synchronizer,start_link,[]}, permanent, 5000, worker, []},
-            { mkblock, {mkblock,start_link,[]}, permanent, 5000, worker, []},
-            { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []}
+            %{ synchronizer, {synchronizer,start_link,[]}, permanent, 5000, worker, []},
+            %{ mkblock, {mkblock,start_link,[]}, permanent, 5000, worker, []},
+            { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []},
+            tpnode_http:childspec()
            ]} }.
 

@@ -63,13 +63,14 @@ websocket_handle(_Any, Req, State) ->
     {reply, {text, << "whut?">>}, Req, State, hibernate }.
 
 websocket_info({message, Msg}, Req, State) ->
+%    lager:info("websocket message ~p",[Msg]),
     {reply, {text, Msg}, Req, State};
 
 websocket_info({timeout, _Ref, Msg}, Req, State) ->
     {reply, {text, Msg}, Req, State};
 
 websocket_info(_Info, Req, State) ->
-    lager:info("websocket info"),
+    lager:info("websocket info ~p",[_Info]),
     {ok, Req, State, hibernate}.
 
 websocket_terminate(_Reason, _Req, _State) ->

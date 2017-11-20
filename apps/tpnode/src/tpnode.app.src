@@ -7,8 +7,7 @@
                   kernel,
                   stdlib,
                   lager,
-                  tinymq,
-                  cowboy
+                  tinymq
                  ]},
   {mod, { tpnode, []}},
   {env, []}

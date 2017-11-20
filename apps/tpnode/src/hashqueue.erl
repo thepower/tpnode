@@ -42,7 +42,6 @@ pop({Q,H}) ->
                 true ->
                     {{Q1,maps:remove(K,H)},{K,maps:get(K,H)}};
                 false ->
-                    io:format("Next~n"),
                     pop({Q1,H})
             end
     end.

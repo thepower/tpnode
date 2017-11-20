@@ -1,48 +1,18 @@
--module(tpnode_handlers).
-%-compile(export_all).
+-module(tpnode_httpapi).
 
--export([handle/3,before_filter/1,after_filter/1,after_filter/2,h/3]).
--export([prettify_block/1]).
-
-before_filter(Req) ->
-	apixiom:before_filter(Req).
-
-after_filter(_,_) -> ok.
+-export([h/3,after_filter/1]).
 
 after_filter(Req) ->
-	{Origin,Req0}=cowboy_req:header(<<"origin">>,Req,<<"*">>),
-	%{AllHdrs,_}=cowboy_req:headers(Req),
-	%lager:info("Hdr ~p",[AllHdrs]),
-	Req1=cowboy_req:set_resp_header(<<"Access-Control-Allow-Origin">>, Origin, Req0),
-	Req2=cowboy_req:set_resp_header(<<"Access-Control-Allow-Methods">>, <<"GET, POST, OPTIONS">>, Req1),
-	Req3=cowboy_req:set_resp_header(<<"Access-Control-Allow-Credentials">>, <<"true">>, Req2),
-	Req4=cowboy_req:set_resp_header(<<"Access-Control-Max-Age">>, <<"86400">>, Req3),
-	Req5=cowboy_req:set_resp_header(<<"Access-Control-Allow-Headers">>, <<"Content-Type">>, Req4),
-	cowboy_req:set_resp_header(<<"Content-Type">>, <<"application/json">>, Req5).
+    Origin=cowboy_req:header(<<"origin">>,Req,<<"*">>),
+    Req1=cowboy_req:set_resp_header(<<"access-control-allow-origin">>, Origin, Req),
+    Req2=cowboy_req:set_resp_header(<<"access-control-allow-methods">>, <<"GET, POST, OPTIONS">>, Req1),
+    Req3=cowboy_req:set_resp_header(<<"access-control-allow-credentials">>, <<"true">>, Req2),
+    Req4=cowboy_req:set_resp_header(<<"access-control-max-age">>, <<"86400">>, Req3),
+    cowboy_req:set_resp_header(<<"access-control-allow-headers">>, <<"content-type">>, Req4).
 
-handle(Method, [<<"api">>|Path], Req) ->
-	apixiom:handle(Method, Path, Req, ?MODULE);
-
-handle(<<"GET">>, [], _Req) ->
-    [<<"<h1>There is no web here, only API!</h1>">>];
-
-handle(<<"GET">>, Path, _Req) ->
-    File=lists:flatten(lists:join("/",[binary_to_list(P) || P<-Path])),
-    case file:read_file("static/"++File) of
-        {error,enoent} ->
-            {404, "Not found"};
-        {error,eisdir} ->
-            {403, "Denied"};
-        {ok, Payload} ->
-            Payload
-    end.
-	
-
-h(Method, [<<"longpoll">>|_]=Path, Req) ->
-	tower_lphandler:h(Method, Path, Req); 
-
-h(Method, [<<"event">>|_]=Path, Req) ->
-	tower_lphandler:h(Method, Path, Req); 
+h(Method, [<<"api">>|Path], Req) ->
+    lager:info("Path ~p",[Path]),
+    h(Method,Path,Req);
 
 h(<<"GET">>, [<<"address">>,Addr], _Req) ->
     Info=maps:map(
@@ -54,7 +24,6 @@ h(<<"GET">>, [<<"address">>,Addr], _Req) ->
            end,gen_server:call(blockchain,{get_addr, Addr},20000)),
 
     {200,
-     [{<<"Content-Type">>, <<"application/json">>}],
      #{ result => <<"ok">>,
         address=>Addr,
         info=>Info
@@ -69,7 +38,6 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
     Block=prettify_block(gen_server:call(blockchain,{get_block,BlockHash0})),
     
        {200,
-     [{<<"Content-Type">>, <<"application/json">>}],
      #{ result => <<"ok">>,
         block => Block
       }
@@ -77,7 +45,6 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
 
 
 h(<<"POST">>, [<<"benchmark">>,N], _Req) ->
-    %{{RemoteIP,_Port},_}=cowboy_req:peer(Req),
     Addresses=lists:map(
         fun(_) ->
                 address:pub2addr(0,crypto:strong_rand_bytes(16))
@@ -113,14 +80,13 @@ h(<<"POST">>, [<<"benchmark">>,N], _Req) ->
                                 end
                         end,{Seq0+1,[]},Addresses),
         {200,
-     [{<<"Content-Type">>, <<"application/json">>}],
      #{ result => <<"ok">>,
         address=>Res
       }
     };
 
 h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
-    {{RemoteIP,_Port},_}=cowboy_req:peer(Req),
+    {RemoteIP,_Port}=cowboy_req:peer(Req),
     {ok,Config}=application:get_env(tpnode,tpfaucet),
     Faucet=proplists:get_value(register,Config),
     Tokens=proplists:get_value(tokens,Config),
@@ -154,7 +120,6 @@ h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
                         end
                 end,[],Faucet),
     {200,
-     [{<<"Content-Type">>, <<"application/json">>}],
      #{ result => <<"ok">>,
         address=>Address,
         info=>Res
@@ -163,8 +128,55 @@ h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
 
 
 
+h(<<"POST">>, [<<"test">>,<<"request_fund">>], Req) ->
+    Body=apixiom:bodyjs(Req),
+    lager:info("B ~p",[Body]),
+    Address=maps:get(<<"address">>,Body),
+    ReqAmount=maps:get(<<"amount">>,Body,10),
+    {ok,Config}=application:get_env(tpnode,tpfaucet),
+    Faucet=proplists:get_value(register,Config),
+    Tokens=proplists:get_value(tokens,Config),
+    Res=lists:foldl(fun({Coin,CAmount},Acc) ->
+                        case proplists:get_value(Coin,Tokens,undefined) of
+                            undefined -> Acc;
+                            #{key:=Key,
+                              addr:=Adr} ->
+                                Amount=min(CAmount,ReqAmount),
+                                #{seq:=Seq}=gen_server:call(blockchain,{get_addr,Adr,Coin}),
+                                Tx=#{
+                                  amount=>Amount,
+                                  cur=>Coin,
+                                  extradata=>jsx:encode(#{
+                                               message=> <<"Test fund">>
+                                              }),
+                                  from=>Adr,
+                                  to=>Address,
+                                  seq=>Seq+1,
+                                  timestamp=>os:system_time()
+                                 },
+                                lager:info("Sign tx ~p",[Tx]),
+                                NewTx=tx:sign(Tx,address:parsekey(Key)),
+                                case txpool:new_tx(NewTx) of
+                                    {ok, TxID} ->
+                                        [#{c=>Coin,s=>Amount,tx=>TxID}|Acc];
+                                    {error, Error} ->
+                                        lager:error("Can't make tx: ~p",[Error]),
+                                        Acc
+                                end
+                        end
+                end,[],Faucet),
+    {200,
+     #{ result => <<"ok">>,
+        address=>Address,
+        info=>Res
+      }
+    };
+
+
+
+
 h(<<"POST">>, [<<"register">>], Req) ->
-    {{RemoteIP,_Port},_}=cowboy_req:peer(Req),
+    {RemoteIP,_Port}=cowboy_req:peer(Req),
     Body=apixiom:bodyjs(Req),
     Address=maps:get(<<"address">>,Body),
     {ok,Config}=application:get_env(tpnode,tpfaucet),
@@ -200,7 +212,6 @@ h(<<"POST">>, [<<"register">>], Req) ->
                         end
                 end,[],Faucet),
     {200,
-     [{<<"Content-Type">>, <<"application/json">>}],
      #{ result => <<"ok">>,
         address=>Address,
         info=>Res
@@ -210,29 +221,28 @@ h(<<"POST">>, [<<"register">>], Req) ->
 
 
 h(<<"POST">>, [<<"tx">>,<<"new">>], Req) ->
-    {{RemoteIP,_Port},_}=cowboy_req:peer(Req),
+    {RemoteIP,_Port}=cowboy_req:peer(Req),
     Body=apixiom:bodyjs(Req),
-    lager:info("New tx from ~s: ~p",[inet:ntoa(RemoteIP), Body]),
+    lager:debug("New tx from ~s: ~p",[inet:ntoa(RemoteIP), Body]),
     BinTx=case maps:get(<<"tx">>,Body,undefined) of
               <<"0x",BArr/binary>> ->
                   hex:parse(BArr);
               Any -> 
                   base64:decode(Any)
           end,
-    lager:info_unsafe("New tx ~p",[BinTx]),
+    %lager:info_unsafe("New tx ~p",[BinTx]),
     case txpool:new_tx(BinTx) of
         {ok, Tx} -> 
             {200,
-             [{<<"Content-Type">>, <<"application/json">>}],
              #{ result => <<"ok">>,
                 txid => Tx
               }
             };
         {error, Err} ->
+            lager:info("error ~p",[Err]),
             {500,
-             [{<<"Content-Type">>, <<"application/json">>}],
              #{ result => <<"error">>,
-                error => iolist_to_binary(io_lib:format("bad_tx:~s",[Err]))
+                error => iolist_to_binary(io_lib:format("bad_tx:~p",[Err]))
               }
             }
     end;
@@ -241,12 +251,11 @@ h(<<"OPTIONS">>, _, _Req) ->
     {200, [], ""};
 
 h(_Method, [<<"status">>], Req) ->
-    {{RemoteIP,_Port},_}=cowboy_req:peer(Req),
+    {RemoteIP,_Port}=cowboy_req:peer(Req),
     lager:info("Join from ~p",[inet:ntoa(RemoteIP)]),
     %Body=apixiom:bodyjs(Req),
 
     {200,
-     [{<<"Content-Type">>, <<"application/json">>}],
      #{ result => <<"ok">>,
         client => list_to_binary(inet:ntoa(RemoteIP))
       }
@@ -289,5 +298,8 @@ prettify_block(#{hash:=BlockHash,
         undefined -> Block1;
         Child ->
             maps:put(child,bin2hex:dbin2hex(Child),Block1)
-    end.
+    end;
+
+prettify_block(#{hash:=<<0,0,0,0,0,0,0,0>>}=Block0) -> 
+    Block0#{ hash=><<"0000000000000000">> }.
 

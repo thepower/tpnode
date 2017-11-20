@@ -48,7 +48,6 @@ handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
     case tx:verify(BinTx) of
         {ok, Tx} -> 
             TxID=generate_txid(Node),
-            %lager:info("TX ~p: ~p",[TxID,Tx]),
             {reply, {ok, TxID}, State#{
                                   queue=>queue:in({TxID,Tx},Queue)
                                  }};
@@ -56,6 +55,8 @@ handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
             {reply, {error, Err}, State}
     end
     catch Ec:Ee ->
+              Stack=erlang:get_stacktrace(),
+              lager:info("error at ~p",[hd(Stack)]),
               {reply, {error, {Ec,Ee}}, State}
     end;
 

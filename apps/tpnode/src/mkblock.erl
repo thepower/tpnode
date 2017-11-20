@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0,sign/1,verify/1,extract/1,mkblock/1]).
+-export([start_link/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -43,7 +43,6 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({prepare, _Node, Txs}, #{preptxl:=PreTXL,timer:=T1}=State) ->
-    %lager:info("Prepare from node ~p ~b",[_Node,length(Txs)]),
     T2=case catch erlang:read_timer(T1) of 
            I when is_integer(I) ->
                T1;
@@ -127,17 +126,18 @@ handle_info(process, #{preptxl:=PreTXL}=State) ->
                                 {A,B} -> {A,B}
                             end,
     Blk=sign(
-          mkblock(#{
+          block:mkblock(#{
             txs=>Success, 
             parent=>Last_Hash,
             height=>Last_Height+1,
-            bals=>NewBal
+            bals=>NewBal,
+            settings=>[]
            })
          ),
     lager:debug("Prepare block ~B txs ~p",[Last_Height+1,Success]),
     lager:info("Created block ~w ~s: txs: ~w, bals: ~w",[
                                                          Last_Height+1,
-                                                         blkid(maps:get(hash,Blk)),
+                                                         block:blkid(maps:get(hash,Blk)),
                                                          length(Success),
                                                          maps:size(NewBal)
                                                         ]),
@@ -219,104 +219,10 @@ try_process([{TxID,#{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,to:=T
               try_process(Rest,Addresses,Success,[{TxID,X}|Failed])
     end.
 
-mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals }) ->
-    BTxs=binarizetx(Txs),
-    TxHash=crypto:hash(sha256,BTxs),
-    BalsBin=bals2bin(Bals),
-    BalsHash=crypto:hash(sha256,BalsBin),
-    BHeader = <<H:64/integer, %8
-               TxHash/binary, %32
-               Parent/binary,
-               BalsHash/binary
-             >>,
-    #{header=>#{parent=>Parent,height=>H,txs=>TxHash},
-      hash=>crypto:hash(sha256,BHeader),
-      txs=>Txs,
-      bals=>Bals,
-      sign=>[]}.
-
-
-binarizetx([]) ->
-    <<>>;
-
-binarizetx([{TxID,Tx}|Rest]) ->
-    BTx=tx:pack(Tx),
-    TxIDLen=size(TxID),
-    TxLen=size(BTx),
-    <<TxIDLen:8/integer,TxLen:16/integer,TxID/binary,BTx/binary,(binarizetx(Rest))/binary>>.
-
-extract(<<>>) ->
-    [];
-
-extract(<<TxIDLen:8/integer,TxLen:16/integer,Body/binary>>) ->
-    <<TxID:TxIDLen/binary,Tx:TxLen/binary,Rest/binary>> = Body,
-    [{TxID,tx:unpack(Tx)}|extract(Rest)].
-
-sign(Blk) when is_map(Blk) ->
-    %Blk=mkblock(TX),
-    Hash=maps:get(hash,Blk),
-    Sign=signhash(Hash),
-    Blk#{
-      sign=>[Sign|maps:get(sign,Blk,[])]
-     }.
-
-verify(#{ txs:=Txs, header:=#{parent:=Parent, height:=H}, hash:=HdrHash, sign:=Sigs, bals:=Bals }) ->
-    BTxs=binarizetx(Txs),
-    TxHash=crypto:hash(sha256,BTxs),
-    BalsBin=bals2bin(Bals),
-    BalsHash=crypto:hash(sha256,BalsBin),
-    BHeader = <<H:64/integer, %8
-               TxHash/binary, %32
-               Parent/binary,
-               BalsHash/binary
-             >>,
-    Hash=crypto:hash(sha256,BHeader),
-    if Hash =/= HdrHash ->
-           false;
-       true ->
-           {ok, TK}=application:get_env(tpnode,trusted_keys),
-           Trusted=lists:map(
-                     fun(K) ->
-                             hex:parse(K)
-                     end,
-                     TK),
-           {true,lists:foldl(
-             fun({PubKey,Sig},{Succ,Fail}) ->
-                     case lists:member(PubKey,Trusted) of
-                         false ->
-                             {Succ, Fail+1};
-                         true ->
-                             case secp256k1:secp256k1_ecdsa_verify(Hash, Sig, PubKey) of
-                                 correct ->
-                                     {[{PubKey,Sig}|Succ], Fail};
-                                 _ ->
-                                     {Succ, Fail+1}
-                             end
-                     end
-             end, {[],0}, Sigs)}
-    end.
 
     
-signhash(MsgHash) ->
+sign(Blk) when is_map(Blk) ->
     {ok,K1}=application:get_env(tpnode,privkey),
-    {secp256k1:secp256k1_ec_pubkey_create(hex:parse(K1), true),
-     secp256k1:secp256k1_ecdsa_sign(MsgHash, hex:parse(K1), default, <<>>)}.
+    PrivKey=hex:parse(K1),
+    block:sign(Blk,PrivKey).
 
-bals2bin(NewBal) ->
-    lists:foldl(
-      fun({{Addr,Cur},
-           #{amount:=Amount,
-             seq:=Seq,
-             t:=T
-            }
-          },Acc) ->
-              <<Acc/binary,Addr/binary,":",Cur/binary,":",
-                (integer_to_binary(trunc(Amount*1000000000)))/binary,":",
-                (integer_to_binary(Seq))/binary,":",
-                (integer_to_binary(T))/binary,"\n">>
-      end, <<>>,
-      lists:keysort(1,maps:to_list(NewBal))
-     ).
-
-blkid(<<X:8/binary,_/binary>>) ->
-    bin2hex:dbin2hex(X).
