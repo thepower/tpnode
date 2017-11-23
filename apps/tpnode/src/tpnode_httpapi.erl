@@ -1,6 +1,6 @@
 -module(tpnode_httpapi).
 
--export([h/3,after_filter/1]).
+-export([h/3,after_filter/1,prettify_block/1]).
 
 after_filter(Req) ->
     Origin=cowboy_req:header(<<"origin">>,Req,<<"*">>),
@@ -298,10 +298,12 @@ prettify_block(#{hash:=BlockHash,
                          end, maps:get(settings,Block0,[])),
              sign=>lists:map(
                      fun(BSig) ->
-                             {Signature,Hdr}=block:splitsig(BSig),
-                             #{ extra => bin2hex:dbin2hex(Hdr),
+                             #{binextra:=Hdr,
+                               extra:=Extra,
+                               signature:=Signature}=block:unpacksig(BSig),
+                             #{ binextra => bin2hex:dbin2hex(Hdr),
                                 signature => bin2hex:dbin2hex(Signature),
-                                decodeextra =>
+                                extra =>
                                 lists:map(
                                   fun({K,V}) ->
                                           if(is_binary(V)) ->
@@ -309,7 +311,7 @@ prettify_block(#{hash:=BlockHash,
                                             true ->
                                                 {K,V}
                                           end
-                                  end, block:unpack_sign_ed(Hdr)
+                                  end, Extra
                                  )
                               }
                      end, Signs),

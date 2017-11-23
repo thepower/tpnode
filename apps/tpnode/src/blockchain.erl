@@ -37,6 +37,7 @@ init(_Args) ->
                            <<"block:",LastBlockHash/binary>>,
                            genesis:genesis()
                            ),
+    Conf=load_conf(LDB,LastBlock),
     lager:info("My last block hash ~s",
                [bin2hex:dbin2hex(LastBlockHash)]),
     Res=#{
@@ -44,6 +45,7 @@ init(_Args) ->
       nodeid=>NodeID,
       ldb=>LDB,
       candidates=>#{},
+      settings=>Conf,
       lastblock=>LastBlock
      },
     {ok, run_sync(Res)}.
@@ -111,6 +113,9 @@ handle_call(last_block_height, _From, #{lastblock:=#{header:=#{height:=H}}}=Stat
 handle_call(last_block, _From, #{lastblock:=LB}=State) ->
     {reply, LB, State};
 
+handle_call(settings, _From, #{settings:=S}=State) ->
+    {reply, S, State};
+
 handle_call({get_block,BlockHash}, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
     Block=if BlockHash==last -> LB;
              true ->
@@ -120,11 +125,13 @@ handle_call({get_block,BlockHash}, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
           end,
     {reply, Block, State};
 
-handle_call({get_config,signature}, _From, State) ->
-    {reply, #{
+handle_call({settings,chain,ChainID}, _From, #{settings:=Settings}=State) ->
+    Res=settings:get([chain,ChainID],Settings),
+    {reply, Res, State};
 
-
-      }, State};
+handle_call({settings,signature}, _From, #{settings:=Settings}=State) ->
+    Res=settings:get([keys],Settings),
+    {reply, Res, State};
 
 handle_call(state, _From, State) ->
     {reply, State, State};
@@ -302,7 +309,11 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
         end
     catch Ec:Ee ->
               S=erlang:get_stacktrace(),
-              lager:error("BC new_block error ~p:~p at ~p",[Ec,Ee,hd(S)]),
+              lager:error("BC new_block error ~p:~p",[Ec,Ee]),
+              lists:foreach(
+                fun(Se) ->
+                     lager:error("at ~p",[Se])
+                end, S),
               {noreply, State}
     end;
 
@@ -361,6 +372,23 @@ load_bals(LDB) ->
                          )
     end.
 
+load_conf(LDB,LastBlock) ->
+    case ldb:read_key(LDB, <<"conf">>,
+                      undefined
+                     ) of 
+        undefined ->
+            apply_block_conf(LastBlock, settings:new());
+        Bin ->
+            binary_to_term(Bin)
+    end.
+
+apply_block_conf(Block, Conf0) ->
+    S=maps:get(settings,Block,[]),
+    lists:foldl(
+      fun({Hash,Body},Acc) ->
+              Hash=crypto:hash(sha256,Body),
+              settings:patch(Body,Acc)
+      end, Conf0, S).
 
 save_block(LDB,Block,IsLast) ->
     BlockHash=maps:get(hash,Block),

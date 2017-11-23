@@ -2,7 +2,8 @@
 -export([blkid/1]).
 -export([mkblock/1,binarizetx/1,extract/1,verify/1,sign/2,sign/3]).
 -export([test/0]).
--export([pack_sign_ed/1,unpack_sign_ed/1,splitsig/1]).
+-export([pack_sign_ed/1,unpack_sign_ed/1,splitsig/1,unpacksig/1]).
+-export([checksigs/2,checksig/2]).
 
 test() ->
     {ok,[File]}=file:consult("block.txt"),
@@ -21,6 +22,29 @@ test() ->
     Block=sign(NewB,Key),
     {Block,verify(Block)}.
     
+
+checksig(BlockHash, SrcSig) ->
+    HSig=unpacksig(SrcSig),
+    #{binextra:=BExt,extra:=Xtra,signature:=Sig}=US=block:unpacksig(HSig),
+    PubKey=proplists:get_value(pubkey,Xtra),
+    Msg=crypto:hash(sha256,<<BExt/binary,BlockHash/binary>>),
+    case secp256k1:secp256k1_ecdsa_verify(Msg, Sig, PubKey) of
+        correct ->
+            {true, US};
+        _ ->
+            false
+    end.
+
+checksigs(BlockHash, Sigs) ->
+    lists:foldl(
+      fun(SrcSig,{Succ,Fail}) ->
+              case checksig(BlockHash, SrcSig) of
+                  {true, US} ->
+                      {[US|Succ], Fail};
+                  false ->
+                      {Succ, Fail+1}
+              end
+      end, {[],0}, Sigs).
 
 verify(#{ header:=#{parent:=Parent, height:=H}, 
           hash:=HdrHash, 
@@ -63,37 +87,28 @@ verify(#{ header:=#{parent:=Parent, height:=H},
     if Hash =/= HdrHash ->
            false;
        true ->
-           {ok, TK}=application:get_env(tpnode,trusted_keys),
-           Trusted=lists:map(
-                     fun(K) ->
-                             hex:parse(K)
-                     end,
-                     TK),
-           {true,lists:foldl(
-                   fun(SigExtra,{Succ,Fail}) ->
-                           {Sig,Extra}=splitsig(SigExtra),
-                           EDec=unpack_sign_ed(Extra),
-                           PubKey=proplists:get_value(pubkey,EDec),
-                           case lists:member(PubKey,Trusted) of
-                               false ->
-                                   {Succ, Fail+1};
-                               true ->
-                                   Msg=crypto:hash(sha256,<<Extra/binary,Hash/binary>>),
-                                   case secp256k1:secp256k1_ecdsa_verify(Msg, Sig, PubKey) of
-                                       correct ->
-                                           {[#{pubkey=>PubKey,signature=>Sig,ed=>
-                                               proplists:delete(pubkey, EDec)
-                                              }|Succ], Fail};
-                                       _ ->
-                                           {Succ, Fail+1}
-                                   end
-                           end
-                   end, {[],0}, Sigs)}
+           %{ok, TK}=application:get_env(tpnode,trusted_keys),
+           %Trusted=lists:map(
+           %          fun(K) ->
+           %                  hex:parse(K)
+           %          end,
+           %          TK),
+           {true, checksigs(Hash, Sigs)}
     end.
 
 splitsig(<<255,SLen:8/integer,Rest/binary>>) ->
     <<Signature:SLen/binary,Extradata/binary>>=Rest,
     {Signature,Extradata}.
+
+unpacksig(HSig) when is_map(HSig) ->
+    HSig;
+
+unpacksig(BSig) when is_binary(BSig) ->
+    {Signature,Hdr}=block:splitsig(BSig),
+    #{ binextra => (Hdr),
+       signature => (Signature),
+       extra => block:unpack_sign_ed(Hdr)
+     }.
 
 mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }) ->
     BTxs=binarizetx(Txs),

@@ -1,12 +1,18 @@
 -module(settings).
 
--export([new/0,set/3,patch/2,mp/1,mpk/1,dmp/1,patch1/2]).
+-export([new/0,set/3,patch/2,mp/1,mpk/1,dmp/1,get/2]).
 
 new() ->
     #{}.
 
 set(A,B,C) ->
     change(set,A,B,C).
+
+get([],M) -> M;
+get([Hd|Path],M) when is_list(Path) ->
+    H1=maps:get(Hd,M,#{}),
+    get(Path,H1).
+
 
 change(Action,[Element|Path],Value,M,FPath) when 
       Element==<<"chain">> orelse

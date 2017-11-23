@@ -54,6 +54,13 @@ handle_cast({hello, PID, WallClock}, State) ->
                                  )
                }};
 
+handle_cast({setdelay,Ms}, State) when Ms>900 ->
+    lager:info("Setting ~p ms block delay",[Ms]),
+    {noreply, State#{
+                tickms=>Ms
+               }
+    };
+
 handle_cast(_Msg, State) ->
     lager:info("Cast ~p",[_Msg]),
     {noreply, State}.
