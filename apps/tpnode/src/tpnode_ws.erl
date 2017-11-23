@@ -1,31 +1,24 @@
 -module(tpnode_ws).
--behaviour(cowboy_http_handler).
--behaviour(cowboy_websocket_handler).
--export([init/3, handle/2, terminate/3]).
+-export([init/2]).
 -export([
-         websocket_init/3, websocket_handle/3,
-         websocket_info/3, websocket_terminate/3
+         websocket_init/1, websocket_handle/2,
+         websocket_info/2
         ]).
 
-init({tcp, http}, _Req, _Opts) ->
-    {upgrade, protocol, cowboy_websocket}.
+init(Req, Opts) ->
+    {cowboy_websocket, Req, Opts}.
 
-handle(Req, State) ->
-    lager:debug("Request not expected: ~p", [Req]),
-    {ok, Req2} = cowboy_http_req:reply(404, [{'Content-Type', <<"text/html">>}]),
-    {ok, Req2, State}.
-
-websocket_init(_TransportName, Req, _Opts) ->
+websocket_init(_State) ->
     lager:debug("init websocket"),
-    {ok, Req, 100}.
+    {ok, 100}.
 
-websocket_handle({text, _Msg}, Req, 0) ->
+websocket_handle({text, _Msg}, 0) ->
     {reply, {text, 
              jsx:encode(#{
                error=><<"subs limit reached">>
-              })}, Req, 0, hibernate };
+              })}, 0};
 
-websocket_handle({text, Msg}, Req, State) ->
+websocket_handle({text, Msg}, State) ->
     try
         JS=jsx:decode(Msg,[return_maps]),
         lager:info("WS ~p",[JS]),
@@ -51,31 +44,24 @@ websocket_handle({text, Msg}, Req, State) ->
                    ok=>true,
                    subscribe=>Ret,
                    moresubs=>State-1
-                  })}, Req, State-1, hibernate }
+                  })}, State-1 }
     catch _:_ ->
               lager:error("WS error ~p",[Msg]),
-              {ok, Req, State, hibernate}
+              {ok, State}
     end;
-    %lager:info("Got Data: ~p from ~p", [Msg,State]),
-    %{reply, {text, << "responding to ", Msg/binary >>}, Req, State, hibernate };
 
-websocket_handle(_Any, Req, State) ->
-    {reply, {text, << "whut?">>}, Req, State, hibernate }.
+websocket_handle(_Any, State) ->
+    {reply, {text, << "whut?">>}, State}.
 
-websocket_info({message, Msg}, Req, State) ->
+websocket_info({message, Msg}, State) ->
 %    lager:info("websocket message ~p",[Msg]),
-    {reply, {text, Msg}, Req, State};
+    {reply, {text, Msg}, State};
 
-websocket_info({timeout, _Ref, Msg}, Req, State) ->
-    {reply, {text, Msg}, Req, State};
+websocket_info({timeout, _Ref, Msg}, State) ->
+    {reply, {text, Msg}, State};
 
-websocket_info(_Info, Req, State) ->
+websocket_info(_Info, State) ->
     lager:info("websocket info ~p",[_Info]),
-    {ok, Req, State, hibernate}.
+    {ok, State}.
 
-websocket_terminate(_Reason, _Req, _State) ->
-    ok.
-
-terminate(_Reason, _Req, _State) ->
-    ok.
 

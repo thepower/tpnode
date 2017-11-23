@@ -35,11 +35,8 @@ init(_Args) ->
     LastBlockHash=ldb:read_key(LDB,<<"lastblock">>,<<0,0,0,0,0,0,0,0>>),
     LastBlock=ldb:read_key(LDB,
                            <<"block:",LastBlockHash/binary>>,
-                           #{ hash=><<0,0,0,0,0,0,0,0>>,
-                              header=>#{
-                                height=>0
-                               }
-                            }),
+                           genesis:genesis()
+                           ),
     lager:info("My last block hash ~s",
                [bin2hex:dbin2hex(LastBlockHash)]),
     Res=#{
@@ -123,6 +120,12 @@ handle_call({get_block,BlockHash}, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
           end,
     {reply, Block, State};
 
+handle_call({get_config,signature}, _From, State) ->
+    {reply, #{
+
+
+      }, State};
+
 handle_call(state, _From, State) ->
     {reply, State, State};
 
@@ -140,7 +143,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, _PID},
              }=State) when BlockHash==PBlockHash ->
     lager:info("Arrived block from ~p Verify block with ~p",
                [node(_PID),maps:keys(Blk)]),
-    {true,{Success,_}}=mkblock:verify(Blk),
+    {true,{Success,_}}=block:verify(Blk),
     lager:info("Extra confirmation of prev. block ~s ~w",
                [blkid(BlockHash),length(Success)]),
     NewPBlk=case length(Success)>0 of
@@ -190,7 +193,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
     MinSig=2,
     try
         T0=erlang:system_time(),
-        {true,{Success,_}}=mkblock:verify(Blk),
+        {true,{Success,_}}=block:verify(Blk),
         T1=erlang:system_time(),
         Txs=maps:get(txs,Blk,[]),
         lager:info("~s from ~s New block ~w arrived ~s, txs ~b, verify (~.3f ms)", 
@@ -299,7 +302,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
         end
     catch Ec:Ee ->
               S=erlang:get_stacktrace(),
-              lager:error("New_block error ~p:~p at ~p",[Ec,Ee,hd(S)]),
+              lager:error("BC new_block error ~p:~p at ~p",[Ec,Ee,hd(S)]),
               {noreply, State}
     end;
 

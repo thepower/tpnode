@@ -264,9 +264,9 @@ h(_Method, [<<"status">>], Req) ->
 %PRIVATE API
 
 prettify_block(#{hash:=BlockHash,
-                 header:=#{ parent:=BlockParent, txs:=TXs }=BlockHeader,
-                 sign:=Signs
+                 header:=BlockHeader
                 }=Block0) ->
+    Signs=maps:get(sign,Block0,[]),
     Bals=maps:fold(
            fun({Addr,Cur},Val0,Acc) ->
                    Val=maps:put(lastblk,bin2hex:dbin2hex(maps:get(lastblk,Val0,<<0,0,0,0,0,0,0,0>>)),Val0),
@@ -281,15 +281,36 @@ prettify_block(#{hash:=BlockHash,
           ),
     Block1=Block0#{
              hash=>bin2hex:dbin2hex(BlockHash),
-             header=>BlockHeader#{
-                       parent=>bin2hex:dbin2hex(BlockParent),
-                       txs=>bin2hex:dbin2hex(TXs)
-                      },
+             header=>maps:map(
+                       fun(parent,V) ->
+                               bin2hex:dbin2hex(V);
+                          (_K,V) when is_binary(V) andalso size(V) == 32 ->
+                               bin2hex:dbin2hex(V);
+                          (_K,V) ->
+                               V
+                       end, BlockHeader),
+             settings=>lists:map(
+                         fun({CHdr,CBody}) ->
+                                 DMP=settings:dmp(CBody),
+                                 %DMP=base64:encode(CBody),
+                                 {bin2hex:dbin2hex(CHdr),
+                                  DMP}
+                         end, maps:get(settings,Block0,[])),
              sign=>lists:map(
-                     fun({Public,Signature}) ->
-                             #{ nodeid=>address:pub2addr(node,Public),
-                                public_key=> bin2hex:dbin2hex(Public),
-                                signature=> bin2hex:dbin2hex(Signature)
+                     fun(BSig) ->
+                             {Signature,Hdr}=block:splitsig(BSig),
+                             #{ extra => bin2hex:dbin2hex(Hdr),
+                                signature => bin2hex:dbin2hex(Signature),
+                                decodeextra =>
+                                lists:map(
+                                  fun({K,V}) ->
+                                          if(is_binary(V)) ->
+                                                {K,bin2hex:dbin2hex(V)};
+                                            true ->
+                                                {K,V}
+                                          end
+                                  end, block:unpack_sign_ed(Hdr)
+                                 )
                               }
                      end, Signs),
              bals=>Bals

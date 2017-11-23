@@ -141,11 +141,14 @@ handle_info(process, #{preptxl:=PreTXL}=State) ->
                                                          length(Success),
                                                          maps:size(NewBal)
                                                         ]),
+    %cast whole block to local blockvote
+    gen_server:cast(blockvote, {new_block, Blk, self()}),
     lists:foreach(
       fun(Pid)-> 
-              gen_server:cast(Pid, {new_block, Blk, self()}) 
+              %cast signature for all blockvotes
+              gen_server:cast(Pid, {signature, maps:get(hash,Blk), maps:get(sign,Blk)}) 
       end, 
-      pg2:get_members(blockchain)
+      pg2:get_members(blockvote)
      ),
     {noreply, State#{preptxl=>[],parent=>undefined}};
 

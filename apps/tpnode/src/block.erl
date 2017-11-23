@@ -1,8 +1,8 @@
 -module(block).
 -export([blkid/1]).
--export([mkblock/1,binarizetx/1,extract/1,verify/1,sign/2]).
+-export([mkblock/1,binarizetx/1,extract/1,verify/1,sign/2,sign/3]).
 -export([test/0]).
--export([pack_sign_ed/1,unpack_sign_ed/1]).
+-export([pack_sign_ed/1,unpack_sign_ed/1,splitsig/1]).
 
 test() ->
     {ok,[File]}=file:consult("block.txt"),
@@ -24,10 +24,13 @@ test() ->
 
 verify(#{ header:=#{parent:=Parent, height:=H}, 
           hash:=HdrHash, 
-          txs:=Txs, 
-          settings:=Settings, 
-          sign:=Sigs, 
-          bals:=Bals }) ->
+          sign:=Sigs
+        }=Blk) ->
+
+    Txs=maps:get(txs,Blk,[]),
+    Bals=maps:get(bals,Blk,#{}),
+    Settings=maps:get(settings,Blk,[]),
+
     BTxs=binarizetx(Txs),
     TxMT=gb_merkle_trees:from_list(BTxs),
     %TxHash=crypto:hash(sha256,BTxs),
@@ -196,13 +199,16 @@ signhash(MsgHash, Timestamp, PrivKey) ->
     Signature=secp256k1:secp256k1_ecdsa_sign(Msg, PrivKey, default, <<>>),
     <<255,(size(Signature)):8/integer,Signature/binary,BinExtra/binary>>.
 
-sign(Blk, PrivKey) when is_map(Blk) ->
+sign(Blk, Timestamp, PrivKey) when is_map(Blk) ->
     Hash=maps:get(hash,Blk),
-    Timestamp=os:system_time(millisecond),
     Sign=signhash(Hash, Timestamp, PrivKey),
     Blk#{
       sign=>[Sign|maps:get(sign,Blk,[])]
      }.
+
+sign(Blk, PrivKey) when is_map(Blk) ->
+    Timestamp=os:system_time(millisecond),
+    sign(Blk, Timestamp, PrivKey).
 
 unpack_sign_ed(Bin) -> unpack_sign_ed(Bin,[]).
 unpack_sign_ed(<<>>,Acc) -> lists:reverse(Acc);
