@@ -56,8 +56,18 @@ gentx(BFrom,To,Amount,HPrivKey) when is_binary(BFrom)->
                   [],[{body_format,binary}])
     }.
 
-
-
-    
-
-
+test_sign_patch() ->
+    {ok,HexPrivKey}=application:get_env(tpnode,privkey),
+    PrivKey=hex:parse(HexPrivKey),
+    {Patch, Signature}=settings:sign_patch(
+      [
+       #{t=>set,p=>[globals,patchsigs], v=>2},
+       #{t=>set,p=>[chain,0,blocktime], v=>3}
+      ],
+      PrivKey),
+    MPatch=#{
+       patch=>Patch,
+       signatures=>[Signature]
+      },
+    gen_server:call(txpool, {patch, MPatch}).
+    %settings:pack_patch(Patch,[Signature]).

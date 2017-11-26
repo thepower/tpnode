@@ -1,6 +1,24 @@
 -module(settings).
 
 -export([new/0,set/3,patch/2,mp/1,mpk/1,dmp/1,get/2]).
+-export([pack_patch/2,unpack_patch/2,sign_patch/2]).
+
+pack_patch(Patch, Sigs) when is_list(Sigs) ->
+    msgpack:pack([Patch,Sigs]).
+
+unpack_patch(Bin) ->
+    [Patch,Sigs]=msgpack:unpack(Bin).
+
+sign_patch(Patch, PrivKey) when is_list(Patch) ->
+    sign_patch(settings:mp(Patch), PrivKey);
+
+sign_patch(Patch, PrivKey) when is_binary(Patch) ->
+    {Patch,
+     block:signhash(
+       crypto:hash(sha256,Patch),
+       os:system_time(millisecond),
+       PrivKey)
+    }.
 
 new() ->
     #{}.

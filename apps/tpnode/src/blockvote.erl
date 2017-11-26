@@ -28,22 +28,20 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-    pg2:create(blockvote),
-    pg2:join(blockvote,self()),
-    LastBlock=gen_server:call(blockchain,last_block),
-    lager:info("My last block hash ~s",
-               [bin2hex:dbin2hex(maps:get(hash,LastBlock))]),
-    Res=#{
-      candidates=>#{},
-      lastblock=>LastBlock
-     },
-    {ok, Res}.
+    self() ! init,
+    {ok, undefined}.
+
+handle_call(_, _From, undefined) ->
+    {reply, notready, undefined};
 
 handle_call(state, _From, State) ->
     {reply, State, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
+
+handle_cast(_, undefined) ->
+    {noreply, undefined};
 
 handle_cast({signature, BlockHash, Sigs}, State) ->
     Candidatesig=maps:get(candidatesig,State,#{}),
@@ -57,7 +55,7 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID},
                lastblock:=#{hash:=LBlockHash}=LastBlock
              }=State) ->
 
-    lager:info("New block (~p/~p) arrived (~s/~s)", 
+    lager:debug("BV New block (~p/~p) arrived (~s/~s)", 
                [
                 maps:get(height,maps:get(header,Blk)),
                 maps:get(height,maps:get(header,LastBlock)),
@@ -71,10 +69,29 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID},
                    candidates => maps:put(BlockHash,Blk,Candidates)
                  },
     {noreply, is_block_ready(BlockHash,State2)};
+
+handle_cast(blockchain_sync, State) ->
+    LastBlock=gen_server:call(blockchain,last_block),
+    Res=State#{
+      lastblock=>LastBlock
+     },
+    {noreply, Res};
         
 handle_cast(_Msg, State) ->
     lager:info("Cast ~p",[_Msg]),
     {noreply, State}.
+
+handle_info(init, undefined) ->
+    LastBlock=gen_server:call(blockchain,last_block),
+    lager:info("BV My last block hash ~s",
+               [bin2hex:dbin2hex(maps:get(hash,LastBlock))]),
+    pg2:create(blockvote),
+    pg2:join(blockvote,self()),
+    Res=#{
+      candidates=>#{},
+      lastblock=>LastBlock
+     },
+    {noreply, Res};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -98,8 +115,11 @@ checksig(BlockHash, Sigs, Acc0) ->
       fun(Signature,Acc) ->
               case block:checksig(BlockHash,Signature) of
                   {true, #{extra:=Xtra}=US} ->
-                      lager:info("~s Check sig ~p",[blkid(BlockHash),Xtra]),
                       Pub=proplists:get_value(pubkey,Xtra),
+                      lager:debug("BV ~s Check sig ~s",[
+                                      blkid(BlockHash),
+                                      bin2hex:dbin2hex(Pub)
+                                     ]),
                       maps:put(Pub,US,Acc);
                   false ->
                       Acc
@@ -125,56 +145,65 @@ is_block_ready(BlockHash,
              end,
         Blk1=Blk0#{sign=>maps:values(Sigs)},
         {true,{Success,_}}=block:verify(Blk1),
+        lager:error("Check keys"),
         T1=erlang:system_time(),
         Txs=maps:get(txs,Blk0,[]),
-        lager:info("~s New block ~w arrived ~s, txs ~b, verify (~.3f ms)", 
-                   [node(),maps:get(height,maps:get(header,Blk0)),
-                    blkid(BlockHash),length(Txs),(T1-T0)/1000000]),
-        if length(Success)>MinSig ->
-               Blk=Blk0#{sign=>Success},
-               %enough signs. use block
-               NewPHash=maps:get(parent,maps:get(header,Blk0)),
+        if length(Success)<MinSig ->
+               lager:debug("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)", 
+                           [maps:get(height,maps:get(header,Blk0)),
+                            blkid(BlockHash),
+                            length(Txs),
+                            length(Success),
+                            (T1-T0)/1000000]),
+               throw(notready);
+           true -> 
+               lager:info("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)", 
+                          [maps:get(height,maps:get(header,Blk0)),
+                           blkid(BlockHash),
+                           length(Txs),
+                           length(Success),
+                           (T1-T0)/1000000])
+        end,
+        Blk=Blk0#{sign=>Success},
+        %enough signs. use block
+        NewPHash=maps:get(parent,maps:get(header,Blk0)),
 
 
-               if LBlockHash=/=NewPHash ->
-                      lager:info("Need resynchronize, height ~p/~p new block parent ~s, but my ~s",
-                                 [
-                                  maps:get(height,maps:get(header,Blk)),
-                                  maps:get(height,maps:get(header,LastBlock)),
-                                  blkid(NewPHash),
-                                  blkid(LBlockHash)
-                                 ]),
-                      gen_server:cast(blockchain,synchronize),
-                      {noreply, State#{
-                                  candidates=>#{}
-                                 }
-                      };
-                  true ->
-                      %normal block installation
-
-                      NewLastBlock=LastBlock#{
-                                     child=>BlockHash
-                                    },
-
-                      T3=erlang:system_time(),
-                      lager:info("enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
-                                 [blkid(BlockHash),
-                                  maps:get(height,maps:get(header,Blk)),
-                                  (T3-T0)/1000000
-                                 ]),
-
-                      gen_server:cast(blockchain,{new_block,Blk}),
-
-                      State#{
-                        prevblock=> NewLastBlock,
-                        lastblock=> Blk,
-                        candidates=>#{}
-                       }
-
-               end;
+        if LBlockHash=/=NewPHash ->
+               lager:info("BV Need resynchronize, height ~p/~p new block parent ~s, but my ~s",
+                          [
+                           maps:get(height,maps:get(header,Blk)),
+                           maps:get(height,maps:get(header,LastBlock)),
+                           blkid(NewPHash),
+                           blkid(LBlockHash)
+                          ]),
+               gen_server:cast(blockchain,synchronize),
+               State#{
+                 candidates=>#{}
+                };
            true ->
-               %not enough
-               State
+               %normal block installation
+
+               NewLastBlock=LastBlock#{
+                              child=>BlockHash
+                             },
+
+               T3=erlang:system_time(),
+               lager:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
+                          [blkid(BlockHash),
+                           maps:get(height,maps:get(header,Blk)),
+                           (T3-T0)/1000000
+                          ]),
+
+               gen_server:cast(blockchain,{new_block,Blk, self()}),
+
+               State#{
+                 prevblock=> NewLastBlock,
+                 lastblock=> Blk,
+                 candidates=>#{},
+                 candidatesig=>#{}
+                }
+
         end
     catch throw:notready ->
               State;

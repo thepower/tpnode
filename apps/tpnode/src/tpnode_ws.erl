@@ -6,7 +6,9 @@
         ]).
 
 init(Req, Opts) ->
-    {cowboy_websocket, Req, Opts}.
+    {cowboy_websocket, Req, Opts,#{
+                              idle_timeout => 600000
+                             }}.
 
 websocket_init(_State) ->
     lager:debug("init websocket"),
@@ -17,6 +19,9 @@ websocket_handle({text, _Msg}, 0) ->
              jsx:encode(#{
                error=><<"subs limit reached">>
               })}, 0};
+
+websocket_handle({text, <<"ping">>}, State) ->
+    {ok, State};
 
 websocket_handle({text, Msg}, State) ->
     try

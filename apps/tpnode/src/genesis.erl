@@ -24,6 +24,7 @@ new(PrivKey) ->
 settings() ->
     settings:mp(
       [
+       #{t=>set,p=>[globals,patchsigs], v=>2},
        #{t=>set,p=>[chains], v=>[0]},
        #{t=>set,p=>[chain,0,minsig], v=>2},
        #{t=>set,p=>[chain,0,blocktime], v=>5},

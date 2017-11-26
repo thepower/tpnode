@@ -38,10 +38,10 @@ init([]) ->
     {ok, { {one_for_one, 5, 10}, 
            [
             { blockchain, {blockchain,start_link,[]}, permanent, 5000, worker, []},
+            { blockvote, {blockvote,start_link,[]}, permanent, 5000, worker, []},
             { ws_dispatcher, {tpnode_ws_dispatcher,start_link,[]}, permanent, 5000, worker, []},
             { synchronizer, {synchronizer,start_link,[]}, permanent, 5000, worker, []},
             { mkblock, {mkblock,start_link,[]}, permanent, 5000, worker, []},
-            { blockvote, {blockvote,start_link,[]}, permanent, 5000, worker, []},
             { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []},
             tpnode_http:childspec()
            ]} }.

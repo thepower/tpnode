@@ -75,7 +75,13 @@ process_response({Status, Body}, Req) when is_integer(Status) andalso is_map(Bod
 process_response({Status, Body}, Req) when is_integer(Status) andalso is_binary(Body) ->
     {Status, Body, Req};
 
+process_response({Status, Body}, Req) when is_integer(Status) andalso is_list(Body) ->
+    {Status, Body, Req};
+
 process_response({Req, Status, Body}, _xReq) when is_integer(Status) andalso is_binary(Body) ->
+    {Status, Body, Req};
+
+process_response({Req, Status, Body}, _xReq) when is_integer(Status) andalso is_list(Body) ->
     {Status, Body, Req}.
 
 parse_reqjs(Req) ->

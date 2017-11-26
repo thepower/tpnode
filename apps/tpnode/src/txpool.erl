@@ -43,17 +43,36 @@ init(_Args) ->
 handle_call(state, _Form, State) ->
     {reply, State, State};
 
+handle_call({patch, #{
+               patch:=Patch,
+               signatures:=Sigs
+              }}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
+    PatchHash=crypto:hash(sha256,Patch),
+    Res=block:checksigs(PatchHash, Sigs),
+    lager:error("Check keys ~p",[Res]),
+    TxID=generate_txid(Node),
+    {reply, 
+     {ok, TxID}, 
+     State#{
+       queue=>queue:in({TxID,
+                        #{
+                          patch=>Patch,
+                          signatures=>Sigs
+                         }},Queue)
+      }
+    };
+
 handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
     try
-    case tx:verify(BinTx) of
-        {ok, Tx} -> 
-            TxID=generate_txid(Node),
-            {reply, {ok, TxID}, State#{
-                                  queue=>queue:in({TxID,Tx},Queue)
-                                 }};
-        Err ->
-            {reply, {error, Err}, State}
-    end
+        case tx:verify(BinTx) of
+            {ok, Tx} -> 
+                TxID=generate_txid(Node),
+                {reply, {ok, TxID}, State#{
+                                      queue=>queue:in({TxID,Tx},Queue)
+                                     }};
+            Err ->
+                {reply, {error, Err}, State}
+        end
     catch Ec:Ee ->
               Stack=erlang:get_stacktrace(),
               lager:info("error at ~p",[hd(Stack)]),
@@ -61,7 +80,7 @@ handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
     end;
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+    {reply, unknown_request, State}.
 
 handle_cast(prepare, #{inprocess:=InProc0,queue:=Queue,nodeid:=Node}=State) ->
     %case hashqueue:head(InProc0) of

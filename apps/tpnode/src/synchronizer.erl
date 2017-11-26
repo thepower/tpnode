@@ -41,6 +41,14 @@ init(_Args) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+
+handle_cast(settings, #{tickms:=Time}=State) ->
+    BlockTime=blockchain:get_settings(blocktime,Time div 1000),
+    {noreply, State#{
+                tickms=>BlockTime*1000
+               }
+    };
+
 handle_cast({hello, PID, WallClock}, State) ->
     Behind=erlang:system_time(microsecond)-WallClock,
     lager:debug("Hello from ~p our clock diff ~p",[PID,Behind]),
@@ -52,7 +60,8 @@ handle_cast({hello, PID, WallClock}, State) ->
                                   },
                                   maps:get(offsets,State,#{})
                                  )
-               }};
+               }
+    };
 
 handle_cast({setdelay,Ms}, State) when Ms>900 ->
     lager:info("Setting ~p ms block delay",[Ms]),
@@ -70,14 +79,13 @@ handle_info(ticktimer,
     T=erlang:system_time(microsecond),
     MeanMs=round((T+MeanDiff)/1000),
     Wait=Delay-(MeanMs rem Delay),
-%    lager:info("Time to tick. Mean hospital time ~w, next in ~w, last ~w",
-%               [(MeanMs rem 3600000)/1000,Wait,(T-_T0)/1000]
-%              ),
     gen_server:cast(txpool,prepare),
-    erlang:send_after(200, whereis(mkblock), preocess),
+    erlang:send_after(200, whereis(mkblock), process),
 %    gen_server:cast(mkblock,process),
 
     catch erlang:cancel_timer(Tmr),
+
+    lager:info("Time to tick. next in ~w", [Wait]),
     {noreply,State#{
                ticktimer=>erlang:send_after(Wait, self(), ticktimer),
                prevtick=>T
@@ -86,7 +94,7 @@ handle_info(ticktimer,
 
 
 
-handle_info(selftimer5, #{timer5:=Tmr,offsets:=Offs}=State) ->
+handle_info(selftimer5, #{tickms:=Ms,timer5:=Tmr,offsets:=Offs}=State) ->
     Friends=pg2:get_members(synchronizer)--[self()],
     {Avg,Off2}=lists:foldl(
           fun(Friend,{Acc,NewOff}) ->
@@ -109,8 +117,8 @@ handle_info(selftimer5, #{timer5:=Tmr,offsets:=Offs}=State) ->
     if(Friends==[]) ->
           lager:debug("I'm alone in universe my time ~w",[(MeanMs rem 3600000)/1000]);
       true ->
-          lager:info("~s I have ~b friends, and mean hospital time ~w, mean diff ~w",
-                     [node(),length(Friends),(MeanMs rem 3600000)/1000,MeanDiff/1000]
+          lager:info("I have ~b friends, and mean hospital time ~w, mean diff ~w blocktime ~w",
+                     [length(Friends),(MeanMs rem 3600000)/1000,MeanDiff/1000,Ms]
                     )
     end,
 

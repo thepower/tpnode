@@ -291,30 +291,25 @@ prettify_block(#{hash:=BlockHash,
                        end, BlockHeader),
              settings=>lists:map(
                          fun({CHdr,CBody}) ->
-                                 DMP=settings:dmp(CBody),
+                                 %DMP=settings:dmp(CBody),
                                  %DMP=base64:encode(CBody),
-                                 {bin2hex:dbin2hex(CHdr),
-                                  DMP}
-                         end, maps:get(settings,Block0,[])),
-             sign=>lists:map(
-                     fun(BSig) ->
-                             #{binextra:=Hdr,
-                               extra:=Extra,
-                               signature:=Signature}=block:unpacksig(BSig),
-                             #{ binextra => bin2hex:dbin2hex(Hdr),
-                                signature => bin2hex:dbin2hex(Signature),
-                                extra =>
-                                lists:map(
-                                  fun({K,V}) ->
-                                          if(is_binary(V)) ->
-                                                {K,bin2hex:dbin2hex(V)};
-                                            true ->
-                                                {K,V}
-                                          end
-                                  end, Extra
-                                 )
-                              }
-                     end, Signs),
+                                 {CHdr, maps:map(
+                                          fun(patch,Payload) ->
+                                                  settings:dmp(Payload);
+                                             (signatures,Sigs) ->
+                                                  show_signs(Sigs);
+                                             (_K,V) -> V
+                                          end, CBody)}
+                         end, 
+                         maps:get(settings,Block0,[])
+                        ),
+%             lists:map(
+%               fun({TxID,TxP}) ->
+%                       {TxID,settings:unpack_patch(TxP)}
+%               end,
+%               maps:get(settings,Block0,[])
+%              ),
+             sign=>show_signs(Signs),
              bals=>Bals
             },
     case maps:get(child,Block1,undefined) of
@@ -325,4 +320,26 @@ prettify_block(#{hash:=BlockHash,
 
 prettify_block(#{hash:=<<0,0,0,0,0,0,0,0>>}=Block0) -> 
     Block0#{ hash=><<"0000000000000000">> }.
+
+show_signs(Signs) ->
+    lists:map(
+      fun(BSig) ->
+              #{binextra:=Hdr,
+                extra:=Extra,
+                signature:=Signature}=block:unpacksig(BSig),
+              #{ binextra => bin2hex:dbin2hex(Hdr),
+                 signature => bin2hex:dbin2hex(Signature),
+                 extra =>
+                 lists:map(
+                   fun({K,V}) ->
+                           if(is_binary(V)) ->
+                                 {K,bin2hex:dbin2hex(V)};
+                             true ->
+                                 {K,V}
+                           end
+                   end, Extra
+                  )
+               }
+      end, Signs).
+
 

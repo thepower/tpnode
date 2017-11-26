@@ -4,6 +4,7 @@
 -export([test/0]).
 -export([pack_sign_ed/1,unpack_sign_ed/1,splitsig/1,unpacksig/1]).
 -export([checksigs/2,checksig/2]).
+-export([signhash/3]).
 
 test() ->
     {ok,[File]}=file:consult("block.txt"),
@@ -60,7 +61,8 @@ verify(#{ header:=#{parent:=Parent, height:=H},
     %TxHash=crypto:hash(sha256,BTxs),
     BalsBin=bals2bin(Bals),
     BalsMT=gb_merkle_trees:from_list(BalsBin),
-    SettingsMT=gb_merkle_trees:from_list(Settings),
+    BSettings=binarize_settings(Settings),
+    SettingsMT=gb_merkle_trees:from_list(BSettings),
 
     TxRoot=gb_merkle_trees:root_hash(TxMT),
     BalsRoot=gb_merkle_trees:root_hash(BalsMT),
@@ -110,13 +112,21 @@ unpacksig(BSig) when is_binary(BSig) ->
        extra => block:unpack_sign_ed(Hdr)
      }.
 
+binarize_settings([]) -> [];
+binarize_settings([{TxID,#{ patch:=Patch,
+                            signatures:=Sigs
+                          }}|Rest]) ->
+    [{TxID,settings:pack_patch(Patch,Sigs)}|binarize_settings(Rest)].
+
+
 mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }) ->
     BTxs=binarizetx(Txs),
     TxMT=gb_merkle_trees:from_list(BTxs),
     %TxHash=crypto:hash(sha256,BTxs),
     BalsBin=bals2bin(Bals),
     BalsMT=gb_merkle_trees:from_list(BalsBin),
-    SettingsMT=gb_merkle_trees:from_list(Settings),
+    BSettings=binarize_settings(Settings),
+    SettingsMT=gb_merkle_trees:from_list(BSettings),
 
     TxRoot=gb_merkle_trees:root_hash(TxMT),
     BalsRoot=gb_merkle_trees:root_hash(BalsMT),
