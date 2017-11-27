@@ -5,19 +5,27 @@ genesis() ->
     {ok,[Genesis]}=file:consult("genesis.txt"),
     Genesis.
 
-new(PrivKey) ->
-    Genesis_settings=settings(),
+new(HPrivKey) ->
+    PrivKey=hex:parse(HPrivKey),
+    {Patch,PatchSig}=settings:sign_patch(settings(),PrivKey),
     Genesis=block:sign(
               block:mkblock(
                 #{ parent=><<0,0,0,0,0,0,0,0>>,
                    height=>0,
                    txs=>[],
                    bals=>#{},
-                   settings=>[{crypto:hash(sha256,Genesis_settings),Genesis_settings}],
+                   settings=>[
+                              {
+                               bin2hex:dbin2hex(crypto:strong_rand_bytes(16)),
+                               #{ patch=>Patch,
+                                  signatures=>[PatchSig]
+                                }
+                               }
+                             ],
                    sign=>[]
                  }),
-              1511332678000,
-              hex:parse(PrivKey)
+              os:system_time(millisecond),
+              PrivKey
              ),
     file:write_file("genesis.txt", io_lib:format("~p.~n", [Genesis])).
 

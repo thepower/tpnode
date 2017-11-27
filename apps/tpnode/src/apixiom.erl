@@ -16,7 +16,7 @@ init(Req0, {Target, Opts}) ->
                  false ->
                      ResReq
              end,
-    lager:info("Res ~p",[Response]),
+    %lager:debug("Res ~p",[Response]),
     {ok, cowboy_req:reply(Status, #{}, Body, Response), Opts}.
 
 bodyjs(Req) ->
@@ -60,7 +60,7 @@ process_response({Status, [], Body}, Req) when is_integer(Status) ->
     process_response({Status, Body}, Req);
 
 process_response({Status, [{Hdr,Val}|Headers], Body}, Req) when is_integer(Status) ->
-    lager:info("resp ~p: ~p",[Hdr,Val]),
+    %lager:debug("resp ~p: ~p",[Hdr,Val]),
     process_response(
       {Status, Headers, Body}, 
       cowboy_req:set_resp_header(Hdr, Val, Req)

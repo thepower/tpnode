@@ -44,6 +44,15 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
     };
 
 
+h(<<"GET">>, [<<"settings">>], _Req) ->
+    Block=blockchain:get_settings(),
+    {200,
+     #{ result => <<"ok">>,
+        settings => Block
+      }
+    };
+
+
 h(<<"POST">>, [<<"benchmark">>,N], _Req) ->
     Addresses=lists:map(
         fun(_) ->

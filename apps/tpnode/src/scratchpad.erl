@@ -61,8 +61,9 @@ test_sign_patch() ->
     PrivKey=hex:parse(HexPrivKey),
     {Patch, Signature}=settings:sign_patch(
       [
-       #{t=>set,p=>[globals,patchsigs], v=>2},
-       #{t=>set,p=>[chain,0,blocktime], v=>3}
+%       #{t=>set,p=>[globals,patchsigs], v=>2},
+       #{t=>set,p=>[chain,0,blocktime], v=>1},
+       #{t=>set,p=>[chain,0,allowempty], v=>0}
       ],
       PrivKey),
     MPatch=#{

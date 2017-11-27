@@ -1,13 +1,14 @@
 -module(settings).
 
 -export([new/0,set/3,patch/2,mp/1,mpk/1,dmp/1,get/2]).
--export([pack_patch/2,unpack_patch/2,sign_patch/2]).
+-export([pack_patch/2,unpack_patch/1,sign_patch/2]).
 
 pack_patch(Patch, Sigs) when is_list(Sigs) ->
     msgpack:pack([Patch,Sigs]).
 
 unpack_patch(Bin) ->
-    [Patch,Sigs]=msgpack:unpack(Bin).
+    [Patch,Sigs]=msgpack:unpack(Bin),
+    {Patch,Sigs}.
 
 sign_patch(Patch, PrivKey) when is_list(Patch) ->
     sign_patch(settings:mp(Patch), PrivKey);
@@ -37,6 +38,8 @@ change(Action,[Element|Path],Value,M,FPath) when
       Element==<<"chains">> orelse
       Element==<<"nodechain">> orelse
       Element==<<"keys">> orelse
+      Element==<<"globals">> orelse
+      Element==<<"patchsig">> orelse
       Element==<<"blocktime">> orelse
       Element==<<"minsig">> orelse
       Element==<<"nodes">> ->
@@ -124,6 +127,19 @@ patch1([#{<<"t">>:=Action,<<"p">>:=K,<<"v">>:=V}|Settings],M) ->
     lager:debug("Settings ~s K ~p v ~p",[Action,K,V]),
     M1=change(action(Action),K,V,M),
     patch1(Settings,M1).
+
+patch({_TxID,MP},M) when is_binary(MP)->
+    {Patch,Sigs}=unpack_patch(MP),
+    patch(#{patch=>Patch,
+            signatures=>Sigs},M);
+
+patch({_TxID,#{patch:=Patch,
+               signatures:=Sigs}},M) ->
+    patch(#{patch=>Patch,
+            signatures=>Sigs},M);
+
+patch(#{patch:=Patch},M) ->
+    patch(Patch,M);
 
 patch(MP,M) ->
     DMP=dmp(MP),

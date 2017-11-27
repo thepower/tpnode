@@ -43,6 +43,7 @@ handle_call(_Request, _From, State) ->
 
 
 handle_cast(settings, #{tickms:=Time}=State) ->
+    lager:info("settings cast received"),
     BlockTime=blockchain:get_settings(blocktime,Time div 1000),
     {noreply, State#{
                 tickms=>BlockTime*1000

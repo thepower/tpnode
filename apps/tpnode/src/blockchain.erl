@@ -7,7 +7,7 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
--export([get_settings/2]).
+-export([get_settings/2,get_settings/0,apply_block_conf/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -38,7 +38,7 @@ init(_Args) ->
                            <<"block:",LastBlockHash/binary>>,
                            genesis:genesis()
                            ),
-    Conf=load_conf(LDB,LastBlock),
+    Conf=load_sets(LDB,LastBlock),
     lager:info("My last block hash ~s",
                [bin2hex:dbin2hex(LastBlockHash)]),
     Res=#{
@@ -72,10 +72,7 @@ handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
                     table=>tables:init(#{index=>[address,cur]}),
                     settings=>settings:new()
                    }, LDB, First),
-        gen_server:cast(txpool,settings),
-        gen_server:cast(mkblock,settings),
-        gen_server:cast(blockvote,settings),
-        gen_server:cast(synchronizer,settings),
+        notify_settings(),
         {reply, Res, maps:merge(State,Res)}
     catch Ec:Ee ->
               S=erlang:get_stacktrace(),
@@ -152,7 +149,7 @@ handle_call(last_block, _From, #{lastblock:=LB}=State) ->
     {reply, LB, State};
 
 handle_call({get_block,BlockHash}, _From, #{ldb:=LDB,lastblock:=#{hash:=LBH}=LB}=State) ->
-    lager:info("Get block ~p",[BlockHash]),
+    %lager:debug("Get block ~p",[BlockHash]),
     Block=if BlockHash==last -> LB;
              BlockHash==LBH -> LB;
              true ->
@@ -248,6 +245,7 @@ handle_cast({new_block, Blk}, State) ->
 handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}, 
             #{candidates:=Candidates,ldb:=LDB,
               lastblock:=#{header:=#{parent:=Parent},hash:=LBlockHash}=LastBlock,
+              settings:=Sets,
               table:=Tbl}=State) ->
     lager:info("Arrived block from ~p Verify block with ~p",
                [node(PID),maps:keys(Blk)]),
@@ -285,6 +283,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
                   ->
                      %enough signs. Make block.
                       NewTable=apply_bals(MBlk, Tbl),
+                      Sets1=apply_block_conf(MBlk, Sets),
                                           
                       if Txs==[] -> ok;
                          true -> 
@@ -329,7 +328,15 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
                                     ok;
                                 false ->
                                     gen_server:cast(txpool,{done,proplists:get_keys(Txs)}),
-                                    save_bals(LDB, NewTable)
+                                    if(NewTable =/= Tbl) ->
+                                          save_bals(LDB, NewTable);
+                                      true -> ok
+                                    end,
+                                    if(Sets1 =/= Sets) ->
+                                          notify_settings(),
+                                          save_sets(LDB, Sets1);
+                                      true -> ok
+                                    end
                             end,
                             Settings=maps:get(settings,MBlk,[]),
                             gen_server:cast(txpool,{done,proplists:get_keys(Settings)}),
@@ -349,6 +356,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
                                         prevblock=> NewLastBlock,
                                         lastblock=> MBlk,
                                         table=>NewTable,
+                                        settings=>Sets1,
                                         candidates=>#{}
                                        }
                             }
@@ -377,9 +385,11 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
               {noreply, State}
     end;
 
-handle_cast({sync, done, _Pid}, #{ldb:=LDB, table:=Tbl}=State) ->
+handle_cast({sync, done, _Pid}, #{ldb:=LDB, settings:=Set, table:=Tbl}=State) ->
     save_bals(LDB, Tbl),
+    save_sets(LDB, Set),
     gen_server:cast(blockvote, blockchain_sync),
+    notify_settings(),
     {noreply, maps:remove(sync,State)};
 
 handle_cast({continue_sync, BlkId, PID, NextB}, #{ldb:=LDB}=State) ->
@@ -475,10 +485,11 @@ save_bals(LDB, Table) ->
     TD=tables:export(Table),
     ldb:put_key(LDB,<<"bals">>,TD).
 
+save_sets(LDB, Settings) ->
+    ldb:put_key(LDB,<<"settings">>,erlang:term_to_binary(Settings)).
+
 load_bals(LDB) ->
-    case ldb:read_key(LDB, <<"bals">>,
-                      undefined
-                     ) of 
+    case ldb:read_key(LDB, <<"bals">>, undefined) of 
         undefined ->
             tables:init(#{index=>[address,cur]});
         Bin ->
@@ -487,10 +498,8 @@ load_bals(LDB) ->
                          )
     end.
 
-load_conf(LDB,LastBlock) ->
-    case ldb:read_key(LDB, <<"conf">>,
-                      undefined
-                     ) of 
+load_sets(LDB,LastBlock) ->
+    case ldb:read_key(LDB, <<"settings">>, undefined) of 
         undefined ->
             apply_block_conf(LastBlock, settings:new());
         Bin ->
@@ -506,8 +515,9 @@ apply_bals(#{bals:=S, hash:=BlockHash}, Bals0) ->
 apply_block_conf(Block, Conf0) ->
     S=maps:get(settings,Block,[]),
     lists:foldl(
-      fun({Hash,Body},Acc) ->
-              Hash=crypto:hash(sha256,Body),
+      fun({_TxID,#{patch:=Body}},Acc) when is_binary(Body) ->
+              lager:notice("TODO: Must check sigs"),
+              %Hash=crypto:hash(sha256,Body),
               settings:patch(Body,Acc)
       end, Conf0, S).
 
@@ -614,7 +624,7 @@ get_first_block(LDB, Next) ->
             noblock; 
         #{header:=#{parent:=Parent}} ->
             if Parent == <<0,0,0,0,0,0,0,0>> ->
-                   lager:info("First ~s",[ blkid(Next) ]),
+                   lager:info("First ~s",[ bin2hex:dbin2hex(Next) ]),
                    Next;
                true ->
                    lager:info("Block ~s parent ~s",
@@ -649,6 +659,7 @@ run_sync(#{lastblock:=#{hash:=LastBlockId}}=State) ->
               sync=>MaxPID
              };
         [] ->
+            notify_settings(),
             lager:info("Nobody here, nothing to sync",[]),
             State
     end.
@@ -675,6 +686,10 @@ foldl(Fun, Acc0, LDB, BlkId) ->
             end
     end.
 
+get_settings() ->
+    gen_server:call(blockchain,settings).
+
+
 get_settings(blocktime,Default) ->
     case gen_server:call(blockchain,{mysettings,blocktime}) of 
         undefined -> Default;
@@ -687,3 +702,10 @@ get_settings(Param, Default) ->
         undefined -> Default;
         Any -> Any
     end.
+
+notify_settings() ->
+    gen_server:cast(txpool,settings),
+    gen_server:cast(mkblock,settings),
+    gen_server:cast(blockvote,settings),
+    gen_server:cast(synchronizer,settings).
+
