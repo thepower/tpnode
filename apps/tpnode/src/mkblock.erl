@@ -68,19 +68,16 @@ handle_cast({prepare, _Node, Txs}, #{preptxl:=PreTXL,timer:=T1}=State) ->
     };
 
 handle_cast(settings, State) ->
-    AE=blockchain:get_settings(<<"allowempty">>,1),
-    {noreply, State#{
-                settings=>maps:put(ae,AE,maps:get(settings,State,#{}))
-               }};
+    {noreply, load_settings(State)};
 
 handle_cast(_Msg, State) ->
     lager:info("unknown cast ~p",[_Msg]),
     {noreply, State}.
 
-handle_info(process, #{preptxl:=PreTXL}=State) ->
-    AE=maps:get(ae,maps:get(settings,State,#{}),1),
+handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=State) ->
+    AE=maps:get(ae,MySet,1),
     if(AE==0 andalso PreTXL==[]) ->
-          lager:info("Skip empty block"),
+          lager:debug("Skip empty block"),
           {noreply, State};
       true ->
           TXL=lists:keysort(1,PreTXL),
@@ -90,15 +87,34 @@ handle_info(process, #{preptxl:=PreTXL}=State) ->
                                       {AAcc,S1};
                                  ({_,#{patch:=_}},{AAcc,SAcc}) ->
                                       {AAcc,SAcc};
-                                 ({_,#{to:=T,from:=F,cur:=Cur}},{AAcc,SAcc}) ->
+                                 ({_,#{from:=F,portin:=_ToChain}},{AAcc,SAcc}) ->
                                       A1=case maps:get(F,AAcc,undefined) of
+                                             undefined ->
+                                                 AddrInfo1=gen_server:call(blockchain,{get_addr,F}),
+                                                 maps:put(F,AddrInfo1#{keep=>false},AAcc);
+                                             _ ->
+                                                 AAcc
+                                         end,
+                                      {A1,SAcc};
+                                 ({_,#{from:=F,portout:=_ToChain}},{AAcc,SAcc}) ->
+                                      A1=case maps:get(F,AAcc,undefined) of
+                                             undefined ->
+                                                 AddrInfo1=gen_server:call(blockchain,{get_addr,F}),
+                                                 lager:info("Add address for portout ~p",[AddrInfo1]),
+                                                 maps:put(F,AddrInfo1#{keep=>false},AAcc);
+                                             _ ->
+                                                 AAcc
+                                         end,
+                                      {A1,SAcc};
+                                 ({_,#{to:=T,from:=F,cur:=Cur}},{AAcc,SAcc}) ->
+                                      A1=case maps:get({F,Cur},AAcc,undefined) of
                                              undefined ->
                                                  AddrInfo1=gen_server:call(blockchain,{get_addr,F,Cur}),
                                                  maps:put({F,Cur},AddrInfo1#{keep=>false},AAcc);
                                              _ ->
                                                  AAcc
                                          end,
-                                      A2=case maps:get(T,A1,undefined) of
+                                      A2=case maps:get({T,Cur},A1,undefined) of
                                              undefined ->
                                                  AddrInfo2=gen_server:call(blockchain,{get_addr,T,Cur}),
                                                  maps:put({T,Cur},AddrInfo2#{keep=>false},A1);
@@ -108,7 +124,7 @@ handle_info(process, #{preptxl:=PreTXL}=State) ->
                                       {A2,SAcc}
                               end, {#{},undefined}, TXL),
           lager:info("XS ~p",[XSettings]),
-          {Success,Failed,NewBal0,Settings}=try_process(TXL,XSettings,Addrs,[],[],[]),
+          {Success,Failed,NewBal0,Settings}=try_process(TXL,XSettings,Addrs,MyChain,[],[],[]),
           NewBal=maps:filter(
                    fun(_,V) ->
                            maps:get(keep,V,true)
@@ -136,11 +152,13 @@ handle_info(process, #{preptxl:=PreTXL}=State) ->
                  })
                ),
           lager:debug("Prepare block ~B txs ~p",[Last_Height+1,Success]),
-          lager:info("Created block ~w ~s: txs: ~w, bals: ~w",[
+          MyChain=maps:get(mychain,MySet,1),
+          lager:info("Created block ~w ~s: txs: ~w, bals: ~w chain ~p",[
                                                                Last_Height+1,
                                                                block:blkid(maps:get(hash,Blk)),
                                                                length(Success),
-                                                               maps:size(NewBal)
+                                                               maps:size(NewBal),
+                                                               MyChain
                                                               ]),
           %cast whole block to local blockvote
           gen_server:cast(blockvote, {new_block, Blk, self()}),
@@ -149,10 +167,15 @@ handle_info(process, #{preptxl:=PreTXL}=State) ->
                     %cast signature for all blockvotes
                     gen_server:cast(Pid, {signature, maps:get(hash,Blk), maps:get(sign,Blk)}) 
             end, 
-            pg2:get_members(blockvote)
+            pg2:get_members({blockvote,MyChain})
            ),
           {noreply, State#{preptxl=>[],parent=>undefined}}
     end;
+
+
+handle_info(process, State) ->
+    lager:notice("MKBLOCK Blocktime, but I not ready"),
+    {noreply, load_settings(State)};
 
 
 handle_info(_Info, State) ->
@@ -168,7 +191,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-try_process([],_SetState,Addresses,Success,Failed,Settings) ->
+try_process([],_SetState,Addresses,_MyChain,Success,Failed,Settings) ->
     {Success, Failed, Addresses, Settings};
 
 try_process([{TxID, 
@@ -177,6 +200,7 @@ try_process([{TxID,
                }=Tx}|Rest],
             SetState,
             Addresses,
+            MyChain,
             Success,
             Failed,
             Settings) ->
@@ -184,23 +208,127 @@ try_process([{TxID,
         lager:error("Check signatures of patch "),
         SS1=settings:patch({TxID,Tx},SetState),
         lager:info("Success Patch ~p against settings ~p",[_Patch,SetState]),
-        try_process(Rest,SS1,Addresses,Success,Failed,[{TxID,Tx}|Settings])
+        try_process(Rest,SS1,Addresses,MyChain,Success,Failed,[{TxID,Tx}|Settings])
     catch Ec:Ee ->
               S=erlang:get_stacktrace(),
               lager:info("Fail to Patch ~p ~p:~p against settings ~p",
                          [_Patch,Ec,Ee,SetState]),
               lager:info("at ~p", [S]),
-              try_process(Rest,SetState,Addresses,Success,Failed,Settings)
+              try_process(Rest,SetState,Addresses,MyChain,Success,[{TxID,Tx}|Failed],Settings)
     end;
 
 try_process([{TxID,
-              #{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,to:=To,from:=From}=Tx}
+              #{seq:=_Seq,timestamp:=_Timestamp,to:=To,portin:=PortInBlock}=Tx}
              |Rest],
             SetState,
             Addresses,
+            MyChain,
             Success,
             Failed,
             Settings) ->
+    lager:notice("TODO:Check signature once again and check seq"),
+    try
+        Bals=maps:get(To,Addresses),
+        case Bals of
+            #{} -> 
+                ok;
+            #{chain:=_} ->
+                ok;
+            _ ->
+                throw('address_exists')
+        end,
+        lager:notice("TODO:check block before porting in"),
+        NewAddrBal=maps:get(To,maps:get(bals,PortInBlock)),
+
+        NewAddresses=maps:fold(
+                       fun(Cur,Info,Acc) ->
+                               maps:put({To,Cur},Info,Acc)
+                       end, Addresses, maps:remove(To,NewAddrBal)),
+        try_process(Rest,SetState,NewAddresses,MyChain,[{TxID,Tx}|Success],Failed,Settings)
+    catch throw:X ->
+              try_process(Rest,SetState,Addresses,MyChain,Success,[{TxID,X}|Failed],Settings)
+    end;
+
+try_process([{TxID,
+              #{seq:=_Seq,timestamp:=_Timestamp,from:=From,portout:=PortTo}=Tx}
+             |Rest],
+            SetState,
+            Addresses,
+            MyChain,
+            Success,
+            Failed,
+            Settings) ->
+    lager:error("Check signature once again and check seq"),
+    try
+        Bals=maps:get(From,Addresses),
+        A1=maps:remove(keep,Bals),
+        Empty=maps:size(A1)==0,
+        OffChain=maps:is_key(chain,A1),
+        if Empty -> throw('badaddress');
+           OffChain -> throw('offchain');
+           true -> ok
+        end,
+        ValidChains=blockchain:get_settings([chains]),
+        case lists:member(PortTo,ValidChains) of
+            true -> 
+                ok;
+            false ->
+                throw ('bad_chain')
+        end,
+        NewAddresses=maps:put(From,#{chain=>PortTo},Addresses),
+        lager:info("Portout ok"),
+        try_process(Rest,SetState,NewAddresses,MyChain,[{TxID,Tx}|Success],Failed,Settings)
+    catch throw:X ->
+              lager:info("Portout fail ~p",[X]),
+              try_process(Rest,SetState,Addresses,MyChain,Success,[{TxID,X}|Failed],Settings)
+    end;
+
+
+try_process([{TxID, #{from:=From}=Tx} |Rest],
+            SetState,
+            Addresses,
+            MyChain,
+            Success,
+            Failed,
+            Settings) ->
+    case address:check(From) of
+        {true,{chain,Chain}} when Chain==MyChain ->
+            try_process_local([{TxID,Tx}|Rest],
+                  SetState,
+                  Addresses,
+                  MyChain,
+                  Success,
+                  Failed,
+                  Settings);
+        {true,{chain,_Chain}}  ->
+            try_process_inbound([{TxID,Tx}|Rest],
+                  SetState,
+                  Addresses,
+                  MyChain,
+                  Success,
+                  Failed,
+                  Settings);
+        {true,{ver,_}}  ->
+            try_process_local([{TxID,Tx}|Rest],
+                  SetState,
+                  Addresses,
+                  MyChain,
+                  Success,
+                  Failed,
+                  Settings);
+        _ ->
+            try_process(Rest,SetState,Addresses,MyChain,Success,[{TxID,'bad_src_addr'}|Failed],Settings)
+    end.
+
+try_process_inbound([{TxID,
+                    #{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,to:=To,from:=From}=Tx}
+                   |Rest],
+                  SetState,
+                  Addresses,
+                  MyChain,
+                  Success,
+                  Failed,
+                  Settings) ->
     lager:error("Check signature once again"),
     FCurrency=maps:get({From,Cur},Addresses,#{amount =>0,seq => 1,t=>0}),
     #{amount:=CurFAmount,
@@ -216,18 +344,18 @@ try_process([{TxID,
                throw ('bad_amount')
         end,
         NewFAmount=if CurFAmount >= Amount ->
-                         CurFAmount - Amount;
-                     true ->
-                         case lists:member(
-                                From,
-                                application:get_env(tpnode,endless,[])
-                               ) of
-                             true ->
-                                 CurFAmount - Amount;
-                             false ->
-                                 throw ('insufficient_fund')
-                         end
-                  end,
+                          CurFAmount - Amount;
+                      true ->
+                          case lists:member(
+                                 From,
+                                 application:get_env(tpnode,endless,[])
+                                ) of
+                              true ->
+                                  CurFAmount - Amount;
+                              false ->
+                                  throw ('insufficient_fund')
+                          end
+                   end,
         NewTAmount=CurTAmount + Amount,
         NewSeq=if CurFSeq < Seq ->
                       Seq;
@@ -235,22 +363,84 @@ try_process([{TxID,
                       throw ('bad_seq')
                end,
         NewTime=if CurFTime < Timestamp ->
-                    Timestamp;
-                true ->
-                    throw ('bad_timestamp')
-             end,
+                       Timestamp;
+                   true ->
+                       throw ('bad_timestamp')
+                end,
         NewF=maps:remove(keep,FCurrency#{
-               amount=>NewFAmount,
-               seq=>NewSeq,
-               t=>NewTime
-              }),
+                                amount=>NewFAmount,
+                                seq=>NewSeq,
+                                t=>NewTime
+                               }),
         NewT=maps:remove(keep,TCurrency#{
-               amount=>NewTAmount
-              }),
+                                amount=>NewTAmount
+                               }),
         NewAddresses=maps:put({From,Cur},NewF,maps:put({To,Cur},NewT,Addresses)),
-        try_process(Rest,SetState,NewAddresses,[{TxID,Tx}|Success],Failed,Settings)
+        try_process(Rest,SetState,NewAddresses,MyChain,[{TxID,Tx}|Success],Failed,Settings)
     catch throw:X ->
-              try_process(Rest,SetState,Addresses,Success,[{TxID,X}|Failed],Settings)
+              try_process(Rest,SetState,Addresses,MyChain,Success,[{TxID,X}|Failed],Settings)
+    end.
+
+
+try_process_local([{TxID,
+                    #{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,to:=To,from:=From}=Tx}
+                   |Rest],
+                  SetState,
+                  Addresses,
+                  MyChain,
+                  Success,
+                  Failed,
+                  Settings) ->
+    lager:error("Check signature once again"),
+    FCurrency=maps:get({From,Cur},Addresses,#{amount =>0,seq => 1,t=>0}),
+    #{amount:=CurFAmount,
+      seq:=CurFSeq,
+      t:=CurFTime
+     }=FCurrency,
+    #{amount:=CurTAmount
+     }=TCurrency=maps:get({To,Cur},Addresses,#{amount =>0,seq => 1,t=>0}),
+    try
+        if Amount >= 0 -> 
+               ok;
+           true ->
+               throw ('bad_amount')
+        end,
+        NewFAmount=if CurFAmount >= Amount ->
+                          CurFAmount - Amount;
+                      true ->
+                          case lists:member(
+                                 From,
+                                 application:get_env(tpnode,endless,[])
+                                ) of
+                              true ->
+                                  CurFAmount - Amount;
+                              false ->
+                                  throw ('insufficient_fund')
+                          end
+                   end,
+        NewTAmount=CurTAmount + Amount,
+        NewSeq=if CurFSeq < Seq ->
+                      Seq;
+                  true ->
+                      throw ('bad_seq')
+               end,
+        NewTime=if CurFTime < Timestamp ->
+                       Timestamp;
+                   true ->
+                       throw ('bad_timestamp')
+                end,
+        NewF=maps:remove(keep,FCurrency#{
+                                amount=>NewFAmount,
+                                seq=>NewSeq,
+                                t=>NewTime
+                               }),
+        NewT=maps:remove(keep,TCurrency#{
+                                amount=>NewTAmount
+                               }),
+        NewAddresses=maps:put({From,Cur},NewF,maps:put({To,Cur},NewT,Addresses)),
+        try_process(Rest,SetState,NewAddresses,MyChain,[{TxID,Tx}|Success],Failed,Settings)
+    catch throw:X ->
+              try_process(Rest,SetState,Addresses,MyChain,Success,[{TxID,X}|Failed],Settings)
     end.
 
 
@@ -259,4 +449,26 @@ sign(Blk) when is_map(Blk) ->
     {ok,K1}=application:get_env(tpnode,privkey),
     PrivKey=hex:parse(K1),
     block:sign(Blk,PrivKey).
+
+load_settings(State) ->
+    OldSettings=maps:get(settings,State,#{}),
+    MyChain=blockchain:get_settings(chain,0),
+    AE=blockchain:get_settings(<<"allowempty">>,1),
+    case maps:get(mychain, OldSettings, undefined) of
+        undefined -> %join new pg2
+            pg2:create({mkblock,MyChain}),
+            pg2:join({mkblock,MyChain},self());
+        MyChain -> ok; %nothing changed
+        OldChain -> %leave old, join new
+            pg2:leave({mkblock,OldChain},self()),
+            pg2:create({mkblock,MyChain}),
+            pg2:join({mkblock,MyChain},self())
+    end,
+    State#{
+      settings=>maps:merge(
+                  OldSettings,
+                  #{ae=>AE, mychain=>MyChain}
+                 )
+     }.
+
 

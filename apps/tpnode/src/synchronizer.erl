@@ -41,14 +41,8 @@ init(_Args) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-
-handle_cast(settings, #{tickms:=Time}=State) ->
-    lager:info("settings cast received"),
-    BlockTime=blockchain:get_settings(blocktime,Time div 1000),
-    {noreply, State#{
-                tickms=>BlockTime*1000
-               }
-    };
+handle_cast(settings, State) ->
+    {noreply, load_settings(State)};
 
 handle_cast({hello, PID, WallClock}, State) ->
     Behind=erlang:system_time(microsecond)-WallClock,
@@ -82,7 +76,6 @@ handle_info(ticktimer,
     Wait=Delay-(MeanMs rem Delay),
     gen_server:cast(txpool,prepare),
     erlang:send_after(200, whereis(mkblock), process),
-%    gen_server:cast(mkblock,process),
 
     catch erlang:cancel_timer(Tmr),
 
@@ -95,8 +88,8 @@ handle_info(ticktimer,
 
 
 
-handle_info(selftimer5, #{tickms:=Ms,timer5:=Tmr,offsets:=Offs}=State) ->
-    Friends=pg2:get_members(synchronizer)--[self()],
+handle_info(selftimer5, #{mychain:=MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs}=State) ->
+    Friends=pg2:get_members({synchronizer,MyChain})--[self()],
     {Avg,Off2}=lists:foldl(
           fun(Friend,{Acc,NewOff}) ->
                   case maps:get(Friend,Offs,undefined) of
@@ -156,5 +149,24 @@ median(List) ->
         1 -> %odd
             M2
     end.
+
+
+load_settings(#{tickms:=Time}=State) ->
+    BlockTime=blockchain:get_settings(blocktime,Time div 1000),
+    MyChain=blockchain:get_settings(chain,0),
+    case maps:get(mychain, State, undefined) of
+        undefined -> %join new pg2
+            pg2:create({?MODULE,MyChain}),
+            pg2:join({?MODULE,MyChain},self());
+        MyChain -> ok; %nothing changed
+        OldChain -> %leave old, join new
+            pg2:leave({?MODULE,OldChain},self()),
+            pg2:create({?MODULE,MyChain}),
+            pg2:join({?MODULE,MyChain},self())
+    end,
+    State#{
+      tickms=>BlockTime*1000,
+      mychain=>MyChain
+     }.
 
 

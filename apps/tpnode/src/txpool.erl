@@ -43,6 +43,33 @@ init(_Args) ->
 handle_call(state, _Form, State) ->
     {reply, State, State};
 
+handle_call({portout, #{
+               from:=Address,
+               portout:=PortTo,
+               seq:=Seq,
+               timestamp:=Timestamp,
+               public_key:=HPub,
+               signature:=HSig
+              }
+            }, _From, #{nodeid:=Node,queue:=Queue}=State) ->
+    lager:notice("TODO: Check keys"),
+    TxID=generate_txid(Node),
+    {reply, 
+     {ok, TxID}, 
+     State#{
+       queue=>queue:in({TxID,
+                        #{
+                          from=>Address,
+                          portout=>PortTo,
+                          seq=>Seq,
+                          timestamp=>Timestamp,
+                          public_key=>HPub,
+                          signature=>HSig
+                         }
+                        },Queue)
+      }
+    };
+
 handle_call({patch, #{
                patch:=Patch,
                signatures:=Sigs
@@ -82,7 +109,10 @@ handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
 handle_call(_Request, _From, State) ->
     {reply, unknown_request, State}.
 
-handle_cast(prepare, #{inprocess:=InProc0,queue:=Queue,nodeid:=Node}=State) ->
+handle_cast(settings, State) ->
+    {noreply,load_settings(State)};
+
+handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue,nodeid:=Node}=State) ->
     %case hashqueue:head(InProc0) of
     %    empty -> ok;
     %    _ -> lager:info("Still in process ~p",[InProc0])
@@ -93,7 +123,7 @@ handle_cast(prepare, #{inprocess:=InProc0,queue:=Queue,nodeid:=Node}=State) ->
               %lager:info("Prepare to ~p",[Pid]),
               gen_server:cast(Pid, {prepare, Node, Res}) 
       end, 
-      pg2:get_members(mkblock)
+      pg2:get_members({mkblock,MyChain})
      ),
     Time=erlang:system_time(seconds),
     {InProc1,Queue2}=recovery_lost(InProc0,Queue1,Time),
@@ -109,6 +139,10 @@ handle_cast(prepare, #{inprocess:=InProc0,queue:=Queue,nodeid:=Node}=State) ->
                             )
                }
     }; 
+
+handle_cast(prepare, State) ->
+    lager:notice("TXPOOL Blocktime, but I not ready"),
+    {noreply,load_settings(State)};
 
 handle_cast({done, Txs}, #{inprocess:=InProc0}=State) ->
     InProc1=lists:foldl(
@@ -186,6 +220,12 @@ recovery_lost(InProc,Queue,Now) ->
                     recovery_lost(InProc1,queue:in({TxID,Tx},Queue),Now)
             end
     end.
+
+load_settings(State) ->
+    MyChain=blockchain:get_settings(chain,0),
+    State#{
+      mychain=>MyChain
+     }.
 
 
 

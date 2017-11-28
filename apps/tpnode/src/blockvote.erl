@@ -40,10 +40,14 @@ handle_call(state, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast(settings, State) ->
+    {noreply, load_settings(State)};
+
 handle_cast(_, undefined) ->
     {noreply, undefined};
 
 handle_cast({signature, BlockHash, Sigs}, State) ->
+    lager:info("Signature"),
     Candidatesig=maps:get(candidatesig,State,#{}),
     CSig0=maps:get(BlockHash,Candidatesig,#{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
@@ -91,7 +95,7 @@ handle_info(init, undefined) ->
       candidates=>#{},
       lastblock=>LastBlock
      },
-    {noreply, Res};
+    {noreply, load_settings(Res)};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -145,11 +149,11 @@ is_block_ready(BlockHash,
              end,
         Blk1=Blk0#{sign=>maps:values(Sigs)},
         {true,{Success,_}}=block:verify(Blk1),
-        lager:error("Check keys"),
+        lager:notice("TODO: Check keys"),
         T1=erlang:system_time(),
         Txs=maps:get(txs,Blk0,[]),
         if length(Success)<MinSig ->
-               lager:debug("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)", 
+               lager:info("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)", 
                            [maps:get(height,maps:get(header,Blk0)),
                             blkid(BlockHash),
                             length(Txs),
@@ -216,4 +220,25 @@ is_block_ready(BlockHash,
                 end, S),
               State
     end.
+
+load_settings(State) ->
+    MyChain=blockchain:get_settings(chain,0),
+    case maps:get(mychain, State, undefined) of
+        undefined -> %join new pg2
+            pg2:create({?MODULE,MyChain}),
+            pg2:join({?MODULE,MyChain},self());
+        MyChain -> ok; %nothing changed
+        OldChain -> %leave old, join new
+            pg2:leave({?MODULE,OldChain},self()),
+            pg2:create({?MODULE,MyChain}),
+            pg2:join({?MODULE,MyChain},self())
+    end,
+    LastBlock=gen_server:call(blockchain,last_block),
+    lager:info("BV My last block hash ~s",
+               [bin2hex:dbin2hex(maps:get(hash,LastBlock))]),
+    State#{
+      mychain=>MyChain,
+      lastblock=>LastBlock
+     }.
+
 

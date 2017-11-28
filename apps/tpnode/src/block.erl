@@ -206,7 +206,12 @@ bals2bin(NewBal) ->
               [{<<Addr/binary,":",Cur/binary>>,
                 <<BAmount:64/big,
                   Seq:64/big,
-                  T:64/big>>}|Acc]
+                  T:64/big>>}|Acc];
+         ({Addr,
+           #{chain:=NewChain}
+          },Acc) ->
+              [{<<Addr/binary>>,
+                <<"pout", NewChain:64/big>>}|Acc]
       end, [],
       lists:keysort(1,maps:to_list(NewBal))
      ).

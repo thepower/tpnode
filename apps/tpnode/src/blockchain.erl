@@ -7,7 +7,7 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
--export([get_settings/2,get_settings/0,apply_block_conf/2]).
+-export([get_settings/1,get_settings/2,get_settings/0,apply_block_conf/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -41,15 +41,16 @@ init(_Args) ->
     Conf=load_sets(LDB,LastBlock),
     lager:info("My last block hash ~s",
                [bin2hex:dbin2hex(LastBlockHash)]),
-    Res=#{
-      table=>T2,
-      nodeid=>NodeID,
-      ldb=>LDB,
-      candidates=>#{},
-      mychain=>0,
-      settings=>Conf,
-      lastblock=>LastBlock
-     },
+    #{mychain:=MyChain}=Res=mychain(#{
+          table=>T2,
+          nodeid=>NodeID,
+          ldb=>LDB,
+          candidates=>#{},
+          settings=>Conf,
+          lastblock=>LastBlock
+         }),
+    pg2:create({blockchain,MyChain}),
+    pg2:join({blockchain,MyChain},self()),
     {ok, run_sync(Res)}.
 
 handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
@@ -57,8 +58,8 @@ handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
         First=get_first_block(LDB,
                             maps:get(hash,LB)
                            ),
-        Res=foldl(fun(Block, #{table:=Bals,settings:=Sets}) ->
-                          lager:info("Block ~s ~p",
+        Res=foldl(fun(Block, #{table:=Bals,settings:=Sets}=S) ->
+                          lager:info("Block@~b ~s ~p",
                                      [
                                       blkid(maps:get(hash,Block)),
                                       maps:keys(Block)
@@ -73,12 +74,11 @@ handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
                     settings=>settings:new()
                    }, LDB, First),
         notify_settings(),
-        {reply, Res, maps:merge(State,Res)}
+        {reply, Res, mychain(maps:merge(State,Res))}
     catch Ec:Ee ->
               S=erlang:get_stacktrace(),
               {reply, {error, Ec, Ee, S}, State}
     end;
-
 
 
 handle_call(runsync, _From, State) ->
@@ -142,8 +142,9 @@ handle_call(loadbal, _, #{ldb:=LDB,table:=_T}=State) ->
     {reply, X, State};
 
 
-handle_call(last_block_height, _From, #{lastblock:=#{header:=#{height:=H}}}=State) ->
-    {reply, H, State};
+handle_call(last_block_height, _From, 
+            #{mychain:=MC,lastblock:=#{header:=#{height:=H}}}=State) ->
+    {reply, {MC,H}, State};
 
 handle_call(last_block, _From, #{lastblock:=LB}=State) ->
     {reply, LB, State};
@@ -160,26 +161,15 @@ handle_call({get_block,BlockHash}, _From, #{ldb:=LDB,lastblock:=#{hash:=LBH}=LB}
     {reply, Block, State};
 
 
+handle_call({mysettings, chain}, _From, State) ->
+    #{mychain:=MyChain}=S1=mychain(State),
+    {reply, MyChain, S1};
+
 handle_call({mysettings, Attr}, _From, #{settings:=S}=State) ->
-    KeyDB=maps:get(keys,S,#{}),
-    NodeChain=maps:get(nodechain,S,#{}),
+    #{mychain:=MyChain}=S1=mychain(State),
     Chains=maps:get(chain,S,#{}),
-    {ok,K1}=application:get_env(tpnode,privkey),
-    PrivKey=hex:parse(K1),
-    PubKey=secp256k1:secp256k1_ec_pubkey_create(PrivKey, true),
-    MyName=maps:fold(
-             fun(K,V,undefined) ->
-                     if V==PubKey ->
-                            K;
-                        true ->
-                            undefined
-                     end;
-                (_,_,Found) ->
-                     Found
-             end, undefined, KeyDB),
-    MyChain=maps:get(MyName,NodeChain,0),
     Chain=maps:get(MyChain,Chains,#{}),
-    {reply, maps:get(Attr,Chain,undefined), State};
+    {reply, maps:get(Attr,Chain,undefined), S1};
 
 handle_call(settings, _From, #{settings:=S}=State) ->
     {reply, S, State};
@@ -287,17 +277,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
                                           
                       if Txs==[] -> ok;
                          true -> 
-                             lager:info("Txs ~p",
-                                        [
-                                         lists:map(
-                                           fun({_,#{amount:=TA,
-                                                    from:=TF,
-                                                    to:=TT}}) ->
-                                                   {TF,TA,TT}
-                                           end,
-                                           Txs)
-                                        ]
-                                       )
+                             lager:info("Txs ~p", [ Txs ])
                       end,
                       NewPHash=maps:get(parent,maps:get(header,Blk)),
 
@@ -508,7 +488,21 @@ load_sets(LDB,LastBlock) ->
 
 apply_bals(#{bals:=S, hash:=BlockHash}, Bals0) ->
     maps:fold(
-      fun({Addr,Cur},Val,Acc) ->
+      fun(Addr,#{chain:=_NewChain},Acc) ->
+
+              case tables:lookup(address,Addr,Acc) of
+                  {ok,E} ->
+                      lists:foldl(
+                        fun(#{'_id':=RecID},A) -> 
+                                {ok,A1}=tables:delete('_id',RecID,A),
+                                A1
+                        end, 
+                        Acc,
+                        E);
+                  _ ->
+                      Acc
+              end;
+         ({Addr,Cur},Val,Acc) ->
               updatebal(Addr,Cur,Val,Acc,BlockHash)
       end, Bals0, S).
 
@@ -635,16 +629,22 @@ get_first_block(LDB, Next) ->
             lager:info("Unknown block ~p",[Block])
     end.
 
-run_sync(#{lastblock:=#{hash:=LastBlockId}}=State) ->
+run_sync(#{mychain:=MyChain,lastblock:=#{hash:=LastBlockId}}=State) ->
+    #{mychain:=MyChain}=S1=mychain(State),
     Peers=pg2:get_members(blockchain)--[self()],
     case lists:reverse(
            lists:keysort(1,
                          lists:foldl(
                            fun(Pid,Acc) ->
                                    try
-                                       H=gen_server:call(Pid,last_block_height),
-                                       lager:info("Node ~s height ~p",[node(Pid),H]),
-                                       [{H,Pid}|Acc]
+                                       {HC,H}=gen_server:call(Pid,last_block_height),
+                                       lager:info("Node ~s chain ~p (my ~p) height ~p",
+                                                  [node(Pid),HC,MyChain,H]),
+                                       if(HC==MyChain) ->
+                                             [{H,Pid}|Acc];
+                                         true ->
+                                             Acc
+                                       end
                                    catch _:_ -> Acc
                                    end
                            end,[], Peers
@@ -655,13 +655,13 @@ run_sync(#{lastblock:=#{hash:=LastBlockId}}=State) ->
             lager:info("Sync with ~p height ~p from block ~s",
                        [node(MaxPID),MaxH,blkid(LastBlockId)]),
             gen_server:cast(MaxPID,{continue_sync, LastBlockId, self(), 2}),
-            State#{
+            S1#{
               sync=>MaxPID
              };
         [] ->
             notify_settings(),
             lager:info("Nobody here, nothing to sync",[]),
-            State
+            S1
     end.
 
 foldl(Fun, Acc0, LDB, BlkId) ->
@@ -689,6 +689,9 @@ foldl(Fun, Acc0, LDB, BlkId) ->
 get_settings() ->
     gen_server:call(blockchain,settings).
 
+get_settings(P) ->
+    gen_server:call(blockchain,{settings,P}).
+
 
 get_settings(blocktime,Default) ->
     case gen_server:call(blockchain,{mysettings,blocktime}) of 
@@ -708,4 +711,32 @@ notify_settings() ->
     gen_server:cast(mkblock,settings),
     gen_server:cast(blockvote,settings),
     gen_server:cast(synchronizer,settings).
+
+mychain(#{settings:=S}=State) ->
+    KeyDB=maps:get(keys,S,#{}),
+    NodeChain=maps:get(nodechain,S,#{}),
+    {ok,K1}=application:get_env(tpnode,privkey),
+    PrivKey=hex:parse(K1),
+    PubKey=secp256k1:secp256k1_ec_pubkey_create(PrivKey, true),
+    lager:info("My key ~s",[bin2hex:dbin2hex(PubKey)]),
+    MyName=maps:fold(
+             fun(K,V,undefined) ->
+                     lager:info("Compare ~p with ~p",
+                                [V,PubKey]),
+                     if V==PubKey ->
+                            K;
+                        true ->
+                            undefined
+                     end;
+                (_,_,Found) ->
+                     Found
+             end, undefined, KeyDB),
+    MyChain=maps:get(MyName,NodeChain,0),
+    lager:info("My name ~p chain ~p",[MyName,MyChain]),
+    maps:merge(State,
+               #{myname=>MyName,
+                 mychain=>MyChain
+                }).
+
+
 
