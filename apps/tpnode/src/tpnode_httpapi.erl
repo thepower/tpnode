@@ -272,60 +272,73 @@ h(_Method, [<<"status">>], Req) ->
 
 %PRIVATE API
 
-prettify_block(#{hash:=BlockHash,
-                 header:=BlockHeader
-                }=Block0) ->
-    Signs=maps:get(sign,Block0,[]),
-    Bals=maps:fold(
-           fun({Addr,Cur},Val0,Acc) ->
-                   Val=maps:put(lastblk,bin2hex:dbin2hex(maps:get(lastblk,Val0,<<0,0,0,0,0,0,0,0>>)),Val0),
-                   maps:put(Addr,
-                            maps:put(Cur,Val,
-                                     maps:get(Addr,Acc,#{})
-                                    ),
-                            Acc)
-           end, 
-           #{},
-           maps:get(bals,Block0,#{})
-          ),
-    Block1=Block0#{
-             hash=>bin2hex:dbin2hex(BlockHash),
-             header=>maps:map(
-                       fun(parent,V) ->
-                               bin2hex:dbin2hex(V);
-                          (_K,V) when is_binary(V) andalso size(V) == 32 ->
-                               bin2hex:dbin2hex(V);
-                          (_K,V) ->
-                               V
-                       end, BlockHeader),
-             settings=>lists:map(
-                         fun({CHdr,CBody}) ->
-                                 %DMP=settings:dmp(CBody),
-                                 %DMP=base64:encode(CBody),
-                                 {CHdr, maps:map(
-                                          fun(patch,Payload) ->
-                                                  settings:dmp(Payload);
-                                             (signatures,Sigs) ->
-                                                  show_signs(Sigs);
-                                             (_K,V) -> V
-                                          end, CBody)}
-                         end, 
-                         maps:get(settings,Block0,[])
-                        ),
-%             lists:map(
-%               fun({TxID,TxP}) ->
-%                       {TxID,settings:unpack_patch(TxP)}
-%               end,
-%               maps:get(settings,Block0,[])
-%              ),
-             sign=>show_signs(Signs),
-             bals=>Bals
-            },
-    case maps:get(child,Block1,undefined) of
-        undefined -> Block1;
-        Child ->
-            maps:put(child,bin2hex:dbin2hex(Child),Block1)
-    end;
+prettify_block(#{}=Block0) ->
+    maps:map(
+      fun(sign,Signs) ->
+              show_signs(Signs);
+         (bals,Bals) ->
+              maps:fold(
+                fun({Addr,Cur},Val0,Acc) ->
+                        Val=maps:put(lastblk,bin2hex:dbin2hex(maps:get(lastblk,Val0,<<0,0,0,0,0,0,0,0>>)),Val0),
+                        maps:put(Addr,
+                                 maps:put(Cur,Val,
+                                          maps:get(Addr,Acc,#{})
+                                         ),
+                                 Acc)
+                end, 
+                #{},
+                Bals
+               );
+         (hash,BlockHash) ->
+              bin2hex:dbin2hex(BlockHash);
+         (child,BlockHash) ->
+              bin2hex:dbin2hex(BlockHash);
+         (header,BlockHeader) ->
+              maps:map(
+                fun(parent,V) ->
+                        bin2hex:dbin2hex(V);
+                   (_K,V) when is_binary(V) andalso size(V) == 32 ->
+                        bin2hex:dbin2hex(V);
+                   (_K,V) ->
+                        V
+                end, BlockHeader);
+         (settings,Settings) ->
+              lists:map(
+                fun({CHdr,CBody}) ->
+                        %DMP=settings:dmp(CBody),
+                        %DMP=base64:encode(CBody),
+                        {CHdr, maps:map(
+                                 fun(patch,Payload) ->
+                                         settings:dmp(Payload);
+                                    (signatures,Sigs) ->
+                                         show_signs(Sigs);
+                                    (_K,V) -> V
+                                 end, CBody)}
+                end, 
+                Settings
+               );
+         (inbound_blocks,IBlocks) ->
+              lists:map(
+                fun({BHdr,BBody}) ->
+                        {BHdr, 
+                         prettify_block(BBody)
+                        }
+                end, 
+                IBlocks
+               );
+
+         (tx_proof,Proof) ->
+              lists:map(
+                fun({CHdr,CBody}) ->
+                        {CHdr, 
+                         [bin2hex:dbin2hex(H) || H<-tuple_to_list(CBody)]
+                        }
+                end, 
+                Proof
+               );
+         (_,V) ->
+              V
+      end, Block0);
 
 prettify_block(#{hash:=<<0,0,0,0,0,0,0,0>>}=Block0) -> 
     Block0#{ hash=><<"0000000000000000">> }.

@@ -58,7 +58,7 @@ handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
         First=get_first_block(LDB,
                             maps:get(hash,LB)
                            ),
-        Res=foldl(fun(Block, #{table:=Bals,settings:=Sets}=S) ->
+        Res=foldl(fun(Block, #{table:=Bals,settings:=Sets}) ->
                           lager:info("Block@~b ~s ~p",
                                      [
                                       blkid(maps:get(hash,Block)),
@@ -232,13 +232,19 @@ handle_cast({new_block, Blk}, State) ->
     lager:info("Upgrade legacy block"),
     handle_cast({new_block, Blk, self()}, State);
 
-handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}, 
-            #{candidates:=Candidates,ldb:=LDB,
+handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message, 
+            #{candidates:=Candidates,ldb:=LDB0,
               lastblock:=#{header:=#{parent:=Parent},hash:=LBlockHash}=LastBlock,
               settings:=Sets,
+              mychain:=MyChain,
               table:=Tbl}=State) ->
+    FromNode=if is_pid(PID) -> node(PID);
+                true -> emulator
+             end,
+
+
     lager:info("Arrived block from ~p Verify block with ~p",
-               [node(PID),maps:keys(Blk)]),
+               [FromNode,maps:keys(Blk)]),
 
     lager:info("New block (~p/~p) hash ~s (~s/~s)", 
                [
@@ -248,14 +254,27 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
                 blkid(Parent),
                 blkid(LBlockHash)
                ]),
-    MinSig=2,
+    Chains=maps:get(chain,Sets,#{}),
+    Chain=maps:get(MyChain,Chains,#{}),
+    MinSig=maps:get(minsig,Chain,2),
+
     try
+        LDB=if is_pid(PID) -> LDB0;
+               true -> ignore
+            end,
+
+
+
+%        file:write_file("new_block.txt",
+%                        io_lib:format("~p.~n~p.~n",
+%                                      [_Message,
+%                                       State])),
         T0=erlang:system_time(),
         {true,{Success,_}}=block:verify(Blk),
         T1=erlang:system_time(),
         Txs=maps:get(txs,Blk,[]),
         lager:info("~s from ~s New block ~w arrived ~s, txs ~b, verify (~.3f ms)", 
-                   [node(),node(PID),maps:get(height,maps:get(header,Blk)),
+                   [node(),FromNode,maps:get(height,maps:get(header,Blk)),
                     blkid(BlockHash),length(Txs),(T1-T0)/1000000]),
         if length(Success)>0 ->
                MBlk=case maps:get(BlockHash,Candidates,undefined) of
@@ -301,6 +320,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
                                            child=>BlockHash
                                           },
                             T2=erlang:system_time(),
+
                             save_block(LDB,NewLastBlock,false),
                             save_block(LDB,MBlk,true),
                             case maps:is_key(sync,State) of
@@ -308,6 +328,15 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
                                     ok;
                                 false ->
                                     gen_server:cast(txpool,{done,proplists:get_keys(Txs)}),
+                                    case maps:is_key(inbound_blocks,MBlk) of
+                                        true ->
+                                            lager:info("IB"),
+                                            gen_server:cast(txpool,{done,proplists:get_keys(maps:is_key(inbound_blocks,MBlk))});
+                                        false -> 
+                                            lager:info("NO IB"),
+                                            ok
+                                    end,
+
                                     if(NewTable =/= Tbl) ->
                                           save_bals(LDB, NewTable);
                                       true -> ok
@@ -331,6 +360,21 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID},
 
                             gen_server:cast(tpnode_ws_dispatcher,{new_block, MBlk}),
 
+                            Outbound=maps:get(outbound,MBlk,[]),
+                            if length(Outbound)>0 ->
+                                   maps:fold(
+                                     fun(ChainId,OutBlock,_) ->
+                                             Dst=pg2:get_members({txpool,ChainId}),
+                                             lager:info("Out to ~b(~p) ~p",
+                                                        [ChainId,Dst,OutBlock]),
+                                             lists:foreach(
+                                               fun(Pool) ->
+                                                       gen_server:cast(Pool,
+                                                                       {inbound_block,OutBlock})
+                                               end, Dst)
+                                     end,0, block:outward_mk(Outbound,MBlk));
+                               true -> ok
+                            end,
 
                             {noreply, State#{
                                         prevblock=> NewLastBlock,
@@ -461,12 +505,24 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+save_bals(ignore, _Table) -> ok;
 save_bals(LDB, Table) ->
     TD=tables:export(Table),
     ldb:put_key(LDB,<<"bals">>,TD).
 
+save_sets(ignore, _Settings) -> ok;
 save_sets(LDB, Settings) ->
     ldb:put_key(LDB,<<"settings">>,erlang:term_to_binary(Settings)).
+
+save_block(ignore,_Block,_IsLast) -> ok;
+save_block(LDB,Block,IsLast) ->
+    BlockHash=maps:get(hash,Block),
+    ldb:put_key(LDB,<<"block:",BlockHash/binary>>,Block),
+    if IsLast ->
+           ldb:put_key(LDB,<<"lastblock">>,BlockHash);
+       true ->
+           ok
+    end.
 
 load_bals(LDB) ->
     case ldb:read_key(LDB, <<"bals">>, undefined) of 
@@ -515,14 +571,6 @@ apply_block_conf(Block, Conf0) ->
               settings:patch(Body,Acc)
       end, Conf0, S).
 
-save_block(LDB,Block,IsLast) ->
-    BlockHash=maps:get(hash,Block),
-    ldb:put_key(LDB,<<"block:",BlockHash/binary>>,Block),
-    if IsLast ->
-           ldb:put_key(LDB,<<"lastblock">>,BlockHash);
-       true ->
-           ok
-    end.
 
 addrbal(Addr, RCur, Table) ->
     case tables:lookup(address,Addr,Table) of

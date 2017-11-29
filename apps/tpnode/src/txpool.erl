@@ -112,6 +112,14 @@ handle_call(_Request, _From, State) ->
 handle_cast(settings, State) ->
     {noreply,load_settings(State)};
 
+handle_cast({inbound_block, #{hash:=Hash}=Block}, #{queue:=Queue}=State) ->
+    BlId=bin2hex:dbin2hex(Hash),
+    lager:info("Inbound block ~p",[{BlId,Block}]),
+    {noreply, State#{
+                queue=>queue:in({BlId,Block},Queue)
+               }
+    };
+
 handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue,nodeid:=Node}=State) ->
     %case hashqueue:head(InProc0) of
     %    empty -> ok;
@@ -223,11 +231,17 @@ recovery_lost(InProc,Queue,Now) ->
 
 load_settings(State) ->
     MyChain=blockchain:get_settings(chain,0),
+    case maps:get(mychain, State, undefined) of
+        undefined -> %join new pg2
+            pg2:create({?MODULE,MyChain}),
+            pg2:join({?MODULE,MyChain},self());
+        MyChain -> ok; %nothing changed
+        OldChain -> %leave old, join new
+            pg2:leave({?MODULE,OldChain},self()),
+            pg2:create({?MODULE,MyChain}),
+            pg2:join({?MODULE,MyChain},self())
+    end,
     State#{
       mychain=>MyChain
      }.
-
-
-
-
 

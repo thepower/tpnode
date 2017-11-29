@@ -194,16 +194,27 @@ mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }
       bals=>Bals,
       settings=>Settings,
       sign=>[] },
-    case maps:get(tx_proof, Req, []) of
-        [] ->
-            Block;
-        List ->
-            Proof=lists:map(
-              fun(TxID) ->
-                      {TxID,gb_merkle_trees:merkle_proof (TxID,TxMT)}
-              end, List),
-            maps:put(tx_proof,Proof,Block)
-    end;
+    Block1=case maps:get(tx_proof, Req, []) of
+               [] ->
+                   Block;
+               List ->
+                   Proof=lists:map(
+                           fun(TxID) ->
+                                   {TxID,gb_merkle_trees:merkle_proof (TxID,TxMT)}
+                           end, List),
+                   maps:put(tx_proof,Proof,Block)
+           end,
+    case maps:get(inbound_blocks, Req, []) of
+               [] ->
+                   Block1;
+               List2 ->
+                   maps:put(inbound_blocks,
+                            lists:map(
+                              fun({InBlId, InBlk}) ->
+                                      {InBlId, maps:remove(txs,InBlk)} 
+                              end,List2),
+                            Block1)
+           end;
 
 mkblock(Blk) ->
     case maps:is_key(settings,Blk) of
@@ -279,26 +290,27 @@ bals2bin(NewBal) ->
 blkid(<<X:8/binary,_/binary>>) ->
     bin2hex:dbin2hex(X).
 
-signhash(MsgHash, Timestamp, PrivKey) ->
+signhash(MsgHash, ED, PrivKey) ->
     PubKey=secp256k1:secp256k1_ec_pubkey_create(PrivKey, true),
     BinExtra= pack_sign_ed([
-             {pubkey,PubKey},
-             {timestamp,Timestamp}
+             {pubkey,PubKey}|
+             ED
             ]),
     Msg=crypto:hash(sha256,<<BinExtra/binary,MsgHash/binary>>),
     Signature=secp256k1:secp256k1_ecdsa_sign(Msg, PrivKey, default, <<>>),
     <<255,(size(Signature)):8/integer,Signature/binary,BinExtra/binary>>.
 
-sign(Blk, Timestamp, PrivKey) when is_map(Blk) ->
+sign(Blk, ED, PrivKey) when is_map(Blk) ->
     Hash=maps:get(hash,Blk),
-    Sign=signhash(Hash, Timestamp, PrivKey),
+    Sign=signhash(Hash, ED, PrivKey),
     Blk#{
       sign=>[Sign|maps:get(sign,Blk,[])]
      }.
 
 sign(Blk, PrivKey) when is_map(Blk) ->
     Timestamp=os:system_time(millisecond),
-    sign(Blk, Timestamp, PrivKey).
+    ED=[{timestamp,Timestamp}],
+    sign(Blk, ED, PrivKey).
 
 unpack_sign_ed(Bin) -> unpack_sign_ed(Bin,[]).
 unpack_sign_ed(<<>>,Acc) -> lists:reverse(Acc);
@@ -315,11 +327,13 @@ pack_sign_ed(List) ->
 
 decode_edval(1,<<Timestamp:64/big>>) -> {timestamp, Timestamp}; 
 decode_edval(2,Bin) -> {pubkey, Bin}; 
+decode_edval(3,<<TimeDiff:64/big>>) -> {createduration, TimeDiff}; 
 decode_edval(255,Bin) -> {signature, Bin}; 
 decode_edval(Key,BinVal) -> {Key, BinVal}.
 
 encode_edval(timestamp, Integer) -> <<1,8,Integer:64/big>>;
 encode_edval(pubkey, PK) -> <<2,(size(PK)):8/integer,PK/binary>>;
+encode_edval(createduration, Integer) -> <<3,8,Integer:64/big>>;
 encode_edval(signature, PK) -> <<255,(size(PK)):8/integer,PK/binary>>;
 encode_edval(_, _) -> <<>>.
 

@@ -135,7 +135,7 @@ is_block_ready(BlockHash,
                   lastblock:=#{hash:=LBlockHash}=LastBlock
                 }= State) ->
     try
-        MinSig=2,
+        MinSig=maps:get(minsig,State,2),
         T0=erlang:system_time(),
         Blk0=try
                  maps:get(BlockHash,maps:get(candidates,State))
@@ -223,6 +223,7 @@ is_block_ready(BlockHash,
 
 load_settings(State) ->
     MyChain=blockchain:get_settings(chain,0),
+    MinSig=blockchain:get_settings(minsig,2),
     case maps:get(mychain, State, undefined) of
         undefined -> %join new pg2
             pg2:create({?MODULE,MyChain}),
@@ -238,6 +239,7 @@ load_settings(State) ->
                [bin2hex:dbin2hex(maps:get(hash,LastBlock))]),
     State#{
       mychain=>MyChain,
+      minsig=>MinSig,
       lastblock=>LastBlock
      }.
 

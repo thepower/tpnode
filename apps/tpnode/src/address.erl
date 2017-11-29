@@ -1,6 +1,7 @@
 -module(address).
 
--export([pub2caddr/2,pub2addr/2,pub2addrraw/2,check/1,parsekey/1,paddr/1,
+-export([pub2caddr/2,pub2addr/2,pub2addrraw/2,check/1,
+         encodekey/1,parsekey/1,paddr/1,
         addr2chain/2]).
 
 -define(VER,133).
@@ -86,6 +87,10 @@ check(Address) ->
             {false, unknown}
     end.
 
+encodekey(Pvt) ->
+    H2= <<128,Pvt/binary>>,
+    <<H3:4/binary,_/binary>>=crypto:hash(sha256,crypto:hash(sha256,H2)),
+    base58:encode(<<H2/binary,H3/binary>>).
 
 parsekey(<<"0x",BKey/binary>>) ->
     hex:parse(BKey);

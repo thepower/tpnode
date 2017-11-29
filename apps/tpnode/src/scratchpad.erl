@@ -79,6 +79,32 @@ test_sign_patch() ->
     gen_server:call(txpool, {patch, MPatch}).
     %settings:pack_patch(Patch,[Signature]).
 
+outbound_tx() ->
+    Pvt=address:parsekey(<<"5Kh9DfFypQNSd1GbGYNuHXsuaRcKVfcAWkrEQDJUMEZfi7yrvzm">>),
+    Pub=secp256k1:secp256k1_ec_pubkey_create(Pvt, false),
+    From=address:pub2caddr(0,Pub),
+
+    Pvt2=address:parsekey(<<"5JNg2WK9RUjxDranifcaTHrk5nGDnb1Pp2yq9Xfz3Arm6g93uCA">>),
+    Pub2=secp256k1:secp256k1_ec_pubkey_create(Pvt2, true),
+    To=address:pub2caddr(1,Pub2),
+
+    Cur= <<"FTT">>,
+    Tx=#{
+      amount=>1,
+      cur=>Cur,
+      extradata=>jsx:encode(#{
+                   message=><<"preved from gentx">>
+                  }),
+      from=>From,
+      to=>To,
+      seq=>13,
+      timestamp=>os:system_time()
+     },
+    NewTx=tx:sign(Tx,Pvt),
+    %tx:unpack(NewTx).
+    txpool:new_tx(NewTx).
+
+
 getpvt(Id) ->
     {ok, Pvt}=file:read_file(<<"addr",(integer_to_binary(Id))/binary,".bin">>),
     Pvt.
