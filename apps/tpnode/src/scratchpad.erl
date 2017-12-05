@@ -1,5 +1,6 @@
 -module(scratchpad).
 -compile(export_all).
+-compile(nowarn_export_all).
 
 node_id() ->
     {ok,K1}=application:get_env(tpnode,privkey),
