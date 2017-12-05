@@ -331,7 +331,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                                     case maps:is_key(inbound_blocks,MBlk) of
                                         true ->
                                             lager:info("IB"),
-                                            gen_server:cast(txpool,{done,proplists:get_keys(maps:is_key(inbound_blocks,MBlk))});
+                                            gen_server:cast(txpool,{done,proplists:get_keys(maps:get(inbound_blocks,MBlk))});
                                         false -> 
                                             lager:info("NO IB"),
                                             ok
@@ -765,7 +765,7 @@ mychain(#{settings:=S}=State) ->
     NodeChain=maps:get(nodechain,S,#{}),
     {ok,K1}=application:get_env(tpnode,privkey),
     PrivKey=hex:parse(K1),
-    PubKey=secp256k1:secp256k1_ec_pubkey_create(PrivKey, true),
+    PubKey=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
     lager:info("My key ~s",[bin2hex:dbin2hex(PubKey)]),
     MyName=maps:fold(
              fun(K,V,undefined) ->

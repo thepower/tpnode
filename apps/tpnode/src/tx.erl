@@ -2,6 +2,10 @@
 
 -export([sign/2,verify/1,pack/1,unpack/1]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 mkmsg(#{ from:=From, amount:=Amount,
          cur:=Currency, to:=To,
          seq:=Seq, timestamp:=Timestamp
@@ -28,7 +32,7 @@ mkmsg(#{ from := From, portout := PortOut,
 sign(#{
   from:=From
  }=Tx,PrivKey) ->
-    Pub=secp256k1:secp256k1_ec_pubkey_create(PrivKey, false),
+    Pub=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
     {FromValid,Fat}=address:check(From),
     if not FromValid -> 
            throw({invalid_address,from});
@@ -43,8 +47,7 @@ sign(#{
 
     Message=mkmsg(Tx),
 
-    Msg32 = crypto:hash(sha256, Message),
-    Sig = secp256k1:secp256k1_ecdsa_sign(Msg32, PrivKey, default, <<>>),
+    Sig = tpecdsa:secp256k1_ecdsa_sign(Message, PrivKey, default, <<>>),
     %io:format("pub ~b sig ~b msg ~p~n",[
     %                                    size(Pub),
     %                                    size(Sig), 
@@ -89,8 +92,7 @@ verify(#{
     Message=mkmsg(Tx),
 
     %io:format("~s~n",[Message]),
-    Msg32 = crypto:hash(sha256, Message),
-    case secp256k1:secp256k1_ecdsa_verify(Msg32, Sig, Pub) of
+    case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
         correct ->
             {ok, Tx};
         _ ->
@@ -164,4 +166,44 @@ unpack(<<PubLen:8/integer,SigLen:8/integer,Tx/binary>>) ->
                signature=>bin2hex:dbin2hex(Sig)
              }
     end.
+
+-ifdef(TEST).
+tx_test() ->
+    Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
+    Pvt2= <<200,200,100,11,222,33,108,24,50,151,189,216,23,42,215,220,24,240,248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
+    Pub1Min=tpecdsa:secp256k1_ec_pubkey_create(Pvt1, true),
+    Pub2Min=tpecdsa:secp256k1_ec_pubkey_create(Pvt2, true),
+    Dst=address:pub2addr({ver,1},Pub2Min),
+    BinTx1=try
+               sign(#{
+                 from => <<"src">>,
+                 to => Dst,
+                 cur => <<"test">>,
+                 timestamp => 1512450000,
+                 seq => 1,
+                 amount => 10
+                },Pvt1)
+           catch throw:Ee1 ->
+                     {throw,Ee1}
+           end,
+    ?assertEqual({throw,{invalid_address,from}},BinTx1),
+    From=address:pub2addr({ver,1},Pub1Min),
+    BinTx2=try
+               sign(#{
+                 from => From,
+                 to => Dst,
+                 cur => <<"test">>,
+                 timestamp => 1512450000,
+                 seq => 1,
+                 amount => 10
+                },Pvt1)
+           catch throw:Ee2 ->
+                     {throw,Ee2}
+           end,
+    io:format("Bin2 ~p~n",[BinTx2]),
+    {ok,ExTx}=verify(BinTx2),
+    ?assertEqual(bin2hex:dbin2hex(Pub1Min),maps:get(public_key,ExTx)).
+
+-endif.
+
 

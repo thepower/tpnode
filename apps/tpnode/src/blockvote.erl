@@ -130,10 +130,7 @@ checksig(BlockHash, Sigs, Acc0) ->
               end
       end,Acc0, Sigs).
 
-is_block_ready(BlockHash,
-               #{
-                  lastblock:=#{hash:=LBlockHash}=LastBlock
-                }= State) ->
+is_block_ready(BlockHash, State) ->
     try
         MinSig=maps:get(minsig,State,2),
         T0=erlang:system_time(),
@@ -170,45 +167,22 @@ is_block_ready(BlockHash,
         end,
         Blk=Blk0#{sign=>Success},
         %enough signs. use block
-        NewPHash=maps:get(parent,maps:get(header,Blk0)),
 
+        T3=erlang:system_time(),
+        lager:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
+                   [blkid(BlockHash),
+                    maps:get(height,maps:get(header,Blk)),
+                    (T3-T0)/1000000
+                   ]),
 
-        if LBlockHash=/=NewPHash ->
-               lager:info("BV Need resynchronize, height ~p/~p new block parent ~s, but my ~s",
-                          [
-                           maps:get(height,maps:get(header,Blk)),
-                           maps:get(height,maps:get(header,LastBlock)),
-                           blkid(NewPHash),
-                           blkid(LBlockHash)
-                          ]),
-               gen_server:cast(blockchain,synchronize),
-               State#{
-                 candidates=>#{}
-                };
-           true ->
-               %normal block installation
+        gen_server:cast(blockchain,{new_block,Blk, self()}),
 
-               NewLastBlock=LastBlock#{
-                              child=>BlockHash
-                             },
+        State#{
+          lastblock=> Blk,
+          candidates=>#{},
+          candidatesig=>#{}
+         }
 
-               T3=erlang:system_time(),
-               lager:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
-                          [blkid(BlockHash),
-                           maps:get(height,maps:get(header,Blk)),
-                           (T3-T0)/1000000
-                          ]),
-
-               gen_server:cast(blockchain,{new_block,Blk, self()}),
-
-               State#{
-                 prevblock=> NewLastBlock,
-                 lastblock=> Blk,
-                 candidates=>#{},
-                 candidatesig=>#{}
-                }
-
-        end
     catch throw:notready ->
               State;
           Ec:Ee ->

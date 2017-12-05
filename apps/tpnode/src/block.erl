@@ -2,10 +2,13 @@
 -export([blkid/1]).
 -export([mkblock/1,binarizetx/1,extract/1,outward_mk/2]).
 -export([verify/1,outward_verify/1,sign/2,sign/3]).
--export([test/0]).
 -export([pack_sign_ed/1,unpack_sign_ed/1,splitsig/1,unpacksig/1]).
 -export([checksigs/2,checksig/2]).
 -export([signhash/3]).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
    
 
@@ -13,8 +16,8 @@ checksig(BlockHash, SrcSig) ->
     HSig=unpacksig(SrcSig),
     #{binextra:=BExt,extra:=Xtra,signature:=Sig}=US=block:unpacksig(HSig),
     PubKey=proplists:get_value(pubkey,Xtra),
-    Msg=crypto:hash(sha256,<<BExt/binary,BlockHash/binary>>),
-    case secp256k1:secp256k1_ecdsa_verify(Msg, Sig, PubKey) of
+    Msg= <<BExt/binary,BlockHash/binary>>,
+    case tpecdsa:secp256k1_ecdsa_verify(Msg, Sig, PubKey) of
         correct ->
             {true, US};
         _ ->
@@ -291,13 +294,13 @@ blkid(<<X:8/binary,_/binary>>) ->
     bin2hex:dbin2hex(X).
 
 signhash(MsgHash, ED, PrivKey) ->
-    PubKey=secp256k1:secp256k1_ec_pubkey_create(PrivKey, true),
+    PubKey=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
     BinExtra= pack_sign_ed([
              {pubkey,PubKey}|
              ED
             ]),
-    Msg=crypto:hash(sha256,<<BinExtra/binary,MsgHash/binary>>),
-    Signature=secp256k1:secp256k1_ecdsa_sign(Msg, PrivKey, default, <<>>),
+    Msg= <<BinExtra/binary,MsgHash/binary>>,
+    Signature=tpecdsa:secp256k1_ecdsa_sign(Msg, PrivKey, default, <<>>),
     <<255,(size(Signature)):8/integer,Signature/binary,BinExtra/binary>>.
 
 sign(Blk, ED, PrivKey) when is_map(Blk) ->
@@ -337,7 +340,8 @@ encode_edval(createduration, Integer) -> <<3,8,Integer:64/big>>;
 encode_edval(signature, PK) -> <<255,(size(PK)):8/integer,PK/binary>>;
 encode_edval(_, _) -> <<>>.
 
-test() ->
+-ifdef(TEST).
+block_test() ->
     test(block),
     test(outward).
 
@@ -346,8 +350,8 @@ test(block) ->
                 200,100,200,100,200,100,200,100,200,100,200,100,200,100,200,100>>,
     Priv2Key= <<200,300,200,100,200,100,200,100,200,100,200,100,200,100,200,100,
                 200,300,200,100,200,100,200,100,200,100,200,100,200,100,200,100>>,
-    Pub1=secp256k1:secp256k1_ec_pubkey_create(Priv1Key, true),
-    Pub2=secp256k1:secp256k1_ec_pubkey_create(Priv2Key, true),
+    Pub1=tpecdsa:secp256k1_ec_pubkey_create(Priv1Key, true),
+    Pub2=tpecdsa:secp256k1_ec_pubkey_create(Priv2Key, true),
     RPatch=settings:mp(
             [
              #{t=>set,p=>[globals,patchsigs], v=>2},
@@ -420,3 +424,4 @@ test(outward) ->
                    timestamp => 1511934628557211514,
                    to => <<"73f9e9yvV5BVRm9RUw3THVFon4rVqUMfAS1BNikC">>}}]},
     outward_verify(OWBlock).
+-endif.

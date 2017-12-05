@@ -6,8 +6,13 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -export([start_link/0]).
--export([generate_block/4,test/0,benchmark/1]).
+-export([generate_block/4,benchmark/1]).
+
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -66,59 +71,71 @@ handle_cast(_Msg, State) ->
 
 handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=State) ->
     AE=maps:get(ae,MySet,1),
-    if(AE==0 andalso PreTXL==[]) ->
-          lager:debug("Skip empty block"),
-          {noreply, State};
-      true ->
-          T1=erlang:system_time(),
-          Parent=case maps:get(parent,State,undefined) of
-                     undefined ->
-                         #{header:=#{height:=Last_Height1},hash:=Last_Hash1}=gen_server:call(blockchain,last_block),
-                         {Last_Height1,Last_Hash1};
-                     {A,B} -> {A,B}
+    try
+        if(AE==0 andalso PreTXL==[]) -> throw(empty);
+          true -> ok
+        end,
+        T1=erlang:system_time(),
+        Parent=case maps:get(parent,State,undefined) of
+                   undefined ->
+                       #{header:=#{height:=Last_Height1},hash:=Last_Hash1}=gen_server:call(blockchain,last_block),
+                       {Last_Height1,Last_Hash1};
+                   {A,B} -> {A,B}
+               end,
+
+        PropsFun=fun(mychain) -> 
+                         MyChain;
+                    (settings) ->
+                         blockchain:get_settings();
+                    ({endless,From,_Cur}) ->
+                         lists:member(
+                           From,
+                           application:get_env(tpnode,endless,[])
+                          ) 
                  end,
+        AddrFun=fun({Addr,Cur}) ->
+                        gen_server:call(blockchain,{get_addr,Addr,Cur});
+                   (Addr) ->
+                        gen_server:call(blockchain,{get_addr,Addr})
+                end,
 
-          PropsFun=fun(mychain) -> 
-                           MyChain;
-                      (settings) ->
-                           blockchain:get_settings();
-                      ({endless,From,_Cur}) ->
-                           lists:member(
-                             From,
-                             application:get_env(tpnode,endless,[])
-                            ) 
-                   end,
-          AddrFun=fun({Addr,Cur}) ->
-                          gen_server:call(blockchain,{get_addr,Addr,Cur});
-                     (Addr) ->
-                          gen_server:call(blockchain,{get_addr,Addr})
-                  end,
-
-          #{block:=Block,
-            failed:=Failed}=generate_block(PreTXL, Parent, PropsFun, AddrFun),
-          T2=erlang:system_time(),
-          Timestamp=os:system_time(millisecond),
-          ED=[
-              {timestamp,Timestamp},
-              {createduration,T2-T1}
-             ],
-          SignedBlock=sign(Block,ED),
-          if Failed==[] ->
-                 ok;
-             true ->
-                 gen_server:cast(txpool,{failed,Failed})
-          end,
-          %cast whole block to local blockvote
-          gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
-          lists:foreach(
-            fun(Pid)-> %cast signature for all blockvotes
-                    gen_server:cast(Pid, {signature, 
-                                          maps:get(hash,SignedBlock),
-                                          maps:get(sign,SignedBlock)}) 
-            end, 
-            pg2:get_members({blockvote,MyChain})
-           ),
-          {noreply, State#{preptxl=>[],parent=>undefined}}
+        #{block:=Block,
+          failed:=Failed}=generate_block(PreTXL, Parent, PropsFun, AddrFun),
+        T2=erlang:system_time(),
+        if Failed==[] ->
+               ok;
+           true ->
+               %there was failed tx. Block empty?
+               gen_server:cast(txpool,{failed,Failed}),
+               if(AE==0) ->
+                     case maps:get(txs,Block,[]) of
+                         [] -> throw(empty);
+                         _ -> ok
+                     end;
+                 true ->
+                     ok
+               end
+        end,
+        Timestamp=os:system_time(millisecond),
+        ED=[
+            {timestamp,Timestamp},
+            {createduration,T2-T1}
+           ],
+        SignedBlock=sign(Block,ED),
+        %cast whole block to local blockvote
+        gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
+        lists:foreach(
+          fun(Pid)-> %cast signature for all blockvotes
+                  gen_server:cast(Pid, {signature, 
+                                        maps:get(hash,SignedBlock),
+                                        maps:get(sign,SignedBlock)}) 
+          end, 
+          pg2:get_members({blockvote,MyChain})
+         ),
+        {noreply, State#{preptxl=>[],parent=>undefined}}
+    catch throw:empty ->
+              lager:info("Skip empty block"),
+              {noreply, State#{preptxl=>[],parent=>undefined}}
     end;
 
 handle_info(process, State) ->
@@ -440,7 +457,7 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
     file:write_file("tx.txt",
                     io_lib:format("~p.~n",[PreTXL])),
     T1=erlang:system_time(), 
-    TXL=lists:keysort(1,PreTXL),
+    TXL=lists:usort(PreTXL),
     T2=erlang:system_time(), 
     {Addrs,XSettings}=lists:foldl(
                         fun({_,#{hash:=_,header:=#{},txs:=Txs}},{AAcc0,SAcc}) ->
@@ -560,7 +577,7 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
 benchmark(N) ->
     Parent=crypto:hash(sha256,<<"123">>),
     Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
-    Pub1=secp256k1:secp256k1_ec_pubkey_create(Pvt1, false),
+    Pub1=tpecdsa:secp256k1_ec_pubkey_create(Pvt1, false),
     From=address:pub2addr(0,Pub1),
     Coin= <<"FTT">>,
     Addresses=lists:map(
@@ -620,8 +637,9 @@ benchmark(N) ->
 
 
 
+-ifdef(TEST).
 
-test() ->
+mkblock_test() ->
     GetSettings=fun(mychain) ->
                         0;
                    (settings) ->
@@ -671,9 +689,9 @@ test() ->
     Pvt2= <<30,1,172,151,224,97,198,186,132,106,120,141,156,0,13,156,178,193,56,24,180,178,60,235,66,194,121,0,4,220,214,6>>,
     Pvt3= <<30,1,172,151,224,97,198,186,132,106,120,141,156,0,13,156,178,193,56,24,180,178,60,235,66,194,121,0,4,220,214,7>>,
     ParentHash=crypto:hash(sha256,<<"parent">>),
-    Pub1=secp256k1:secp256k1_ec_pubkey_create(Pvt1, false),
-    Pub2=secp256k1:secp256k1_ec_pubkey_create(Pvt2, false),
-    Pub3=secp256k1:secp256k1_ec_pubkey_create(Pvt3, false),
+    Pub1=tpecdsa:secp256k1_ec_pubkey_create(Pvt1),
+    Pub2=tpecdsa:secp256k1_ec_pubkey_create(Pvt2),
+    Pub3=tpecdsa:secp256k1_ec_pubkey_create(Pvt3),
 
     TX0=tx:unpack( tx:sign(
                      #{
@@ -715,9 +733,9 @@ test() ->
                         {1,ParentHash},
                         GetSettings,
                         GetAddr),
-    [{<<"2invalid">>,insufficient_fund}]=Failed,
-    [<<"3crosschain">>]=proplists:get_keys(maps:get(tx_proof,Block)),
-    [{<<"3crosschain">>,1}]=maps:get(outbound,Block),
+    ?assertEqual([{<<"2invalid">>,insufficient_fund}], Failed),
+    ?assertEqual([<<"3crosschain">>],proplists:get_keys(maps:get(tx_proof,Block))),
+    ?assertEqual([{<<"3crosschain">>,1}],maps:get(outbound,Block)),
     SignedBlock=block:sign(Block,<<1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1>>),
     maps:get(1,block:outward_mk(maps:get(outbound,Block),SignedBlock)),
     test_xchain_inbound().
@@ -842,5 +860,7 @@ test_xchain_inbound() ->
                         {1,ParentHash},
                         GetSettings,
                         GetAddr),
+    ?assertEqual([], Failed),
     #{block=>Block, failed=>Failed}.
 
+-endif.
