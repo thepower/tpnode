@@ -1,9 +1,9 @@
 all:
-	echo What you wanna to make?
-	echo make build - compile
-	echo make run1 - run node1
-	echo make run2 - run node2
-	echo make run3 - rin node3
+	@echo What you wanna to make?
+	@echo make build - compile
+	@echo make run1 - run node1
+	@echo make run2 - run node2
+	@echo make run3 - rin node3
 
 build:
 	./rebar3 get-deps
