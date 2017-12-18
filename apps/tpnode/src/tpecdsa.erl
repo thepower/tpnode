@@ -5,6 +5,7 @@
          secp256k1_ec_pubkey_create/2,
          secp256k1_ec_pubkey_create/1
         ]).
+-export([simple/0]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -17,6 +18,9 @@ generate_priv(0) ->
     throw('cant_generate');
 generate_priv(N) ->
     case crypto:generate_key(ecdh, crypto:ec_curve(secp256k1)) of
+        {_,<<255,255,255,255,255,255,255,255,255,255,_/binary>>} ->
+            %avoid priv keys with leading ones
+            generate_priv(N-1);
         {_,<<Private:32/binary>>} ->
             Private;
         _ ->
@@ -81,4 +85,33 @@ sign_test() ->
   ?assertEqual(correct, secp256k1_ecdsa_verify(Msg32, Sig, secp256k1_ec_pubkey_create(SecKey, true))),
   ?assertEqual(incorrect, secp256k1_ecdsa_verify(<<1,Msg32/binary>>, Sig, secp256k1_ec_pubkey_create(SecKey, false))).
 -endif.
+
+%crypto:ec_curve(secp256k1)
+%
+%{{prime_field,<<"ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿþÿÿü/">>}, 
+% p=FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+%
+%{<<0>>,<<7>>,none},
+% a=0
+% b=7
+%
+%<<4,121,190,102,126,249,220,187,172,85,160,98,149,206,135,11,7,2,155,252,219,
+%  45,206,40,217,89,242,129,91,22,248,23,152,72,58,218,119,38,163,196,101,93,
+%  164,251,252,14,17,8,168,253,23,180,72,166,133,84,25,156,71,208,143,251,16,
+%  212,184>>,
+%G=04 79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798 483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C4
+%
+%<<255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,254,186,174,220,
+%  230,175,72,160,59,191,210,94,140,208,54,65,65>>,
+%n=FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+%
+%<<1>>}
+%h=1 group cofactor
+
+simple() ->
+    {{prime_field,<<23:256/big>>}, 
+     {<<13>>,<<10>>,none},
+     <<4,18:256/big,2:256/big>>,
+     <<19:256/big>>,
+     <<1>>}.
 

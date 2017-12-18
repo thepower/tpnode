@@ -34,7 +34,17 @@ init([]) ->
         _ -> 
             ok
     end,
-    
+    {ok,TPIC0}=application:get_env(tpnode,tpic),
+    TPIC=TPIC0#{
+           ecdsa=>tpecdsa:generate_priv(),
+           authmod=>tpic_checkauth,
+           routing=>#{
+             <<"timesync">>=>synchronizer,
+             <<"mkblock">>=>mkblock,
+             <<"blockvote">>=>blockvote,
+             <<"blockchain">>=>blockchain
+            }
+          },
     {ok, { {one_for_one, 5, 10}, 
            [
             { blockchain, {blockchain,start_link,[]}, permanent, 5000, worker, []},
@@ -43,6 +53,8 @@ init([]) ->
             { synchronizer, {synchronizer,start_link,[]}, permanent, 5000, worker, []},
             { mkblock, {mkblock,start_link,[]}, permanent, 5000, worker, []},
             { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []},
+            { tpic_sctp, {tpic_sctp, start_link, [TPIC]}, permanent, 5000, worker, []},
             tpnode_http:childspec()
-           ]} }.
+           ]
+         } }.
 
