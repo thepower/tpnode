@@ -38,11 +38,24 @@ init(_Args) ->
        prevtick=>0
       }}.
 
+handle_call(state, _From, State) ->
+    {reply, State, State};
+
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(settings, State) ->
     {noreply, load_settings(State)};
+
+handle_cast({tpic, _PeerID, Payload}, State) ->
+    case msgpack:unpack(Payload) of
+        {ok, #{null:=<<"hello">>,<<"n">>:=Node,<<"t">>:=T}} ->
+            handle_cast({hello, Node, T}, State);
+        Any ->
+            lager:info("Bad TPIC received ~p",[Any]),
+            {noreply, State}
+    end;
+    
 
 handle_cast({hello, PID, WallClock}, State) ->
     Behind=erlang:system_time(microsecond)-WallClock,
@@ -88,8 +101,8 @@ handle_info(ticktimer,
 
 
 
-handle_info(selftimer5, #{mychain:=MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs}=State) ->
-    Friends=pg2:get_members({synchronizer,MyChain})--[self()],
+handle_info(selftimer5, #{mychain:=_MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs}=State) ->
+    Friends=maps:keys(Offs), %pg2:get_members({synchronizer,MyChain})--[self()],
     {Avg,Off2}=lists:foldl(
           fun(Friend,{Acc,NewOff}) ->
                   case maps:get(Friend,Offs,undefined) of
@@ -101,12 +114,14 @@ handle_info(selftimer5, #{mychain:=MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs}
           end,{[],#{}}, Friends),
     MeanDiff=median(Avg),
     T=erlang:system_time(microsecond),
-    lists:foreach(
-      fun(Pid)-> 
-              gen_server:cast(Pid, {hello, self(), T}) 
-      end, 
-      Friends
-     ),
+    Hello=msgpack:pack(#{null=><<"hello">>,<<"n">>=>node(),<<"t">>=>T}),
+    gen_server:cast(tpic,{broadcast,<<"timesync">>,Hello}),
+    %lists:foreach(
+    %  fun(Pid)-> 
+    %          gen_server:cast(Pid, {hello, self(), T}) 
+    %  end, 
+    %  Friends
+    % ),
     MeanMs=round((T-MeanDiff)/1000),
     if(Friends==[]) ->
           lager:debug("I'm alone in universe my time ~w",[(MeanMs rem 3600000)/1000]);

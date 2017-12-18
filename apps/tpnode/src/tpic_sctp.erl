@@ -9,7 +9,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1,start_link/0,resolve/1]).
+-export([start_link/1,resolve/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -22,11 +22,8 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
 start_link(Settings) when is_map(Settings) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, Settings, []).
+    gen_server:start_link({local, tpic}, ?MODULE, Settings, []).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -87,9 +84,14 @@ init(#{port:=MyPort}=Args) when is_map(Args) ->
                                      {K, A}
                              end
                      end,{2,#{<<"timesync">>=>1}}, maps:get(routing,Args,#{})),
+    RRouting=maps:fold(
+               fun(K,V,A) ->
+                       maps:put(V,K,A)
+               end, #{}, ExtRouting),
     {ok, Args#{
            socket=>S,
            extrouting=>ExtRouting,
+           rrouting=>RRouting,
            peerinfo=>PI
           }
     }.
@@ -111,6 +113,7 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({broadcast, Chan, Message}, 
             #{peerinfo:=PI,socket:=Socket}=State) ->
+    lager:info("Broadcast to ~p: ~p",[Chan,Message]),
     mkmap:fold(
       fun(K,#{routes:=Routes}=_Ctx,_) ->
               case proplists:get_value(ass,K) of
@@ -120,7 +123,7 @@ handle_cast({broadcast, Chan, Message},
                           true ->
                               SID=maps:get(Chan,Routes),
                               R=gen_sctp:send(Socket, AssID, SID, Message),
-                              lager:info("I have ass ~p, send ~p",[AssID,R]);
+                              lager:info("I have assoc ~p, send ~p",[AssID,R]);
                           false ->
                               %no such channel
                               ok
@@ -344,14 +347,14 @@ showanc([#sctp_sndrcvinfo{
             cumtsn=Cumtsn, % 0,	Only for unordered recv
             assoc_id=Assoc % 0		IMPORTANT!
            }],RemoteIP,RemotePort) ->
-    lager:info("from ~s:~w ass ~w str ~w flg ~p pp ~p ctx ~p cum ~p",
+    lager:debug("from ~s:~w ass ~w str ~w flg ~p pp ~p ctx ~p cum ~p",
                [ inet:ntoa(RemoteIP), RemotePort,
                 Assoc, SID, Flags, PPID, Ctx, Cumtsn ]).
 
 handle_payload(#sctp_sndrcvinfo{ stream=SID, assoc_id=Assoc }=Anc,
                {RemoteIP,RemotePort},Payload,#{peerinfo:=PI,socket:=Socket}=State) ->
     Ctx=mkmap:get({ass,Assoc}, PI, #{}),
-    lager:info("++> Payload from ~p ~p: ~p  (ctx ~p)", [Assoc, SID, Payload, Ctx]),
+    lager:debug("++> Payload from ~p ~p: ~p  (ctx ~p)", [Assoc, SID, Payload, Ctx]),
     case payload(Socket, Anc, {RemoteIP,RemotePort},Payload,Ctx,State) of
         {ok, close} ->
             gen_sctp:eof(Socket, #sctp_assoc_change{
@@ -452,9 +455,27 @@ payload(Socket,
 
 payload(_Socket,
         #sctp_sndrcvinfo{ stream=SID, assoc_id=Assoc },
-        {_RemoteIP,_RemotePort},Payload,Ctx,State) ->
-    lager:info("Payload from ~p ~p: ~p  (ctx ~p)",
-               [Assoc, SID, Payload, Ctx]),
+        {_RemoteIP,_RemotePort},Payload,Ctx,#{rrouting:=RR}=State) ->
+    case maps:is_key(SID,RR) of
+        true ->
+            To=case maps:get(SID,RR) of
+                   <<"timesync">> -> synchronizer;
+                   X when is_pid(X) -> X;
+                   X when is_atom(X) -> X;
+                   X when is_binary(X) ->
+                       try 
+                           erlang:binary_to_existing_atom(<<"undefined">>,utf8)
+                       catch error:badarg ->
+                                 undefined
+                       end
+               end,
+            gen_server:cast(To,{tpic,{Assoc,SID},Payload}),
+            lager:info("Payload to ~p from ~p ~p: ~p  (ctx ~p)",
+                       [To, Assoc, SID, Payload, Ctx]);
+        false ->
+            lager:info("Payload from ~p ~p: ~p  (ctx ~p)",
+                       [Assoc, SID, Payload, Ctx])
+    end,
     {ok, State}.
 
 zerostream(_Socket, 
