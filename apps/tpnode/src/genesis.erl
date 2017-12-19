@@ -24,10 +24,11 @@ new(HPrivKey) ->
                              ],
                    sign=>[]
                  }),
-              os:system_time(millisecond),
+              [{timestamp, os:system_time(millisecond)}],
               PrivKey
              ),
-    file:write_file("genesis.txt", io_lib:format("~p.~n", [Genesis])).
+    file:write_file("genesis.txt", io_lib:format("~p.~n", [Genesis])),
+    {ok,Genesis}.
 
 settings() ->
     settings:mp(
