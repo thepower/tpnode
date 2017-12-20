@@ -25,15 +25,6 @@ start_link() ->
 init([]) ->
     application:ensure_all_started(cowboy),
     application:ensure_all_started(tinymq),
-    case application:get_env(tpnode, neighbours) of
-        {ok, Neighbours} when is_list(Neighbours) ->
-            lists:foreach(
-              fun(Node) ->
-                      net_adm:ping(Node)
-              end, Neighbours);
-        _ -> 
-            ok
-    end,
     {ok,TPIC0}=application:get_env(tpnode,tpic),
     TPIC=TPIC0#{
            ecdsa=>tpecdsa:generate_priv(),
@@ -50,7 +41,7 @@ init([]) ->
             { blockchain, {blockchain,start_link,[]}, permanent, 5000, worker, []},
             { blockvote, {blockvote,start_link,[]}, permanent, 5000, worker, []},
             { ws_dispatcher, {tpnode_ws_dispatcher,start_link,[]}, permanent, 5000, worker, []},
-            { synchronizer, {synchronizer,start_link,[]}, permanent, 5000, worker, []},
+            %{ synchronizer, {synchronizer,start_link,[]}, permanent, 5000, worker, []},
             { mkblock, {mkblock,start_link,[]}, permanent, 5000, worker, []},
             { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []},
             { tpic_sctp, {tpic_sctp, start_link, [TPIC]}, permanent, 5000, worker, []},

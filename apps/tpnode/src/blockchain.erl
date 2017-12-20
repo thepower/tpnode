@@ -80,6 +80,13 @@ handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
               {reply, {error, Ec, Ee, S}, State}
     end;
 
+handle_call(testh, _From, State) ->
+    CA=tpic_sctp:call_all(tpic,<<"blockchain">>,msgpack:pack(#{null=>tail})),
+    CB=lists:map(
+         fun({Conn,_H1}) ->
+                 tpic_sctp:call(tpic,Conn,msgpack:pack(#{null=>tail}))
+         end, CA),
+    {reply, CB, State};
 
 handle_call(runsync, _From, State) ->
     State1=run_sync(State),
@@ -485,6 +492,28 @@ handle_cast(savebal,#{ldb:=LDB,table:=T}=State) ->
     save_bals(LDB,T),
     {noreply, State};
 
+handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
+    case msgpack:unpack(Bin) of
+        {ok, Struct} ->
+            handle_cast({tpic, From, Struct}, State);
+        _Any ->
+            lager:info("Can't decode TPIC ~p",[_Any]),
+            {noreply, State}
+    end;
+
+handle_cast({tpic, From, #{
+                     null:=<<"tail">>
+                    }}, 
+            #{mychain:=MC,lastblock:=#{header:=#{height:=H},
+                                      hash:=Hash }}=State) ->
+    gen_server:cast(tpic, {unicast, From, msgpack:pack(#{null=><<"response">>,
+                                                         mychain=>MC,
+                                                         height=>H,
+                                                         hash=>Hash
+                                                        })}),
+    {noreply, State};
+
+
 handle_cast(_Msg, State) ->
     lager:info("Unknown cast ~p",[_Msg]),
     file:write_file("unknown_cast_msg.txt", io_lib:format("~p.~n", [_Msg])),
@@ -492,6 +521,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(_Info, State) ->
+    lager:info("BC unhandled info ~p",[_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

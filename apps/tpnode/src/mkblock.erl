@@ -11,7 +11,7 @@
 -endif.
 
 -export([start_link/0]).
--export([generate_block/4,benchmark/1]).
+-export([generate_block/4,benchmark/1,decode_tpic_txs/1]).
 
 
 %% ------------------------------------------------------------------
@@ -48,6 +48,25 @@ handle_call(state, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
+    case msgpack:unpack(Bin) of
+        {ok, Struct} ->
+            handle_cast({tpic, From, Struct}, State);
+        _Any ->
+            lager:info("Can't decode TPIC ~p",[_Any]),
+            {noreply, State}
+    end;
+
+handle_cast({tpic, _From, #{
+                     null:=<<"mkblock">>,
+                     <<"chain">>:=_MsgChain,
+                     <<"origin">>:=Origin,
+                     <<"txs">>:=TPICTXs
+                    }}, State)  ->
+    TXs=decode_tpic_txs(TPICTXs),
+    lager:info("Got txs from ~s: ~p",[Origin, TXs]),
+    handle_cast({prepare, Origin, TXs}, State);
+    
 handle_cast({prepare, _Node, Txs}, #{preptxl:=PreTXL}=State) ->
     {noreply, 
      case maps:get(parent, State, undefined) of
@@ -124,14 +143,23 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
         SignedBlock=sign(Block,ED),
         %cast whole block to local blockvote
         gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
-        lists:foreach(
-          fun(Pid)-> %cast signature for all blockvotes
-                  gen_server:cast(Pid, {signature, 
-                                        maps:get(hash,SignedBlock),
-                                        maps:get(sign,SignedBlock)}) 
-          end, 
-          pg2:get_members({blockvote,MyChain})
-         ),
+        HBlk=msgpack:pack(
+               #{null=><<"blockvote">>,
+                 <<"n">>=>node(),
+                 <<"hash">>=>maps:get(hash,SignedBlock),
+                 <<"sign">>=>maps:get(sign,SignedBlock),
+                 <<"chain">>=>MyChain
+                }
+              ),
+        gen_server:cast(tpic,{broadcast,<<"blockvote">>, HBlk}),
+%        lists:foreach(
+%          fun(Pid)-> %cast signature for all blockvotes
+%                  gen_server:cast(Pid, {signature, 
+%                                        maps:get(hash,SignedBlock),
+%                                        maps:get(sign,SignedBlock)}) 
+%          end, 
+%          pg2:get_members({blockvote,MyChain})
+%         ),
         {noreply, State#{preptxl=>[],parent=>undefined}}
     catch throw:empty ->
               lager:info("Skip empty block"),
@@ -635,7 +663,11 @@ benchmark(N) ->
     T2=erlang:system_time(),
     (T2-T1)/1000000.
 
-
+decode_tpic_txs(TXs) ->
+    lists:map(
+      fun({TxID,Tx}) ->
+              {TxID, tx:unpack(Tx)}
+      end, maps:to_list(TXs)).
 
 -ifdef(TEST).
 

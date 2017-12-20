@@ -126,13 +126,33 @@ handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue,nodeid:=
     %    _ -> lager:info("Still in process ~p",[InProc0])
     %end,
     {Queue1,Res}=pullx(1000,Queue,[]),
-    lists:foreach(
-      fun(Pid)-> 
-              %lager:info("Prepare to ~p",[Pid]),
-              gen_server:cast(Pid, {prepare, Node, Res}) 
-      end, 
-      pg2:get_members({mkblock,MyChain})
-     ),
+    try
+        %MKb= <<"mkblock",(integer_to_binary(MyChain))/binary>>,
+        MKb= <<"mkblock">>,
+        MRes=msgpack:pack(#{null=><<"mkblock">>,
+                            chain=>MyChain,
+                            origin=>Node,
+                            txs=>maps:from_list(
+                                   lists:map(
+                                     fun({TxID,T}) ->
+                                             {TxID,tx:pack(T)}
+                                     end, Res)
+                                  )
+                           }),
+        gen_server:cast(tpic,{broadcast,MKb,MRes})
+        %lager:info("Cast ~p ~p",[MKb,msgpack:unpack(MRes)])
+    catch _:_ ->
+              lager:error("Can't encode")
+    end,
+    
+    %lists:foreach(
+    %  fun(Pid)-> 
+    %          %lager:info("Prepare to ~p",[Pid]),
+    %          gen_server:cast(Pid, {prepare, Node, Res}) 
+    %  end, 
+    %  pg2:get_members({mkblock,MyChain})
+    % ),
+    gen_server:cast(mkblock, {prepare, Node, Res}), 
     Time=erlang:system_time(seconds),
     {InProc1,Queue2}=recovery_lost(InProc0,Queue1,Time),
     ETime=Time+20,

@@ -29,6 +29,7 @@ start_link() ->
 init(_Args) ->
     pg2:create(?MODULE),
     pg2:join(?MODULE,self()),
+    gen_server:cast(self(),settings),
     {ok, #{
        myoffset=>undefined,
        offsets=>#{},
@@ -79,7 +80,7 @@ handle_cast({setdelay,Ms}, State) when Ms>900 ->
     };
 
 handle_cast(_Msg, State) ->
-    lager:info("Cast ~p",[_Msg]),
+    lager:info("Unknown cast ~p",[_Msg]),
     {noreply, State}.
 
 handle_info(ticktimer, 
@@ -102,7 +103,8 @@ handle_info(ticktimer,
 
 
 handle_info(selftimer5, #{mychain:=_MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs}=State) ->
-    Friends=maps:keys(Offs), %pg2:get_members({synchronizer,MyChain})--[self()],
+    Friends=maps:keys(Offs), 
+    %pg2:get_members({synchronizer,MyChain})--[self()],
     {Avg,Off2}=lists:foldl(
           fun(Friend,{Acc,NewOff}) ->
                   case maps:get(Friend,Offs,undefined) of
@@ -141,6 +143,7 @@ handle_info(selftimer5, #{mychain:=_MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs
     };
 
 handle_info(_Info, State) ->
+    lager:info("Unknown info ~p",[_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

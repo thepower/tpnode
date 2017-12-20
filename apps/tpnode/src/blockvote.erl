@@ -46,6 +46,36 @@ handle_cast(settings, State) ->
 handle_cast(_, undefined) ->
     {noreply, undefined};
 
+handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
+    case msgpack:unpack(Bin) of
+        {ok, Struct} ->
+            handle_cast({tpic, From, Struct}, State);
+        _Any ->
+            lager:info("Can't decode TPIC ~p",[_Any]),
+            {noreply, State}
+    end;
+
+handle_cast({tpic, _From, #{
+                     null:=<<"blockvote">>,
+                     <<"chain">>:=MsgChain,
+                     <<"hash">> := BlockHash,
+                     %<<"n">> := _OriginNode,
+                     <<"sign">> := Sigs
+                    }}, 
+            #{mychain:=MyChain}=State) when MyChain==MsgChain ->
+    handle_cast({signature, BlockHash, Sigs}, State);
+
+handle_cast({tpic, _From, #{
+                     null:=<<"blockvote">>,
+                     <<"chain">>:=MsgChain,
+                     <<"hash">> := _BlockHash,
+                     %<<"n">> := _OriginNode,
+                     <<"sign">> := _Sigs
+                    }}, 
+            #{mychain:=MyChain}=State) when MyChain=/=MsgChain ->
+    lager:debug("BV sig from other chain"),
+    {noreply, State};
+
 handle_cast({signature, BlockHash, Sigs}, State) ->
     lager:info("Signature"),
     Candidatesig=maps:get(candidatesig,State,#{}),
@@ -82,7 +112,7 @@ handle_cast(blockchain_sync, State) ->
     {noreply, Res};
         
 handle_cast(_Msg, State) ->
-    lager:info("Cast ~p",[_Msg]),
+    lager:info("BV Unknown cast ~p",[_Msg]),
     {noreply, State}.
 
 handle_info(init, undefined) ->

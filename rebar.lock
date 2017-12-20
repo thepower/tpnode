@@ -12,7 +12,10 @@
   {git,"https://github.com/cleverfox/mkmap.git",
        {ref,"ba4fd6e424fe0cd64216989d8e16f2d3f8253363"}},
   0},
- {<<"msgpack">>,{pkg,<<"msgpack">>,<<"0.7.0">>},0},
+ {<<"msgpack">>,
+  {git,"https://github.com/cleverfox/msgpack-erlang",
+       {ref,"84e1cec99c6f60e47d5c0abe758834034c41f3d0"}},
+  0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.4.0">>},1},
  {<<"rocksdb">>,{pkg,<<"rocksdb">>,<<"0.12.0">>},0},
  {<<"tables">>,
@@ -34,7 +37,6 @@
  {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>},
  {<<"jsx">>, <<"A05252D381885240744D955FBE3CF810504EB2567164824E19303EA59EEF62CF">>},
  {<<"lager">>, <<"614A8C8F67BF99B69EB264EA22121AD25511C055AAEC09B086773D5108C6767F">>},
- {<<"msgpack">>, <<"128AE0A2227C7E7A2847C0F0F73551C268464F8C1EE96BFFB920BC0A5712B295">>},
  {<<"ranch">>, <<"10272F95DA79340FA7E8774BA7930B901713D272905D0012B06CA6D994F8826B">>},
  {<<"rocksdb">>, <<"CD59EE3B6CB33D0AF8C17126AD055420AD2A625C5AE50913619D4FA1ADD85D54">>}]}
 ].

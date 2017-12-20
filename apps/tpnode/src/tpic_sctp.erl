@@ -9,7 +9,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1,resolve/1]).
+-export([start_link/1,resolve/1,call_all/3,call/3]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -102,10 +102,49 @@ handle_call(peers, _From, #{peerinfo:=PI}=State) ->
 handle_call(state, _From, State) ->
     {reply, State, State};
 
-handle_call(assocs, _From, #{socket:=S}=State) ->
-    Res=inet:getopts(S,[{sctp_associnfo,#sctp_assocparams{assoc_id=3}},
-                        {sctp_peer_addr_params, #sctp_paddrparams{assoc_id=3}}]),
-    {reply, Res, State};
+handle_call({broadcast, Chan, Message}, _From,
+            #{peerinfo:=PI,socket:=Socket}=State) ->
+    Sent=mkmap:fold(
+           fun(K,#{routes:=Routes}=_Ctx,Acc) ->
+                   case proplists:get_value(ass,K) of
+                       undefined -> Acc; %Not connected
+                       AssID -> %connected
+                           case maps:is_key(Chan,Routes) of
+                               true ->
+                                   SID=maps:get(Chan,Routes),
+                                   R=gen_sctp:send(Socket, AssID, SID, Message),
+                                   lager:info("I have assoc ~p, send ~p",[AssID,R]),
+                                   if R==ok ->
+                                          [{AssID,SID}|Acc];
+                                      true ->
+                                          Acc
+                                   end;
+                               false ->
+                                   %no such channel
+                                   Acc
+                           end
+                   end;
+              (_,_,Acc) ->
+                   Acc
+           end, [], PI),
+    lager:info("Broadcast ~p ~p bytes: ~p",[Chan,size(Message),Sent]),
+    {reply, Sent, State};
+
+
+handle_call({unicast, {Assoc, SID}, Message}, _From,
+            #{peerinfo:=PI,socket:=Socket}=State) ->
+    case mkmap:get({ass,Assoc}, PI, undefined) of
+        undefined ->
+            {reply, [], State};
+        #{} ->
+            R=gen_sctp:send(Socket, Assoc, SID, Message),
+            lager:info("I have assoc ~p, send ~p",[Assoc,R]),
+            if R==ok ->
+                   {reply, [{Assoc,SID}], State};
+               true ->
+                   {reply, [], State}
+            end
+    end;
 
 handle_call(_Request, _From, State) ->
     lager:info("unknown call ~p",[_Request]),
@@ -113,28 +152,29 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({broadcast, Chan, Message}, 
             #{peerinfo:=PI,socket:=Socket}=State) ->
-    lager:info("Broadcast to ~p: ~p",[Chan,Message]),
-    mkmap:fold(
-      fun(K,#{routes:=Routes}=_Ctx,_) ->
-              case proplists:get_value(ass,K) of
-                  undefined -> ok; %Not connected
-                  AssID -> %connected
-                      case maps:is_key(Chan,Routes) of
-                          true ->
-                              SID=maps:get(Chan,Routes),
-                              R=gen_sctp:send(Socket, AssID, SID, Message),
-                              lager:info("I have assoc ~p, send ~p",[AssID,R]);
-                          false ->
-                              %no such channel
-                              ok
-                      end
-              end;
-         (_,_,_) ->
-              ok
-      end, undefined, PI),
+    Sent=mkmap:fold(
+           fun(K,#{routes:=Routes}=_Ctx,Acc) ->
+                   case proplists:get_value(ass,K) of
+                       undefined -> ok; %Not connected
+                       AssID -> %connected
+                           case maps:is_key(Chan,Routes) of
+                               true ->
+                                   SID=maps:get(Chan,Routes),
+                                   R=gen_sctp:send(Socket, AssID, SID, Message),
+                                   lager:info("I have assoc ~p, send ~p",[AssID,R]),
+                                   [{AssID,R}|Acc];
+                               false ->
+                                   %no such channel
+                                   Acc
+                           end
+                   end;
+              (_,_,Acc) ->
+                   Acc
+           end, [], PI),
+    lager:info("Broadcast ~p ~p bytes: ~p",[Chan,size(Message),Sent]),
     {noreply, State};
 
-handle_cast({unicast, PeerID, SID, Message}, 
+handle_cast({unicast, {PeerID, SID}, Message}, 
             #{peerinfo:=_PI,socket:=Socket}=State) ->
     lager:debug("FIXME: check PerrID"),
     R=gen_sctp:send(Socket, PeerID, SID, Message),
@@ -172,7 +212,7 @@ handle_info(connect_peers, #{peerinfo:=PI,socket:=S}=State) ->
                       _ -> ok
                   end,
 
-                  lager:info("I have to connect to ~p: ~p",[Host,T]),
+                  lager:debug("I have to connect to ~p: ~p",[Host,T]),
                   case gen_sctp:connect_init
                        (S, Host, Port, [{sctp_initmsg,#sctp_initmsg{num_ostreams=10}}])
                   of ok ->
@@ -216,7 +256,7 @@ handle_info({sctp,Socket,RemoteIP,RemotePort,
              }
             }, #{peerinfo:=PI,socket:=Socket}=State) ->
     showanc(Anc,RemoteIP,RemotePort),
-    lager:info("AssChange for ~p:~w",[RemoteIP,RemotePort]),
+    lager:debug("AssChange for ~p:~w",[RemoteIP,RemotePort]),
     Action=case ASt of
                comm_up -> up;
                cant_assoc -> error;
@@ -224,7 +264,7 @@ handle_info({sctp,Socket,RemoteIP,RemotePort,
                restart -> down;
                shutdown_comp -> down
            end,
-    lager:info("AssocChange ~w ~s (IS ~w OS ~w Err ~w)",[AID,ASt,IS,OS,Err]),
+    lager:debug("AssocChange ~w ~s (IS ~w OS ~w Err ~w)",[AID,ASt,IS,OS,Err]),
     PI1=case Action of
             up -> 
                 Challenge= <<"Hello",(crypto:strong_rand_bytes(16))/binary,"\r\n">>,
@@ -257,7 +297,7 @@ handle_info({sctp,Socket,RemoteIP,RemotePort,
                 PI
         end,
 
-    lager:info("PI ~p",[PI1]),
+    lager:debug("PI ~p",[PI1]),
     {noreply, State#{peerinfo=>PI1}};
 
 handle_info({sctp,Socket,RemoteIP,RemotePort,
@@ -365,10 +405,10 @@ handle_payload(#sctp_sndrcvinfo{ stream=SID, assoc_id=Assoc }=Anc,
             NewState;
         {ok, NewCtx, NewState} ->
             PI1=mkmap:put({ass,Assoc},NewCtx,PI),
-            NewState#{ peerinfo=>PI1 };
-        _Any ->
-            lager:error("Bad return from payload handler ~p",[_Any]),
-            State
+            NewState#{ peerinfo=>PI1 }
+%        _Any ->
+%            lager:error("Bad return from payload handler ~p",[_Any]),
+%            State
     end.
 
 payload(Socket, 
@@ -455,7 +495,7 @@ payload(Socket,
 
 payload(_Socket,
         #sctp_sndrcvinfo{ stream=SID, assoc_id=Assoc },
-        {_RemoteIP,_RemotePort},Payload,Ctx,#{rrouting:=RR}=State) ->
+        {_RemoteIP,_RemotePort},Payload,_Ctx,#{rrouting:=RR}=State) ->
     case maps:is_key(SID,RR) of
         true ->
             To=case maps:get(SID,RR) of
@@ -464,17 +504,17 @@ payload(_Socket,
                    X when is_atom(X) -> X;
                    X when is_binary(X) ->
                        try 
-                           erlang:binary_to_existing_atom(<<"undefined">>,utf8)
+                           erlang:binary_to_existing_atom(X,utf8)
                        catch error:badarg ->
                                  undefined
                        end
                end,
             gen_server:cast(To,{tpic,{Assoc,SID},Payload}),
-            lager:info("Payload to ~p from ~p ~p: ~p  (ctx ~p)",
-                       [To, Assoc, SID, Payload, Ctx]);
+            lager:info("Payload to ~p from ~p ~p",
+                       [To, Assoc, SID]);
         false ->
-            lager:info("Payload from ~p ~p: ~p  (ctx ~p)",
-                       [Assoc, SID, Payload, Ctx])
+            lager:info("Payload from ~p ~p: ~p",
+                       [Assoc, SID, Payload])
     end,
     {ok, State}.
 
@@ -492,3 +532,39 @@ zerostream(_Socket,
     lager:info("Message from ~p ~p", [Assoc, _Message]),
     {ok, State}.
 
+
+call(TPIC, Conn, Request) -> 
+    call(TPIC, Conn, Request, 2000).
+
+call_all(TPIC, Service, Request) -> 
+    call_all(TPIC, Service, Request, 2000).
+
+call(TPIC, Conn, Request, Timeout) -> 
+    R=gen_server:call(TPIC,{unicast,Conn, Request}),
+    T2=erlang:system_time(millisecond)+Timeout,
+    wait_response(T2,R,[]).
+
+call_all(TPIC, Service, Request, Timeout) -> 
+    R=gen_server:call(TPIC,{broadcast,Service, Request}),
+    T2=erlang:system_time(millisecond)+Timeout,
+    wait_response(T2,R,[]).
+
+wait_response(_Until,[],Acc) ->
+    Acc;
+
+wait_response(Until,[R1|RR],Acc) ->
+    lager:debug("Waiting for reply"),
+    T1=Until-erlang:system_time(millisecond),
+    T=if(T1>0) -> T1;
+        true -> 0
+      end,
+    receive 
+        {'$gen_cast',{tpic,R1,A}} ->
+            {ok,Response}=msgpack:unpack(A),
+            lager:debug("Got reply from ~p ~p",[R1,Response]),
+            wait_response(Until,RR,[{R1,Response}|Acc])
+    after T ->
+              wait_response(Until,RR,Acc)
+    end.
+
+    

@@ -2,7 +2,9 @@
 -export([blkid/1]).
 -export([mkblock/1,binarizetx/1,extract/1,outward_mk/2]).
 -export([verify/1,outward_verify/1,sign/2,sign/3]).
--export([pack_sign_ed/1,unpack_sign_ed/1,splitsig/1,unpacksig/1]).
+-export([pack/1,unpack/1]).
+-export([pack_sign_ed/1,unpack_sign_ed/1]).
+-export([packsig/1,unpacksig/1]).
 -export([checksigs/2,checksig/2]).
 -export([signhash/3]).
 
@@ -10,7 +12,61 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
-   
+pack(Block) ->
+    Prepare=maps:map(
+              fun(bals,BalsSnap) ->
+                      maps:fold(
+                        fun({Address,Cur},Snap,Acc) ->
+                                maps:put([Address,Cur],Snap,Acc)
+                        end,#{},BalsSnap);
+                 (sign,Sigs) ->
+                      lists:map(
+                        fun(Sig) ->
+                                packsig(Sig)
+                        end, Sigs);
+                 (txs,Txs) ->
+                      maps:from_list(
+                        lists:map(
+                          fun({TxID,T}) ->
+                                  {TxID,tx:pack(T)}
+                          end, Txs)
+                       );
+                 (_,V) ->
+                      V
+              end,
+              Block
+             ),
+    msgpack:pack(Prepare).
+
+unpack(Block) when is_binary(Block) ->
+    case msgpack:unpack(Block,[{known_atoms,
+                                [hash,outbound,header,settings,txs,sign,bals,
+                                 balroot,height,parent,txroot,
+                                 amount,lastblk,seq,t]}]) of
+        {ok, Hash} ->
+            maps:map(
+              fun
+                  (bals,BalsSnap) ->
+                      maps:fold(
+                        fun([Address,Cur],Snap,Acc) ->
+                                maps:put({Address,Cur},Snap,Acc)
+                        end,#{},BalsSnap);
+                  (txs,TXs) ->
+                      lists:map(
+                        fun({TxID,Tx}) ->
+                                {TxID, tx:unpack(Tx)}
+                        end, maps:to_list(TXs));
+                 (sign,Sigs) ->
+                      lists:map(
+                        fun(Sig) ->
+                                unpacksig(Sig)
+                        end, Sigs);
+                 (_,V) ->
+                      V
+              end, Hash);
+        {error,Err} ->
+            throw({block_unpack,Err})
+    end.
 
 checksig(BlockHash, SrcSig) ->
     HSig=unpacksig(SrcSig),
@@ -137,10 +193,10 @@ unpacksig(HSig) when is_map(HSig) ->
     HSig;
 
 unpacksig(BSig) when is_binary(BSig) ->
-    {Signature,Hdr}=block:splitsig(BSig),
+    {Signature,Hdr}=splitsig(BSig),
     #{ binextra => (Hdr),
        signature => (Signature),
-       extra => block:unpack_sign_ed(Hdr)
+       extra => unpack_sign_ed(Hdr)
      }.
 
 binarize_settings([]) -> [];
@@ -292,6 +348,9 @@ bals2bin(NewBal) ->
 
 blkid(<<X:8/binary,_/binary>>) ->
     bin2hex:dbin2hex(X).
+
+packsig(#{signature:=Signature,binextra:=BinExtra}) ->
+    <<255,(size(Signature)):8/integer,Signature/binary,BinExtra/binary>>.
 
 signhash(MsgHash, ED, PrivKey) ->
     PubKey=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
