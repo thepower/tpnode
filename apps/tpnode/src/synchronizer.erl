@@ -117,7 +117,7 @@ handle_info(selftimer5, #{mychain:=_MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs
     MeanDiff=median(Avg),
     T=erlang:system_time(microsecond),
     Hello=msgpack:pack(#{null=><<"hello">>,<<"n">>=>node(),<<"t">>=>T}),
-    gen_server:cast(tpic,{broadcast,<<"timesync">>,Hello}),
+    tpic:cast(tpic,<<"timesync">>,Hello),
     %lists:foreach(
     %  fun(Pid)-> 
     %          gen_server:cast(Pid, {hello, self(), T}) 

@@ -1,4 +1,6 @@
 -module(tpic_sctp).
+-author("cleverfox <devel@viruzzz.org>").
+
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -9,7 +11,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1,resolve/1,call_all/3,call/3]).
+-export([start_link/1,resolve/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -74,7 +76,7 @@ init(#{port:=MyPort}=Args) when is_map(Args) ->
                  end
          end, mkmap:new(), maps:get(peers, Args, [])
         ),
-    lager:info("Init PI ~p",[PI]),
+    %lager:info("Init PI ~p",[PI]),
     {_,ExtRouting}=maps:fold(
                      fun (K,_V,{L,A}) ->
                              case maps:is_key(K,A) of
@@ -92,7 +94,10 @@ init(#{port:=MyPort}=Args) when is_map(Args) ->
            socket=>S,
            extrouting=>ExtRouting,
            rrouting=>RRouting,
-           peerinfo=>PI
+           peerinfo=>PI,
+           lr=>1,
+           nodename=>atom_to_binary(node(),utf8),
+           hq=>hashqueue:new()
           }
     }.
 
@@ -102,20 +107,21 @@ handle_call(peers, _From, #{peerinfo:=PI}=State) ->
 handle_call(state, _From, State) ->
     {reply, State, State};
 
-handle_call({broadcast, Chan, Message}, _From,
-            #{peerinfo:=PI,socket:=Socket}=State) ->
+handle_call({broadcast, OPid, Chan, Message}, _From,
+            #{nodename:=Node,hq:=HQ,lr:=LR,peerinfo:=PI,socket:=Socket}=State) ->
+    XLR=mkxlr(Node,LR),
     Sent=mkmap:fold(
            fun(K,#{routes:=Routes}=_Ctx,Acc) ->
                    case proplists:get_value(ass,K) of
                        undefined -> Acc; %Not connected
-                       AssID -> %connected
+                       Assoc -> %connected
                            case maps:is_key(Chan,Routes) of
                                true ->
                                    SID=maps:get(Chan,Routes),
-                                   R=gen_sctp:send(Socket, AssID, SID, Message),
-                                   lager:info("I have assoc ~p, send ~p",[AssID,R]),
+                                   R=gen_sctp:send(Socket, Assoc, SID, <<XLR/binary,Message/binary>>),
                                    if R==ok ->
-                                          [{AssID,SID}|Acc];
+                                          lager:debug("I have assoc ~p, XLR ~p send ~p",[Assoc,XLR,R]),
+                                          [{Assoc,SID,XLR}|Acc];
                                       true ->
                                           Acc
                                    end;
@@ -127,69 +133,75 @@ handle_call({broadcast, Chan, Message}, _From,
               (_,_,Acc) ->
                    Acc
            end, [], PI),
-    lager:info("Broadcast ~p ~p bytes: ~p",[Chan,size(Message),Sent]),
-    {reply, Sent, State};
+    lager:debug("Broadcast ~p ~p bytes: ~p",[Chan,size(Message),Sent]),
+    if Sent==[] ->
+           {reply, Sent, State};
+       true ->
+           HQ1=hashqueue:add(XLR,erlang:system_time(second),OPid,HQ),
+           {reply, Sent, State#{
+                           lr=>LR+1,
+                           hq=>HQ1
+                          }
+           }
+    end;
 
-
-handle_call({unicast, {Assoc, SID}, Message}, _From,
-            #{peerinfo:=PI,socket:=Socket}=State) ->
+handle_call({unicast, _OPid, {Assoc, SID, XLR}, Message}, _From,
+            #{peerinfo:=PI,socket:=Socket}=State) when is_binary(XLR) ->
     case mkmap:get({ass,Assoc}, PI, undefined) of
         undefined ->
             {reply, [], State};
         #{} ->
-            R=gen_sctp:send(Socket, Assoc, SID, Message),
-            lager:info("I have assoc ~p, send ~p",[Assoc,R]),
+            R=gen_sctp:send(Socket, Assoc, SID, <<XLR/binary,Message/binary>>),
+            lager:debug("I have assoc ~p, send ~p",[Assoc,R]),
             if R==ok ->
-                   {reply, [{Assoc,SID}], State};
+                   {reply, [{Assoc,SID,XLR}], State};
+               true ->
+                   {reply, [], State}
+            end
+    end;
+
+
+handle_call({unicast, OPid, {Assoc, SID}, Message}, _From,
+            #{nodename:=Node,hq:=HQ,lr:=LR,peerinfo:=PI,socket:=Socket}=State) ->
+    case mkmap:get({ass,Assoc}, PI, undefined) of
+        undefined ->
+            {reply, [], State};
+        #{} ->
+            XLR=mkxlr(Node,LR),
+            R=gen_sctp:send(Socket, Assoc, SID, <<XLR/binary,Message/binary>>),
+            lager:debug("I have assoc ~p, send ~p",[Assoc,R]),
+            if R==ok ->
+                   {reply, [{Assoc,SID,XLR}], 
+                    State#{
+                      lr=>LR+1,
+                      hq=>hashqueue:add(XLR,erlang:system_time(second),OPid,HQ)
+                     }};
                true ->
                    {reply, [], State}
             end
     end;
 
 handle_call(_Request, _From, State) ->
-    lager:info("unknown call ~p",[_Request]),
+    lager:info("TPIC_SCTP unknown call ~p",[_Request]),
     {reply, ok, State}.
 
-handle_cast({broadcast, Chan, Message}, 
-            #{peerinfo:=PI,socket:=Socket}=State) ->
-    Sent=mkmap:fold(
-           fun(K,#{routes:=Routes}=_Ctx,Acc) ->
-                   case proplists:get_value(ass,K) of
-                       undefined -> ok; %Not connected
-                       AssID -> %connected
-                           case maps:is_key(Chan,Routes) of
-                               true ->
-                                   SID=maps:get(Chan,Routes),
-                                   R=gen_sctp:send(Socket, AssID, SID, Message),
-                                   lager:info("I have assoc ~p, send ~p",[AssID,R]),
-                                   [{AssID,R}|Acc];
-                               false ->
-                                   %no such channel
-                                   Acc
-                           end
-                   end;
-              (_,_,Acc) ->
-                   Acc
-           end, [], PI),
-    lager:info("Broadcast ~p ~p bytes: ~p",[Chan,size(Message),Sent]),
-    {noreply, State};
+handle_cast({broadcast, _OPid, _Chan, _Message}=Req, State) ->
+    {reply, _, State2} = handle_call(Req,undef,State),
+    {noreply, State2};
 
-handle_cast({unicast, {PeerID, SID}, Message}, 
-            #{peerinfo:=_PI,socket:=Socket}=State) ->
-    lager:debug("FIXME: check PerrID"),
-    R=gen_sctp:send(Socket, PeerID, SID, Message),
-    lager:info("I send to ~p:~p, send ~p",[PeerID,SID,R]),
-    {noreply, State};
+handle_cast({unicast, _OPid, _Chan, _Message}=Req, State) ->
+    {reply, _, State2} = handle_call(Req,undef,State),
+    {noreply, State2};
 
 handle_cast(_Msg, State) ->
-    lager:info("unknown cast ~p",[_Msg]),
+    lager:info("TPIC_SCTP unknown cast ~p",[_Msg]),
     {noreply, State}.
 
 %{sctp,Socket,IP,Port,{[{sctp_sndrcvinfo,0,0,[],0,0,0,0,396599080,3}],{sctp_assoc_change,comm_up,0,10,5,3}}}
 %{sctp,Socket,IP,Port,{[{sctp_sndrcvinfo,0,0,[],0,0,0,0,396599080,3}],{sctp_paddr_change,{{0,0,0,0,0,0,0,1},1234},addr_confirmed,0,3}}}
 %{sctp,Socket,IP,Port,{[{sctp_sndrcvinfo,0,0,[],0,0,0,396599081,396599081,3}],<<"Test 0">>}}
 
-handle_info(connect_peers, #{peerinfo:=PI,socket:=S}=State) ->
+handle_info(connect_peers, #{hq:=HQ,peerinfo:=PI,socket:=S}=State) ->
     lager:debug("Connect peers"),
     lists:foldl(
       fun([{Host,Port}|_]=K,Acc) ->
@@ -234,8 +246,8 @@ handle_info(connect_peers, #{peerinfo:=PI,socket:=S}=State) ->
       end, undefined, mkmap:get_all_keys(PI)),
 
     erlang:send_after(10000,self(), connect_peers),
-
-    {noreply, State};
+    HQ1=clean_hq(HQ),
+    {noreply, State#{hq=>HQ1}};
 
 
 handle_info({sctp,Socket,RemoteIP,RemotePort,
@@ -314,7 +326,7 @@ handle_info({sctp,Socket,RemoteIP,RemotePort,
                addr_confirmed -> add
            end,
 
-    lager:info("AddrChange ~w ~s ~s (err ~p)",[AID,ASt,inet:ntoa(Addr),Err]),
+    lager:debug("AddrChange ~w ~s ~s (err ~p)",[AID,ASt,inet:ntoa(Addr),Err]),
 
     PI1=case Action of
             prim ->
@@ -326,7 +338,7 @@ handle_info({sctp,Socket,RemoteIP,RemotePort,
                            )
                           ,PI);
             add -> 
-                lager:info("Add address ~p to ~p",[Addr,AID]),
+                lager:debug("Add address ~p to ~p",[Addr,AID]),
                 mkmap:add_key({ass,AID},{Addr,AddrP}, PI);
             del ->
                 try
@@ -336,7 +348,7 @@ handle_info({sctp,Socket,RemoteIP,RemotePort,
                 end
         end,
 
-    lager:info("PI ~p",[PI1]),
+    lager:debug("PI ~p",[PI1]),
 
     {noreply, State#{peerinfo=>PI1}};
 
@@ -414,7 +426,7 @@ handle_payload(#sctp_sndrcvinfo{ stream=SID, assoc_id=Assoc }=Anc,
 payload(Socket, 
         #sctp_sndrcvinfo{ stream=SID, assoc_id=Assoc },
         _Remote,Payload,#{state := init}=Ctx,State) when SID==0 ->
-    lager:info("Make chresp"),
+    lager:debug("Make chresp"),
     ExtAuth=case maps:get(authmod,State,undefined) of
                 X when is_atom(X) ->
                     case erlang:function_exported(X,authgen,2) of
@@ -495,25 +507,33 @@ payload(Socket,
 
 payload(_Socket,
         #sctp_sndrcvinfo{ stream=SID, assoc_id=Assoc },
-        {_RemoteIP,_RemotePort},Payload,_Ctx,#{rrouting:=RR}=State) ->
+        {_RemoteIP,_RemotePort},Payload,_Ctx,
+        #{hq:=HQ,rrouting:=RR}=State) ->
     case maps:is_key(SID,RR) of
         true ->
-            To=case maps:get(SID,RR) of
-                   <<"timesync">> -> synchronizer;
-                   X when is_pid(X) -> X;
-                   X when is_atom(X) -> X;
-                   X when is_binary(X) ->
-                       try 
-                           erlang:binary_to_existing_atom(X,utf8)
-                       catch error:badarg ->
-                                 undefined
+            <<XLR:8/binary,Body/binary>> = Payload,
+            To=case hashqueue:get(XLR,HQ) of
+                   X when is_pid(X) ->
+                       X;
+                   undefined ->
+                       case maps:get(SID,RR) of
+                           <<"timesync">> -> synchronizer;
+                           X when is_pid(X) -> X;
+                           X when is_atom(X) -> X;
+                           X when is_binary(X) ->
+                               try 
+                                   erlang:binary_to_existing_atom(X,utf8)
+                               catch error:badarg ->
+                                         undefined
+                               end
                        end
                end,
-            gen_server:cast(To,{tpic,{Assoc,SID},Payload}),
-            lager:info("Payload to ~p from ~p ~p",
+            lager:debug("Got XLR ~p to ~p(~p)",[XLR,hashqueue:get(XLR,HQ),To]),
+            gen_server:cast(To,{tpic,{Assoc,SID,XLR},Body}),
+            lager:debug("Payload to ~p from ~p ~p",
                        [To, Assoc, SID]);
         false ->
-            lager:info("Payload from ~p ~p: ~p",
+            lager:debug("Payload from ~p ~p: ~p",
                        [Assoc, SID, Payload])
     end,
     {ok, State}.
@@ -533,38 +553,20 @@ zerostream(_Socket,
     {ok, State}.
 
 
-call(TPIC, Conn, Request) -> 
-    call(TPIC, Conn, Request, 2000).
-
-call_all(TPIC, Service, Request) -> 
-    call_all(TPIC, Service, Request, 2000).
-
-call(TPIC, Conn, Request, Timeout) -> 
-    R=gen_server:call(TPIC,{unicast,Conn, Request}),
-    T2=erlang:system_time(millisecond)+Timeout,
-    wait_response(T2,R,[]).
-
-call_all(TPIC, Service, Request, Timeout) -> 
-    R=gen_server:call(TPIC,{broadcast,Service, Request}),
-    T2=erlang:system_time(millisecond)+Timeout,
-    wait_response(T2,R,[]).
-
-wait_response(_Until,[],Acc) ->
-    Acc;
-
-wait_response(Until,[R1|RR],Acc) ->
-    lager:debug("Waiting for reply"),
-    T1=Until-erlang:system_time(millisecond),
-    T=if(T1>0) -> T1;
-        true -> 0
-      end,
-    receive 
-        {'$gen_cast',{tpic,R1,A}} ->
-            {ok,Response}=msgpack:unpack(A),
-            lager:debug("Got reply from ~p ~p",[R1,Response]),
-            wait_response(Until,RR,[{R1,Response}|Acc])
-    after T ->
-              wait_response(Until,RR,Acc)
+clean_hq(HQ) ->
+    case hashqueue:head(HQ) of
+        empty -> 
+            HQ;
+        T when is_integer(T) ->
+            CT=erlang:system_time(second),
+            if(CT-T<60) ->
+                  HQ;
+              true ->
+                  {HQ1,_}=hashqueue:pop(HQ),
+                  clean_hq(HQ1)
+            end
     end.
 
-    
+mkxlr(Node,Req) ->
+    X=erlang:phash2({Node,Req}),
+    <<Req:32/big,X:32/big>>.

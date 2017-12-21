@@ -151,7 +151,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
                  <<"chain">>=>MyChain
                 }
               ),
-        gen_server:cast(tpic,{broadcast,<<"blockvote">>, HBlk}),
+        tpic:cast(tpic,<<"blockvote">>, HBlk),
 %        lists:foreach(
 %          fun(Pid)-> %cast signature for all blockvotes
 %                  gen_server:cast(Pid, {signature, 

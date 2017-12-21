@@ -81,10 +81,10 @@ handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
     end;
 
 handle_call(testh, _From, State) ->
-    CA=tpic_sctp:call_all(tpic,<<"blockchain">>,msgpack:pack(#{null=>tail})),
+    CA=tpic:call(tpic,<<"blockchain">>,msgpack:pack(#{null=>tail})),
     CB=lists:map(
          fun({Conn,_H1}) ->
-                 tpic_sctp:call(tpic,Conn,msgpack:pack(#{null=>tail}))
+                 tpic:call(tpic,Conn,msgpack:pack(#{null=>tail}))
          end, CA),
     {reply, CB, State};
 
@@ -497,7 +497,8 @@ handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
         {ok, Struct} ->
             handle_cast({tpic, From, Struct}, State);
         _Any ->
-            lager:info("Can't decode TPIC ~p",[_Any]),
+            lager:info("Can't decode  TPIC ~p",[_Any]),
+            lager:info("TPIC ~p",[Bin]),
             {noreply, State}
     end;
 
@@ -506,11 +507,11 @@ handle_cast({tpic, From, #{
                     }}, 
             #{mychain:=MC,lastblock:=#{header:=#{height:=H},
                                       hash:=Hash }}=State) ->
-    gen_server:cast(tpic, {unicast, From, msgpack:pack(#{null=><<"response">>,
+    tpic:cast(tpic, From, msgpack:pack(#{null=><<"response">>,
                                                          mychain=>MC,
                                                          height=>H,
                                                          hash=>Hash
-                                                        })}),
+                                                        })),
     {noreply, State};
 
 
