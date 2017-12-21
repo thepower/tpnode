@@ -400,11 +400,7 @@ encode_edval(signature, PK) -> <<255,(size(PK)):8/integer,PK/binary>>;
 encode_edval(_, _) -> <<>>.
 
 -ifdef(TEST).
-block_test() ->
-    test(block),
-    test(outward).
-
-test(block) ->
+block_test_() ->
     Priv1Key= <<200,100,200,100,200,100,200,100,200,100,200,100,200,100,200,100,
                 200,100,200,100,200,100,200,100,200,100,200,100,200,100,200,100>>,
     Priv2Key= <<200,300,200,100,200,100,200,100,200,100,200,100,200,100,200,100,
@@ -438,9 +434,19 @@ test(block) ->
                   }
           ),
     Block=sign(sign(NewB,Priv1Key),Priv2Key),
-    {Block,verify(Block),[Pub1,Pub2]};
+    [
+    %?_assertEqual(Block,unpack(pack(Block))),
+    ?_assertMatch({true,{_,0}},verify(Block)),
+    ?_assertEqual(true,lists:all(
+                         fun(#{extra:=E}) ->
+                                 P=proplists:get_value(pubkey,E),
+                                 P==Pub2 orelse P==Pub1
+                         end,
+                         element(1,element(2,verify(Block))))
+                         )
+    ].
  
-test(outward) ->
+outward_test() ->
     OWBlock= #{hash =>
                <<14,1,228,218,193,8,244,9,208,200,240,233,71,180,102,74,228,105,51,218,
                  183,50,35,187,180,162,124,160,31,202,79,181>>,
@@ -482,5 +488,8 @@ test(outward) ->
                    <<"30440220455607D99DC5566660FCEB508FA980C954F74D4C344F4FCA0AE7709E7CBF4AA802202DC0B61A998AD98FDDB7AFD814F464EF0EFBC6D82CB15C2E0D912AE9D5C33498">>,
                    timestamp => 1511934628557211514,
                    to => <<"73f9e9yvV5BVRm9RUw3THVFon4rVqUMfAS1BNikC">>}}]},
-    outward_verify(OWBlock).
+
+    [
+     ?_assertMatch({true,{_,0}},outward_verify(OWBlock))
+    ].
 -endif.
