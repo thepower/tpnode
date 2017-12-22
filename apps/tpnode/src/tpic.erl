@@ -16,12 +16,12 @@ call(TPIC, Conn, Request) ->
 call(TPIC, Service, Request, Timeout) when is_binary(Service) -> 
     R=gen_server:call(TPIC,{broadcast, self(), Service, Request}),
     T2=erlang:system_time(millisecond)+Timeout,
-    wait_response(T2,R,[]);
+    lists:reverse(wait_response(T2,R,[]));
 
 call(TPIC, Conn, Request, Timeout) when is_tuple(Conn) -> 
     R=gen_server:call(TPIC,{unicast, self(), Conn, Request}),
     T2=erlang:system_time(millisecond)+Timeout,
-    wait_response(T2,R,[]).
+    lists:reverse(wait_response(T2,R,[])).
 
 wait_response(_Until,[],Acc) ->
     Acc;

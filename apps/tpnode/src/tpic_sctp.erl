@@ -151,6 +151,7 @@ handle_call({unicast, _OPid, {Assoc, SID, XLR}, Message}, _From,
         undefined ->
             {reply, [], State};
         #{} ->
+            lager:info("Sending msg ~p",[Message]),
             R=gen_sctp:send(Socket, Assoc, SID, <<XLR/binary,Message/binary>>),
             lager:debug("I have assoc ~p, send ~p",[Assoc,R]),
             if R==ok ->

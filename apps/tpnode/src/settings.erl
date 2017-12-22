@@ -14,7 +14,6 @@ sign_patch(Patch, PrivKey) when is_list(Patch) ->
     sign_patch(settings:mp(Patch), PrivKey);
 
 sign_patch(Patch, PrivKey) when is_binary(Patch) ->
-    io:format("2Sign ~p~n",[Patch]),
     {Patch,
      block:signhash(
        crypto:hash(sha256,Patch),

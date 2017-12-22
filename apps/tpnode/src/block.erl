@@ -24,6 +24,13 @@ pack(Block) ->
                         fun(Sig) ->
                                 packsig(Sig)
                         end, Sigs);
+                 (settings,Txs) ->
+                      maps:from_list(
+                        lists:map(
+                          fun({TxID,T}) ->
+                                  {TxID,tx:pack(T)}
+                          end, Txs)
+                       );
                  (txs,Txs) ->
                       maps:from_list(
                         lists:map(
@@ -36,6 +43,7 @@ pack(Block) ->
               end,
               Block
              ),
+    io:format("keys ~p~n",[maps:keys(Prepare)]),
     msgpack:pack(Prepare).
 
 unpack(Block) when is_binary(Block) ->
