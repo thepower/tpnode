@@ -16,6 +16,11 @@ mkmsg(#{ from:=From, amount:=Amount,
        true -> ok
     end,
 
+    case maps:is_key(outbound,Tx) of 
+        true ->
+            lager:notice("FIXME: save outbound flag in tx");
+        false -> ok
+    end,
     Append=maps:get(extradata,Tx,<<"">>),
 
     iolist_to_binary(
@@ -107,6 +112,31 @@ verify(_) ->
     bad_format.
 
 pack(#{
+  patch := BinPatch,
+  signatures:=HSig
+ }) ->
+    BinSig=lists:foldl(
+             fun(Bin,Acc) ->
+                     <<Acc/binary,(size(Bin)):8/integer,Bin/binary>>
+             end,<<>>,HSig),
+    Message=iolist_to_binary(
+              io_lib:format("patch:~s:~s",
+                            [
+                             base64:encode(BinPatch),
+                             base64:encode(BinSig)
+                            ])
+             ),
+%    io:format("~s~n",[Message]),
+    Pub= <<>>,
+    Sig= <<>>,
+    <<(size(Pub)):8/integer,
+      (size(Sig)):8/integer,
+      Pub/binary,
+      Sig/binary,
+      Message/binary>>;
+
+
+pack(#{
   from := From,
   portout := PortOut,
   timestamp := Timestamp,
@@ -157,6 +187,10 @@ unpack(<<PubLen:8/integer,SigLen:8/integer,Tx/binary>>) ->
                public_key=>bin2hex:dbin2hex(Pub),
                signature=>bin2hex:dbin2hex(Sig)
              };
+        [<<"patch">>,BinPatch,BinSig] ->
+            #{ patch => base64:decode(BinPatch),
+               signatures=>unpack_binlist(base64:decode(BinSig),[])
+             };
         [<<"portout">>,From,PortOut,STimestamp,SSeq] ->
             #{ from => From,
                portout => binary_to_integer(PortOut),
@@ -166,6 +200,13 @@ unpack(<<PubLen:8/integer,SigLen:8/integer,Tx/binary>>) ->
                signature=>bin2hex:dbin2hex(Sig)
              }
     end.
+
+unpack_binlist(<<>>,A) -> lists:reverse(A);
+unpack_binlist(<<S:8/integer,R/binary>>,A) ->
+    <<Body:S/binary,Rest/binary>> = R,
+    unpack_binlist(Rest,[Body|A]).
+
+
 
 -ifdef(TEST).
 tx_test() ->

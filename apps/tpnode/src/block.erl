@@ -31,26 +31,40 @@ pack(Block) ->
                                   {TxID,tx:pack(T)}
                           end, Txs)
                        );
+                 (outbound,Txp) ->
+                      lager:notice("FIXME: save outbound flag in tx"),
+                      lists:map(
+                        fun({TxID,Cid}) ->
+                                [TxID,Cid]
+                        end, Txp
+                       );
+                 (tx_proof,Txp) ->
+                      lists:map(
+                        fun({TxID,{A,B}}) ->
+                                [TxID,A,B]
+                        end, Txp
+                       );
                  (txs,Txs) ->
-                      maps:from_list(
-                        lists:map(
-                          fun({TxID,T}) ->
-                                  {TxID,tx:pack(T)}
-                          end, Txs)
+                      lists:map(
+                        fun({TxID,T}) ->
+                                [TxID,tx:pack(T)]
+                        end, Txs
                        );
                  (_,V) ->
                       V
               end,
               Block
              ),
-    io:format("keys ~p~n",[maps:keys(Prepare)]),
+    io:format("keys ~p~n",[maps:get(txs,Prepare)]),
+    file:write_file("origblk.txt",[io_lib:format("~p.~n",[Block])]),
+    file:write_file("prepblk.txt",[io_lib:format("~p.~n",[Prepare])]),
     msgpack:pack(Prepare).
 
 unpack(Block) when is_binary(Block) ->
     case msgpack:unpack(Block,[{known_atoms,
                                 [hash,outbound,header,settings,txs,sign,bals,
-                                 balroot,height,parent,txroot,
-                                 amount,lastblk,seq,t]}]) of
+                                 balroot,height,parent,txroot,tx_proof,
+                                 amount,lastblk,seq,t,child,setroot]}]) of
         {ok, Hash} ->
             maps:map(
               fun
@@ -59,17 +73,33 @@ unpack(Block) when is_binary(Block) ->
                         fun([Address,Cur],Snap,Acc) ->
                                 maps:put({Address,Cur},Snap,Acc)
                         end,#{},BalsSnap);
+                  (outbound,TXs) ->
+                      lists:map(
+                        fun([TxID,Cid]) ->
+                                {TxID, Cid}
+                        end, TXs);
+                  (tx_proof,TXs) ->
+                      lists:map(
+                        fun([TxID,A,B]) ->
+                                {TxID, {A,B}}
+                        end, TXs);
                   (txs,TXs) ->
                       lists:map(
-                        fun({TxID,Tx}) ->
+                        fun([TxID,Tx]) ->
                                 {TxID, tx:unpack(Tx)}
-                        end, maps:to_list(TXs));
-                 (sign,Sigs) ->
+                        end, TXs);
+                  (settings,Txs) ->
+                      lists:map(
+                        fun({TxID,T}) ->
+                                {TxID,tx:unpack(T)}
+                        end, maps:to_list(Txs)
+                       );
+                  (sign,Sigs) ->
                       lists:map(
                         fun(Sig) ->
                                 unpacksig(Sig)
                         end, Sigs);
-                 (_,V) ->
+                  (_,V) ->
                       V
               end, Hash);
         {error,Err} ->
@@ -100,9 +130,9 @@ checksigs(BlockHash, Sigs) ->
       end, {[],0}, Sigs).
 
 outward_verify(#{ header:=#{parent:=Parent, height:=H}=Header, 
-          hash:=HdrHash, 
-          sign:=Sigs
-        }=Blk) ->
+                  hash:=HdrHash, 
+                  sign:=Sigs
+                }=Blk) ->
     try
         Txs=maps:get(txs,Blk,[]),
         Txp=maps:get(tx_proof,Blk,[]),
@@ -187,6 +217,8 @@ verify(#{ header:=#{parent:=Parent, height:=H},
              ),
 
     Hash=crypto:hash(sha256,BHeader),
+    io:format("H1 ~s ~nH2 ~s~n~n",[bin2hex:dbin2hex(Hash),
+                                 bin2hex:dbin2hex(HdrHash)]),
     if Hash =/= HdrHash ->
            false;
        true ->
@@ -215,7 +247,8 @@ binarize_settings([{TxID,#{ patch:=Patch,
 
 
 mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }=Req) ->
-    BTxs=binarizetx(Txs),
+    Txsl=lists:keysort(1,lists:usort(Txs)),
+    BTxs=binarizetx(Txsl),
     TxMT=gb_merkle_trees:from_list(BTxs),
     %TxHash=crypto:hash(sha256,BTxs),
     BalsBin=bals2bin(Bals),
@@ -257,7 +290,7 @@ mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }
     %gb_merkle_trees:verify_merkle_proof(<<"aaa">>,<<1>>,gb_merkle_trees:root_hash(T1),P1aaa)
     Block=#{header=>Hdr,
       hash=>crypto:hash(sha256,BHeader),
-      txs=>Txs,
+      txs=>Txsl,
       bals=>Bals,
       settings=>Settings,
       sign=>[] },

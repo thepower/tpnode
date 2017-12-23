@@ -139,7 +139,7 @@ handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue,nodeid:=
                                      end, Res)
                                   )
                            }),
-        gen_server:cast(tpic,{broadcast,MKb,MRes})
+        tpic:cast(tpic,MKb,MRes)
         %lager:info("Cast ~p ~p",[MKb,msgpack:unpack(MRes)])
     catch _:_ ->
               lager:error("Can't encode")

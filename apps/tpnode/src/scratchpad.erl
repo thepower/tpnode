@@ -190,4 +190,9 @@ verify2(<<PubLen:8/integer,SigLen:8/integer,Rest/binary>>) ->
       end,false, TrustedKeys),
     {Found,crypto:verify(ecdsa, sha256, Message, Sig, [Public, crypto:ec_curve(secp256k1)])}.
 
-
+test_pack_unpack(BlkID) ->
+  B1=gen_server:call(blockchain,{get_block,BlkID}),
+  B2=block:unpack(block:pack(B1)),
+  file:write_file("pack_unpack_orig.txt", io_lib:format("~p.~n", [B1])),
+  file:write_file("pack_unpack_pack.txt", io_lib:format("~p.~n", [B2])),
+  B1==B2.

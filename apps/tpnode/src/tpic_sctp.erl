@@ -48,14 +48,14 @@ init([]) ->
     throw('loadconfig');
 
 init(#{port:=MyPort}=Args) when is_map(Args) ->
-    {ok,S} = gen_sctp:open(MyPort, [{recbuf,65536},
+    {ok,S} = gen_sctp:open(MyPort, [{recbuf,655360},
                                     {ip,any},
                                     {active,true},
                                     inet6,
                                     {reuseaddr, true},
                                     {sctp_nodelay, true},
                                     {sctp_i_want_mapped_v4_addr, true},
-                                    {sndbuf,65536}]),
+                                    {sndbuf,655360}]),
     lager:info("Listening on ~p Socket ~p", [MyPort,S]),
     ok=gen_sctp:listen(S, true),
     erlang:send_after(1000,self(), connect_peers),
@@ -123,6 +123,7 @@ handle_call({broadcast, OPid, Chan, Message}, _From,
                                           lager:debug("I have assoc ~p, XLR ~p send ~p",[Assoc,XLR,R]),
                                           [{Assoc,SID,XLR}|Acc];
                                       true ->
+                                          lager:info("Send failed ~p",[R]),
                                           Acc
                                    end;
                                false ->
@@ -151,12 +152,13 @@ handle_call({unicast, _OPid, {Assoc, SID, XLR}, Message}, _From,
         undefined ->
             {reply, [], State};
         #{} ->
-            lager:info("Sending msg ~p",[Message]),
+            lager:debug("Sending msg ~p",[Message]),
             R=gen_sctp:send(Socket, Assoc, SID, <<XLR/binary,Message/binary>>),
             lager:debug("I have assoc ~p, send ~p",[Assoc,R]),
             if R==ok ->
                    {reply, [{Assoc,SID,XLR}], State};
                true ->
+                   lager:info("Send failed ~p",[R]),
                    {reply, [], State}
             end
     end;
@@ -178,6 +180,7 @@ handle_call({unicast, OPid, {Assoc, SID}, Message}, _From,
                       hq=>hashqueue:add(XLR,erlang:system_time(second),OPid,HQ)
                      }};
                true ->
+                   lager:info("Send failed ~p",[R]),
                    {reply, [], State}
             end
     end;
@@ -534,7 +537,7 @@ payload(_Socket,
             lager:debug("Payload to ~p from ~p ~p",
                        [To, Assoc, SID]);
         false ->
-            lager:debug("Payload from ~p ~p: ~p",
+            lager:info("Payload from ~p ~p: ~p",
                        [Assoc, SID, Payload])
     end,
     {ok, State}.
