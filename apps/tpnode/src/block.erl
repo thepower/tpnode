@@ -40,7 +40,9 @@ pack(Block) ->
                        );
                  (tx_proof,Txp) ->
                       lists:map(
-                        fun({TxID,{A,B}}) ->
+                        fun({TxID,{A,{B,C}}}) ->
+                                [TxID,A,B,C];
+                           ({TxID,{A,B}}) ->
                                 [TxID,A,B]
                         end, Txp
                        );
@@ -55,7 +57,6 @@ pack(Block) ->
               end,
               Block
              ),
-    io:format("keys ~p~n",[maps:get(txs,Prepare)]),
     file:write_file("origblk.txt",[io_lib:format("~p.~n",[Block])]),
     file:write_file("prepblk.txt",[io_lib:format("~p.~n",[Prepare])]),
     msgpack:pack(Prepare).
@@ -80,7 +81,9 @@ unpack(Block) when is_binary(Block) ->
                         end, TXs);
                   (tx_proof,TXs) ->
                       lists:map(
-                        fun([TxID,A,B]) ->
+                        fun([TxID,A,B,C]) ->
+                                {TxID, {A,{B,C}}};
+                           ([TxID,A,B]) ->
                                 {TxID, {A,B}}
                         end, TXs);
                   (txs,TXs) ->
@@ -367,7 +370,7 @@ extract(<<TxIDLen:8/integer,TxLen:16/integer,Body/binary>>) ->
     
 bals2bin(NewBal) ->
     lists:foldl(
-      fun({{Addr,Cur},
+      fun({{Addr,Cur}, %generic bal
            #{amount:=Amount,
              seq:=Seq,
              t:=T
@@ -378,7 +381,7 @@ bals2bin(NewBal) ->
                 <<BAmount:64/big,
                   Seq:64/big,
                   T:64/big>>}|Acc];
-         ({Addr,
+         ({Addr, %port
            #{chain:=NewChain}
           },Acc) ->
               [{<<Addr/binary>>,
@@ -390,6 +393,8 @@ bals2bin(NewBal) ->
 blkid(<<X:8/binary,_/binary>>) ->
     bin2hex:dbin2hex(X).
 
+packsig(BinSig) when is_binary(BinSig) ->
+    BinSig; 
 packsig(#{signature:=Signature,binextra:=BinExtra}) ->
     <<255,(size(Signature)):8/integer,Signature/binary,BinExtra/binary>>.
 
@@ -441,7 +446,7 @@ encode_edval(signature, PK) -> <<255,(size(PK)):8/integer,PK/binary>>;
 encode_edval(_, _) -> <<>>.
 
 -ifdef(TEST).
-block_test_() ->
+block_test() ->
     Priv1Key= <<200,100,200,100,200,100,200,100,200,100,200,100,200,100,200,100,
                 200,100,200,100,200,100,200,100,200,100,200,100,200,100,200,100>>,
     Priv2Key= <<200,300,200,100,200,100,200,100,200,100,200,100,200,100,200,100,
@@ -522,6 +527,7 @@ outward_test() ->
                  #{amount => 9.0,cur => <<"FTT">>,extradata => <<>>,
                    from => <<"73Pa34g3R27Co7KzzNYT7t4UaPjQvpKA6esbuZxB">>,
                    outbound => 1,
+                   format => 1,
                    public_key =>
                    <<"046A21F068BE92697268B60D96C4CA93052EC104E49E003AE2C404F916864372F4137039E85BC2CBA4935B6064B2B79150D99EDC10CA3C29142AA6B7F1E294B159">>,
                    seq => 3,
@@ -529,8 +535,13 @@ outward_test() ->
                    <<"30440220455607D99DC5566660FCEB508FA980C954F74D4C344F4FCA0AE7709E7CBF4AA802202DC0B61A998AD98FDDB7AFD814F464EF0EFBC6D82CB15C2E0D912AE9D5C33498">>,
                    timestamp => 1511934628557211514,
                    to => <<"73f9e9yvV5BVRm9RUw3THVFon4rVqUMfAS1BNikC">>}}]},
+    BinOW=pack(OWBlock),
+    OW1=unpack(BinOW),
 
     [
-     ?_assertMatch({true,{_,0}},outward_verify(OWBlock))
+     ?_assertEqual(OW1,OWBlock),
+     ?_assertMatch({true,{_,0}},outward_verify(OWBlock)),
+     ?_assertMatch({true,{_,0}},outward_verify(OW1))
     ].
+
 -endif.

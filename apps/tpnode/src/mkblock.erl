@@ -878,6 +878,7 @@ test_xchain_inbound() ->
              #{amount => 1.0,cur => <<"FTT">>,
                extradata => <<"{\"message\":\"preved from gentx\"}">>,
                from => <<"73VoBpU8Rtkyx1moAPJBgAZGcouhGXWVpD6PVjm5">>,
+               format => 1, %old format signaure
                outbound => 1,
                public_key =>
                <<"043E9FD2BBA07359FAA4EDC9AC53046EE530418F97ECDEA77E0E98288E6E56178D79D6A023323B0047886DAFEAEDA1F9C05633A536C70C513AB84799B32F20E2DD">>,
