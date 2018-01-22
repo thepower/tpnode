@@ -14,7 +14,7 @@
 
 -spec new () -> #{}.
 new() ->
-    #{}.
+    #{amount=>#{}}.
 
 -spec fetch (integer()|binary(), integer()|binary(), 'true'|'false', 
              map(), fun()) -> map().

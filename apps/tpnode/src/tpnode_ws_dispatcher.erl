@@ -93,7 +93,11 @@ handle_cast(repeat, #{addrsub:=AS,blocksub:=BS}=State) ->
     {noreply, State};
 
 handle_cast({new_block, Block}, #{addrsub:=AS,blocksub:=BS}=State) ->
-    PrettyBlock=tpnode_httpapi:prettify_block(Block),
+    PrettyBlock=try
+                    tpnode_httpapi:prettify_block(Block)
+                catch _:_ -> 
+                          #{error => true}
+                end,
     maps:fold(
       fun(Address,BalSnap,_) ->
               {Tx,Bal}=lists:foldl(

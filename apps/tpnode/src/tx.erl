@@ -299,7 +299,18 @@ pack(#{
         sig => Sigs
        },
         maps:with([extdata],Tx))
-     ).
+     );
+
+pack(#{signature:=_,
+       public_key:=_
+      }=Tx) ->
+    case maps:is_key(format,Tx) of
+        true ->
+            throw('bad_tx');
+        false ->
+            lager:notice('Pack legacy tx'),
+            pack(Tx#{format=>1})
+    end.
 
 unpack(Tx) when is_map(Tx) ->
     Tx;

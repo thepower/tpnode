@@ -104,7 +104,11 @@ h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
                             undefined -> Acc;
                             #{key:=Key,
                               addr:=Adr} ->
-                                #{seq:=Seq}=gen_server:call(blockchain,{get_addr,Adr,Coin}),
+                                lager:info("Faucet ~p",[Adr]),
+                                AddrState=case gen_server:call(blockchain,{get_addr,Adr,Coin}) of
+                                              not_found -> bal:new();
+                                              Found -> Found
+                                          end,
                                 Tx=#{
                                   amount=>Amount,
                                   cur=>Coin,
@@ -114,8 +118,8 @@ h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
                                               }),
                                   from=>Adr,
                                   to=>Address,
-                                  seq=>Seq+1,
-                                  timestamp=>os:system_time()
+                                  seq=>bal:get(seq,AddrState)+1,
+                                  timestamp=>os:system_time(millisecond)
                                  },
                                 lager:info("Sign tx ~p",[Tx]),
                                 NewTx=tx:sign(Tx,address:parsekey(Key)),
@@ -276,19 +280,6 @@ prettify_block(#{}=Block0) ->
     maps:map(
       fun(sign,Signs) ->
               show_signs(Signs);
-         (bals,Bals) ->
-              maps:fold(
-                fun({Addr,Cur},Val0,Acc) ->
-                        Val=maps:put(lastblk,bin2hex:dbin2hex(maps:get(lastblk,Val0,<<0,0,0,0,0,0,0,0>>)),Val0),
-                        maps:put(Addr,
-                                 maps:put(Cur,Val,
-                                          maps:get(Addr,Acc,#{})
-                                         ),
-                                 Acc)
-                end, 
-                #{},
-                Bals
-               );
          (hash,BlockHash) ->
               bin2hex:dbin2hex(BlockHash);
          (child,BlockHash) ->
@@ -335,6 +326,21 @@ prettify_block(#{}=Block0) ->
                         }
                 end, 
                 Proof
+               );
+         (txs, TXS) ->
+              lists:map(
+                fun({TxID,TXB}) ->
+                        {TxID,
+                         maps:map(
+                           fun(sig,V1) -> 
+                                 [
+                                  {bin2hex:dbin2hex(SPub),
+                                   bin2hex:dbin2hex(SPri)} || {SPub,SPri} <- maps:to_list(V1) ];
+                           (_,V1) -> V1
+                           end, maps:without([public_key,signature],TXB))
+                        }
+                end, 
+                TXS
                );
          (_,V) ->
               V

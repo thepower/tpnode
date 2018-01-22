@@ -69,7 +69,7 @@ pack(Block) ->
 unpack(Block) when is_binary(Block) ->
     case msgpack:unpack(Block,[{known_atoms,
                                 [hash,outbound,header,settings,txs,sign,bals,
-                                 balroot,height,parent,txroot,tx_proof,
+                                 balroot,ledger_hash,height,parent,txroot,tx_proof,
                                  amount,lastblk,seq,t,child,setroot]}]) of
         {ok, Hash} ->
             maps:map(
@@ -168,6 +168,7 @@ outward_verify(#{ header:=#{parent:=Parent, height:=H}=Header,
                   >>,
                   [{txroot,TxRoot},
                    {balroot,BalsRoot},
+                   {ledger_hash,maps:get(ledger_hash, Header, undefined)},
                    {setroot,SettingsRoot}
                   ]
                  ),
@@ -192,7 +193,7 @@ outward_verify(#{ header:=#{parent:=Parent, height:=H}=Header,
               false
     end.
 
-verify(#{ header:=#{parent:=Parent, height:=H}, 
+verify(#{ header:=#{parent:=Parent, height:=H}=Header, 
           hash:=HdrHash, 
           sign:=Sigs
         }=Blk) ->
@@ -225,13 +226,14 @@ verify(#{ header:=#{parent:=Parent, height:=H},
               >>,
               [{txroot,TxRoot},
                {balroot,BalsRoot},
+               {ledger_hash,maps:get(ledger_hash, Header, undefined)},
                {setroot,SettingsRoot}
               ]
              ),
 
     Hash=crypto:hash(sha256,BHeader),
-    io:format("H1 ~s ~nH2 ~s~n~n",[bin2hex:dbin2hex(Hash),
-                                 bin2hex:dbin2hex(HdrHash)]),
+    %io:format("H1 ~s ~nH2 ~s~n~n",[bin2hex:dbin2hex(Hash),
+    %                             bin2hex:dbin2hex(HdrHash)]),
     if Hash =/= HdrHash ->
            false;
        true ->

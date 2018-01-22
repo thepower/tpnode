@@ -571,7 +571,7 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
           parent=>Parent_Hash,
           height=>Parent_Height+1,
           bals=>NewBal,
-          ledger_hash=><<0:256>>,
+          ledger_hash=>LC,
           settings=>Settings,
           tx_proof=>[ TxID || {TxID,_ToChain} <- Outbound ],
           inbound_blocks=>lists:foldl(
@@ -778,6 +778,7 @@ mkblock_test() ->
     ?assertEqual([{<<"3crosschain">>,1}],maps:get(outbound,Block)),
     SignedBlock=block:sign(Block,<<1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1>>),
     file:write_file("testblk.txt", io_lib:format("~p.~n",[Block])),
+    ?assertMatch({true, {_,_}},block:verify(SignedBlock)),
     maps:get(1,block:outward_mk(maps:get(outbound,Block),SignedBlock)),
     test_xchain_inbound().
 

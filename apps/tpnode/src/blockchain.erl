@@ -69,7 +69,7 @@ handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
                           %_Tx=maps:get(txs,Block),
                           Sets1=apply_block_conf(Block, Sets),
                           Bals1=apply_bals(Block, Bals),
-                          apply_ledger(Block),
+                          apply_ledger(put,Block),
                           #{table=>Bals1,settings=>Sets1} 
                   end, 
                   #{
@@ -88,38 +88,23 @@ handle_call(runsync, _From, State) ->
     State1=run_sync(State),
     {reply, sync, State1};
 
-handle_call({get_addr, Addr, RCur}, _From, #{table:=Table}=State) ->
-    case tables:lookup(address,Addr,Table) of
-        {ok,E} ->
-            {reply,
-             lists:foldl(
-               fun(#{cur:=Cur}=E1,_A) when Cur==RCur -> 
-                       maps:with([amount,seq,t,lastblk,preblk],E1);
-                  (_,A) ->
-                       A
-               end, 
-               #{amount => 0,seq => 0,t => 0},
-               E), State};
+handle_call({get_addr, Addr, _RCur}, _From, State) ->
+    case ledger:get([Addr]) of
+        #{Addr:=Bal} ->
+            {reply, Bal, State};
         _ ->
-            {reply, not_found, State}
+            {reply, bal:new(), State}
     end;
 
-handle_call({get_addr, Addr}, _From, #{table:=Table}=State) ->
-    case tables:lookup(address,Addr,Table) of
-        {ok,E} ->
-            {reply,
-             lists:foldl(
-               fun(#{cur:=Cur}=E1,A) -> 
-                       maps:put(Cur,
-                                maps:with([amount,seq,t,cur,lastblk,preblk],E1),
-                                A)
-               end, 
-               #{},
-               E), State};
-        _ ->
-            {reply, not_found, State}
-    end;
 
+handle_call({get_addr, Addr}, _From, State) ->
+    case ledger:get([Addr]) of
+        #{Addr:=Bal} ->
+            {reply, Bal, State};
+        _ ->
+            {reply, bal:new(), State}
+    end;
+ 
 handle_call(fix_first_block, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
     lager:info("Find first block"),
     try
@@ -242,8 +227,9 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
             #{candidates:=Candidates,ldb:=LDB0,
               lastblock:=#{header:=#{parent:=Parent},hash:=LBlockHash}=LastBlock,
               settings:=Sets,
-              mychain:=MyChain,
-              table:=Tbl}=State) ->
+              mychain:=MyChain
+              %table:=Tbl
+             }=State) ->
     FromNode=if is_pid(PID) -> node(PID);
                 is_tuple(PID) -> PID;
                 true -> emulator
@@ -304,15 +290,19 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                 %lager:info("Signs ~b",[SigLen]),
                 if SigLen>=MinSig %andalso BlockHash==LBlockHash 
                    ->
+                       Header=maps:get(header,Blk),
                        %enough signs. Make block.
-                       NewTable=apply_bals(MBlk, Tbl),
+                       {ok,LHash}=apply_ledger(check,MBlk),
+                       %NewTable=apply_bals(MBlk, Tbl),
                        Sets1=apply_block_conf(MBlk, Sets),
+                       lager:info("Ledger dst hash ~p, block ~p",
+                                  [LHash, maps:get(ledger_hash,Header,<<0:256>>)]),
 
                        if Txs==[] -> ok;
                           true -> 
                               lager:info("Txs ~p", [ Txs ])
                        end,
-                       NewPHash=maps:get(parent,maps:get(header,Blk)),
+                       NewPHash=maps:get(parent,Header),
 
 
                        if LBlockHash=/=NewPHash ->
@@ -351,10 +341,10 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                                               ok
                                       end,
 
-                                      if(NewTable =/= Tbl) ->
-                                            save_bals(LDB, NewTable);
-                                        true -> ok
-                                      end,
+                                      %if(NewTable =/= Tbl) ->
+                                      %      save_bals(LDB, NewTable);
+                                      %  true -> ok
+                                      %end,
                                       if(Sets1 =/= Sets) ->
                                             notify_settings(),
                                             save_sets(LDB, Sets1);
@@ -375,7 +365,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
 
                               gen_server:cast(tpnode_ws_dispatcher,{new_block, MBlk}),
 
-                              apply_ledger(MBlk),
+                              apply_ledger(put,MBlk),
 
                               Outbound=maps:get(outbound,MBlk,[]),
                               if length(Outbound)>0 ->
@@ -397,7 +387,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                               {noreply, State#{
                                           prevblock=> NewLastBlock,
                                           lastblock=> MBlk,
-                                          table=>NewTable,
+                                          %table=>NewTable,
                                           settings=>Sets1,
                                           candidates=>#{}
                                          }
@@ -617,13 +607,16 @@ load_sets(LDB,LastBlock) ->
             binary_to_term(Bin)
     end.
 
-apply_ledger(#{bals:=S, hash:=_BlockHash}) ->
+apply_ledger(Action,#{bals:=S, hash:=_BlockHash}) ->
     Patch=maps:fold(
             fun(_Addr,#{chain:=_NewChain},Acc) ->
                     Acc;
+               (Addr, #{amount:=_}=V, Acc) -> %modern format
+                    [{Addr,V}|Acc];
+               %legacy blocks
                ({Addr,Cur},Val,Acc) when is_integer(Val) ->
                     [{Addr,#{amount=>#{Cur=>Val}}}|Acc];
-               ({Addr,Cur},#{amount:=Am}=Val,Acc) when is_map(Val) ->
+               ({Addr,Cur},#{amount:=Am}=Val,Acc) when is_map(Val) -> 
                     [{Addr,
                       maps:merge(
                         #{amount=>#{Cur=>Am}},
@@ -631,8 +624,9 @@ apply_ledger(#{bals:=S, hash:=_BlockHash}) ->
                        )
                      }|Acc]
             end, [], S),
-    ledger:put(Patch),
-    lager:info("Apply ~p",[Patch]).
+    LR=ledger:Action(Patch),
+    lager:info("Apply ~p",[LR]),
+    LR.
 
 
 apply_bals(#{bals:=S, hash:=BlockHash}, Bals0) ->
