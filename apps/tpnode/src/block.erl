@@ -19,6 +19,11 @@ pack(Block) ->
                         fun({Address,Cur},Snap,Acc) ->
                                 maps:put([Address,Cur],Snap,Acc)
                         end,#{},BalsSnap);
+                 (sync,SyncState) ->
+                      maps:fold(
+                        fun(Chain,{BlkNo,BlkHash},Acc) ->
+                                maps:put(Chain,[BlkNo,BlkHash],Acc)
+                        end,#{},SyncState);
                  (sign,Sigs) ->
                       lists:map(
                         fun(Sig) ->
@@ -57,8 +62,8 @@ pack(Block) ->
               end,
               Block
              ),
-    file:write_file("origblk.txt",[io_lib:format("~p.~n",[Block])]),
-    file:write_file("prepblk.txt",[io_lib:format("~p.~n",[Prepare])]),
+%    file:write_file("origblk.txt",[io_lib:format("~p.~n",[Block])]),
+%    file:write_file("prepblk.txt",[io_lib:format("~p.~n",[Prepare])]),
     msgpack:pack(Prepare).
 
 unpack(Block) when is_binary(Block) ->
@@ -74,6 +79,11 @@ unpack(Block) when is_binary(Block) ->
                         fun([Address,Cur],Snap,Acc) ->
                                 maps:put({Address,Cur},Snap,Acc)
                         end,#{},BalsSnap);
+                  (sync,SyncState) ->
+                      maps:fold(
+                        fun(Chain,[BlkNo,BlkHash],Acc) ->
+                                maps:put(Chain,{BlkNo,BlkHash},Acc)
+                        end,#{},SyncState);
                   (outbound,TXs) ->
                       lists:map(
                         fun([TxID,Cid]) ->
@@ -250,6 +260,7 @@ binarize_settings([{TxID,#{ patch:=Patch,
 
 
 mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }=Req) ->
+    LH=maps:get(ledger_hash,Req,undefined),
     Txsl=lists:keysort(1,lists:usort(Txs)),
     BTxs=binarizetx(Txsl),
     TxMT=gb_merkle_trees:from_list(BTxs),
@@ -283,6 +294,7 @@ mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }
                     }, 
                     [{txroot,TxRoot},
                      {balroot,BalsRoot},
+                     {ledger_hash,LH},
                      {setroot,SettingsRoot}
                     ]
                    ),
@@ -369,26 +381,19 @@ extract(<<TxIDLen:8/integer,TxLen:16/integer,Body/binary>>) ->
 
     
 bals2bin(NewBal) ->
+    L=lists:keysort(1,maps:to_list(NewBal)),
     lists:foldl(
-      fun({{Addr,Cur}, %generic bal
-           #{amount:=Amount,
-             seq:=Seq,
-             t:=T
-            }
-          },Acc) ->
-              BAmount=trunc(Amount*1.0e9),
-              [{<<Addr/binary,":",Cur/binary>>,
-                <<BAmount:64/big,
-                  Seq:64/big,
-                  T:64/big>>}|Acc];
+      fun({Addr, %generic bal
+           #{amount:=_}=Bal
+          } ,Acc) ->
+              %TODO: check with integer addresses
+              [{Addr, bal:pack(Bal)}|Acc];
          ({Addr, %port
            #{chain:=NewChain}
           },Acc) ->
               [{<<Addr/binary>>,
                 <<"pout", NewChain:64/big>>}|Acc]
-      end, [],
-      lists:keysort(1,maps:to_list(NewBal))
-     ).
+      end, [], L).
 
 blkid(<<X:8/binary,_/binary>>) ->
     bin2hex:dbin2hex(X).

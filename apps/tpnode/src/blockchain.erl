@@ -59,8 +59,9 @@ handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
         First=get_first_block(LDB,
                               maps:get(hash,LB)
                              ),
+%        gen_server:call(ledger,'_flush'),
         Res=foldl(fun(Block, #{table:=Bals,settings:=Sets}) ->
-                          lager:info("Block@~b ~s ~p",
+                          lager:info("Block@~s ~p",
                                      [
                                       blkid(maps:get(hash,Block)),
                                       maps:keys(Block)
@@ -68,6 +69,7 @@ handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
                           %_Tx=maps:get(txs,Block),
                           Sets1=apply_block_conf(Block, Sets),
                           Bals1=apply_bals(Block, Bals),
+                          apply_ledger(Block),
                           #{table=>Bals1,settings=>Sets1} 
                   end, 
                   #{
@@ -370,7 +372,10 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                                           (T3-T0)/1000000
                                          ]),
 
+
                               gen_server:cast(tpnode_ws_dispatcher,{new_block, MBlk}),
+
+                              apply_ledger(MBlk),
 
                               Outbound=maps:get(outbound,MBlk,[]),
                               if length(Outbound)>0 ->
@@ -612,6 +617,24 @@ load_sets(LDB,LastBlock) ->
             binary_to_term(Bin)
     end.
 
+apply_ledger(#{bals:=S, hash:=_BlockHash}) ->
+    Patch=maps:fold(
+            fun(_Addr,#{chain:=_NewChain},Acc) ->
+                    Acc;
+               ({Addr,Cur},Val,Acc) when is_integer(Val) ->
+                    [{Addr,#{amount=>#{Cur=>Val}}}|Acc];
+               ({Addr,Cur},#{amount:=Am}=Val,Acc) when is_map(Val) ->
+                    [{Addr,
+                      maps:merge(
+                        #{amount=>#{Cur=>Am}},
+                        maps:with([t,seq],Val)
+                       )
+                     }|Acc]
+            end, [], S),
+    ledger:put(Patch),
+    lager:info("Apply ~p",[Patch]).
+
+
 apply_bals(#{bals:=S, hash:=BlockHash}, Bals0) ->
     maps:fold(
       fun(Addr,#{chain:=_NewChain},Acc) ->
@@ -846,8 +869,7 @@ mychain(#{settings:=S}=State) ->
     lager:info("My key ~s",[bin2hex:dbin2hex(PubKey)]),
     MyName=maps:fold(
              fun(K,V,undefined) ->
-                     lager:info("Compare ~p with ~p",
-                                [V,PubKey]),
+%                     lager:info("Compare ~p with ~p", [V,PubKey]),
                      if V==PubKey ->
                             K;
                         true ->
@@ -857,7 +879,7 @@ mychain(#{settings:=S}=State) ->
                      Found
              end, undefined, KeyDB),
     MyChain=maps:get(MyName,NodeChain,0),
-    lager:info("My name ~p chain ~p",[MyName,MyChain]),
+%    lager:info("My name ~p chain ~p",[MyName,MyChain]),
     maps:merge(State,
                #{myname=>MyName,
                  mychain=>MyChain

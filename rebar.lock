@@ -16,6 +16,10 @@
  {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
  {<<"jsx">>,{pkg,<<"jsx">>,<<"2.8.3">>},0},
  {<<"lager">>,{pkg,<<"lager">>,<<"3.5.2">>},0},
+ {<<"merklet">>,
+  {git,"https://github.com/ferd/merklet.git",
+       {ref,"df6ae47ffc9403e0989be5366a295c270a651dcc"}},
+  0},
  {<<"mkmap">>,
   {git,"https://github.com/cleverfox/mkmap.git",
        {ref,"ba4fd6e424fe0cd64216989d8e16f2d3f8253363"}},
@@ -26,6 +30,10 @@
   0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.4.0">>},1},
  {<<"rocksdb">>,{pkg,<<"rocksdb">>,<<"0.12.0">>},0},
+ {<<"sync">>,
+  {git,"https://github.com/rustyio/sync.git",
+       {ref,"7548dbffd3ed20a674bd423bd7131585ad66cd9e"}},
+  0},
  {<<"tables">>,
   {git,"https://github.com/cleverfox/tables",
        {ref,"b63ed114d0d54fa380b176e3600adb3ddf732211"}},
@@ -37,6 +45,10 @@
  {<<"tinymq">>,
   {git,"https://github.com/ChicagoBoss/tinymq",
        {ref,"0e47ab2ffb90d41885258e8940c3c8de9ba40637"}},
+  0},
+ {<<"trie">>,
+  {git,"https://github.com/okeuday/trie.git",
+       {ref,"4b11dd706f5c36c71515bafd23a6d19248f19db6"}},
   0}]}.
 [
 {pkg_hash,[

@@ -59,7 +59,7 @@ handle_call({lookup, Address}, _From, #{db:=DB}=State) ->
 
 handle_call(_Request, _From, State) ->
     lager:info("Bad call ~p",[_Request]),
-    {reply, bad_reauest, State}.
+    {reply, bad_request, State}.
 
 handle_cast({prepare, Addresses}, #{db:=DB}=State) when is_list(Addresses) ->
     Res=cowdb:mget(DB,Addresses),

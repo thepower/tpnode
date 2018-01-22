@@ -45,6 +45,7 @@ init([]) ->
             { mkblock, {mkblock,start_link,[]}, permanent, 5000, worker, []},
             { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []},
             { tpic_sctp, {tpic_sctp, start_link, [TPIC]}, permanent, 5000, worker, []},
+            { ledger, {ledger, start_link, []}, permanent, 5000, worker, []},
             tpnode_http:childspec()
            ]
          } }.

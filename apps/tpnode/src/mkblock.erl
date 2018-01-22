@@ -6,6 +6,10 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
+-ifndef(TEST).
+-define(TEST,1).
+-endif.
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -325,17 +329,19 @@ try_process_inbound([{TxID,
                     failed:=Failed,
                     pick_block:=PickBlock}=Acc) ->
     lager:error("Check signature once again"),
-    #{amount:=CurTAmount
-     }=TCurrency=maps:get({To,Cur},Addresses,#{amount =>0,seq => 1,t=>0}),
+    TBal=maps:get(To,Addresses),
     try
         if Amount >= 0 -> ok;
            true -> throw ('bad_amount')
         end,
-        NewTAmount=CurTAmount + Amount,
-        NewT=maps:remove(keep,TCurrency#{
-                                amount=>NewTAmount
-                               }),
-        NewAddresses=maps:put({To,Cur},NewT,Addresses),
+        NewTAmount=bal:get_cur(Cur,TBal) + Amount,
+        NewT=maps:remove(keep,
+                         bal:put_cur(
+                           Cur,
+                           NewTAmount,
+                           TBal)
+                        ),
+        NewAddresses=maps:put(To,NewT,Addresses),
         try_process(Rest,SetState,NewAddresses,GetFun,
                     Acc#{success=>[{TxID,Tx}|Success],
                          pick_block=>maps:put(OriginBlk, 1, PickBlock)
@@ -354,38 +360,45 @@ try_process_outbound([{TxID,
                   #{success:=Success, failed:=Failed, outbound:=Outbound}=Acc) ->
     lager:notice("TODO:Check signature once again"),
     lager:info("outbound to chain ~p ~p",[OutTo,To]),
-    FCurrency=maps:get({From,Cur},Addresses,#{amount =>0,seq => 1,t=>0}),
-    #{amount:=CurFAmount,
-      seq:=CurFSeq,
-      t:=CurFTime
-     }=FCurrency,
+    FBal=maps:get(From,Addresses),
+
     try
         if Amount >= 0 -> 
                ok;
            true ->
                throw ('bad_amount')
         end,
+        CurFSeq=bal:get(seq,FBal),
+        if CurFSeq < Seq -> ok;
+           true -> throw ('bad_seq')
+        end,
+        CurFTime=bal:get(t,FBal),
+        if CurFTime < Timestamp -> ok;
+           true -> throw ('bad_timestamp')
+        end,
+
+        CurFAmount=bal:get_cur(Cur,FBal),
         NewFAmount=if CurFAmount >= Amount ->
                           CurFAmount - Amount;
                       true ->
-                          throw ('insufficient_fund')
+                          case GetFun({endless,From,Cur}) of
+                              true ->
+                                  CurFAmount - Amount;
+                              false ->
+                                  throw ('insufficient_fund')
+                          end
                    end,
-        NewSeq=if CurFSeq < Seq ->
-                      Seq;
-                  true ->
-                      throw ('bad_seq')
-               end,
-        NewTime=if CurFTime < Timestamp ->
-                       Timestamp;
-                   true ->
-                       throw ('bad_timestamp')
-                end,
-        NewF=maps:remove(keep,FCurrency#{
-                                amount=>NewFAmount,
-                                seq=>NewSeq,
-                                t=>NewTime
-                               }),
-        NewAddresses=maps:put({From,Cur},NewF,Addresses),
+
+        NewF=maps:remove(keep,
+                         bal:mput(
+                           Cur,
+                           NewFAmount,
+                           Seq,
+                           Timestamp,
+                           FBal)
+                        ),
+
+        NewAddresses=maps:put(From,NewF,Addresses),
         try_process(Rest,SetState,NewAddresses,GetFun,
                     Acc#{
                       success=>[{TxID,Tx}|Success],
@@ -402,19 +415,24 @@ try_process_local([{TxID,
                   SetState, Addresses, GetFun,
                   #{success:=Success, failed:=Failed}=Acc) ->
     %lager:error("Check signature once again"),
-    FCurrency=maps:get({From,Cur},Addresses,#{amount =>0,seq => 1,t=>0}),
-    #{amount:=CurFAmount,
-      seq:=CurFSeq,
-      t:=CurFTime
-     }=FCurrency,
-    #{amount:=CurTAmount
-     }=TCurrency=maps:get({To,Cur},Addresses,#{amount =>0,seq => 1,t=>0}),
+    FBal=maps:get(From,Addresses),
+    TBal=maps:get(To,Addresses),
     try
         if Amount >= 0 -> 
                ok;
            true ->
                throw ('bad_amount')
         end,
+        CurFSeq=bal:get(seq,FBal),
+        if CurFSeq < Seq -> ok;
+           true -> throw ('bad_seq')
+        end,
+        CurFTime=bal:get(t,FBal),
+        if CurFTime < Timestamp -> ok;
+           true -> throw ('bad_timestamp')
+        end,
+
+        CurFAmount=bal:get_cur(Cur,FBal),
         NewFAmount=if CurFAmount >= Amount ->
                           CurFAmount - Amount;
                       true ->
@@ -425,26 +443,22 @@ try_process_local([{TxID,
                                   throw ('insufficient_fund')
                           end
                    end,
-        NewTAmount=CurTAmount + Amount,
-        NewSeq=if CurFSeq < Seq ->
-                      Seq;
-                  true ->
-                      throw ('bad_seq')
-               end,
-        NewTime=if CurFTime < Timestamp ->
-                       Timestamp;
-                   true ->
-                       throw ('bad_timestamp')
-                end,
-        NewF=maps:remove(keep,FCurrency#{
-                                amount=>NewFAmount,
-                                seq=>NewSeq,
-                                t=>NewTime
-                               }),
-        NewT=maps:remove(keep,TCurrency#{
-                                amount=>NewTAmount
-                               }),
-        NewAddresses=maps:put({From,Cur},NewF,maps:put({To,Cur},NewT,Addresses)),
+        NewTAmount=bal:get_cur(Cur,TBal) + Amount,
+        NewF=maps:remove(keep,
+                         bal:mput(
+                           Cur,
+                           NewFAmount,
+                           Seq,
+                           Timestamp,
+                           FBal)
+                        ),
+        NewT=maps:remove(keep,
+                         bal:put_cur(
+                           Cur,
+                           NewTAmount,
+                           TBal)
+                        ),
+        NewAddresses=maps:put(From,NewF,maps:put(To,NewT,Addresses)),
 
         try_process(Rest,SetState,NewAddresses,GetFun,
                     Acc#{success=>[{TxID,Tx}|Success]})
@@ -482,24 +496,18 @@ load_settings(State) ->
      }.
 
 generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
-    file:write_file("tx.txt",
-                    io_lib:format("~p.~n",[PreTXL])),
+    %file:write_file("tx.txt", io_lib:format("~p.~n",[PreTXL])),
     T1=erlang:system_time(), 
     TXL=lists:usort(PreTXL),
     T2=erlang:system_time(), 
     {Addrs,XSettings}=lists:foldl(
                         fun({_,#{hash:=_,header:=#{},txs:=Txs}},{AAcc0,SAcc}) ->
-                                lager:info("TXs ~p",[Txs]),
+                                %lager:info("TXs ~p",[Txs]),
                                 {
                                  lists:foldl( 
                                    fun({_,#{to:=T,cur:=Cur}},AAcc) ->
-                                           case maps:get({T,Cur},AAcc,undefined) of
-                                               undefined ->
-                                                   AddrInfo2=GetAddr({T,Cur}),
-                                                   maps:put({T,Cur},AddrInfo2#{keep=>false},AAcc);
-                                               _ ->
-                                                   AAcc
-                                           end
+                                           TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
+                                           maps:put(T,TB,AAcc)
                                    end, AAcc0, Txs)
                                  ,SAcc};
                            ({_,#{patch:=_}},{AAcc,undefined}) ->
@@ -527,27 +535,14 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
                                    end,
                                 {A1,SAcc};
                            ({_,#{to:=T,from:=F,cur:=Cur}},{AAcc,SAcc}) ->
-                                A1=case maps:get({F,Cur},AAcc,undefined) of
-                                       undefined ->
-                                           AddrInfo1=GetAddr({F,Cur}),
-                                           maps:put({F,Cur},AddrInfo1#{keep=>false},AAcc);
-                                       _ ->
-                                           AAcc
-                                   end,
-                                A2=case maps:get({T,Cur},A1,undefined) of
-                                       undefined ->
-                                           AddrInfo2=GetAddr({T,Cur}),
-                                           maps:put({T,Cur},AddrInfo2#{keep=>false},A1);
-                                       _ ->
-                                           A1
-                                   end,
-                                {A2,SAcc}
+                                FB=bal:fetch(F, Cur, true, maps:get(F,AAcc,#{}), GetAddr),
+                                TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
+                                {maps:put(F,FB,maps:put(T,TB,AAcc)),SAcc}
                         end, {#{},undefined}, TXL),
     T3=erlang:system_time(), 
     #{success:=Success,
       failed:=Failed,
       settings:=Settings,
-      %export:=Export,
       table:=NewBal0,
       outbound:=Outbound,
       pick_block:=PickBlocks
@@ -566,12 +561,17 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
              fun(_,V) ->
                      maps:get(keep,V,true)
              end, NewBal0),
+    lager:info("NB ~p",[NewBal]),
+
+    LC=ledger_hash(NewBal),
+    lager:info("LC ~p",[LC]),
     T5=erlang:system_time(), 
     Blk=block:mkblock(#{
           txs=>Success, 
           parent=>Parent_Hash,
           height=>Parent_Height+1,
           bals=>NewBal,
+          ledger_hash=><<0:256>>,
           settings=>Settings,
           tx_proof=>[ TxID || {TxID,_ToChain} <- Outbound ],
           inbound_blocks=>lists:foldl(
@@ -670,6 +670,25 @@ decode_tpic_txs(TXs) ->
       end, maps:to_list(TXs)).
 
 -ifdef(TEST).
+ledger_hash(NewBal) ->
+    {ok,LC}=case whereis(ledger) of 
+                undefined ->
+                    %there is no ledger. Is it test?
+                    {ok,LedgerS1}=ledger:init([test]),
+                    {reply,LCResp,_LedgerS2}=ledger:handle_call({check,[]},self(),LedgerS1),
+                    LCResp;
+                X when is_pid(X) -> 
+                    ledger:check(maps:to_list(NewBal))
+            end,
+    LC.
+-else.
+ledger_hash(NewBal) ->
+    {ok,LC}=ledger:check(maps:to_list(NewBal)),
+    LC.
+-endif.
+
+
+-ifdef(TEST).
 
 mkblock_test() ->
     GetSettings=fun(mychain) ->
@@ -704,18 +723,7 @@ mkblock_test() ->
                    (Other) ->
                         error({bad_setting,Other})
                 end,
-    GetAddr=fun({_Addr,Cur}) ->
-                    #{amount => 54.0,cur => Cur,
-                      lastblk => crypto:hash(sha256,<<"parent0">>),
-                      seq => 0,t => 0};
-               (_Addr) ->
-                    #{<<"FTT">> =>
-                      #{amount => 54.0,cur => <<"FTT">>,
-                        lastblk => crypto:hash(sha256,<<"parent0">>),
-                        seq => 0,t => 0}
-                     }
-            end,
-
+    GetAddr=fun test_getaddr/1,
 
     Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
     Pvt2= <<30,1,172,151,224,97,198,186,132,106,120,141,156,0,13,156,178,193,56,24,180,178,60,235,66,194,121,0,4,220,214,6>>,
@@ -731,8 +739,8 @@ mkblock_test() ->
                      to=>address:pub2caddr(0,Pub2),
                      amount=>10,
                      cur=><<"FTT">>,
-                     seq=>1,
-                     timestamp=>os:system_time()
+                     seq=>2,
+                     timestamp=>os:system_time(millisecond)
                     },Pvt1)
                  ),
     TX1=tx:unpack( tx:sign(
@@ -741,8 +749,8 @@ mkblock_test() ->
                      to=>address:pub2caddr(0,Pub2),
                      amount=>9000,
                      cur=><<"BAD">>,
-                     seq=>2,
-                     timestamp=>os:system_time()
+                     seq=>3,
+                     timestamp=>os:system_time(millisecond)
                     },Pvt1)
                  ),
 
@@ -752,8 +760,8 @@ mkblock_test() ->
                      to=>address:pub2caddr(1,Pub3),
                      amount=>9,
                      cur=><<"FTT">>,
-                     seq=>3,
-                     timestamp=>os:system_time()
+                     seq=>4,
+                     timestamp=>os:system_time(millisecond)
                     },Pvt1)
                  ),
     #{block:=Block,
@@ -769,8 +777,20 @@ mkblock_test() ->
     ?assertEqual([<<"3crosschain">>],proplists:get_keys(maps:get(tx_proof,Block))),
     ?assertEqual([{<<"3crosschain">>,1}],maps:get(outbound,Block)),
     SignedBlock=block:sign(Block,<<1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1>>),
+    file:write_file("testblk.txt", io_lib:format("~p.~n",[Block])),
     maps:get(1,block:outward_mk(maps:get(outbound,Block),SignedBlock)),
     test_xchain_inbound().
+
+%test_getaddr%({_Addr,_Cur}) -> %suitable for inbound tx
+test_getaddr(_Addr) ->
+    #{amount => #{
+        <<"FTT">> => 110,
+        <<"TST">> => 26
+       },
+      seq => 1,
+      t => 1512047425350,
+      lastblk => <<0:64>>
+     }.
 
 test_xchain_inbound() ->
     ParentHash=crypto:hash(sha256,<<"parent2">>),
@@ -806,18 +826,8 @@ test_xchain_inbound() ->
                    (Other) ->
                         error({bad_setting,Other})
                 end,
-    GetAddr=fun({_Addr,Cur}) ->
-                    #{amount => 54.0,cur => Cur,
-                      lastblk => crypto:hash(sha256,<<"parent0">>),
-                      seq => 0,t => 0};
-               (_Addr) ->
-                    #{<<"FTT">> =>
-                      #{amount => 54.0,cur => <<"FTT">>,
-                        lastblk => crypto:hash(sha256,<<"parent0">>),
-                        seq => 0,t => 0}
-                     }
-            end,
-
+    GetAddr=fun test_getaddr/1,
+    
 
     BTX={<<"4F8367774366BC52BFBB1FFD203F815FB2274A871C7EF8F173C23EBA63365DCA">>,
          #{hash =>

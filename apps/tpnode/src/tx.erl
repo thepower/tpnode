@@ -1,6 +1,6 @@
 -module(tx).
 
--export([sign/2,verify/1,pack/1,unpack/1]).
+-export([get_ext/2,set_ext/3,sign/2,verify/1,pack/1,unpack/1]).
 
 -ifndef(TEST).
 -define(TEST,1).
@@ -9,6 +9,21 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
+get_ext(K,Tx) ->
+    Ed=maps:get(extdata,Tx,#{}),
+    case maps:is_key(K,Ed) of
+        true ->
+            {ok, maps:get(K,Ed)};
+        false ->
+            undefined
+    end.
+
+set_ext(K,V,Tx) ->
+    Ed=maps:get(extdata,Tx,#{}),
+    Tx#{
+      extdata=>maps:put(K,V,Ed)
+     }.
 
 mkmsg(#{ from:=From, amount:=Amount,
          cur:=Currency, to:=To,
@@ -386,15 +401,15 @@ new_tx_test() ->
               extdata=>#{<<"aaa">>=>111,222=><<"bbb">>},
               from=>From,
               to=>To, 
-              cur=><<"TEST">>,
+              cur=>0,
               amount=>1, timestamp => os:system_time(millisecond), seq=>1},
     BinTx1=tx:sign(TestTx1, Priv),
     {ok, CheckTx1}=tx:verify(BinTx1),
 
     TestTx2=#{ from=>From,
              to=>To, 
-             cur=><<"TEST">>,
-             amount=>1, 
+             cur=>1231631273374273843,
+             amount=>12344327463428479872, 
              timestamp => os:system_time(millisecond), 
              seq=>1
              },
@@ -404,7 +419,8 @@ new_tx_test() ->
     {ok, CheckTx2r}=tx:verify(BinTx2r),
     ?assertEqual(#{invalid => 1,valid => 1},maps:get(sigverify,CheckTx1)),
     ?assertEqual(#{invalid => 0,valid => 1},maps:get(sigverify,CheckTx2)),
-    ?assertEqual(#{invalid => 0,valid => 1},maps:get(sigverify,CheckTx2r)).
+    ?assertEqual(#{invalid => 0,valid => 1},maps:get(sigverify,CheckTx2r)),
+    BinTx2r.
 
 tx_test() ->
     Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
