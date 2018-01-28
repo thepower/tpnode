@@ -198,15 +198,15 @@ try_process([{BlID, #{ hash:=_, txs:=TxList }}|Rest],
 
 %process settings
 try_process([{TxID, 
-              #{patch:=_Patch,
-                signatures:=_Signatures
+              #{patch:=_LPatch,
+                sig:=_
                }=Tx}|Rest], SetState, Addresses, GetFun, 
             #{failed:=Failed,
               settings:=Settings}=Acc) ->
     try 
         lager:error("Check signatures of patch "),
         SS1=settings:patch({TxID,Tx},SetState),
-        lager:info("Success Patch ~p against settings ~p",[_Patch,SetState]),
+        lager:info("Success Patch ~p against settings ~p",[_LPatch,SetState]),
         try_process(Rest,SS1,Addresses,GetFun,
                     Acc#{
                       settings=>[{TxID,Tx}|Settings]
@@ -215,7 +215,7 @@ try_process([{TxID,
     catch Ec:Ee ->
               S=erlang:get_stacktrace(),
               lager:info("Fail to Patch ~p ~p:~p against settings ~p",
-                         [_Patch,Ec,Ee,SetState]),
+                         [_LPatch,Ec,Ee,SetState]),
               lager:info("at ~p", [S]),
               try_process(Rest,SetState,Addresses,GetFun,
                           Acc#{
@@ -317,7 +317,15 @@ try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
             lager:info("TX ~s addr error ~p -> ~p",[TxID,FAddr,TAddr]),
             try_process(Rest,SetState,Addresses,GetFun,
                         Acc#{failed=>[{TxID,'bad_src_or_dst_addr'}|Failed]})
-    end.
+    end;
+
+try_process([{TxID, UnknownTx} |Rest],
+            SetState, Addresses, GetFun, 
+            #{failed:=Failed}=Acc) ->
+    lager:info("Unknown TX ~p type ~p",[TxID,UnknownTx]),
+    try_process(Rest,SetState,Addresses,GetFun,
+                Acc#{failed=>[{TxID,'unknown_type'}|Failed]}).
+
 
 try_process_inbound([{TxID,
                     #{cur:=Cur,amount:=Amount,to:=To,
@@ -889,13 +897,17 @@ test_xchain_inbound() ->
              #{amount => 1.0,cur => <<"FTT">>,
                extradata => <<"{\"message\":\"preved from gentx\"}">>,
                from => <<"73VoBpU8Rtkyx1moAPJBgAZGcouhGXWVpD6PVjm5">>,
-               format => 1, %old format signaure
                outbound => 1,
-               public_key =>
-               <<"043E9FD2BBA07359FAA4EDC9AC53046EE530418F97ECDEA77E0E98288E6E56178D79D6A023323B0047886DAFEAEDA1F9C05633A536C70C513AB84799B32F20E2DD">>,
+               sig => #{  %incorrect signature for new format
+                 <<"043E9FD2BBA07359FAA4EDC9AC53046EE530418F97ECDEA77E0E98288E6",
+                   "E56178D79D6A023323B0047886DAFEAEDA1F9C05633A536C70C513AB847",
+                   "99B32F20E2DD">>
+                 =>
+                 <<"30450221009B3E4E72F4DBD2A79762C2BE732CFB0D36B7EE3A4C4AC361E",
+                 "B935EFE701BB757022033CD9752D6AB71C939F9C70C56185F7C0FDC9E79E2"
+                 "6BB824B2F1722EFC687A4E">>
+                },
                seq => 12,
-               signature =>
-               <<"30450221009B3E4E72F4DBD2A79762C2BE732CFB0D36B7EE3A4C4AC361EB935EFE701BB757022033CD9752D6AB71C939F9C70C56185F7C0FDC9E79E26BB824B2F1722EFC687A4E">>,
                timestamp => 1511955715572989476,
                to => <<"75dF2XsYc5rLgovnekw7DobT7mubTQNN2M6E1kRr">>}}]}},
     #{block:=Block,

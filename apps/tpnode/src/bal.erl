@@ -12,7 +12,7 @@
          unpack/1
         ]).
 
--spec new () -> #{}.
+-spec new () -> #{amount:=map()}.
 new() ->
     #{amount=>#{}}.
 
@@ -28,11 +28,11 @@ fetch(Address, _Currency, _Header, Bal, FetchFun) ->
           FetchFun(Address)
     end.
 
--spec get_cur (integer()|binary(), fun()) -> integer().
+-spec get_cur (integer()|binary(), map()) -> integer().
 get_cur(Currency, #{amount:=A}=_Bal) ->
     maps:get(Currency, A, 0).
 
--spec put_cur (integer()|binary(), integer(), fun()) -> integer().
+-spec put_cur (integer()|binary(), integer(), #{amount:=map()}) -> map().
 put_cur(Currency, Value, #{amount:=A}=Bal) ->
     Bal#{
       amount => A#{ Currency => Value}

@@ -354,7 +354,7 @@ show_signs(Signs) ->
       fun(BSig) ->
               #{binextra:=Hdr,
                 extra:=Extra,
-                signature:=Signature}=block:unpacksig(BSig),
+                signature:=Signature}=bsig:unpacksig(BSig),
               #{ binextra => bin2hex:dbin2hex(Hdr),
                  signature => bin2hex:dbin2hex(Signature),
                  extra =>

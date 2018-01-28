@@ -60,26 +60,24 @@ gentx(BFrom,To,Amount,HPrivKey) when is_binary(BFrom)->
 test_sign_patch() ->
     {ok,HexPrivKey}=application:get_env(tpnode,privkey),
     PrivKey=hex:parse(HexPrivKey),
-    io:format("PK ~p~n",[PrivKey]),
-    {Patch, Signature}=settings:sign_patch(
-      [
-%       #{t=>set,p=>[globals,patchsigs], v=>2},
-%       #{t=>set,p=>[chain,0,blocktime], v=>5},
-%       #{t=>set,p=>[chain,0,allowempty], v=>0}
-%       #{t=>list_add,p=>[chains], v=>1},
-%       #{t=>set,p=>[chain,1,minsig], v=>1},
-       #{t=>set,p=>[chain,1,blocktime], v=>60}
-%       #{t=>set,p=>[nodechain,<<"node4">>], v=>1 },
-%       #{t=>set,p=>[keys,<<"node4">>], v=>
-%         hex:parse("02CB6107D2B19A01B0ABD6D9FCFF93D71227D03357DF9D48636D4968693FA8B540") }
-      ],
+    Patch=settings:sign(
+            settings:dmp(
+              settings:mp(
+                [
+                 %       #{t=>set,p=>[globals,patchsigs], v=>2},
+                 #{t=>set,p=>[chain,0,blocktime], v=>1},
+                 #{t=>set,p=>[chain,0,allowempty], v=>0}
+                 %       #{t=>list_add,p=>[chains], v=>1},
+                 %       #{t=>set,p=>[chain,1,minsig], v=>1},
+                 %       #{t=>set,p=>[chain,1,blocktime], v=>60}
+                 %       #{t=>set,p=>[nodechain,<<"node4">>], v=>1 },
+                 %       #{t=>set,p=>[keys,<<"node4">>], v=>
+                 %         hex:parse("02CB6107D2B19A01B0ABD6D9FCFF93D71227D03357DF9D48636D4968693FA8B540") }
+                ])),
       PrivKey),
-    MPatch=#{
-       patch=>Patch,
-       signatures=>[Signature]
-      },
-    gen_server:call(txpool, {patch, MPatch}).
-    %settings:pack_patch(Patch,[Signature]).
+    io:format("PK ~p~n",[settings:verify(Patch)]),
+    {Patch,
+    gen_server:call(txpool, {patch, Patch})}.
 
 outbound_tx() ->
     Pvt=address:parsekey(<<"5Kh9DfFypQNSd1GbGYNuHXsuaRcKVfcAWkrEQDJUMEZfi7yrvzm">>),

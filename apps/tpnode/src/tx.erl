@@ -27,39 +27,6 @@ set_ext(K,V,Tx) ->
 
 mkmsg(#{ from:=From, amount:=Amount,
          cur:=Currency, to:=To,
-         seq:=Seq, timestamp:=Timestamp,
-         format:=1
-       }=Tx) ->
-    {ToValid,_}=address:check(To),
-    if not ToValid -> 
-           throw({invalid_address,to});
-       true -> ok
-    end,
-
-    case maps:is_key(outbound,Tx) of 
-        true ->
-            lager:notice("FIXME: save outbound flag in tx");
-        false -> ok
-    end,
-    Append=maps:get(extradata,Tx,<<"">>),
-
-    iolist_to_binary(
-              io_lib:format("~s:~s:~b:~s:~b:~b:~s",
-                            [From,To,trunc(Amount),Currency,Timestamp,Seq,Append])
-             );
-
-mkmsg(#{ from := From, portout := PortOut,
-         timestamp := Timestamp, seq := Seq,
-         format:=1
-       }) ->
-    iolist_to_binary(
-      io_lib:format("portout:~s:~b:~b:~b",
-                    [From,PortOut,Timestamp,Seq])
-     );
-
-
-mkmsg(#{ from:=From, amount:=Amount,
-         cur:=Currency, to:=To,
          seq:=Seq, timestamp:=Timestamp
        }=Tx) ->
     {ToValid,_}=address:check(To),
@@ -81,39 +48,9 @@ mkmsg(#{ from:=From, amount:=Amount,
                   Currency,Timestamp,Seq,Append
                  ]);
 
-mkmsg(#{ from := From, portout := PortOut,
-         timestamp := Timestamp, seq := Seq,
-         format:=1
-       }) ->
-    iolist_to_binary(
-      io_lib:format("portout:~s:~b:~b:~b",
-                    [From,PortOut,Timestamp,Seq])
-     ).
+mkmsg(Unknown) ->
+    throw({unknown_tx_type,Unknown}).
 
-sign(#{
-  format:=1,
-  from:=From
- }=Tx,PrivKey) ->
-    Pub=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
-    {FromValid,Fat}=address:check(From),
-    if not FromValid -> 
-           throw({invalid_address,from});
-       true -> ok
-    end,
-    NewFrom=address:pub2addr(Fat,Pub),
-    if NewFrom =/= From -> 
-           throw({invalid_key,mismatch_from_address});
-       true -> ok
-    end,
-
-    Message=mkmsg(Tx),
-
-    Sig = tpecdsa:secp256k1_ecdsa_sign(Message, PrivKey, default, <<>>),
-    <<(size(Pub)):8/integer,
-      (size(Sig)):8/integer,
-      Pub/binary,
-      Sig/binary,
-      Message/binary>>;
 
 sign(#{
   from:=From
@@ -134,6 +71,7 @@ sign(#{
     {ok, [MType|LTx]} = msgpack:unpack(TxBin),
 
     Sig = tpecdsa:secp256k1_ecdsa_sign(TxBin, PrivKey, default, <<>>),
+
     msgpack:pack(
       maps:merge(
         #{
@@ -143,17 +81,6 @@ sign(#{
        },
         maps:with([extdata],Tx))
      ).
-
-split6(Bin,Acc) ->
-    if(length(Acc)==6) ->
-            lists:reverse([Bin|Acc]);
-      true ->
-          case binary:split(Bin,<<":">>) of
-              [A,Rest] -> split6(Rest,[A|Acc]);
-              [_] -> 
-                  lists:reverse([Bin|Acc])
-          end
-    end.  
 
 verify(#{
   from := From,
@@ -165,6 +92,7 @@ verify(#{
        true -> ok
     end,
     Message=mkmsg(Tx),
+    lager:info("Verify ~p",[HSigs]),
     {Valid,Invalid}=maps:fold(
                 fun(Pub, Sig, {AValid,AInvalid}) ->
                         NewFrom=address:pub2addr(Fat,Pub),
@@ -194,96 +122,24 @@ verify(#{
             }
     end;
 
-verify(#{
-  from := From,
-  public_key:=HPub,
-  signature:=HSig
- }=Tx) ->
-    Pub=hex:parse(HPub),
-    Sig=hex:parse(HSig),
-    {FromValid,Fat}=address:check(From),
-    if not FromValid -> 
-           throw({invalid_address,from});
-       true -> ok
-    end,
-    NewFrom=address:pub2addr(Fat,Pub),
-    if NewFrom =/= From -> 
-           throw({invalid_key,mismatch_from_address});
-       true -> ok
-    end,
-
-    Message=mkmsg(Tx),
-
-    case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
-        correct ->
-            {ok, Tx};
-        _ ->
-            bad_sig
-    end;
-
 verify(Bin) when is_binary(Bin) ->
     Tx=unpack(Bin),
     verify(Tx).
 
 pack(#{
-  patch := BinPatch,
-  signatures:=HSig,
-  format := 1
- }) ->
-    BinSig=lists:foldl(
-             fun(Bin,Acc) ->
-                     <<Acc/binary,(size(Bin)):8/integer,Bin/binary>>
-             end,<<>>,HSig),
-    Message=iolist_to_binary(
-              io_lib:format("patch:~s:~s",
-                            [
-                             base64:encode(BinPatch),
-                             base64:encode(BinSig)
-                            ])
-             ),
-    Pub= <<>>,
-    Sig= <<>>,
-    <<(size(Pub)):8/integer,
-      (size(Sig)):8/integer,
-      Pub/binary,
-      Sig/binary,
-      Message/binary>>;
-
-
-pack(#{
-  from := From,
-  portout := PortOut,
-  timestamp := Timestamp,
-  seq := Seq,
-  public_key:=HPub,
-  signature:=HSig,
-  format := 1
- }) ->
-    Pub=hex:parse(HPub),
-    Sig=hex:parse(HSig),
-    Message=iolist_to_binary(
-              io_lib:format("portout:~s:~b:~b:~b",
-                            [From,PortOut,Timestamp,Seq])
-             ),
-    <<(size(Pub)):8/integer,
-      (size(Sig)):8/integer,
-      Pub/binary,
-      Sig/binary,
-      Message/binary>>;
-
-pack(#{
-  public_key:=HPub,
-  signature:=HSig,
-  format:=1
+  patch:=LPatch,
+  sig:=Sigs
  }=Tx) ->
-    Pub=hex:parse(HPub),
-    Sig=hex:parse(HSig),
-    Message=mkmsg(Tx),
-    <<(size(Pub)):8/integer,
-      (size(Sig)):8/integer,
-      Pub/binary,
-      Sig/binary,
-      Message/binary>>;
+    %BinPatch=settings:mp(LPatch),
+    msgpack:pack(
+      maps:merge(
+        #{
+        type => <<"patch">>,
+        patch => LPatch,
+        sig => Sigs
+       },
+        maps:with([extdata],Tx))
+     );
 
 pack(#{
   sig:=Sigs
@@ -301,107 +157,48 @@ pack(#{
         maps:with([extdata],Tx))
      );
 
-pack(#{signature:=_,
-       public_key:=_
-      }=Tx) ->
-    case maps:is_key(format,Tx) of
-        true ->
-            throw('bad_tx');
-        false ->
-            lager:notice('Pack legacy tx'),
-            pack(Tx#{format=>1})
-    end.
+pack(Unknown) ->
+    throw({unknown_tx_to_pack,Unknown}).
 
 unpack(Tx) when is_map(Tx) ->
     Tx;
-
-unpack(<<PubLen:8/integer,SigLen:8/integer,Tx/binary>>=BinTx) when PubLen==65 
-                                                                   orelse PubLen==33 ->
-    try
-    <<Pub:PubLen/binary,Sig:SigLen/binary,Message/binary>>=Tx,
-    case split6(Message,[]) of
-        [From,To,SAmount,Cur,STimestamp,SSeq,ExtraJSON] ->
-            Amount=binary_to_integer(SAmount),
-            #{ from => From,
-               to => To,
-               amount => Amount,
-               cur => Cur,
-               timestamp => binary_to_integer(STimestamp),
-               seq => binary_to_integer(SSeq),
-               extradata => ExtraJSON,
-               public_key=>bin2hex:dbin2hex(Pub),
-               signature=>bin2hex:dbin2hex(Sig),
-               format=>1
-             };
-        [<<"patch">>,BinPatch,BinSig] ->
-            #{ patch => base64:decode(BinPatch),
-               signatures=>unpack_binlist(base64:decode(BinSig),[]),
-               format=>1
-             };
-        [<<"portout">>,From,PortOut,STimestamp,SSeq] ->
-            #{ from => From,
-               portout => binary_to_integer(PortOut),
-               seq => binary_to_integer(SSeq),
-               timestamp => binary_to_integer(STimestamp),
-               public_key=>bin2hex:dbin2hex(Pub),
-               signature=>bin2hex:dbin2hex(Sig),
-               format=>1
-             }
-    end
-    catch _:_ ->
-              unpack_mp(BinTx)
-    end;
 
 unpack(BinTx) when is_binary(BinTx) ->
     unpack_mp(BinTx).
 
 unpack_mp(BinTx) when is_binary(BinTx) ->
     {ok, #{
-       <<"type">>:=Type,
-       <<"tx">>:=Payload,
-       <<"sig">>:=Sig
+       type:=Type,
+       sig:=Sig
       }=Tx
-    } = msgpack:unpack(BinTx),
-    case Type of
-        <<"tx">> ->
-            [From,To,Amount, Cur, Timestamp, Seq, ExtraJSON] = Payload,
-            T1=#{ type => Type,
+    } = msgpack:unpack(BinTx, [{known_atoms, [type,sig,tx,patch] }] ),
+    R=case Type of
+        tx -> %generic finance tx
+            lager:info("tx ~p",[Tx]),
+            [From,To,Amount, Cur, Timestamp, Seq, ExtraJSON] = maps:get(tx,Tx),
+            #{ type => Type,
                   from => From,
                   to => To,
                   amount => Amount,
                   cur => Cur,
                   timestamp => Timestamp,
                   seq => Seq,
-                  extradata => ExtraJSON
-                },
-            T2=case maps:size(Sig) of 
-                   1 -> 
-                       [{Pub1,Sig1}]=maps:to_list(Sig),
-                       T1#{ public_key=>Pub1, 
-                          signature=>Sig1,
-                          sig => Sig
-                        };
-                   _ ->
-                       T1#{
-                     sig => Sig
-                    }
-               end,
-            case maps:is_key(<<"extdata">>,Tx) of
-                   true ->
-                       T2#{extdata=>maps:get(<<"extdata">>,Tx)};
-                   false ->
-                       T2#{}
-               end;
+                  extradata => ExtraJSON,
+                  sig => Sig
+                };
+        patch -> %settings patch
+              #{ patch => maps:get(patch,Tx),
+                 sig => Sig};
         _ ->
+            lager:error("Bad tx ~p",[Tx]),
             throw({"bad tx type",Type})
+    end,
+    case maps:is_key(<<"extdata">>,Tx) of
+        true ->
+            R#{extdata=>maps:get(<<"extdata">>,Tx)};
+        false ->
+            R
     end.
-
-unpack_binlist(<<>>,A) -> lists:reverse(A);
-unpack_binlist(<<S:8/integer,R/binary>>,A) ->
-    <<Body:S/binary,Rest/binary>> = R,
-    unpack_binlist(Rest,[Body|A]).
-
-
 
 -ifdef(TEST).
 new_tx_test() ->
@@ -459,14 +256,13 @@ tx_test() ->
              cur => <<"test">>,
              timestamp => 1512450000,
              seq => 1,
-             amount => 10,
-             format => 1
+             amount => 10
             },Pvt1),
     {ok,ExTx}=verify(BinTx2),
     {ok,ExTx1}=verify(tx:pack(tx:unpack(BinTx2))),
     [
-     ?assertEqual(bin2hex:dbin2hex(Pub1Min),maps:get(public_key,ExTx)),
-     ?assertEqual(bin2hex:dbin2hex(Pub1Min),maps:get(public_key,ExTx1)),
+     ?assertMatch([{Pub1Min,_}],maps:to_list(maps:get(sig,ExTx))),
+     ?assertMatch([{Pub1Min,_}],maps:to_list(maps:get(sig,ExTx))),
      ?assertEqual(ExTx,ExTx1)
     ].
 

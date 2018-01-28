@@ -147,7 +147,7 @@ blkid(<<X:8/binary,_/binary>>) ->
 checksig(BlockHash, Sigs, Acc0) ->
     lists:foldl(
       fun(Signature,Acc) ->
-              case block:checksig(BlockHash,Signature) of
+              case bsig:checksig1(BlockHash,Signature) of
                   {true, #{extra:=Xtra}=US} ->
                       Pub=proplists:get_value(pubkey,Xtra),
                       lager:debug("BV ~s Check sig ~s",[

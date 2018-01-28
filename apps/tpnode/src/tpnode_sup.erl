@@ -29,6 +29,7 @@ init([]) ->
     TPIC=TPIC0#{
            ecdsa=>tpecdsa:generate_priv(),
            authmod=>tpic_checkauth,
+           handler=>tpnode_tpic_handler,
            routing=>#{
              <<"timesync">>=>synchronizer,
              <<"mkblock">>=>mkblock,

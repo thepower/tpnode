@@ -54,6 +54,35 @@ init(_Args) ->
     erlang:send_after(6000, self(), runsync),
     {ok, Res}.
 
+handle_call(extract_txs, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
+    try
+        First=get_first_block(LDB,
+                              maps:get(hash,LB)
+                             ),
+        Res=foldl(
+              fun(Block, Acc) ->
+                      H=maps:get(header,Block),
+                      Set=maps:get(settings,Block,[]),
+                      Tx= lists:map(
+                            fun({K,V}) ->
+                                    {K,maps:without([public_key,signature],V)}
+                            end,
+                            maps:get(txs,Block)
+                           ),
+                      if Tx==[] ->
+                             Acc;
+                         true ->
+                             [{maps:get(height,H,0),Tx,Set}|Acc]
+                      end
+              end, 
+              [] , LDB, First),
+        {reply, lists:reverse(Res), State}
+    catch Ec:Ee ->
+              S=erlang:get_stacktrace(),
+              {reply, {error, Ec, Ee, S}, State}
+    end;
+
+
 handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
     try
         First=get_first_block(LDB,

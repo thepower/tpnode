@@ -71,23 +71,24 @@ handle_call({portout, #{
     };
 
 handle_call({patch, #{
-               patch:=Patch,
-               signatures:=Sigs
-              }}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
-    PatchHash=crypto:hash(sha256,Patch),
-    Res=block:checksigs(PatchHash, Sigs),
-    lager:error("Check keys ~p",[Res]),
-    TxID=generate_txid(Node),
-    {reply, 
-     {ok, TxID}, 
-     State#{
-       queue=>queue:in({TxID,
-                        #{
-                          patch=>Patch,
-                          signatures=>Sigs
-                         }},Queue)
-      }
-    };
+               patch:=_,
+               sig:=_
+              }=Patch}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
+    case settings:verify(Patch) of
+        {ok, #{ sigverify:=#{valid:=[_|_]} }} ->
+            TxID=generate_txid(Node),
+            {reply, 
+             {ok, TxID}, 
+             State#{
+               queue=>queue:in({TxID, Patch},Queue)
+              }
+            };
+        bad_sig ->
+            {reply, {error, bad_sig}, State};
+        _ ->
+            {reply, {error, verify}, State}
+    end;
+
 
 handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
     try
@@ -142,7 +143,8 @@ handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue,nodeid:=
         tpic:cast(tpic,MKb,MRes)
         %lager:info("Cast ~p ~p",[MKb,msgpack:unpack(MRes)])
     catch _:_ ->
-              lager:error("Can't encode")
+              S=erlang:get_stacktrace(),
+              lager:error("Can't encode at ~p",[S])
     end,
     
     %lists:foreach(

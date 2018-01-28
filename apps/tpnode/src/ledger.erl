@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0,put/1,check/1,get/1]).
+-export([start_link/0,put/1,check/1,get/1,dump/0,restore/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -30,6 +30,27 @@ check(KVS) when is_list(KVS) ->
 
 get(KS) when is_list(KS) ->
     gen_server:call(?SERVER, {get, KS}).
+
+dump() ->
+    msgpack:pack(
+      #{ <<"type">> => <<"ledgerdumpv1">>,
+         <<"dump">> =>
+         lists:map(
+           fun({Account, Bal}) ->
+                   [Account, bal:pack(Bal)]
+           end,
+           gen_server:call(?SERVER, dump, 60000))
+       }
+     ).
+
+restore(Bin,ExpectHash) -> 
+    {ok, #{ <<"type">> := <<"ledgerdumpv1">>,
+            <<"dump">> := Payload}} = msgpack:unpack(Bin),
+    ToRestore=lists:map(
+      fun([Account, BBal]) ->
+              {Account, bal:unpack(BBal)}
+      end, Payload),
+    gen_server:call(?SERVER, {try_restore, ToRestore, ExpectHash}, 60000).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -57,15 +78,56 @@ init(Args) ->
             }
     end.
 
+handle_call(compact, _From, #{db:=DB}=State) ->
+    {reply, cowdb:compact(DB), State};
+
+handle_call(info, _From, #{db:=DB}=State) ->
+    {reply, cowdb:database_info(DB), State};
+
+handle_call(dump, _From, #{db:=DB}=State) -> 
+    {ok,GB}=cowdb:fold(DB, 
+                       fun(KV, Acc) -> 
+                               {ok,
+                                [KV|Acc]
+                               }
+                       end, 
+                       []
+                      ),
+    {reply, GB, State};
+
+
 handle_call('_flush', _From, #{db:=DB}=State) ->
-    cowdb:close(DB),
-    Filename=("ledger_"++atom_to_list(node())++".db"),
-    file:delete(Filename),
-    {ok, Pid} = cowdb:open(Filename),
+    NewDB=drop_db(DB),
     {reply, flushed, State#{
-                       db=>Pid,
-                       mt=>load(Pid)
+                       db=>NewDB,
+                       mt=>load(NewDB)
                       }};
+
+handle_call({try_restore, Dump, ExpectHash}, _From, #{db:=DB}=State) ->
+    lager:info("Restore ~p",[Dump]),
+    MT1=gb_merkle_trees:balance(
+          lists:foldl(fun applykv/2, 
+                      gb_merkle_trees:from_list([{<<>>,<<>>}]), 
+                      Dump)
+         ),
+    RH=gb_merkle_trees:root_hash(MT1),
+    case ExpectHash=/=RH of
+        true ->
+            {reply, {error, hash_mismatch, RH}, State};
+        false ->
+            NewDB=drop_db(DB),
+            cowdb:transact(NewDB,
+                           lists:map(
+                             fun({K,V}) ->
+                                     {add, K,V}
+                             end, Dump)
+                          ),
+            {reply, ok, State#{
+                            db=>NewDB,
+                            mt=>MT1}
+            }
+    end;
+
 
 handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when 
       Action==put orelse Action==check ->
@@ -84,14 +146,15 @@ handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when
     {reply, Res,
      case Action of
          check -> State;
-         put -> 
+         put when KVS=/=[] -> 
              cowdb:transact(DB,
                             lists:map(
                               fun({K,V}) ->
                                       {add, K,V}
                               end, KVS)
                            ),
-             State#{mt=>MT1}
+             State#{mt=>MT1};
+         _ -> State
      end};
 
 handle_call({get, KS}, _From, #{db:=DB}=State) ->
@@ -133,7 +196,7 @@ applykv({K0,V},Acc) ->
     K=if is_binary(K0) -> K0;
          is_integer(K0) -> binary:encode_unsigned(K0)
       end,
-    gb_merkle_trees:enter(K,crypto:hash(sha256,term_to_binary(V)),Acc).
+    gb_merkle_trees:enter(K,crypto:hash(sha256,bal:pack(V)),Acc).
 
 load(DB) ->
     {ok,GB}=cowdb:fold(DB, 
@@ -164,4 +227,11 @@ apply_patch(Address,Patch, #{db:=DB}=State) ->
                    P1#{amount=>Bals}
            end,
     {NewVal,State}.
+
+drop_db(DB) ->
+    cowdb:close(DB),
+    Filename=("ledger_"++atom_to_list(node())++".db"),
+    file:delete(Filename),
+    {ok, Pid} = cowdb:open(Filename),
+    Pid.
 

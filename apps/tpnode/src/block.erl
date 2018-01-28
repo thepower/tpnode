@@ -3,10 +3,10 @@
 -export([mkblock/1,binarizetx/1,extract/1,outward_mk/2]).
 -export([verify/1,outward_verify/1,sign/2,sign/3]).
 -export([pack/1,unpack/1]).
--export([pack_sign_ed/1,unpack_sign_ed/1]).
--export([packsig/1,unpacksig/1]).
--export([checksigs/2,checksig/2]).
--export([signhash/3]).
+
+-ifndef(TEST).
+-define(TEST,1).
+-endif.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -27,7 +27,7 @@ pack(Block) ->
                  (sign,Sigs) ->
                       lists:map(
                         fun(Sig) ->
-                                packsig(Sig)
+                                bsig:packsig(Sig)
                         end, Sigs);
                  (settings,Txs) ->
                       maps:from_list(
@@ -110,7 +110,7 @@ unpack(Block) when is_binary(Block) ->
                   (sign,Sigs) ->
                       lists:map(
                         fun(Sig) ->
-                                unpacksig(Sig)
+                                bsig:unpacksig(Sig)
                         end, Sigs);
                   (_,V) ->
                       V
@@ -119,28 +119,7 @@ unpack(Block) when is_binary(Block) ->
             throw({block_unpack,Err})
     end.
 
-checksig(BlockHash, SrcSig) ->
-    HSig=unpacksig(SrcSig),
-    #{binextra:=BExt,extra:=Xtra,signature:=Sig}=US=block:unpacksig(HSig),
-    PubKey=proplists:get_value(pubkey,Xtra),
-    Msg= <<BExt/binary,BlockHash/binary>>,
-    case tpecdsa:secp256k1_ecdsa_verify(Msg, Sig, PubKey) of
-        correct ->
-            {true, US};
-        _ ->
-            false
-    end.
 
-checksigs(BlockHash, Sigs) ->
-    lists:foldl(
-      fun(SrcSig,{Succ,Fail}) ->
-              case checksig(BlockHash, SrcSig) of
-                  {true, US} ->
-                      {[US|Succ], Fail};
-                  false ->
-                      {Succ, Fail+1}
-              end
-      end, {[],0}, Sigs).
 
 outward_verify(#{ header:=#{parent:=Parent, height:=H}=Header, 
                   hash:=HdrHash, 
@@ -187,7 +166,7 @@ outward_verify(#{ header:=#{parent:=Parent, height:=H}=Header,
                  end, false, BTxs),
         if TxFail -> throw(false); true -> ok end,
 
-        {true, checksigs(Hash, Sigs)}
+        {true, bsig:checksig(Hash, Sigs)}
 
     catch throw:false ->
               false
@@ -237,28 +216,13 @@ verify(#{ header:=#{parent:=Parent, height:=H}=Header,
     if Hash =/= HdrHash ->
            false;
        true ->
-           {true, checksigs(Hash, Sigs)}
+           {true, bsig:checksig(Hash, Sigs)}
     end.
 
-splitsig(<<255,SLen:8/integer,Rest/binary>>) ->
-    <<Signature:SLen/binary,Extradata/binary>>=Rest,
-    {Signature,Extradata}.
-
-unpacksig(HSig) when is_map(HSig) ->
-    HSig;
-
-unpacksig(BSig) when is_binary(BSig) ->
-    {Signature,Hdr}=splitsig(BSig),
-    #{ binextra => (Hdr),
-       signature => (Signature),
-       extra => unpack_sign_ed(Hdr)
-     }.
 
 binarize_settings([]) -> [];
-binarize_settings([{TxID,#{ patch:=Patch,
-                            signatures:=Sigs
-                          }}|Rest]) ->
-    [{TxID,settings:pack_patch(Patch,Sigs)}|binarize_settings(Rest)].
+binarize_settings([{TxID,#{ patch:=_LPatch }=Patch}|Rest]) ->
+    [{TxID,tx:pack(Patch)}|binarize_settings(Rest)].
 
 
 mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }=Req) ->
@@ -400,24 +364,10 @@ bals2bin(NewBal) ->
 blkid(<<X:8/binary,_/binary>>) ->
     bin2hex:dbin2hex(X).
 
-packsig(BinSig) when is_binary(BinSig) ->
-    BinSig; 
-packsig(#{signature:=Signature,binextra:=BinExtra}) ->
-    <<255,(size(Signature)):8/integer,Signature/binary,BinExtra/binary>>.
-
-signhash(MsgHash, ED, PrivKey) ->
-    PubKey=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
-    BinExtra= pack_sign_ed([
-             {pubkey,PubKey}|
-             ED
-            ]),
-    Msg= <<BinExtra/binary,MsgHash/binary>>,
-    Signature=tpecdsa:secp256k1_ecdsa_sign(Msg, PrivKey, default, <<>>),
-    <<255,(size(Signature)):8/integer,Signature/binary,BinExtra/binary>>.
 
 sign(Blk, ED, PrivKey) when is_map(Blk) ->
     Hash=maps:get(hash,Blk),
-    Sign=signhash(Hash, ED, PrivKey),
+    Sign=bsig:signhash(Hash, ED, PrivKey),
     Blk#{
       sign=>[Sign|maps:get(sign,Blk,[])]
      }.
@@ -427,30 +377,6 @@ sign(Blk, PrivKey) when is_map(Blk) ->
     ED=[{timestamp,Timestamp}],
     sign(Blk, ED, PrivKey).
 
-unpack_sign_ed(Bin) -> unpack_sign_ed(Bin,[]).
-unpack_sign_ed(<<>>,Acc) -> lists:reverse(Acc);
-unpack_sign_ed(<<Attr:8/integer,Len:8/integer,Bin/binary>>,Acc) ->
-    <<Val:Len/binary,Rest/binary>>=Bin,
-    unpack_sign_ed(Rest,[decode_edval(Attr,Val)|Acc]).
-
-
-pack_sign_ed(List) ->
-    lists:foldl( fun({K,V},Acc) ->
-                         Val=encode_edval(K,V),
-                         <<Acc/binary,Val/binary>>
-                 end, <<>>, List).
-
-decode_edval(1,<<Timestamp:64/big>>) -> {timestamp, Timestamp}; 
-decode_edval(2,Bin) -> {pubkey, Bin}; 
-decode_edval(3,<<TimeDiff:64/big>>) -> {createduration, TimeDiff}; 
-decode_edval(255,Bin) -> {signature, Bin}; 
-decode_edval(Key,BinVal) -> {Key, BinVal}.
-
-encode_edval(timestamp, Integer) -> <<1,8,Integer:64/big>>;
-encode_edval(pubkey, PK) -> <<2,(size(PK)):8/integer,PK/binary>>;
-encode_edval(createduration, Integer) -> <<3,8,Integer:64/big>>;
-encode_edval(signature, PK) -> <<255,(size(PK)):8/integer,PK/binary>>;
-encode_edval(_, _) -> <<>>.
 
 -ifdef(TEST).
 block_test() ->
@@ -460,36 +386,36 @@ block_test() ->
                 200,300,200,100,200,100,200,100,200,100,200,100,200,100,200,100>>,
     Pub1=tpecdsa:secp256k1_ec_pubkey_create(Priv1Key, true),
     Pub2=tpecdsa:secp256k1_ec_pubkey_create(Priv2Key, true),
-    RPatch=settings:mp(
-            [
+    RPatch=[
              #{t=>set,p=>[globals,patchsigs], v=>2},
              #{t=>set,p=>[chains], v=>[0]},
              #{t=>set,p=>[chain,0,minsig], v=>2},
              #{t=>set,p=>[keys,node1], v=>Pub1},
              #{t=>set,p=>[keys,node2], v=>Pub2},
              #{t=>set,p=>[nodechain], v=>#{node1=>0, node2=>0 } }
-            ]),
-    {SPatch,PatchSig1}= settings:sign_patch(RPatch, Priv1Key),
-    {SPatch,PatchSig2}= settings:sign_patch(RPatch, Priv2Key),
+            ],
+    SPatch1= settings:sign(RPatch, Priv1Key),
+    SPatch2= settings:sign(SPatch1, Priv2Key),
+    lager:info("SPatch ~p",[SPatch2]),
     NewB=mkblock(#{ parent=><<0,0,0,0,0,0,0,0>>,
                     height=>0,
                     txs=>[],
                     bals=>#{},
                     settings=>[
                                {
-                                bin2hex:dbin2hex(crypto:hash(sha256,SPatch)),
-                                #{ patch=>SPatch,
-                                   signatures=>[PatchSig1,PatchSig2]
-                                 }
+                                <<"patch123">>,
+                                SPatch2
                                }
                               ],
                     sign=>[]
                   }
           ),
     Block=sign(sign(NewB,Priv1Key),Priv2Key),
+    Repacked=unpack(pack(Block)),
     [
     %?_assertEqual(Block,unpack(pack(Block))),
     ?_assertMatch({true,{_,0}},verify(Block)),
+    ?_assertEqual(Block,Repacked),
     ?_assertEqual(true,lists:all(
                          fun(#{extra:=E}) ->
                                  P=proplists:get_value(pubkey,E),
@@ -534,21 +460,22 @@ outward_test() ->
                  #{amount => 9.0,cur => <<"FTT">>,extradata => <<>>,
                    from => <<"73Pa34g3R27Co7KzzNYT7t4UaPjQvpKA6esbuZxB">>,
                    outbound => 1,
-                   format => 1,
-                   public_key =>
-                   <<"046A21F068BE92697268B60D96C4CA93052EC104E49E003AE2C404F916864372F4137039E85BC2CBA4935B6064B2B79150D99EDC10CA3C29142AA6B7F1E294B159">>,
+                   sig => #{
+                   <<"046A21F068BE92697268B60D96C4CA93052EC104E49E003AE2C404F916864372F4137039E85BC2CBA4935B6064B2B79150D99EDC10CA3C29142AA6B7F1E294B159">>
+                   =>
+                   <<"30440220455607D99DC5566660FCEB508FA980C954F74D4C344F4FCA0AE7709E7CBF4AA802202DC0B61A998AD98FDDB7AFD814F464EF0EFBC6D82CB15C2E0D912AE9D5C33498">>
+                    },  %this is incorrect signature for new block format!!!
                    seq => 3,
-                   signature =>
-                   <<"30440220455607D99DC5566660FCEB508FA980C954F74D4C344F4FCA0AE7709E7CBF4AA802202DC0B61A998AD98FDDB7AFD814F464EF0EFBC6D82CB15C2E0D912AE9D5C33498">>,
                    timestamp => 1511934628557211514,
                    to => <<"73f9e9yvV5BVRm9RUw3THVFon4rVqUMfAS1BNikC">>}}]},
     BinOW=pack(OWBlock),
-    OW1=unpack(BinOW),
+    Repacked=unpack(BinOW),
 
     [
-     ?_assertEqual(OW1,OWBlock),
      ?_assertMatch({true,{_,0}},outward_verify(OWBlock)),
-     ?_assertMatch({true,{_,0}},outward_verify(OW1))
+     ?_assertMatch({true,{_,0}},outward_verify(Repacked)),
+     ?_assertEqual(Repacked,OWBlock)
     ].
 
 -endif.
+
