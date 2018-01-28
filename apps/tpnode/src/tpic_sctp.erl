@@ -47,7 +47,7 @@ start_link(Settings) when is_map(Settings) ->
 init([]) ->
     throw('loadconfig');
 
-init(#{port:=MyPort}=Args) when is_map(Args) ->
+init(#{port:=MyPort,handler:=TH}=Args) when is_map(Args) ->
     {ok,S} = gen_sctp:open(MyPort, [{recbuf,655360},
                                     {ip,any},
                                     {active,true},
@@ -85,7 +85,7 @@ init(#{port:=MyPort}=Args) when is_map(Args) ->
                                  true ->
                                      {K, A}
                              end
-                     end,{2,#{<<"timesync">>=>1}}, maps:get(routing,Args,#{})),
+                     end,{2,#{<<"timesync">>=>1}}, TH:routing(Args)),
     RRouting=maps:fold(
                fun(K,V,A) ->
                        maps:put(V,K,A)
@@ -118,7 +118,21 @@ handle_call({broadcast, OPid, Chan, Message}, _From,
                            case maps:is_key(Chan,Routes) of
                                true ->
                                    SID=maps:get(Chan,Routes),
-                                   R=gen_sctp:send(Socket, Assoc, SID, <<XLR/binary,Message/binary>>),
+                                   R=case Message of
+                                         {MHdr,MBody} when is_binary(MHdr), is_binary(MBody) ->
+                                             if size(MBody) > 127 -> 
+                                                    {error, longhdr};
+                                                true ->
+                                                    gen_sctp:send(Socket, Assoc, SID,
+                                                                  <<XLR/binary,
+                                                                    (size(MHdr)):8/integer,
+                                                                    MHdr/binary,
+                                                                    MBody/binary>>)
+                                             end;
+                                         MBody when is_binary(MBody) ->
+                                             gen_sctp:send(Socket, Assoc, SID,
+                                                           <<XLR/binary,0,MBody/binary>>)
+                                     end,
                                    if R==ok ->
                                           lager:debug("I have assoc ~p, XLR ~p send ~p",[Assoc,XLR,R]),
                                           [{Assoc,SID,XLR}|Acc];
@@ -153,7 +167,21 @@ handle_call({unicast, _OPid, {Assoc, SID, XLR}, Message}, _From,
             {reply, [], State};
         #{} ->
             lager:debug("Sending msg ~p",[Message]),
-            R=gen_sctp:send(Socket, Assoc, SID, <<XLR/binary,Message/binary>>),
+            R=case Message of
+                  {MHdr,MBody} when is_binary(MHdr), is_binary(MBody) ->
+                      if size(MBody) > 127 -> 
+                             {error, longhdr};
+                         true ->
+                             gen_sctp:send(Socket, Assoc, SID,
+                                           <<XLR/binary,
+                                             (size(MHdr)):8/integer,
+                                             MHdr/binary,
+                                             MBody/binary>>)
+                      end;
+                  MBody when is_binary(MBody) ->
+                      gen_sctp:send(Socket, Assoc, SID,
+                                    <<XLR/binary,0,MBody/binary>>)
+              end,
             lager:debug("I have assoc ~p, send ~p",[Assoc,R]),
             if R==ok ->
                    {reply, [{Assoc,SID,XLR}], State};
@@ -163,7 +191,6 @@ handle_call({unicast, _OPid, {Assoc, SID, XLR}, Message}, _From,
             end
     end;
 
-
 handle_call({unicast, OPid, {Assoc, SID}, Message}, _From,
             #{nodename:=Node,hq:=HQ,lr:=LR,peerinfo:=PI,socket:=Socket}=State) ->
     case mkmap:get({ass,Assoc}, PI, undefined) of
@@ -171,7 +198,7 @@ handle_call({unicast, OPid, {Assoc, SID}, Message}, _From,
             {reply, [], State};
         #{} ->
             XLR=mkxlr(Node,LR),
-            R=gen_sctp:send(Socket, Assoc, SID, <<XLR/binary,Message/binary>>),
+            R=gen_sctp:send(Socket, Assoc, SID, <<XLR/binary,0,Message/binary>>),
             lager:debug("I have assoc ~p, send ~p",[Assoc,R]),
             if R==ok ->
                    {reply, [{Assoc,SID,XLR}], 
@@ -187,6 +214,7 @@ handle_call({unicast, OPid, {Assoc, SID}, Message}, _From,
 
 handle_call(_Request, _From, State) ->
     lager:info("TPIC_SCTP unknown call ~p",[_Request]),
+    lager:info("TPIC_SCTP state ~p",[State]),
     {reply, ok, State}.
 
 handle_cast({broadcast, _OPid, _Chan, _Message}=Req, State) ->
@@ -421,10 +449,10 @@ handle_payload(#sctp_sndrcvinfo{ stream=SID, assoc_id=Assoc }=Anc,
             NewState;
         {ok, NewCtx, NewState} ->
             PI1=mkmap:put({ass,Assoc},NewCtx,PI),
-            NewState#{ peerinfo=>PI1 }
-%        _Any ->
-%            lager:error("Bad return from payload handler ~p",[_Any]),
-%            State
+            NewState#{ peerinfo=>PI1 };
+        _Any ->
+            lager:error("Bad return from payload handler ~p",[_Any]),
+            State
     end.
 
 payload(Socket, 
@@ -511,16 +539,31 @@ payload(Socket,
 
 payload(_Socket,
         #sctp_sndrcvinfo{ stream=SID, assoc_id=Assoc },
-        {_RemoteIP,_RemotePort},Payload,_Ctx,
-        #{hq:=HQ,rrouting:=RR}=State) ->
+        {_RemoteIP,_RemotePort},Payload,Ctx,
+        #{hq:=HQ,rrouting:=RR,handler:=TH}=State) ->
     case maps:is_key(SID,RR) of
         true ->
-            <<XLR:8/binary,Body/binary>> = Payload,
-            To=case hashqueue:get(XLR,HQ) of
+            {XLR,Header,Body} = case Payload of
+                                    <<XLRm:8/binary,HLen:8/integer,Rest/binary>> ->
+                                        if HLen<128 ->
+                                               <<Headerm:HLen/binary,Bodym/binary>> = Rest,
+                                               {XLRm, Headerm, Bodym};
+                                           true ->
+                                               throw({"TPIC proto error",{HLen,">=128 reserved"}})
+                                        end;
+                                    _ ->
+                                        throw({"TPIC proto error","Can't match payload"})
+                                end,
+            Res=case hashqueue:get(XLR,HQ) of
                    X when is_pid(X) ->
-                       X;
+                       TH:handle_response(
+                         {Assoc,SID,XLR},
+                         X,
+                         Header,
+                         Body,
+                         Ctx);
                    undefined ->
-                       case maps:get(SID,RR) of
+                       P=case maps:get(SID,RR) of
                            <<"timesync">> -> synchronizer;
                            X when is_pid(X) -> X;
                            X when is_atom(X) -> X;
@@ -530,17 +573,27 @@ payload(_Socket,
                                catch error:badarg ->
                                          undefined
                                end
-                       end
+                       end,
+                       TH:handle_tpic(
+                         {Assoc,SID,XLR},
+                         P,
+                         Header,
+                         Body,
+                         Ctx)
                end,
-            lager:debug("Got XLR ~p to ~p(~p)",[XLR,hashqueue:get(XLR,HQ),To]),
-            gen_server:cast(To,{tpic,{Assoc,SID,XLR},Body}),
-            lager:debug("Payload to ~p from ~p ~p",
-                       [To, Assoc, SID]);
+            case Res of
+                ok ->
+                    {ok, State};
+                close ->
+                    {ok, close};
+                _Any ->
+                    {ok,State}
+            end;
         false ->
-            lager:info("Payload from ~p ~p: ~p",
-                       [Assoc, SID, Payload])
-    end,
-    {ok, State}.
+            lager:info("Unknown payload from ~p ~p: ~p",
+                       [Assoc, SID, Payload]),
+            {ok, State}
+    end.
 
 zerostream(_Socket, 
            #sctp_sndrcvinfo{ stream=SID, assoc_id=_Assoc }=_Anc, 
