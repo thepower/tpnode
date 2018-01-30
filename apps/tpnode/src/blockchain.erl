@@ -589,6 +589,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    lager:error("My state ~p",[_State]),
     lager:error("Terminate blockchain ~p",[_Reason]),
     ok.
 

@@ -2,11 +2,22 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
+-ifndef(TEST).
+-define(TEST,1).
+-endif.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0,put/1,check/1,get/1,dump/0,restore/2]).
+-export([start_link/0,
+         start_link/1,
+         put/1,check/1,get/1,dump/0,restore/2,tpic/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -18,6 +29,11 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
+
+start_link(Params) ->
+    gen_server:start_link({local, 
+                           proplists:get_value(name,Params,?SERVER)}, 
+                          ?MODULE, Params, []).
 
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
@@ -52,6 +68,21 @@ restore(Bin,ExpectHash) ->
       end, Payload),
     gen_server:call(?SERVER, {try_restore, ToRestore, ExpectHash}, 60000).
 
+tpic(From, Payload) when is_binary(Payload) ->
+    lager:info("Untpic ~p",[Payload]),
+    case msgpack:unpack(Payload) of
+        {ok, Obj} when is_map(Obj) ->
+            tpic(From, Obj);
+        Any ->
+            tpic:cast(tpic, From, <<"error">>),
+            lager:info("Bad TPIC received:: ~p",[Any]),
+            error
+    end;
+
+tpic(From, _Payload) ->
+    tpic:cast(tpic, From, <<"pong !!!">>).
+
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -68,8 +99,7 @@ init(Args) ->
               }
             };
         false ->
-            Filename=("ledger_"++atom_to_list(node())++".db"),
-            {ok, Pid} = cowdb:open(Filename),
+            Pid = open_db(#{args => Args}),
             {ok, #{
                args => Args,
                mt => load(Pid),
@@ -77,6 +107,30 @@ init(Args) ->
               }
             }
     end.
+
+handle_call(snaptest, _From, #{db:=DB}=State) ->
+    {ok,DBS}=cowdb:get_snapshot(DB, 1),
+    lager:info("Info ~p",[cowdb:database_info(DB)]),
+    lager:info("Info ~p",[cowdb:database_info(DBS)]),
+    timer:sleep(1000),
+    cowdb:compact(DB),
+    timer:sleep(1000),
+    lager:info("Info ~p",[cowdb:database_info(DB)]),
+    lager:info("Info ~p",[cowdb:database_info(DBS)]),
+    Show=fun(DBh) ->
+                 FR=cowdb:fold(DBh,
+                               fun(KV, Acc) ->
+                                       lager:info("K ~p",[KV]),
+                                       {ok, Acc}
+                               end,
+                               0
+                              ),
+                 lager:info("FR ~p",[FR])
+         end,
+    Show(DB),
+
+    Show(DBS),
+    {reply, ok, State};
 
 handle_call(compact, _From, #{db:=DB}=State) ->
     {reply, cowdb:compact(DB), State};
@@ -96,14 +150,15 @@ handle_call(dump, _From, #{db:=DB}=State) ->
     {reply, GB, State};
 
 
-handle_call('_flush', _From, #{db:=DB}=State) ->
-    NewDB=drop_db(DB),
+handle_call('_flush', _From, State) ->
+    drop_db(State),
+    NewDB=open_db(State),
     {reply, flushed, State#{
                        db=>NewDB,
                        mt=>load(NewDB)
                       }};
 
-handle_call({try_restore, Dump, ExpectHash}, _From, #{db:=DB}=State) ->
+handle_call({try_restore, Dump, ExpectHash}, _From, State) ->
     lager:info("Restore ~p",[Dump]),
     MT1=gb_merkle_trees:balance(
           lists:foldl(fun applykv/2, 
@@ -115,7 +170,8 @@ handle_call({try_restore, Dump, ExpectHash}, _From, #{db:=DB}=State) ->
         true ->
             {reply, {error, hash_mismatch, RH}, State};
         false ->
-            NewDB=drop_db(DB),
+            drop_db(State),
+            NewDB=open_db(State),
             cowdb:transact(NewDB,
                            lists:map(
                              fun({K,V}) ->
@@ -147,12 +203,13 @@ handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when
      case Action of
          check -> State;
          put when KVS=/=[] -> 
-             cowdb:transact(DB,
+             TR=cowdb:transact(DB,
                             lists:map(
                               fun({K,V}) ->
                                       {add, K,V}
                               end, KVS)
                            ),
+             lager:info("Trans ~p",[TR]),
              State#{mt=>MT1};
          _ -> State
      end};
@@ -173,6 +230,11 @@ handle_cast({prepare, Addresses}, #{db:=DB}=State) when is_list(Addresses) ->
     Res=cowdb:mget(DB,Addresses),
     lager:info("Prepare ~p",[Res]),
     {noreply, State};
+
+handle_cast(drop_terminate, State) ->
+    drop_db(State),
+    lager:info("Terminate me"),
+    {stop, normal, State};
 
 handle_cast(_Msg, State) ->
     lager:info("Bad cast ~p",[_Msg]),
@@ -228,10 +290,49 @@ apply_patch(Address,Patch, #{db:=DB}=State) ->
            end,
     {NewVal,State}.
 
-drop_db(DB) ->
+drop_db(#{db:=DB,args:=Args}) ->
     cowdb:close(DB),
-    Filename=("ledger_"++atom_to_list(node())++".db"),
-    file:delete(Filename),
+    Filename=proplists:get_value(filename,
+                                 Args,
+                                 ("ledger_"++atom_to_list(node())++".db")
+                                ),
+    file:delete(Filename).
+
+open_db(#{args:=Args}) ->
+    Filename=proplists:get_value(filename,
+                                 Args,
+                                 ("ledger_"++atom_to_list(node())++".db")
+                                ),
     {ok, Pid} = cowdb:open(Filename),
     Pid.
+
+
+
+-ifdef(TEST).
+ledger_test() ->
+    Name=test_ledger,
+    {ok,Pid}=ledger:start_link(
+               [{filename, "test.db"},
+                {name, Name}
+               ]
+              ),
+    gen_server:call(Pid, '_flush'),
+    {ok,R1}=gen_server:call(Pid, {check, []}),
+    gen_server:call(Pid, 
+                    {put, [
+                           {<<"abc">>,#{amount=> #{<<"xxx">> => 123}}},
+                           {<<"bcd">>,#{amount=> #{<<"yyy">> => 321}}}
+                          ]}),
+    {ok,R2}=gen_server:call(Pid, {check, []}),
+    gen_server:call(Pid, 
+                    {put, [
+                           {<<"abc">>,#{amount=> #{<<"xxx">> => 234}}},
+                           {<<"def">>,#{amount=> #{<<"yyy">> => 210}}}
+                          ]}),
+    {ok,R3}=gen_server:call(Pid, {check, []}),
+    gen_server:call(Pid, snaptest),
+    gen_server:cast(Pid, drop_terminate),
+    {R1,R2,R3}.
+
+-endif.
 
