@@ -1,4 +1,6 @@
 *~
 *.swp
 *.beam
+.vagrant
+_build
 erl_crash.dump
