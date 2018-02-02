@@ -6,7 +6,6 @@ all:
 	@echo make run3 - rin node3
 
 build:
-	./rebar3 get-deps
 	./rebar3 compile
 
 run1:
@@ -16,3 +15,5 @@ run2:
 run3:
 	erl -config examples/app3.config -sname rocksnode3 -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager -s sync -s tpnode
 
+node1shell:
+	rebar3 as node1 shell
