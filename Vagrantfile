@@ -6,8 +6,10 @@ Vagrant.configure("2") do |config|
   config.vm.box_check_update = false
 
   config.vm.provision "shell", inline: <<-SHELL
-    sudo echo "pwr" > /etc/hostname
-    sudo sed -i 's/ubuntu\-16/pwr/g' /etc/hosts
+    echo "pwr" > /etc/hostname
+    sed -i 's/ubuntu\-16/pwr/g' /etc/hosts
+    hostnamectl set-hostname pwr
+
     sudo apt-get update
     sudo apt-get install -y build-essential clang libsctp-dev libncurses5-dev mc
 
