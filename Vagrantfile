@@ -27,7 +27,11 @@ Vagrant.configure("2") do |config|
     sudo mv rebar3 /usr/local/bin
     sudo chmod +x /usr/local/bin/rebar3
     sudo chown root:root /usr/local/bin/rebar3
-    mkdir -p /home/vagrant/db
-    ln -s /home/vagrant/db /vagrant/db
+    if [ ! -e /vagrant/db ]
+    then
+      mkdir -p /home/vagrant/db
+      ln -s /home/vagrant/db /vagrant/db
+      chown vagrant:vagrant /home/vagrant/db /vagrant/db
+    fi
   SHELL
 end
