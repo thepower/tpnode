@@ -31,8 +31,8 @@
 %% ------------------------------------------------------------------
 
 start_link(Params) ->
-    gen_server:start_link({local, 
-                           proplists:get_value(name,Params,?SERVER)}, 
+    gen_server:start_link({local,
+                           proplists:get_value(name,Params,?SERVER)},
                           ?MODULE, Params, []).
 
 start_link() ->
@@ -59,7 +59,7 @@ dump() ->
        }
      ).
 
-restore(Bin,ExpectHash) -> 
+restore(Bin,ExpectHash) ->
     {ok, #{ <<"type">> := <<"ledgerdumpv1">>,
             <<"dump">> := Payload}} = msgpack:unpack(Bin),
     ToRestore=lists:map(
@@ -138,13 +138,13 @@ handle_call(compact, _From, #{db:=DB}=State) ->
 handle_call(info, _From, #{db:=DB}=State) ->
     {reply, cowdb:database_info(DB), State};
 
-handle_call(dump, _From, #{db:=DB}=State) -> 
-    {ok,GB}=cowdb:fold(DB, 
-                       fun(KV, Acc) -> 
+handle_call(dump, _From, #{db:=DB}=State) ->
+    {ok,GB}=cowdb:fold(DB,
+                       fun(KV, Acc) ->
                                {ok,
                                 [KV|Acc]
                                }
-                       end, 
+                       end,
                        []
                       ),
     {reply, GB, State};
@@ -161,8 +161,8 @@ handle_call('_flush', _From, State) ->
 handle_call({try_restore, Dump, ExpectHash}, _From, State) ->
     lager:info("Restore ~p",[Dump]),
     MT1=gb_merkle_trees:balance(
-          lists:foldl(fun applykv/2, 
-                      gb_merkle_trees:from_list([{<<>>,<<>>}]), 
+          lists:foldl(fun applykv/2,
+                      gb_merkle_trees:from_list([{<<>>,<<>>}]),
                       Dump)
          ),
     RH=gb_merkle_trees:root_hash(MT1),
@@ -185,7 +185,7 @@ handle_call({try_restore, Dump, ExpectHash}, _From, State) ->
     end;
 
 
-handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when 
+handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when
       Action==put orelse Action==check ->
     {KVS,_S1}=lists:foldl(
           fun({Addr,Patch},{AccKV,AccS}) ->
@@ -202,7 +202,7 @@ handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when
     {reply, Res,
      case Action of
          check -> State;
-         put when KVS=/=[] -> 
+         put when KVS=/=[] ->
              TR=cowdb:transact(DB,
                             lists:map(
                               fun({K,V}) ->
@@ -261,10 +261,10 @@ applykv({K0,V},Acc) ->
     gb_merkle_trees:enter(K,crypto:hash(sha256,bal:pack(V)),Acc).
 
 load(DB) ->
-    {ok,GB}=cowdb:fold(DB, 
-               fun(KV, Acc) -> 
-                       {ok, applykv(KV,Acc)} 
-               end, 
+    {ok,GB}=cowdb:fold(DB,
+               fun(KV, Acc) ->
+                       {ok, applykv(KV,Acc)}
+               end,
                gb_merkle_trees:from_list([{<<>>,<<>>}])
               ),
     gb_merkle_trees:balance(GB).
@@ -294,14 +294,15 @@ drop_db(#{db:=DB,args:=Args}) ->
     cowdb:close(DB),
     Filename=proplists:get_value(filename,
                                  Args,
-                                 ("ledger_"++atom_to_list(node())++".db")
+                                 ("db/ledger_"++atom_to_list(node())++".db")
                                 ),
     file:delete(Filename).
 
 open_db(#{args:=Args}) ->
+    filelib:ensure_dir("db/"),
     Filename=proplists:get_value(filename,
                                  Args,
-                                 ("ledger_"++atom_to_list(node())++".db")
+                                 ("db/ledger_"++atom_to_list(node())++".db")
                                 ),
     {ok, Pid} = cowdb:open(Filename),
     Pid.
@@ -318,13 +319,13 @@ ledger_test() ->
               ),
     gen_server:call(Pid, '_flush'),
     {ok,R1}=gen_server:call(Pid, {check, []}),
-    gen_server:call(Pid, 
+    gen_server:call(Pid,
                     {put, [
                            {<<"abc">>,#{amount=> #{<<"xxx">> => 123}}},
                            {<<"bcd">>,#{amount=> #{<<"yyy">> => 321}}}
                           ]}),
     {ok,R2}=gen_server:call(Pid, {check, []}),
-    gen_server:call(Pid, 
+    gen_server:call(Pid,
                     {put, [
                            {<<"abc">>,#{amount=> #{<<"xxx">> => 234}}},
                            {<<"def">>,#{amount=> #{<<"yyy">> => 210}}}

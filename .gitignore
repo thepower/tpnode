@@ -3,4 +3,5 @@
 *.beam
 .vagrant
 _build
+db
 erl_crash.dump
