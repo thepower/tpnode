@@ -52,7 +52,7 @@
   0},
  {<<"tpic">>,
   {git,"https://github.com/thepower/tpic.git",
-       {ref,"8efd545bc67114eeb25452eba4b1240c225cddc1"}},
+       {ref,"501b961b986faab335ffde0f9ef618e109b12313"}},
   0},
  {<<"trie">>,
   {git,"https://github.com/okeuday/trie.git",

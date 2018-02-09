@@ -12,6 +12,14 @@ routing(_State) ->
        <<"blockchain">>=>blockchain
      }.
 
+handle_tpic(_From, service, <<"discovery">>, Payload, _State) ->
+    lager:info("Service discovery ~p",[Payload]),
+    ok;
+
+handle_tpic(_From, service, Hdr, Payload, _State) ->
+    lager:info("Service ~p:~p",[Hdr,Payload]),
+    ok;
+
 handle_tpic(From, _To, <<"kickme">>, Payload, State) ->
     lager:info("TPIC kick HANDLER from ~p ~p ~p",[From,Payload,State]),
     close;
@@ -41,3 +49,4 @@ handle_response(From, To, _Header, Payload, State) ->
     lager:debug("TPIC resp HANDLER from ~p to ~p: ~p ~p ~p",[From,To,_Header,Payload,State]),
     gen_server:cast(To,{tpic,From,Payload}),
     ok.
+
