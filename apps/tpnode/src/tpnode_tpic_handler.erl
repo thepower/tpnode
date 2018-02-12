@@ -12,6 +12,11 @@ routing(_State) ->
        <<"blockchain">>=>blockchain
      }.
 
+handle_tpic(From, _, <<"tping">>, Payload, _State) ->
+    tpic:cast(tpic, From, <<"pong ",Payload/binary," from ",
+                            (atom_to_binary(node(),utf8))/binary>>),
+    ok;
+
 handle_tpic(_From, service, <<"discovery">>, Payload, _State) ->
     lager:info("Service discovery ~p",[Payload]),
     ok;
