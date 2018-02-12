@@ -93,6 +93,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=State) ->
+    lager:info("-------[MAKE BLOCK]-------"),
     AE=maps:get(ae,MySet,1),
     try
         if(AE==0 andalso PreTXL==[]) -> throw(empty);
@@ -145,8 +146,10 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
             {createduration,T2-T1}
            ],
         SignedBlock=sign(Block,ED),
-        %cast whole block to local blockvote
+        %cast whole block for my local blockvote
         gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
+        %Block signature for each other
+        lager:info("MB My sign ~p",[maps:get(sign,SignedBlock)]),
         HBlk=msgpack:pack(
                #{null=><<"blockvote">>,
                  <<"n">>=>node(),
@@ -505,9 +508,9 @@ load_settings(State) ->
 
 generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
     %file:write_file("tx.txt", io_lib:format("~p.~n",[PreTXL])),
-    T1=erlang:system_time(), 
+    _T1=erlang:system_time(), 
     TXL=lists:usort(PreTXL),
-    T2=erlang:system_time(), 
+    _T2=erlang:system_time(), 
     {Addrs,XSettings}=lists:foldl(
                         fun({_,#{hash:=_,header:=#{},txs:=Txs}},{AAcc0,SAcc}) ->
                                 %lager:info("TXs ~p",[Txs]),
@@ -547,7 +550,7 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
                                 TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
                                 {maps:put(F,FB,maps:put(T,TB,AAcc)),SAcc}
                         end, {#{},undefined}, TXL),
-    T3=erlang:system_time(), 
+    _T3=erlang:system_time(), 
     #{success:=Success,
       failed:=Failed,
       settings:=Settings,
@@ -564,16 +567,16 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
                     }
                   ),
     lager:info("Must pick blocks ~p",[maps:keys(PickBlocks)]),
-    T4=erlang:system_time(), 
+    _T4=erlang:system_time(), 
     NewBal=maps:filter(
              fun(_,V) ->
                      maps:get(keep,V,true)
              end, NewBal0),
-    lager:info("NB ~p",[NewBal]),
+    lager:info("MB NewBal ~p",[NewBal]),
 
     LC=ledger_hash(NewBal),
-    lager:info("LC ~p",[LC]),
-    T5=erlang:system_time(), 
+    lager:info("MB LedgerHash ~s",[bin2hex:dbin2hex(LC)]),
+    _T5=erlang:system_time(), 
     Blk=block:mkblock(#{
           txs=>Success, 
           parent=>Parent_Hash,
@@ -590,7 +593,7 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
                             end, [], maps:keys(PickBlocks))
 
          }),
-    T6=erlang:system_time(), 
+    _T6=erlang:system_time(), 
     lager:info("Created block ~w ~s: txs: ~w, bals: ~w chain ~p",
                [
                 Parent_Height+1,
@@ -599,12 +602,12 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
                 maps:size(NewBal),
                 GetSettings(mychain)
                ]),
-    lager:info("BENCHMARK txs       ~w~n",[length(TXL)]),
-    lager:info("BENCHMARK sort tx   ~.6f ~n",[(T2-T1)/1000000]),
-    lager:info("BENCHMARK pull addr ~.6f ~n",[(T3-T2)/1000000]),
-    lager:info("BENCHMARK process   ~.6f ~n",[(T4-T3)/1000000]),
-    lager:info("BENCHMARK filter    ~.6f ~n",[(T5-T4)/1000000]),
-    lager:info("BENCHMARK mk block  ~.6f ~n",[(T6-T5)/1000000]),
+    %lager:info("BENCHMARK txs       ~w~n",[length(TXL)]),
+    %lager:info("BENCHMARK sort tx   ~.6f ~n",[(_T2-_T1)/1000000]),
+    %lager:info("BENCHMARK pull addr ~.6f ~n",[(_T3-_T2)/1000000]),
+    %lager:info("BENCHMARK process   ~.6f ~n",[(_T4-_T3)/1000000]),
+    %lager:info("BENCHMARK filter    ~.6f ~n",[(_T5-_T4)/1000000]),
+    %lager:info("BENCHMARK mk block  ~.6f ~n",[(_T6-_T5)/1000000]),
     #{block=>Blk#{outbound=>Outbound},
       failed=>Failed
      }.
