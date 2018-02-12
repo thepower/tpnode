@@ -24,7 +24,7 @@
 %% ------------------------------------------------------------------
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+         terminate/2, code_change/3, format_status/2]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -108,43 +108,12 @@ init(Args) ->
             }
     end.
 
-handle_call(snaptest, _From, #{db:=DB}=State) ->
-    {ok,DBS}=cowdb:get_snapshot(DB, 1),
-    lager:info("Info ~p",[cowdb:database_info(DB)]),
-    lager:info("Info ~p",[cowdb:database_info(DBS)]),
-    timer:sleep(1000),
-    cowdb:compact(DB),
-    timer:sleep(1000),
-    lager:info("Info ~p",[cowdb:database_info(DB)]),
-    lager:info("Info ~p",[cowdb:database_info(DBS)]),
-    Show=fun(DBh) ->
-                 FR=cowdb:fold(DBh,
-                               fun(KV, Acc) ->
-                                       lager:info("K ~p",[KV]),
-                                       {ok, Acc}
-                               end,
-                               0
-                              ),
-                 lager:info("FR ~p",[FR])
-         end,
-    Show(DB),
-
-    Show(DBS),
-    {reply, ok, State};
-
-handle_call(compact, _From, #{db:=DB}=State) ->
-    {reply, cowdb:compact(DB), State};
-
-handle_call(info, _From, #{db:=DB}=State) ->
-    {reply, cowdb:database_info(DB), State};
-
 handle_call(dump, _From, #{db:=DB}=State) ->
-    {ok,GB}=cowdb:fold(DB,
-                       fun(KV, Acc) ->
-                               {ok,
-                                [KV|Acc]
-                               }
+    GB=rocksdb:fold(DB,
+                       fun({K,V}, Acc) ->
+                                [{K,binary_to_term(V)}|Acc]
                        end,
+                       [],
                        []
                       ),
     {reply, GB, State};
@@ -159,6 +128,7 @@ handle_call('_flush', _From, State) ->
                       }};
 
 handle_call({try_restore, Dump, ExpectHash}, _From, State) ->
+    throw('fixme'),
     lager:info("Restore ~p",[Dump]),
     MT1=gb_merkle_trees:balance(
           lists:foldl(fun applykv/2,
@@ -192,8 +162,8 @@ handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when
                   {NP,Acc1}=apply_patch(Addr,Patch,AccS),
                   {[{Addr,NP}|AccKV], Acc1}
           end, {[], State}, KVS0),
-    lager:info("KVS0 ~p",[KVS0]),
-    lager:info("KVS1 ~p",[KVS]),
+    %lager:info("KVS0 ~p",[KVS0]),
+    %lager:info("KVS1 ~p",[KVS]),
 
     MT1=gb_merkle_trees:balance(
           lists:foldl(fun applykv/2, MT, KVS)
@@ -203,13 +173,17 @@ handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when
      case Action of
          check -> State;
          put when KVS=/=[] ->
-             TR=cowdb:transact(DB,
-                            lists:map(
-                              fun({K,V}) ->
-                                      {add, K,V}
-                              end, KVS)
-                           ),
+             {ok, Batch} = rocksdb:batch(),
+             TR=lists:foldl(
+                  fun({K,V},Total) ->
+                          ok=rocksdb:batch_put(Batch, K, term_to_binary(V)),
+                          Total+1
+                  end,
+                  0, KVS),
+             ?assertEqual(TR, rocksdb:batch_count(Batch)),
              lager:info("Trans ~p",[TR]),
+             ok = rocksdb:write_batch(DB, Batch, []),
+             ok = rocksdb:close_batch(Batch),
              State#{mt=>MT1};
          _ -> State
      end};
@@ -236,6 +210,10 @@ handle_cast(drop_terminate, State) ->
     lager:info("Terminate me"),
     {stop, normal, State};
 
+handle_cast(terminate, State) ->
+    lager:info("Terminate me"),
+    {stop, normal, State};
+
 handle_cast(_Msg, State) ->
     lager:info("Bad cast ~p",[_Msg]),
     {noreply, State}.
@@ -246,6 +224,11 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, _State) ->
     ok.
+
+format_status(_Opt, [_PDict,State]) -> 
+    State#{
+      db=>dbhandler
+     }.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -261,11 +244,12 @@ applykv({K0,V},Acc) ->
     gb_merkle_trees:enter(K,crypto:hash(sha256,bal:pack(V)),Acc).
 
 load(DB) ->
-    {ok,GB}=cowdb:fold(DB,
-               fun(KV, Acc) ->
-                       {ok, applykv(KV,Acc)}
+    GB=rocksdb:fold(DB,
+               fun({K,V}, Acc) ->
+                       applykv({K,binary_to_term(V)},Acc)
                end,
-               gb_merkle_trees:from_list([{<<>>,<<>>}])
+               gb_merkle_trees:from_list([{<<>>,<<>>}]),
+               []
               ),
     gb_merkle_trees:balance(GB).
 
@@ -274,10 +258,11 @@ apply_patch(_Address,Patch, #{db:=test}=State) ->
     {NewVal,State};
 
 apply_patch(Address,Patch, #{db:=DB}=State) ->
-    NewVal=case cowdb:get(DB, Address) of
+    NewVal=case rocksdb:get(DB, Address, []) of
                not_found ->
                    Patch;
-               {ok, {Address,Element}} ->
+               {ok, Wallet} ->
+                   Element=erlang:binary_to_term(Wallet),
                    P1=maps:merge(
                         Element,
                         maps:with([seq,t],Patch)
@@ -291,20 +276,25 @@ apply_patch(Address,Patch, #{db:=DB}=State) ->
     {NewVal,State}.
 
 drop_db(#{db:=DB,args:=Args}) ->
-    cowdb:close(DB),
-    Filename=proplists:get_value(filename,
+    rocksdb:close(DB),
+    DBPath=proplists:get_value(filename,
                                  Args,
-                                 ("db/ledger_"++atom_to_list(node())++".db")
+                                 ("db/ledger_"++atom_to_list(node()))
                                 ),
-    file:delete(Filename).
+    {ok,Files}=file:list_dir_all(DBPath),
+    lists:foreach(
+      fun(Filename) ->
+              file:delete(DBPath++"/"++Filename)
+      end, Files),
+    file:del_dir(DBPath).
 
 open_db(#{args:=Args}) ->
     filelib:ensure_dir("db/"),
     Filename=proplists:get_value(filename,
                                  Args,
-                                 ("db/ledger_"++atom_to_list(node())++".db")
+                                 ("db/ledger_"++atom_to_list(node()))
                                 ),
-    {ok, Pid} = cowdb:open(Filename),
+    {ok, Pid} = rocksdb:open(Filename, [{create_if_missing, true}]),
     Pid.
 
 
@@ -313,7 +303,7 @@ open_db(#{args:=Args}) ->
 ledger_test() ->
     Name=test_ledger,
     {ok,Pid}=ledger:start_link(
-               [{filename, "test.db"},
+               [{filename, "db/ledgertest1"},
                 {name, Name}
                ]
               ),
@@ -331,8 +321,9 @@ ledger_test() ->
                            {<<"def">>,#{amount=> #{<<"yyy">> => 210}}}
                           ]}),
     {ok,R3}=gen_server:call(Pid, {check, []}),
-    gen_server:call(Pid, snaptest),
-    gen_server:cast(Pid, drop_terminate),
+    %gen_server:call(Pid, snaptest),
+    gen_server:cast(Pid, terminate),
+    %gen_server:cast(Pid, drop_terminate),
     {R1,R2,R3}.
 
 -endif.
