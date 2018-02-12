@@ -14,7 +14,7 @@
 %% ------------------------------------------------------------------
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+         terminate/2, code_change/3, format_status/2]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -33,7 +33,6 @@ init(_Args) ->
     NodeID=tpnode_tools:node_id(),
     filelib:ensure_dir("db/"),
     {ok,LDB}=ldb:open("db/db_"++atom_to_list(node())),
-    T2=load_bals(LDB),
     LastBlockHash=ldb:read_key(LDB,<<"lastblock">>,<<0,0,0,0,0,0,0,0>>),
     LastBlock=ldb:read_key(LDB,
                            <<"block:",LastBlockHash/binary>>,
@@ -43,7 +42,6 @@ init(_Args) ->
     lager:info("My last block hash ~s",
                [bin2hex:dbin2hex(LastBlockHash)]),
     #{mychain:=MyChain}=Res=mychain(#{
-          table=>T2,
           nodeid=>NodeID,
           ldb=>LDB,
           candidates=>#{},
@@ -90,20 +88,17 @@ handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
                               maps:get(hash,LB)
                              ),
 %        gen_server:call(ledger,'_flush'),
-        Res=foldl(fun(Block, #{table:=Bals,settings:=Sets}) ->
+        Res=foldl(fun(Block, #{settings:=Sets}) ->
                           lager:info("Block@~s ~p",
                                      [
                                       blkid(maps:get(hash,Block)),
                                       maps:keys(Block)
                                      ]),
-                          %_Tx=maps:get(txs,Block),
                           Sets1=apply_block_conf(Block, Sets),
-                          Bals1=apply_bals(Block, Bals),
                           apply_ledger(put,Block),
-                          #{table=>Bals1,settings=>Sets1}
+                          #{settings=>Sets1}
                   end,
                   #{
-                    table=>tables:init(#{index=>[address,cur]}),
                     settings=>settings:new()
                    }, LDB, First),
         notify_settings(),
@@ -143,21 +138,6 @@ handle_call(fix_first_block, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
     catch Ec:Ee ->
               {reply, {error, Ec, Ee}, State}
     end;
-
-
-handle_call(loadbal, _, #{ldb:=LDB,table:=_T}=State) ->
-    X=case ldb:read_key(LDB, <<"bals">>,
-                   undefined
-                  ) of
-          undefined ->
-                   tables:init(#{index=>[address,cur]});
-          Bin ->
-              tables:import(Bin,
-                            tables:init(#{index=>[address,cur]})
-                           )
-      end,
-
-    {reply, X, State};
 
 
 handle_call(last_block_height, _From,
@@ -258,7 +238,6 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
               lastblock:=#{header:=#{parent:=Parent},hash:=LBlockHash}=LastBlock,
               settings:=Sets,
               mychain:=MyChain
-              %table:=Tbl
              }=State) ->
     FromNode=if is_pid(PID) -> node(PID);
                 is_tuple(PID) -> PID;
@@ -417,7 +396,6 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                               {noreply, State#{
                                           prevblock=> NewLastBlock,
                                           lastblock=> MBlk,
-                                          %table=>NewTable,
                                           settings=>Sets1,
                                           candidates=>#{}
                                          }
@@ -448,9 +426,9 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
     end;
 
 handle_cast({tpic,Peer,#{null := <<"sync_done">>}},
-            #{ldb:=LDB, settings:=Set, table:=Tbl,
+            #{ldb:=LDB, settings:=Set, 
               sync:=SyncPeer}=State) when Peer==SyncPeer ->
-    save_bals(LDB, Tbl),
+    %save_bals(LDB, Tbl),
     save_sets(LDB, Set),
     gen_server:cast(blockvote, blockchain_sync),
     notify_settings(),
@@ -546,11 +524,6 @@ handle_cast({tpic,Peer,#{null := <<"sync_suspend">>,
     lager:info("sync_suspend from bad peer ~p",[Peer]),
     {noreply, State};
 
-
-handle_cast(savebal,#{ldb:=LDB,table:=T}=State) ->
-    save_bals(LDB,T),
-    {noreply, State};
-
 handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
     case msgpack:unpack(Bin,[]) of
         {ok, Struct} ->
@@ -589,7 +562,8 @@ handle_info(_Info, State) ->
     lager:info("BC unhandled info ~p",[_Info]),
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, #{ldb:=LDB}=_State) ->
+    rocksdb:close(LDB),
     lager:error("My state ~p",[_State]),
     lager:error("Terminate blockchain ~p",[_Reason]),
     ok.
@@ -597,14 +571,15 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+format_status(_Opt, [_PDict,State]) -> 
+    State#{
+      ldb=>handler
+     }.
+
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-save_bals(ignore, _Table) -> ok;
-save_bals(LDB, Table) ->
-    TD=tables:export(Table),
-    ldb:put_key(LDB,<<"bals">>,TD).
 
 save_sets(ignore, _Settings) -> ok;
 save_sets(LDB, Settings) ->
@@ -618,16 +593,6 @@ save_block(LDB,Block,IsLast) ->
            ldb:put_key(LDB,<<"lastblock">>,BlockHash);
        true ->
            ok
-    end.
-
-load_bals(LDB) ->
-    case ldb:read_key(LDB, <<"bals">>, undefined) of
-        undefined ->
-            tables:init(#{index=>[address,cur]});
-        Bin ->
-            tables:import(Bin,
-                          tables:init(#{index=>[address,cur]})
-                         )
     end.
 
 load_sets(LDB,LastBlock) ->
@@ -659,27 +624,6 @@ apply_ledger(Action,#{bals:=S, hash:=_BlockHash}) ->
     lager:info("Apply ~p",[LR]),
     LR.
 
-
-apply_bals(#{bals:=S, hash:=BlockHash}, Bals0) ->
-    maps:fold(
-      fun(Addr,#{chain:=_NewChain},Acc) ->
-
-              case tables:lookup(address,Addr,Acc) of
-                  {ok,E} ->
-                      lists:foldl(
-                        fun(#{'_id':=RecID},A) ->
-                                {ok,A1}=tables:delete('_id',RecID,A),
-                                A1
-                        end,
-                        Acc,
-                        E);
-                  _ ->
-                      Acc
-              end;
-         ({Addr,Cur},Val,Acc) ->
-              updatebal(Addr,Cur,Val,Acc,BlockHash)
-      end, Bals0, S).
-
 apply_block_conf(Block, Conf0) ->
     S=maps:get(settings,Block,[]),
     lists:foldl(
@@ -688,49 +632,6 @@ apply_block_conf(Block, Conf0) ->
               %Hash=crypto:hash(sha256,Body),
               settings:patch(Body,Acc)
       end, Conf0, S).
-
-
-addrbal(Addr, RCur, Table) ->
-    case tables:lookup(address,Addr,Table) of
-        {ok,E} ->
-            lists:foldl(
-              fun(#{cur:=Cur}=E1,_A) when Cur==RCur ->
-                      E1;
-                 (_,A) ->
-                      A
-              end,
-              none,
-              E);
-        _ ->
-            none
-    end.
-
-updatebal(Addr, RCur, NewVal, Table, BlockHash) ->
-    case addrbal(Addr, RCur, Table) of
-        none ->
-            {ok,_,T2}=tables:insert(
-                        maps:put(
-                          lastblk,
-                          BlockHash,
-                          maps:merge(
-                            #{
-                            address=>Addr,
-                            cur=>RCur,
-                            amount=>0,
-                            t=>0,
-                            seq=>0
-                           },NewVal)
-                         ), Table),
-            T2;
-        #{'_id':=EID}=Exists ->
-            {ok, T2}=tables:update('_id',EID,
-                                   maps:put(
-                                     lastblk,
-                                     BlockHash,
-                                     maps:merge(Exists,NewVal)
-                                  ),Table),
-            T2
-    end.
 
 blkid(<<X:8/binary,_/binary>>) ->
     bin2hex:dbin2hex(X).

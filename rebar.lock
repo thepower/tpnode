@@ -36,7 +36,7 @@
   0},
  {<<"tables">>,
   {git,"https://github.com/cleverfox/tables",
-       {ref,"b63ed114d0d54fa380b176e3600adb3ddf732211"}},
+       {ref,"a51d59950327bf4636bf4712c06fd45c9dc858f5"}},
   0},
  {<<"tiny_pq">>,
   {git,"https://github.com/ChicagoBoss/tiny_pq.git",
