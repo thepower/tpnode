@@ -73,32 +73,33 @@ handle_cast({tpic, _From, #{
                      <<"sign">> := _Sigs
                     }}, 
             #{mychain:=MyChain}=State) when MyChain=/=MsgChain ->
-    lager:debug("BV sig from other chain"),
+    lager:info("BV sig from other chain"),
     {noreply, State};
 
-handle_cast({signature, BlockHash, Sigs}, State) ->
-    lager:info("Signature"),
-    Candidatesig=maps:get(candidatesig,State,#{}),
+handle_cast({signature, BlockHash, Sigs}, #{candidatesig:=Candidatesig}=State) ->
+    lager:info("BV Got sig for ~s",[blkid(BlockHash)]),
     CSig0=maps:get(BlockHash,Candidatesig,#{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
+    %lager:debug("BV S CS2 ~p",[maps:keys(CSig)]),
     State2=State#{ candidatesig=>maps:put(BlockHash,CSig,Candidatesig) },
     {noreply, is_block_ready(BlockHash,State2)};
 
 handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID}, 
             #{ candidates:=Candidates,
+               candidatesig:=Candidatesig,
                lastblock:=#{hash:=LBlockHash}=LastBlock
              }=State) ->
 
-    lager:debug("BV New block (~p/~p) arrived (~s/~s)", 
+    lager:info("BV New block (~p/~p) arrived (~s/~s)", 
                [
                 maps:get(height,maps:get(header,Blk)),
                 maps:get(height,maps:get(header,LastBlock)),
                 blkid(BlockHash),
                 blkid(LBlockHash)
                ]),
-    Candidatesig=maps:get(candidatesig,State,#{}),
     CSig0=maps:get(BlockHash,Candidatesig,#{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
+    %lager:debug("BV N CS2 ~p",[maps:keys(CSig)]),
     State2=State#{ candidatesig=>maps:put(BlockHash,CSig,Candidatesig), 
                    candidates => maps:put(BlockHash,Blk,Candidates)
                  },
@@ -122,6 +123,7 @@ handle_info(init, undefined) ->
     pg2:create(blockvote),
     pg2:join(blockvote,self()),
     Res=#{
+      candidatesig=>#{},
       candidates=>#{},
       lastblock=>LastBlock
      },
@@ -176,9 +178,10 @@ is_block_ready(BlockHash, State) ->
              end,
         Blk1=Blk0#{sign=>maps:values(Sigs)},
         {true,{Success,_}}=block:verify(Blk1),
-        lager:notice("TODO: Check keys"),
         T1=erlang:system_time(),
         Txs=maps:get(txs,Blk0,[]),
+        lager:notice("TODO: Check keys ~p of ~p",
+                    [length(Success),MinSig]),
         if length(Success)<MinSig ->
                lager:info("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)", 
                            [maps:get(height,maps:get(header,Blk0)),
