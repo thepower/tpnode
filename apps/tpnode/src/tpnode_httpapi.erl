@@ -75,7 +75,7 @@ h(<<"POST">>, [<<"benchmark">>,N], _Req) ->
                                   from=>Adr,
                                   to=>Address,
                                   seq=>Seq,
-                                  timestamp=>os:system_time()
+                                  timestamp=>os:system_time(millisecond)
                                  },
                                 NewTx=tx:sign(Tx,BinKey),
                                 case txpool:new_tx(NewTx) of
