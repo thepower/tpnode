@@ -17,7 +17,7 @@
 
 -export([start_link/0,
          start_link/1,
-         put/1,check/1,get/1,dump/0,restore/2,tpic/2]).
+         put/1,check/1,get/1,restore/2,tpic/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -46,18 +46,6 @@ check(KVS) when is_list(KVS) ->
 
 get(KS) when is_list(KS) ->
     gen_server:call(?SERVER, {get, KS}).
-
-dump() ->
-    msgpack:pack(
-      #{ <<"type">> => <<"ledgerdumpv1">>,
-         <<"dump">> =>
-         lists:map(
-           fun({Account, Bal}) ->
-                   [Account, bal:pack(Bal)]
-           end,
-           gen_server:call(?SERVER, dump, 60000))
-       }
-     ).
 
 restore(Bin,ExpectHash) ->
     {ok, #{ <<"type">> := <<"ledgerdumpv1">>,
@@ -118,6 +106,9 @@ handle_call(dump, _From, #{db:=DB}=State) ->
                       ),
     {reply, GB, State};
 
+handle_call(snapshot, _From, #{db:=DB}=State) ->
+    {ok,Snap}=rocksdb:snapshot(DB),
+    {reply, {DB, Snap}, State};
 
 handle_call('_flush', _From, State) ->
     drop_db(State),
@@ -190,19 +181,26 @@ handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when
 
 handle_call({get, KS}, _From, #{db:=DB}=State) ->
     R=lists:foldl(
-        fun(not_found,Acc) -> Acc;
-           ({ok,{K,V}}, Acc) ->
-                maps:put(K,V,Acc)
-        end, #{}, cowdb:mget(DB, KS)),
+        fun(Key, Acc) ->
+                case rocksdb:get(DB, Key, []) of
+                    {ok, Value} ->
+                        maps:put(Key,erlang:binary_to_term(Value),Acc);
+                    not_found ->
+                        Acc;
+                    Error ->
+                        lager:error("Can't fetch ~p: ~p",[Key,Error]),
+                        Acc
+                end
+        end, #{}, KS),
     {reply, R, State};
 
 handle_call(_Request, _From, State) ->
     lager:info("Bad call ~p",[_Request]),
     {reply, bad_request, State}.
 
-handle_cast({prepare, Addresses}, #{db:=DB}=State) when is_list(Addresses) ->
-    Res=cowdb:mget(DB,Addresses),
-    lager:info("Prepare ~p",[Res]),
+handle_cast({prepare, Addresses}, #{db:=_DB}=State) when is_list(Addresses) ->
+    %Res=cowdb:mget(DB,Addresses),
+    %lager:info("Prepare ~p",[Res]),
     {noreply, State};
 
 handle_cast(drop_terminate, State) ->
@@ -211,7 +209,7 @@ handle_cast(drop_terminate, State) ->
     {stop, normal, State};
 
 handle_cast(terminate, State) ->
-    lager:info("Terminate me"),
+    lager:error("Terminate me"),
     {stop, normal, State};
 
 handle_cast(_Msg, State) ->
@@ -275,12 +273,12 @@ apply_patch(Address,Patch, #{db:=DB}=State) ->
            end,
     {NewVal,State}.
 
-drop_db(#{db:=DB,args:=Args}) ->
-    rocksdb:close(DB),
+drop_db(#{args:=Args}) ->
     DBPath=proplists:get_value(filename,
-                                 Args,
-                                 ("db/ledger_"++atom_to_list(node()))
-                                ),
+                               Args,
+                               ("db/ledger_"++atom_to_list(node()))
+                              ),
+    ok=gen_server:call(rdb_dispatcher, {close, DBPath}),
     {ok,Files}=file:list_dir_all(DBPath),
     lists:foreach(
       fun(Filename) ->
@@ -290,20 +288,26 @@ drop_db(#{db:=DB,args:=Args}) ->
 
 open_db(#{args:=Args}) ->
     filelib:ensure_dir("db/"),
-    Filename=proplists:get_value(filename,
+    DBPath=proplists:get_value(filename,
                                  Args,
                                  ("db/ledger_"++atom_to_list(node()))
                                 ),
-    {ok, Pid} = rocksdb:open(Filename, [{create_if_missing, true}]),
+    {ok, Pid} = gen_server:call(rdb_dispatcher,
+                                {open, DBPath, [{create_if_missing, true}]}),
     Pid.
-
 
 
 -ifdef(TEST).
 ledger_test() ->
+    NeedStop=case whereis(rdb_dispatcher) of
+                 P when is_pid(P) -> false;
+                 undefined -> 
+                     {ok,P}=rdb_dispatcher:start_link(),
+                     P
+             end,
     Name=test_ledger,
     {ok,Pid}=ledger:start_link(
-               [{filename, "db/ledgertest1"},
+               [{filename, "db/ledger_test"},
                 {name, Name}
                ]
               ),
@@ -321,9 +325,14 @@ ledger_test() ->
                            {<<"def">>,#{amount=> #{<<"yyy">> => 210}}}
                           ]}),
     {ok,R3}=gen_server:call(Pid, {check, []}),
-    %gen_server:call(Pid, snaptest),
-    gen_server:cast(Pid, terminate),
-    %gen_server:cast(Pid, drop_terminate),
+    Expect=#{<<"def">>=>#{amount=> #{<<"yyy">> => 210}}},
+    Expect=gen_server:call(Pid, {get, [<<"def">>]}),
+    %gen_server:cast(Pid, terminate),
+    gen_server:cast(Pid, drop_terminate),
+    if NeedStop==false -> ok;
+       true ->
+           gen_server:stop(NeedStop, normal, 3000)
+    end,
     {R1,R2,R3}.
 
 -endif.

@@ -198,6 +198,16 @@ handle_cast({new_block, _BlockPayload,  PID},
     lager:info("Ignore block from ~p during sync with ~p",[PID,SyncPid]),
     {noreply, State};
 
+handle_cast({tpic, Origin, #{null:=<<"sync_ledger_run">>}}, 
+            #{lastblock:=#{hash:=Hash,header:=#{height:=Height}}}=State) ->
+    ledger_sync:run(tpic, Origin, {Height,Hash}),
+    {noreply, State};
+
+
+handle_cast({tpic, Origin, #{null:=<<"sync_ledger_req">>}}, State) ->
+    tpic:cast(tpic,Origin,msgpack:pack(#{null=><<"Yes, I can">>})),
+    {noreply, State};
+
 handle_cast({tpic, Origin, #{null := <<"sync_block">>,
                              <<"block">> := BinBlock}},
             #{sync:=SyncOrigin }=State) when Origin==SyncOrigin ->
@@ -626,8 +636,15 @@ apply_ledger(Action,#{bals:=S, hash:=_BlockHash}) ->
 
 apply_block_conf(Block, Conf0) ->
     S=maps:get(settings,Block,[]),
+    if S==[] -> ok;
+       true ->
+           file:write_file("applyconf.txt",
+                           io_lib:format("APPLY BLOCK CONF ~n~p.~n~n~p.~n~p.~n",
+                                         [Block,S,Conf0])
+                          )
+    end,
     lists:foldl(
-      fun({_TxID,#{patch:=Body}},Acc) when is_binary(Body) ->
+      fun({_TxID,#{patch:=Body}},Acc) ->
               lager:notice("TODO: Must check sigs"),
               %Hash=crypto:hash(sha256,Body),
               settings:patch(Body,Acc)

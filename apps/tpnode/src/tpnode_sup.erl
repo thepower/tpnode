@@ -39,6 +39,7 @@ init([]) ->
           },
     {ok, { {one_for_one, 5, 10}, 
            [
+            { rdb_dispatcher, {rdb_dispatcher,start_link,[]}, permanent, 5000, worker, []},
             { blockchain, {blockchain,start_link,[]}, permanent, 5000, worker, []},
             { blockvote, {blockvote,start_link,[]}, permanent, 5000, worker, []},
             { ws_dispatcher, {tpnode_ws_dispatcher,start_link,[]}, permanent, 5000, worker, []},
