@@ -159,14 +159,6 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
                 }
               ),
         tpic:cast(tpic,<<"blockvote">>, HBlk),
-%        lists:foreach(
-%          fun(Pid)-> %cast signature for all blockvotes
-%                  gen_server:cast(Pid, {signature, 
-%                                        maps:get(hash,SignedBlock),
-%                                        maps:get(sign,SignedBlock)}) 
-%          end, 
-%          pg2:get_members({blockvote,MyChain})
-%         ),
         {noreply, State#{preptxl=>[],parent=>undefined}}
     catch throw:empty ->
               lager:info("Skip empty block"),
