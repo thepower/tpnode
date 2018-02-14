@@ -29,22 +29,29 @@ synchronizer(TPIC, PeerID,
 
 send_part(TPIC,PeerID,Act,Itr) ->
     receive
-        {'$gen_cast',{tpic,_,<<"stop">>}} ->
-            interrupted;
-        {'$gen_cast',{tpic,_,<<"continue">>}} ->
-            case pickx(Act, Itr, 1000, []) of
-                {ok, L} ->
-                    Blob=#{done=>false,ledger=>maps:from_list(L)},
-                    tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
-                    send_part(TPIC,PeerID,next,Itr);
-                {error, L} ->
-                    Blob=#{done=>true,ledger=>maps:from_list(L)},
-                    tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
-                    done
+        {'$gen_cast',{tpic,PeerID,Bin}} ->
+            case msgpack:unpack(Bin) of
+                {ok, #{null:=<<"stop">>}} ->
+                    tpic:cast(TPIC, PeerID, msgpack:pack(#{null=><<"stopped">>})),
+                    interrupted;
+                {ok, #{null:=<<"continue">>}} ->
+                    case pickx(Act, Itr, 1000, []) of
+                        {ok, L} ->
+                            Blob=#{done=>false,ledger=>maps:from_list(L)},
+                            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                            send_part(TPIC,PeerID,next,Itr);
+                        {error, L} ->
+                            Blob=#{done=>true,ledger=>maps:from_list(L)},
+                            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                            done
+                    end;
+                {error, _} ->
+                    error
             end;
         {'$gen_cast',Any} ->
             lager:info("Unexpected message ~p",[Any])
     after 30000 ->
+              tpic:cast(TPIC, PeerID, msgpack:pack(#{null=><<"stopped">>})),
               timeout
     end.
 
@@ -58,14 +65,4 @@ pickx(Act, Itr, N, A) ->
         {error, _} ->
             {error,A}
     end.
-
-
-    %io:format("R ~p~n",[Itr]),
-    %Itr1=rocksdb:iterator_move(Itr, first),
-    %io:format("R ~p~n",[Itr1]),
-    %Itr2=rocksdb:iterator_move(Itr, next),
-    %io:format("R ~p~n",[Itr2]),
-    %rocksdb:iterator_close(Itr),
-
-
 
