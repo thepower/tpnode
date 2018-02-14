@@ -2,8 +2,9 @@
 -export([put_key/3,read_key/3,del_key/2,open/1,keys/1]).
 
 open(Path) ->
-    rocksdb:open(Path, [{create_if_missing, true}]).
-
+    gen_server:call(rdb_dispatcher,
+                                {open, Path, [{create_if_missing, true}]}).
+    
 read_key(DB, Key, Default) when is_binary(Key) ->
     case rocksdb:get(DB, Key, []) of
         not_found -> Default;

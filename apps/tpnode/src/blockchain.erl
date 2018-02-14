@@ -198,14 +198,19 @@ handle_cast({new_block, _BlockPayload,  PID},
     lager:info("Ignore block from ~p during sync with ~p",[PID,SyncPid]),
     {noreply, State};
 
-handle_cast({tpic, Origin, #{null:=<<"sync_ledger_run">>}}, 
-            #{lastblock:=#{hash:=Hash,header:=#{height:=Height}}}=State) ->
-    ledger_sync:run(tpic, Origin, {Height,Hash}),
+handle_cast({tpic, Origin, #{null:=<<"sync_run">>}}, 
+            #{settings:=Settings, lastblock:=LastBlock}=State) ->
+    ledger_sync:run(tpic, Origin, LastBlock, Settings),
     {noreply, State};
 
 
-handle_cast({tpic, Origin, #{null:=<<"sync_ledger_req">>}}, State) ->
-    tpic:cast(tpic,Origin,msgpack:pack(#{null=><<"Yes, I can">>})),
+handle_cast({tpic, Origin, #{null:=<<"sync_request">>}}, 
+            #{lastblock:=#{hash:=Hash,header:=#{height:=Height}}}=State) ->
+    tpic:cast(tpic,Origin,msgpack:pack(#{
+                            null=><<"sync_available">>,
+                            last_height=>Height,
+                            last_hash=>Hash
+                           })),
     {noreply, State};
 
 handle_cast({tpic, Origin, #{null := <<"sync_block">>,
@@ -572,9 +577,7 @@ handle_info(_Info, State) ->
     lager:info("BC unhandled info ~p",[_Info]),
     {noreply, State}.
 
-terminate(_Reason, #{ldb:=LDB}=_State) ->
-    rocksdb:close(LDB),
-    lager:error("My state ~p",[_State]),
+terminate(_Reason, _State) ->
     lager:error("Terminate blockchain ~p",[_Reason]),
     ok.
 
