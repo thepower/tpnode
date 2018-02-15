@@ -198,20 +198,24 @@ action(<<"member">>) -> {member,true};
 action(<<"nonmember">>) -> {member,false};
 action(Action) -> throw({action,Action}).
 
-get_patches(Genesis)
-  when is_map(Genesis) ->
-    dmp(mp(lists:reverse(parse_genseis(maps:keys(Genesis), Genesis, [], [])))).
+get_patches(Settings)
+  when is_map(Settings) ->
+    dmp(mp(lists:reverse(parse_settings(maps:keys(Settings), Settings, [], [])))).
 
-parse_genseis([], _, _, Patches) -> Patches;
-parse_genseis([H|T], Genesis, Path, Patches) ->
+parse_settings([], _, _, Patches) -> Patches;
+parse_settings([H|T], Settings, Path, Patches) ->
   NewPath = [H|Path],
-  Item = maps:get(H, Genesis),
+  Item = maps:get(H, Settings),
   if is_map(Item) ->
-       NewPatches = parse_genseis(maps:keys(Item), Item, NewPath, Patches);
+       NewPatches = parse_settings(maps:keys(Item), Item, NewPath, Patches);
+     is_list(Item) ->
+       NewPatches = (lists:foldl(fun(Elem, Acc) ->
+                                   [#{t => list_add, p => lists:reverse(NewPath), v => Elem}|Acc]
+                                 end, Patches, Item));
      not is_map(Item) ->
        NewPatches = [#{t => set, p => lists:reverse(NewPath), v => Item}|Patches]
   end,
-  parse_genseis(T, Genesis, Path, NewPatches).
+  parse_settings(T, Settings, Path, NewPatches).
 
 
 -ifdef(TEST).
