@@ -1,53 +1,58 @@
 -module(ledger_sync).
 
--export([run/3,
-         synchronizer/4]).
+-export([run/4,
+         synchronizer/5]).
 
 
-run(TPIC, PeerID, {BlockHeight, BlockHash}) ->
+run(TPIC, PeerID, LastBlock, Settings) ->
     {_,_}=Snap=gen_server:call(ledger, snapshot),
     erlang:spawn(?MODULE, synchronizer, 
-                 [ TPIC, PeerID, {BlockHeight, BlockHash}, Snap]).
+                 [ TPIC, PeerID, LastBlock, Snap, Settings]).
 
-synchronizer(TPIC, PeerID, {BlockHeigh, BlockHash}, {DBH,Snapshot}) ->
+synchronizer(TPIC, PeerID, 
+             #{hash:=Hash,header:=#{height:=Height}}=Block, 
+             {DBH,Snapshot},
+             _Settings) ->
+    lager:info("Settings ~p",[_Settings]),
     {ok, Itr} = rocksdb:iterator(DBH, [{snapshot, Snapshot}]),
     Total=rocksdb:count(DBH),
     lager:info("TPIC ~p Peer ~p bh ~p, db ~p total ~p",
-               [TPIC, PeerID, {BlockHeigh, BlockHash}, {DBH,Snapshot},
+               [TPIC, PeerID, {Height, Hash}, {DBH,Snapshot},
                Total]),
-
-%    L1=pickx(first, Itr, 20, []),
-%    lager:info("L = ~p",[L1]),
-%    timer:sleep(100),
-%    L2=pickx(next, Itr, 20, []),
-%    lager:info("L = ~p",[L2]),
+    %file:write_file("syncblock.txt",
+    %                io_lib:format("~p.~n",[Block])),
+    tpic:cast(TPIC, PeerID, msgpack:pack(#{block=>block:pack(Block)})),
     SP=send_part(TPIC,PeerID,first,Itr),
 
     lager:info("Sync finished: ~p",[SP]),
     rocksdb:release_snapshot(Snapshot).
 
 send_part(TPIC,PeerID,Act,Itr) ->
-    case pickx(Act, Itr, 1000, []) of
-        {ok, L} ->
-            Blob=#{done=>false,ledger=>maps:from_list(L)},
-            lager:info("oL = ~p",[Blob]),
-            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
-            receive
-                {'$gen_cast',{tpic,_,<<"stop">>}} ->
+    receive
+        {'$gen_cast',{tpic,PeerID,Bin}} ->
+            case msgpack:unpack(Bin) of
+                {ok, #{null:=<<"stop">>}} ->
+                    tpic:cast(TPIC, PeerID, msgpack:pack(#{null=><<"stopped">>})),
                     interrupted;
-                {'$gen_cast',{tpic,_,<<"continue">>}} ->
-                    send_part(TPIC,PeerID,next,Itr);
-                {'$gen_cast',Any} ->
-                    lager:info("Unexpected message ~p",[Any])
-            after 30000 ->
-                      timeout
+                {ok, #{null:=<<"continue">>}} ->
+                    case pickx(Act, Itr, 1000, []) of
+                        {ok, L} ->
+                            Blob=#{done=>false,ledger=>maps:from_list(L)},
+                            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                            send_part(TPIC,PeerID,next,Itr);
+                        {error, L} ->
+                            Blob=#{done=>true,ledger=>maps:from_list(L)},
+                            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                            done
+                    end;
+                {error, _} ->
+                    error
             end;
-        {error, L} ->
-            lager:info("eL = ~p",[L]),
-            Blob=#{done=>true,ledger=>maps:from_list(L)},
-            lager:info("oL = ~p",[Blob]),
-            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
-            done
+        {'$gen_cast',Any} ->
+            lager:info("Unexpected message ~p",[Any])
+    after 30000 ->
+              tpic:cast(TPIC, PeerID, msgpack:pack(#{null=><<"stopped">>})),
+              timeout
     end.
 
 
@@ -60,14 +65,4 @@ pickx(Act, Itr, N, A) ->
         {error, _} ->
             {error,A}
     end.
-
-
-    %io:format("R ~p~n",[Itr]),
-    %Itr1=rocksdb:iterator_move(Itr, first),
-    %io:format("R ~p~n",[Itr1]),
-    %Itr2=rocksdb:iterator_move(Itr, next),
-    %io:format("R ~p~n",[Itr2]),
-    %rocksdb:iterator_close(Itr),
-
-
 

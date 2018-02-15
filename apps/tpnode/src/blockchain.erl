@@ -198,14 +198,72 @@ handle_cast({new_block, _BlockPayload,  PID},
     lager:info("Ignore block from ~p during sync with ~p",[PID,SyncPid]),
     {noreply, State};
 
-handle_cast({tpic, Origin, #{null:=<<"sync_ledger_run">>}}, 
-            #{lastblock:=#{hash:=Hash,header:=#{height:=Height}}}=State) ->
-    ledger_sync:run(tpic, Origin, {Height,Hash}),
+
+handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
+                             <<"hash">>:=Hash,
+                             <<"rel">>:=Rel
+                            }},
+            #{ldb:=LDB}=State) ->
+    MyRel=case Rel of
+              <<"self">> -> self;
+              <<"pre",_/binary>> -> prev;
+              <<"child">> -> child;
+              _ -> self
+          end,
+
+    R=case ldb:read_key(LDB, <<"block:",Hash/binary>>, undefined) of
+          undefined -> #{error=>noblock};
+          #{header:=#{}}=Block when MyRel==self ->
+              #{ block => block:pack(Block) };
+          #{header:=#{},child:=Child}=_Block when MyRel==child ->
+              case ldb:read_key(LDB, <<"block:",Child/binary>>, undefined) of
+                  undefined -> #{error=>noblock};
+                  #{header:=#{}}=SBlock ->
+                      #{ block=>block:pack(SBlock) }
+              end;
+          #{header:=#{}}=_Block when MyRel==child ->
+              #{ error=>nochild };
+          #{header:=#{parent:=Parent}}=_Block when MyRel==prev  ->
+              case ldb:read_key(LDB, <<"block:",Parent/binary>>, undefined) of
+                  undefined -> #{error=>noblock};
+                  #{header:=#{}}=SBlock ->
+                      #{ block=>block:pack(SBlock) }
+              end;
+          #{header:=#{}}=_Block when MyRel==prev ->
+              #{ error=>noprev };
+          _ ->
+              #{ error => unknown }
+      end,
+        
+    tpic:cast(tpic,Origin,
+              msgpack:pack(
+                maps:merge(
+                  #{
+                  null=><<"block">>,
+                  req=>#{<<"hash">>=>Hash,
+                         <<"rel">>=>MyRel}
+                 }, R))),
     {noreply, State};
 
 
-handle_cast({tpic, Origin, #{null:=<<"sync_ledger_req">>}}, State) ->
-    tpic:cast(tpic,Origin,msgpack:pack(#{null=><<"Yes, I can">>})),
+handle_cast({tpic, Origin, #{null:=<<"instant_sync_run">>}}, 
+            #{settings:=Settings, lastblock:=LastBlock}=State) ->
+    ledger_sync:run(tpic, Origin, LastBlock, Settings),
+    {noreply, State};
+
+
+handle_cast({tpic, Origin, #{null:=<<"sync_request">>}}, 
+            #{lastblock:=#{hash:=Hash,header:=#{height:=Height}},
+              mychain:=MyChain
+             }=State) ->
+    tpic:cast(tpic,Origin,msgpack:pack(#{
+                            null=><<"sync_available">>,
+                            last_height=>Height,
+                            last_hash=>Hash,
+                            chain=>MyChain,
+                            byblock=>true,
+                            instant=>true
+                           })),
     {noreply, State};
 
 handle_cast({tpic, Origin, #{null := <<"sync_block">>,
@@ -572,9 +630,7 @@ handle_info(_Info, State) ->
     lager:info("BC unhandled info ~p",[_Info]),
     {noreply, State}.
 
-terminate(_Reason, #{ldb:=LDB}=_State) ->
-    rocksdb:close(LDB),
-    lager:error("My state ~p",[_State]),
+terminate(_Reason, _State) ->
     lager:error("Terminate blockchain ~p",[_Reason]),
     ok.
 

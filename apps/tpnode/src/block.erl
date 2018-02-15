@@ -16,8 +16,8 @@ pack(Block) ->
     Prepare=maps:map(
               fun(bals,BalsSnap) ->
                       maps:fold(
-                        fun({Address,Cur},Snap,Acc) ->
-                                maps:put([Address,Cur],Snap,Acc)
+                        fun(Address,Snap,Acc) ->
+                                maps:put(Address,Snap,Acc)
                         end,#{},BalsSnap);
                  (sync,SyncState) ->
                       maps:fold(
@@ -76,8 +76,8 @@ unpack(Block) when is_binary(Block) ->
               fun
                   (bals,BalsSnap) ->
                       maps:fold(
-                        fun([Address,Cur],Snap,Acc) ->
-                                maps:put({Address,Cur},Snap,Acc)
+                        fun(Address,Snap,Acc) ->
+                                maps:put(Address,Snap,Acc)
                         end,#{},BalsSnap);
                   (sync,SyncState) ->
                       maps:fold(
