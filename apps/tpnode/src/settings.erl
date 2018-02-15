@@ -212,7 +212,7 @@ parse_settings([H|T], Settings, Path, Patches) ->
        NewPatches = (lists:foldl(fun(Elem, Acc) ->
                                    [#{t => list_add, p => lists:reverse(NewPath), v => Elem}|Acc]
                                  end, Patches, Item));
-     not is_map(Item) ->
+     not is_map(Item) and not is_list(Item) ->
        NewPatches = [#{t => set, p => lists:reverse(NewPath), v => Item}|Patches]
   end,
   parse_settings(T, Settings, Path, NewPatches).

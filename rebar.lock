@@ -16,10 +16,6 @@
  {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
  {<<"jsx">>,{pkg,<<"jsx">>,<<"2.8.3">>},0},
  {<<"lager">>,{pkg,<<"lager">>,<<"3.5.2">>},0},
- {<<"merklet">>,
-  {git,"https://github.com/ferd/merklet.git",
-       {ref,"df6ae47ffc9403e0989be5366a295c270a651dcc"}},
-  0},
  {<<"mkmap">>,
   {git,"https://github.com/cleverfox/mkmap.git",
        {ref,"ba4fd6e424fe0cd64216989d8e16f2d3f8253363"}},
@@ -53,10 +49,6 @@
  {<<"tpic">>,
   {git,"https://github.com/thepower/tpic.git",
        {ref,"21c2eeb5ee95f9bae11af7f2e2c3e7273eda9f6b"}},
-  0},
- {<<"trie">>,
-  {git,"https://github.com/okeuday/trie.git",
-       {ref,"4b11dd706f5c36c71515bafd23a6d19248f19db6"}},
   0}]}.
 [
 {pkg_hash,[
