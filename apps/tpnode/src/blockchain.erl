@@ -53,6 +53,9 @@ init(_Args) ->
     erlang:send_after(6000, self(), runsync),
     {ok, Res}.
 
+handle_call(ready, _From, State) ->
+    {reply, not maps:is_key(sync,State), State};
+
 handle_call(extract_txs, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
     try
         First=get_first_block(LDB,
@@ -248,6 +251,7 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
 
 handle_cast({tpic, Origin, #{null:=<<"instant_sync_run">>}}, 
             #{settings:=Settings, lastblock:=LastBlock}=State) ->
+    lager:info("Starting instant sync source"),
     ledger_sync:run_source(tpic, Origin, LastBlock, Settings),
     {noreply, State};
 
@@ -256,14 +260,26 @@ handle_cast({tpic, Origin, #{null:=<<"sync_request">>}},
             #{lastblock:=#{hash:=Hash,header:=#{height:=Height}},
               mychain:=MyChain
              }=State) ->
-    tpic:cast(tpic,Origin,msgpack:pack(#{
-                            null=><<"sync_available">>,
-                            last_height=>Height,
-                            last_hash=>Hash,
-                            chain=>MyChain,
-                            byblock=>true,
-                            instant=>true
-                           })),
+    case maps:is_key(sync,State) of
+        true -> %I syncing and can't be source
+            tpic:cast(tpic,Origin,msgpack:pack(#{
+                                    null=><<"sync_unavailable">>,
+                                    last_height=>Height,
+                                    last_hash=>Hash,
+                                    chain=>MyChain,
+                                    byblock=>false,
+                                    instant=>false
+                                   }));
+        false -> %I working and can be source
+            tpic:cast(tpic,Origin,msgpack:pack(#{
+                                    null=><<"sync_available">>,
+                                    last_height=>Height,
+                                    last_hash=>Hash,
+                                    chain=>MyChain,
+                                    byblock=>true,
+                                    instant=>true
+                                   }))
+    end,
     {noreply, State};
 
 handle_cast({tpic, Origin, #{null := <<"sync_block">>,
@@ -622,9 +638,84 @@ handle_cast(_Msg, State) ->
     file:write_file("tmp/unknown_cast_state.txt", io_lib:format("~p.~n", [State])),
     {noreply, State}.
 
-handle_info(runsync, State) ->
-    State1=run_sync(State),
-    {noreply, State1};
+handle_info({inst_sync,block, BinBlock}, State) ->
+    #{hash:=Hash,header:=#{ledger_hash:=LH,height:=Height}}=Block=block:unpack(BinBlock),
+    lager:info("BC Sync Got block ~p ~s~n",[Height,bin2hex:dbin2hex(Hash)]),
+    lager:info("BS Sync Block's Ledger ~s~n",[bin2hex:dbin2hex(LH)]),
+    %sync in progress - got block
+    {noreply, State#{syncblock=>Block}};
+
+handle_info({inst_sync,ledger}, State) ->
+    %sync in progress got ledger
+    {noreply, State};
+
+handle_info({inst_sync,done,Log}, State) ->
+    lager:info("BC Sync done ~p",[Log]),
+    lager:notice("Check block's keys"),
+    {ok,C}=gen_server:call(ledger, {check, []}),
+    lager:info("My Ledger hash ~s",[bin2hex:dbin2hex(C)]),
+    #{header:=#{ledger_hash:=LH}}=Block=maps:get(syncblock, State),
+    if LH==C ->
+           lager:info("Sync done"),
+           lager:notice("Fix settings"),
+           CleanState=maps:without([sync,syncblock,syncpeer], State),
+           {noreply, CleanState#{
+                       lastblock=>Block,
+                       candidates=>#{}
+                      }
+           };
+       true ->
+           lager:error("Sync failed, ledger hash mismatch"),
+           {noreply, State}
+    end;
+
+handle_info(runsync, #{
+              lastblock:=#{header:=#{height:=MyHeight},hash:=_MyBlock}
+             }=State) ->
+    %State1=run_sync(State),
+    Candidates=lists:reverse(
+                 tpiccall(<<"blockchain">>, 
+                          #{null=><<"sync_request">>},
+                          [last_hash,last_height,chain]
+                         )),
+    case lists:foldl( %first suitable will be the quickest
+                fun({Handler,#{chain:=_Ch,
+                               last_hash:=_,
+                               last_height:=_,
+                               null:=<<"sync_available">>}=Info},undefined) ->
+                        {Handler, Info};
+                   ({_Handler,_Info},{H,I}) ->
+                        {H,I}
+                end, undefined, Candidates) of
+        undefined ->
+            lager:notice("No candidates for sync."),
+            {noreply, State};
+        {Handler, #{chain:=_Ch,
+                     last_hash:=_,
+                     last_height:=Height,
+                     null:=<<"sync_available">>}=Info} ->
+            ByBlock=maps:get(<<"byblock">>,Info,false),
+            Inst=maps:get(<<"instant">>,Info,false),
+            lager:info("Found candidate h=~w my ~w, bb ~s inst ~s",
+                       [Height, MyHeight, ByBlock, Inst ]),
+            if(Height-MyHeight > 20 andalso Inst) ->
+                  % try instant sync;
+                  gen_server:call(ledger, '_flush'),
+                  ledger_sync:run_target(tpic,Handler, ledger, undefined),
+                  {noreply, State#{
+                             sync=>inst,
+                             syncpeer=>Handler
+                             }};
+              true ->
+                  %try block by block
+                  lager:error("RUN sync me please"),
+                  {noreply, State#{
+                              sync=>b2b,
+                              syncpeer=>Handler
+                             }}
+            end
+    end;
+
 
 handle_info(_Info, State) ->
     lager:info("BC unhandled info ~p",[_Info]),
@@ -884,5 +975,15 @@ mychain(#{settings:=S}=State) ->
                  mychain=>MyChain
                 }).
 
+tpiccall(Handler, Object, Atoms) ->
+    Res=tpic:call(tpic, Handler, msgpack:pack(Object)),
+    lists:filtermap(
+      fun({Peer, Bin}) ->
+              case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of 
+                  {ok, Decode} -> 
+                      {true, {Peer, Decode}};
+                  _ -> false
+              end
+      end, Res).
 
 

@@ -172,7 +172,7 @@ handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when
                   end,
                   0, KVS),
              ?assertEqual(TR, rocksdb:batch_count(Batch)),
-             lager:info("Trans ~p",[TR]),
+             lager:debug("Ledger apply trans ~p",[TR]),
              ok = rocksdb:write_batch(DB, Batch, []),
              ok = rocksdb:close_batch(Batch),
              State#{mt=>MT1};
@@ -209,6 +209,7 @@ handle_cast(drop_terminate, State) ->
     {stop, normal, State};
 
 handle_cast(terminate, State) ->
+    close_db(State),
     lager:error("Terminate me"),
     {stop, normal, State};
 
@@ -272,6 +273,13 @@ apply_patch(Address,Patch, #{db:=DB}=State) ->
                    P1#{amount=>Bals}
            end,
     {NewVal,State}.
+
+close_db(#{args:=Args}) ->
+    DBPath=proplists:get_value(filename,
+                               Args,
+                               ("db/ledger_"++atom_to_list(node()))
+                              ),
+    ok=gen_server:call(rdb_dispatcher, {close, DBPath}).
 
 drop_db(#{args:=Args}) ->
     DBPath=proplists:get_value(filename,
