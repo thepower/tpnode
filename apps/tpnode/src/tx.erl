@@ -174,7 +174,7 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
     } = msgpack:unpack(BinTx, [{known_atoms, [type,sig,tx,patch] }] ),
     R=case Type of
         tx -> %generic finance tx
-            lager:info("tx ~p",[Tx]),
+            lager:debug("tx ~p",[Tx]),
             [From,To,Amount, Cur, Timestamp, Seq, ExtraJSON] = maps:get(tx,Tx),
             #{ type => Type,
                   from => From,
