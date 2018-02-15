@@ -88,8 +88,13 @@ handle_info(ticktimer,
     T=erlang:system_time(microsecond),
     MeanMs=round((T+MeanDiff)/1000),
     Wait=Delay-(MeanMs rem Delay),
-    gen_server:cast(txpool,prepare),
-    erlang:send_after(200, whereis(mkblock), process),
+    case maps:get(bcready,State,false) of
+        true ->
+            gen_server:cast(txpool,prepare),
+            erlang:send_after(200, whereis(mkblock), process);
+        false ->
+            erlang:send_after(200, whereis(mkblock), flush)
+    end,
 
     catch erlang:cancel_timer(Tmr),
 
@@ -118,12 +123,7 @@ handle_info(selftimer5, #{mychain:=_MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs
     T=erlang:system_time(microsecond),
     Hello=msgpack:pack(#{null=><<"hello">>,<<"n">>=>node(),<<"t">>=>T}),
     tpic:cast(tpic,<<"timesync">>,Hello),
-    %lists:foreach(
-    %  fun(Pid)-> 
-    %          gen_server:cast(Pid, {hello, self(), T}) 
-    %  end, 
-    %  Friends
-    % ),
+    BCReady=gen_server:call(blockchain,ready,50),
     MeanMs=round((T-MeanDiff)/1000),
     if(Friends==[]) ->
           lager:debug("I'm alone in universe my time ~w",[(MeanMs rem 3600000)/1000]);
@@ -138,7 +138,8 @@ handle_info(selftimer5, #{mychain:=_MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs
     {noreply,State#{
                timer5=>erlang:send_after(10000-(MeanMs rem 10000)+500, self(), selftimer5),
                offsets=>Off2,
-               meandiff=>MeanDiff
+               meandiff=>MeanDiff,
+               bcready=>BCReady
               }
     };
 
