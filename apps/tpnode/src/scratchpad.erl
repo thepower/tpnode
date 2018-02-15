@@ -106,7 +106,7 @@ outbound_tx() ->
 
 
 getpvt(Id) ->
-    {ok, Pvt}=file:read_file(<<"addr",(integer_to_binary(Id))/binary,".bin">>),
+    {ok, Pvt}=file:read_file(<<"tmp/addr",(integer_to_binary(Id))/binary,".bin">>),
     Pvt.
 
 getpub(Id) ->
