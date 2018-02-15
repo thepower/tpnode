@@ -1,0 +1,18 @@
+erlang:statistics(scheduler_wall_time)
+lcnt:rt_opt({copy_save, true}), lcnt:clear(), timer:sleep(5000), lcnt:collect(), lcnt:swap_pid_keys(), lcnt:conflicts([{max_locks,5}])
+
+msacc:start(5000)
+msacc:print()
+
+
+erlang:system_flag(scheduler_wall_time, true),
+S1=erlang:statistics(scheduler_wall_time).
+
+[ {CPU, trunc(1000*((X2-X1)/(T2-T1)))/10} || {{CPU,X1,T1},{CPU,X2,T2}} <-
+lists:zip(lists:sort(S1),lists:sort(erlang:statistics(scheduler_wall_time)))
+].
+
+erlang:system_flag(scheduler_wall_time, false).
+
+erlang:system_flag(schedulers_online,8).
+

@@ -1,0 +1,44 @@
+# Формат транзакции
+
+## Обычная транзакция
+
+type => tx
+from => Адрес
+to => Адрес
+amount => Amount/1.0e9
+cur => тикер
+timestamp => таймштамп в мс.
+seq => Int
+extradata => text (JSON)
+
+public_key => bin pubkey
+signature => bin signature
+extdata => arbitrary unsigned external data
+
+encode:
+to sign make hash:
+sha256(msgpack encode(
+        [type, from, to, amount, cur, timestamp, seq, extradata]
+        ))
+Sign and make obj:
+msgpack (
+        {
+        type => type,
+        tx => [from, to, amount, cur, timestamp, seq, extradata],
+        sig => {
+        bin_pub_key1 => bin_signature1,
+        bin_pub_key2 => bin_signature2,
+        ...
+        }        
+        extdata => {}
+        }
+)
+
+## Портация
+
+from => Адрес
+portout => ИД чейна назначения
+timestamp => Timestamp ms
+seq => integer
+
+
