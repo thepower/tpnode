@@ -6,3 +6,9 @@ _build
 db
 erl_crash.dump
 tmp/
+app?.config
+log/*
+
+tags
+.rebar
+testrel
