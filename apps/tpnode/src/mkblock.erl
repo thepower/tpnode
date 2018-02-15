@@ -68,7 +68,10 @@ handle_cast({tpic, _From, #{
                      <<"txs">>:=TPICTXs
                     }}, State)  ->
     TXs=decode_tpic_txs(TPICTXs),
-    lager:info("Got txs from ~s: ~p",[Origin, TXs]),
+    if TXs==[] -> ok;
+       true ->
+           lager:info("Got txs from ~s: ~p",[Origin, TXs])
+    end,
     handle_cast({prepare, Origin, TXs}, State);
     
 handle_cast({prepare, _Node, Txs}, #{preptxl:=PreTXL}=State) ->
