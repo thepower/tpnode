@@ -1,10 +1,11 @@
 -module(test_sync).
--export([run/0,test1/0]).
+-export([run/0,run1/0,test1/0,candidates/0]).
 
 call(Handler, Object, Atoms) ->
     Res=tpic:call(tpic, Handler, msgpack:pack(Object)),
     lists:filtermap(
       fun({Peer, Bin}) ->
+              io:format("Responce from ~p~n",[Peer]),
               case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of 
                   {ok, Decode} -> 
                       {true, {Peer, Decode}};
@@ -12,12 +13,22 @@ call(Handler, Object, Atoms) ->
               end
       end, Res).
 
+
+checkcand(Cs) ->
+    lists:filter( %first suitable will be the quickest
+      fun({_Handler,#{chain:=_Ch,
+                     last_hash:=_,
+                     last_height:=_,
+                     null:=<<"sync_available">>}}) -> true;
+         (_) -> false
+      end, Cs).
+
 test1() ->
     %block by block synchromization
-    [{Handler,Candidate}|_]=call(<<"blockchain">>, 
+    [{Handler,Candidate}|_]=checkcand(call(<<"blockchain">>, 
                                  #{null=><<"sync_request">>},
                                  [last_hash,last_height,chain]
-                                ),
+                                )),
     #{null:=Avail,
       chain:=Chain,
       last_hash:=Hash,
@@ -58,16 +69,17 @@ test1(Handler,Hash,Rest) ->
 
 run() ->
     %instant synchronization
-    [{Handler,Candidate}|_]=call(<<"blockchain">>, 
+    [{Handler,Candidate}|_]=checkcand(call(<<"blockchain">>, 
                                  #{null=><<"sync_request">>},
                                  [last_hash,last_height,chain]
-                                ),
+                                )),
     #{null:=Avail,
       chain:=Chain,
       last_hash:=Hash,
       last_height:=Height}=Candidate,
     io:format("~s chain ~w h= ~w hash= ~s ~n",
               [ Avail, Chain, Height, bin2hex:dbin2hex(Hash) ]),
+    io:format("Handler ~p~n",[Handler]),
     R=call(Handler,
            #{null=><<"instant_sync_run">>},
            []
@@ -75,7 +87,7 @@ run() ->
 
     Name=test_sync_ledger,
     {ok,Pid}=ledger:start_link(
-               [{filename, "db/ledger_test_sync"},
+               [{filename, "db/ledger_test_syncx"},
                 {name, Name}
                ]
               ),
@@ -86,6 +98,64 @@ run() ->
     io:format("My Ledger ~s~n",[bin2hex:dbin2hex(C)]),
     Result.
 
+run1() ->
+    %instant synchronization
+    [{Handler,Candidate}|_]=checkcand(call(<<"blockchain">>,
+                                 #{null=><<"sync_request">>},
+                                 [last_hash,last_height,chain]
+                                )),
+    #{null:=Avail,
+      chain:=Chain,
+      last_hash:=Hash,
+      last_height:=Height}=Candidate,
+    io:format("~s chain ~w h= ~w hash= ~s ~n",
+              [ Avail, Chain, Height, bin2hex:dbin2hex(Hash) ]),
+
+    Name=test_sync_ledger,
+    {ok,Pid}=ledger:start_link(
+               [{filename, "db/ledger_test_syncx2"},
+                {name, Name}
+               ]
+              ),
+    gen_server:call(Pid, '_flush'),
+
+    ledger_sync:run_target(tpic,Handler, Pid, undefined),
+
+    R=wait_more(),
+    gen_server:cast(Pid, terminate),
+    R.
+
+candidates() ->
+    Candidates=call(<<"blockchain">>,
+                    #{null=><<"sync_request">>},
+                    [last_hash,last_height,chain]
+                   ),
+    lists:foreach(
+      fun({Handle, Info}) ->
+              #{null:=Avail,
+                chain:=Chain,
+                last_hash:=Hash,
+                last_height:=Height}=Info,
+              io:format("~p ~s chain ~w h= ~w hash= ~s ~n",
+                        [ Handle, Avail, Chain, Height, bin2hex:dbin2hex(Hash) ])
+      end, Candidates).
+
+
+wait_more() ->
+    receive
+        {inst_sync,block} ->
+            io:format("B"),
+            wait_more();
+        {inst_sync,ledger} ->
+            io:format("L"),
+            wait_more();
+        {inst_sync,done} ->
+            io:format("~n"),
+            ok;
+        Any -> {error, Any}
+    after 10000 ->
+              timeout
+    end.
 
 cont([{Handler,Res}]) ->
     case Res of
