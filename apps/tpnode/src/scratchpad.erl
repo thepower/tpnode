@@ -191,6 +191,6 @@ verify2(<<PubLen:8/integer,SigLen:8/integer,Rest/binary>>) ->
 test_pack_unpack(BlkID) ->
   B1=gen_server:call(blockchain,{get_block,BlkID}),
   B2=block:unpack(block:pack(B1)),
-  file:write_file("pack_unpack_orig.txt", io_lib:format("~p.~n", [B1])),
-  file:write_file("pack_unpack_pack.txt", io_lib:format("~p.~n", [B2])),
+  file:write_file("tmp/pack_unpack_orig.txt", io_lib:format("~p.~n", [B1])),
+  file:write_file("tmp/pack_unpack_pack.txt", io_lib:format("~p.~n", [B2])),
   B1==B2.

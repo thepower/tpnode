@@ -248,7 +248,7 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
 
 handle_cast({tpic, Origin, #{null:=<<"instant_sync_run">>}}, 
             #{settings:=Settings, lastblock:=LastBlock}=State) ->
-    ledger_sync:run(tpic, Origin, LastBlock, Settings),
+    ledger_sync:run_source(tpic, Origin, LastBlock, Settings),
     {noreply, State};
 
 
@@ -338,7 +338,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
         case block:verify(Blk) of
             false ->
                 T1=erlang:system_time(),
-                file:write_file("bad_block_"++integer_to_list(maps:get(height,maps:get(header,Blk)))++".txt", io_lib:format("~p.~n", [Blk])),
+                file:write_file("tmp/bad_block_"++integer_to_list(maps:get(height,maps:get(header,Blk)))++".txt", io_lib:format("~p.~n", [Blk])),
                 lager:info("Got bad block from ~p New block ~w arrived ~s, verify (~.3f ms)",
                    [FromNode,maps:get(height,maps:get(header,Blk)),
                     blkid(BlockHash),(T1-T0)/1000000]),
@@ -618,8 +618,8 @@ handle_cast({tpic, From, #{
 
 handle_cast(_Msg, State) ->
     lager:info("Unknown cast ~p",[_Msg]),
-    file:write_file("unknown_cast_msg.txt", io_lib:format("~p.~n", [_Msg])),
-    file:write_file("unknown_cast_state.txt", io_lib:format("~p.~n", [State])),
+    file:write_file("tmp/unknown_cast_msg.txt", io_lib:format("~p.~n", [_Msg])),
+    file:write_file("tmp/unknown_cast_state.txt", io_lib:format("~p.~n", [State])),
     {noreply, State}.
 
 handle_info(runsync, State) ->
@@ -694,7 +694,7 @@ apply_block_conf(Block, Conf0) ->
     S=maps:get(settings,Block,[]),
     if S==[] -> ok;
        true ->
-           file:write_file("applyconf.txt",
+           file:write_file("tmp/applyconf.txt",
                            io_lib:format("APPLY BLOCK CONF ~n~p.~n~n~p.~n~p.~n",
                                          [Block,S,Conf0])
                           )

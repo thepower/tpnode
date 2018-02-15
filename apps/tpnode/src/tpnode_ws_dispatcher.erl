@@ -150,7 +150,7 @@ handle_cast({new_block, Block}, #{addrsub:=AS,blocksub:=BS}=State) ->
         0 ->
             ok;
         _ ->
-            file:write_file("lastblock.txt",
+            file:write_file("tmp/lastblock_ws.txt",
                             iolist_to_binary(
                               io_lib:format("~p.~n",[Block])
                              )

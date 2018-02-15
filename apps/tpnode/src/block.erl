@@ -62,8 +62,8 @@ pack(Block) ->
               end,
               Block
              ),
-%    file:write_file("origblk.txt",[io_lib:format("~p.~n",[Block])]),
-%    file:write_file("prepblk.txt",[io_lib:format("~p.~n",[Prepare])]),
+%    file:write_file("tmp/origblk.txt",[io_lib:format("~p.~n",[Block])]),
+%    file:write_file("tmp/prepblk.txt",[io_lib:format("~p.~n",[Prepare])]),
     msgpack:pack(Prepare).
 
 unpack(Block) when is_binary(Block) ->

@@ -499,7 +499,7 @@ load_settings(State) ->
      }.
 
 generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
-    %file:write_file("tx.txt", io_lib:format("~p.~n",[PreTXL])),
+    %file:write_file("tmp/tx.txt", io_lib:format("~p.~n",[PreTXL])),
     _T1=erlang:system_time(), 
     TXL=lists:usort(PreTXL),
     _T2=erlang:system_time(), 
@@ -780,7 +780,7 @@ mkblock_test() ->
     ?assertEqual([<<"3crosschain">>],proplists:get_keys(maps:get(tx_proof,Block))),
     ?assertEqual([{<<"3crosschain">>,1}],maps:get(outbound,Block)),
     SignedBlock=block:sign(Block,<<1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1>>),
-    file:write_file("testblk.txt", io_lib:format("~p.~n",[Block])),
+    file:write_file("tmp/testblk.txt", io_lib:format("~p.~n",[Block])),
     ?assertMatch({true, {_,_}},block:verify(SignedBlock)),
     maps:get(1,block:outward_mk(maps:get(outbound,Block),SignedBlock)),
     test_xchain_inbound().
