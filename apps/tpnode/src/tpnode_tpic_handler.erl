@@ -13,7 +13,10 @@ routing(_State) ->
      }.
 
 handle_tpic(From, _, <<"tping">>, Payload, _State) ->
-    tpic:cast(tpic, From, <<"pong ",Payload/binary," from ",
+    Rnd=rand:uniform(300),
+    timer:sleep(Rnd),
+    tpic:cast(tpic, From, <<"delay ",(integer_to_binary(Rnd))/binary,
+                            " pong ",Payload/binary," from ",
                             (atom_to_binary(node(),utf8))/binary>>),
     ok;
 
