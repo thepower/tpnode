@@ -1,7 +1,7 @@
 -module(settings).
 
 -export([new/0,set/3,patch/2,mp/1,mpk/1,dmp/1,get/2]).
--export([sign/2,verify/1]).
+-export([sign/2,verify/1, get_patches/1]).
 
 -ifndef(TEST).
 -define(TEST,1).
@@ -197,6 +197,22 @@ action(<<"compare">>) -> compare;
 action(<<"member">>) -> {member,true};
 action(<<"nonmember">>) -> {member,false};
 action(Action) -> throw({action,Action}).
+
+get_patches(Genesis)
+  when is_map(Genesis) ->
+    dmp(mp(lists:reverse(parse_genseis(maps:keys(Genesis), Genesis, [], [])))).
+
+parse_genseis([], _, _, Patches) -> Patches;
+parse_genseis([H|T], Genesis, Path, Patches) ->
+  NewPath = [H|Path],
+  Item = maps:get(H, Genesis),
+  if is_map(Item) ->
+       NewPatches = parse_genseis(maps:keys(Item), Item, NewPath, Patches);
+     not is_map(Item) ->
+       NewPatches = [#{t => set, p => lists:reverse(NewPath), v => Item}|Patches]
+  end,
+  parse_genseis(T, Genesis, Path, NewPatches).
+
 
 -ifdef(TEST).
 patch_sign_test() ->
