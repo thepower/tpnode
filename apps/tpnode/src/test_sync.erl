@@ -46,7 +46,7 @@ test1(Handler,Hash,Rest) ->
                  [block]
                 ),
     case maps:is_key(block, R) of
-        false -> 
+        false ->
             done_no_block;
         true ->
             BinBlk=maps:get(block,R),

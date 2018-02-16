@@ -105,8 +105,6 @@ handle_info(ticktimer,
               }
     };
 
-
-
 handle_info(selftimer5, #{mychain:=_MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs}=State) ->
     Friends=maps:keys(Offs), 
     %pg2:get_members({synchronizer,MyChain})--[self()],
@@ -123,7 +121,12 @@ handle_info(selftimer5, #{mychain:=_MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs
     T=erlang:system_time(microsecond),
     Hello=msgpack:pack(#{null=><<"hello">>,<<"n">>=>node(),<<"t">>=>T}),
     tpic:cast(tpic,<<"timesync">>,Hello),
-    BCReady=gen_server:call(blockchain,ready,50),
+    BCReady=try
+                gen_server:call(blockchain,ready,50)
+            catch Ec:Ee ->
+                      lager:error("SYNC BC is not ready err ~p:~p ",[Ec,Ee]),
+                      false
+            end,
     MeanMs=round((T-MeanDiff)/1000),
     if(Friends==[]) ->
           lager:debug("I'm alone in universe my time ~w",[(MeanMs rem 3600000)/1000]);
@@ -183,9 +186,16 @@ load_settings(#{tickms:=Time}=State) ->
             pg2:create({?MODULE,MyChain}),
             pg2:join({?MODULE,MyChain},self())
     end,
+    BCReady=try
+                gen_server:call(blockchain,ready,50)
+            catch Ec:Ee ->
+                      lager:error("SYNC BC is not ready err ~p:~p ",[Ec,Ee]),
+                      false
+            end,
     State#{
       tickms=>BlockTime*1000,
-      mychain=>MyChain
+      mychain=>MyChain,
+      bcready=>BCReady
      }.
 
 
