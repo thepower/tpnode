@@ -111,15 +111,28 @@ handle_cast({make_announce}, #{local_services:=Dict} = State) ->
     make_announce(Dict, State),
     {noreply, State};
 
-handle_cast({got_announce, Announce}, #{remote_services:=Dict} = State) ->
-    lager:debug("Got service announce ~p", [Announce]),
-    case validate_announce(Announce, State) of
-        error ->
-            {noreply, State};
-        ok ->
-            {noreply, State#{
-                remote_services => process_announce(Announce, Dict)
-            }}
+
+handle_cast({got_announce, AnnounceBin}, #{remote_services:=Dict} = State) ->
+    lager:debug("Got service announce ~p", [AnnounceBin]),
+    try
+        Announce =
+            case unpack(AnnounceBin) of
+                error -> throw(error);
+                {ok, Unpacked} -> Unpacked
+            end,
+
+        case validate_announce(Announce, State) of
+            error -> throw(error);
+            _ -> ok
+        end,
+
+        {noreply, State#{
+            remote_services => process_announce(Announce, Dict, AnnounceBin)
+        }}
+
+    catch
+        throw:error ->
+            {noreply, State}
     end;
 
 handle_cast(_Msg, State) ->
@@ -159,7 +172,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 
 read_config() ->
-    application:get_env(discovery, discovery, #{}).
+    application:get_env(tpnode, discovery, #{}).
 
 get_config(Key, Default, State) ->
     #{settings:=Config} = State,
@@ -171,10 +184,35 @@ get_unixtime() ->
     (Mega * 1000000 + Sec).
 
 
-% make announce of our local services via tpic
-make_announce(_Dict, _State) ->
-    lager:debug("Announcing our local services"),
+announce_one_service(Name, Address, ValidUntil) ->
+    #{address:=Ip} = Address,
+    lager:debug("make announce for service ~p, ip: ~p", [Name, Ip]),
+    Announce = #{
+        name => Name,
+        address => Address,
+        valid_until => ValidUntil
+    },
+    AnnounceBin = pack(Announce),
+    send_service_announce(AnnounceBin).
 
+
+% make announce of our local services via tpic
+make_announce(#{names:=Names} = _Dict, State) ->
+    lager:debug("Announcing our local services"),
+    ValidUntil = get_unixtime() + get_config(our_ttl, 120, State),
+    Addresses = get_config(addresses, [], State),
+
+    Announcer = fun(Name, _Settings, Counter) ->
+        Counter + lists:foldl(
+            fun(Address, AddrCounter) ->
+                announce_one_service(Name, Address, ValidUntil),
+                AddrCounter + 1
+            end,
+            0,
+            Addresses)
+        end,
+    ServicesCount = maps:fold(Announcer, 0, Names),
+    lager:debug("Announced ~p of our services", [ServicesCount]),
     ok.
 
 find_service(Pid, #{pids:=PidDict}) when is_pid(Pid) ->
@@ -271,17 +309,35 @@ validate_announce(Announce, State) ->
     ok.
 
 % parse foreign service announce and add it to services database
-process_announce(Announce, Dict) ->
+process_announce(Announce, Dict, AnnounceBin) ->
     #{name := Name, address := Address} = Announce,
     Key = address2key(Address),
     Nodes = maps:get(Name, Dict, #{}),
+    PrevAnnounce = maps:get(Key, Nodes, not_found),
+    relay_announce(PrevAnnounce, Announce, AnnounceBin),
     UpdatedNodes = maps:put(Key, Announce, Nodes),
     maps:put(Name, UpdatedNodes, Dict).
 
 
-% make announce of our local services
-%%make_announce() ->
+% relay announce to connected nodes
+relay_announce(
+        #{valid_until:=ValidUntilPrev} = _PrevAnnounce,
+        #{valid_until:=ValidUntilNew} = NewAnnounce,
+        AnnounceBin)
+    when ValidUntilPrev /= ValidUntilNew
+    andalso is_binary(AnnounceBin)
+    andalso size(AnnounceBin) > 0 ->
 
+    lager:debug("relay announce ~p", NewAnnounce),
+    send_service_announce(AnnounceBin);
+
+
+relay_announce(_, _, _) ->
+    norelay.
+
+
+send_service_announce(AnnounceBin) ->
+    tpic:cast(tpic, service, {<<"discovery">>, AnnounceBin}).
 
 add_sign_to_bin(Sign, Data) ->
     <<254, (size(Sign)):8/integer, Sign/binary, Data/binary>>.
@@ -318,7 +374,7 @@ unpack(<<254, _Rest/binary>> = Packed) ->
         Atoms = [address, name, valid_until],
         case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of
             {ok, Message} ->
-                Message;
+                {ok, Message};
             _ -> throw(msgpack)
         end
     catch throw:Reason ->
@@ -368,13 +424,13 @@ test1() ->
         valid_until => 10
     },
 %%  gen_server:cast(discovery, {got_announce, Announce}),
-    D1 = process_announce(Announce, #{}),
-    D2 = process_announce(Announce#{name => <<"looking_glass2">>}, D1),
+    D1 = process_announce(Announce, #{}, <<>>),
+    D2 = process_announce(Announce#{name => <<"looking_glass2">>}, D1, <<>>),
     D3 = process_announce(Announce#{
         name => <<"looking_glass2">>,
         address => #{ip => <<"127.0.0.2">>, port => 1234, proto => tpic}
-    }, D2),
-    D4 = process_announce(Announce#{name => <<"looking_glass2">>, valid_until => 20}, D3),
+    }, D2, <<>>),
+    D4 = process_announce(Announce#{name => <<"looking_glass2">>, valid_until => 20}, D3, <<>>),
     query_remote(<<"looking_glass2">>, D4).
 
 test2() ->
@@ -404,5 +460,5 @@ test4() ->
     },
     Packed = pack(Announce),
     io:fwrite("packed: ~n~p~n", [ Packed ]),
-    Message = unpack(Packed),
+    {ok, Message} = unpack(Packed),
     io:fwrite("message: ~n~p~n", [ Message ]).
