@@ -39,16 +39,20 @@ init(Args) ->
     lager:debug("start discovery"),
     #{pid:=ParentPid} = Args,
     CheckExpireInterval = maps:get(check_expire_interval, Args, 60), % in seconds
+    Settings = read_config(),
+    AnnounceServicesInterval = maps:get(announce_interval, Settings, 60), % in seconds
     {ok, #{
         pid => ParentPid,
-        settings => read_config(),
+        settings => Settings,
         local_services => #{
             names => #{},
             pids => #{}
         },
         remote_services => #{},
         check_expire_interval => CheckExpireInterval,
-        cleantimer => erlang:send_after(CheckExpireInterval * 1000, self(), cleanup)
+        announce_interval => AnnounceServicesInterval,
+        cleantimer => erlang:send_after(CheckExpireInterval * 1000, self(), cleanup),
+        announcetimer => erlang:send_after(AnnounceServicesInterval * 1000, self(), make_announce)
     }}.
 
 
@@ -107,7 +111,7 @@ handle_call(_Request, _From, State) ->
 
 
 handle_cast({make_announce}, #{local_services:=Dict} = State) ->
-    lager:debug("Make local services announce"),
+    lager:debug("Make local services announce (cast)"),
     make_announce(Dict, State),
     {noreply, State};
 
@@ -154,6 +158,19 @@ handle_info(cleanup, #{cleantimer:=CT} = State) ->
     {noreply, State#{
         cleantimer => erlang:send_after(CheckExpireInterval * 1000, self(), cleanup),
         remote_services => filter_expired(RemoteDict, get_unixtime())
+    }};
+
+handle_info(make_announce, #{announcetimer:=Timer} = State) ->
+    catch erlang:cancel_timer(Timer),
+    #{
+        local_services:=Dict,
+        announce_interval:=AnnounceInterval} = State,
+
+    lager:debug("Make local services announce (timer)"),
+    make_announce(Dict, State),
+
+    {noreply, State#{
+        announcetimer => erlang:send_after(AnnounceInterval * 1000, self(), make_announce)
     }};
 
 handle_info(_Info, State) ->
@@ -259,8 +276,8 @@ delete_service(Pid, Dict) when is_pid(Pid) ->
 
 
 % check if local service is exists
-query_local(Name, Dict, State) ->
-    case maps:is_key(Name, Dict) of
+query_local(Name, #{names:=Names}=_Dict, State) ->
+    case maps:is_key(Name, Names) of
         false -> [];
         true -> get_config(addresses, [], State)
     end.
