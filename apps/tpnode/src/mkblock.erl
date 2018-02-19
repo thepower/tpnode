@@ -563,10 +563,20 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
                   ),
     lager:info("Must pick blocks ~p",[maps:keys(PickBlocks)]),
     _T4=erlang:system_time(), 
-    NewBal=maps:filter(
+    NewBal1=maps:filter(
              fun(_,V) ->
                      maps:get(keep,V,true)
              end, NewBal0),
+    NewBal=maps:map(
+             fun(_,V) ->
+                     case maps:is_key(ublk,V) of
+                         false ->
+                             V;
+                         true ->
+                             bal:put(lastblk, maps:get(ublk,V), V)
+                     end
+             end, NewBal1),
+
     lager:info("MB NewBal ~p",[NewBal]),
 
     LC=ledger_hash(NewBal),

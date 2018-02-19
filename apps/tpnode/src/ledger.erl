@@ -17,7 +17,9 @@
 
 -export([start_link/0,
          start_link/1,
-         put/1,check/1,get/1,restore/2,tpic/2]).
+         put/1,put/2,
+         check/1,check/2,
+         get/1,restore/2,tpic/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -41,8 +43,14 @@ start_link() ->
 put(KVS) when is_list(KVS) ->
     gen_server:call(?SERVER, {put, KVS}).
 
+put(KVS, Block) when is_list(KVS) ->
+    gen_server:call(?SERVER, {put, KVS, Block}).
+
 check(KVS) when is_list(KVS) ->
     gen_server:call(?SERVER, {check, KVS}).
+
+check(KVS, Block) when is_list(KVS) ->
+    gen_server:call(?SERVER, {check, KVS, Block}).
 
 get(KS) when is_list(KS) ->
     gen_server:call(?SERVER, {get, KS}).
@@ -146,7 +154,11 @@ handle_call({try_restore, Dump, ExpectHash}, _From, State) ->
     end;
 
 
-handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when
+handle_call({Action, KVS0}, From, State) when 
+      Action==put orelse Action==check ->
+    handle_call({Action, KVS0, undefined}, From, State);
+
+handle_call({Action, KVS0, BlockID}, _From, #{db:=DB, mt:=MT}=State) when
       Action==put orelse Action==check ->
     {KVS,_S1}=lists:foldl(
           fun({Addr,Patch},{AccKV,AccS}) ->
@@ -168,10 +180,24 @@ handle_call({Action, KVS0}, _From, #{db:=DB, mt:=MT}=State) when
              TR=lists:foldl(
                   fun({K,V},Total) ->
                           ok=rocksdb:batch_put(Batch, K, term_to_binary(V)),
-                          Total+1
+                          if BlockID == undefined -> 
+                                 Total+1;
+                             true ->
+                                 ok=rocksdb:batch_put(Batch,
+                                                      <<"lb:",K/binary>>, 
+                                                      BlockID),
+                                 Total+2
+                          end
                   end,
                   0, KVS),
              ?assertEqual(TR, rocksdb:batch_count(Batch)),
+             if BlockID == undefined -> ok;
+                true ->
+                    ok=rocksdb:batch_put(Batch,
+                                         <<"lastblk">>, 
+                                         BlockID)
+             end,
+
              lager:debug("Ledger apply trans ~p",[TR]),
              ok = rocksdb:write_batch(DB, Batch, []),
              ok = rocksdb:close_batch(Batch),
@@ -184,7 +210,15 @@ handle_call({get, KS}, _From, #{db:=DB}=State) ->
         fun(Key, Acc) ->
                 case rocksdb:get(DB, Key, []) of
                     {ok, Value} ->
-                        maps:put(Key,erlang:binary_to_term(Value),Acc);
+                        LB=case rocksdb:get(DB, <<"lb:",Key/binary>>, []) of
+                            {ok, LBH} ->
+                                   #{ ublk=>LBH };
+                               _ -> 
+                                   #{}
+                           end,
+                        maps:put(Key,maps:merge(
+                                       erlang:binary_to_term(Value),
+                                       LB),Acc);
                     not_found ->
                         Acc;
                     Error ->
@@ -264,7 +298,7 @@ apply_patch(Address,Patch, #{db:=DB}=State) ->
                    Element=erlang:binary_to_term(Wallet),
                    P1=maps:merge(
                         Element,
-                        maps:with([seq,t],Patch)
+                        maps:with([lastblk,seq,t],Patch)
                        ),
                    Bals=maps:merge(
                           maps:get(amount, Element,#{}),

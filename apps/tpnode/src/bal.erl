@@ -63,7 +63,7 @@ put(t, V, Bal) when is_integer(V),
                     -> 
     maps:put(t, V, Bal);
 put(lastblk, V, Bal) when is_binary(V) ->
-    maps:put(lb, V, Bal);
+    maps:put(lastblk, V, Bal);
 put(T, _, _) ->
     throw({"unsupported bal field",T}).
 
@@ -74,19 +74,18 @@ get(seq, Bal) ->
 get(t, Bal) ->
     maps:get(t, Bal, 0);
 get(lastblk, Bal) ->
-    maps:get(lb, Bal, <<0,0,0,0,0,0,0,0>>);
+    maps:get(lastblk, Bal, <<0,0,0,0,0,0,0,0>>);
 
 get(T, _) ->
     throw({"unsupported bal field",T}).
 
 -spec pack (map()) -> binary().
 pack(#{
-  amount:=A
+  amount:=Amount
  }=Bal) ->
-    BA=A, %lists:keysort(1,maps:to_list(A)),
     msgpack:pack(
       maps:put(
-        amount, BA,
+        amount, Amount,
         maps:with([t,seq,lastblk],Bal)
        )
      ).
