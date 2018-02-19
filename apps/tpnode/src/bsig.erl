@@ -27,11 +27,11 @@ checksig(BlockHash, Sigs) ->
               end
       end, {[],0}, Sigs).
 
-signhash(MsgHash, ED, PrivKey) ->
+signhash(MsgHash, ExtraData, PrivKey) ->
     PubKey=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
     BinExtra= pack_sign_ed([
              {pubkey,PubKey}|
-             ED
+             ExtraData
             ]),
     Msg= <<BinExtra/binary,MsgHash/binary>>,
     Signature=tpecdsa:secp256k1_ecdsa_sign(Msg, PrivKey, default, <<>>),

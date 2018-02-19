@@ -18,7 +18,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
     terminate/2, code_change/3]).
 
--export([test/0, test1/0, test2/0, test3/0]).
+-export([test/0, test1/0, test2/0, test3/0, test4/0]).
 
 
 %% ------------------------------------------------------------------
@@ -174,6 +174,7 @@ get_unixtime() ->
 % make announce of our local services via tpic
 make_announce(_Dict, _State) ->
     lager:debug("Announcing our local services"),
+
     ok.
 
 find_service(Pid, #{pids:=PidDict}) when is_pid(Pid) ->
@@ -282,14 +283,56 @@ process_announce(Announce, Dict) ->
 %%make_announce() ->
 
 
+add_sign_to_bin(Sign, Data) ->
+    <<254, (size(Sign)):8/integer, Sign/binary, Data/binary>>.
+
+split_bin_to_sign_and_data(<<254, SignLen:8/integer, Rest/binary>>) ->
+    <<Sign:SignLen/binary, Data/binary>>=Rest,
+    {Sign, Data}.
+
+
+pack(Message) ->
+    {ok, PrivKey} = application:get_env(tpnode, privkey),
+    Packed = msgpack:pack(Message),
+    Hash = crypto:hash(sha256, Packed),
+    Sign = bsig:signhash(
+        Hash,
+        [{timestamp,os:system_time(millisecond)}],
+        hex:parse(PrivKey)
+    ),
+    add_sign_to_bin(Sign, Packed).
+
+
+
+unpack(<<254, _Rest/binary>> = Packed) ->
+    try
+        {Sign, Bin} = split_bin_to_sign_and_data(Packed),
+        Hash = crypto:hash(sha256, Bin),
+        case bsig:checksig(Hash, [Sign]) of
+            { [ #{ signature:= _FirstSign } | _] , _InvalidSings} ->
+                lager:notice("Check signature here");
+            _X ->
+                lager:debug("checksig result ~p", [_X]),
+                throw(invalid_signature)
+        end,
+        Atoms = [address, name, valid_until],
+        case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of
+            {ok, Message} ->
+                Message;
+            _ -> throw(msgpack)
+        end
+    catch throw:Reason ->
+        lager:info("can't unpack announce with reason ~p ~p", [Reason, Packed]),
+        error
+    end.
+
 % --------------------------------------------------------
 
 filter_expired(Dict, CurrentTime) ->
     NodesMapper =
         fun(_Name, Nodes) ->
             ExpireFilter =
-                fun(_AddrKey, Announce) ->
-                    #{valid_until:=RecordValidUntil} = Announce,
+                fun(_AddrKey, #{valid_until:=RecordValidUntil}) ->
                     (RecordValidUntil > CurrentTime)
                 end,
             maps:filter(ExpireFilter, Nodes)
@@ -353,3 +396,13 @@ test3() ->
     erlang:send(discovery, cleanup),
     gen_server:call(discovery, {state}).
 
+test4() ->
+    Announce = #{
+        name => <<"looking_glass">>,
+        address => #{ip => <<"127.0.0.1">>, port => 1234, proto => tpic},
+        valid_until => get_unixtime() + 100
+    },
+    Packed = pack(Announce),
+    io:fwrite("packed: ~n~p~n", [ Packed ]),
+    Message = unpack(Packed),
+    io:fwrite("message: ~n~p~n", [ Message ]).
