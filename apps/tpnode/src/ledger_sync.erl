@@ -26,7 +26,7 @@ target(TPIC, PeerID, LedgerPID, _RDB, Parent) ->
            #{null=><<"instant_sync_run">>},
            []
           ),
-    lager:info("Sync tgt ~p",[R]),
+    lager:debug("Sync tgt ~p",[R]),
 
     gen_server:call(LedgerPID, '_flush'),
     lager:debug("TgtSync start",[]),
