@@ -46,14 +46,38 @@ handle_json(Method, Path, Req, Target, _Opts) ->
 %					ReqPath = cowboy_req:path(Req),
 %					{404, #{error=><<"not found">>,path=>ReqPath,method=>Method,p=>Path}};
 				Stack ->
-					ST=iolist_to_binary(io_lib:format("~p",[Stack])),
+                                        ST=format_stack(Stack),
 					{400, #{error=>unknown_fc,ecee=><<"error:function_clause">>,stack=>ST}}
 			end;
 		Ec:Ee ->
 			EcEe=iolist_to_binary(io_lib:format("~p:~p",[Ec,Ee])),
-			ST=iolist_to_binary(io_lib:format("~p",[erlang:get_stacktrace()])),
+                        ST=format_stack(erlang:get_stacktrace()),
 			{400, #{error=>unknown,ecee=>EcEe,stack=>ST}}
 	end.
+
+format_stack(Stack) ->
+    FormatAt=fun(PL) ->
+                     try
+                         File=proplists:get_value(file,PL),
+                         Line=proplists:get_value(line,PL),
+                         iolist_to_binary(io_lib:format("~s:~w",[File,Line]))
+                     catch _:_ ->
+                               iolist_to_binary(io_lib:format("~p",[PL]))
+                     end
+             end,
+    lists:map(
+      fun
+          ({M,F,A,FL}) when is_list(A)->
+              #{ mfa=>iolist_to_binary(io_lib:format("~p:~p(~p)",[M,F,A])),
+                 at=> FormatAt(FL)
+               };
+          ({M,F,A,FL}) when is_integer(A)->
+              #{ mfa=>iolist_to_binary(io_lib:format("~p:~p/~w",[M,F,A])),
+                 at=> FormatAt(FL)
+               };
+          (SE) ->
+              iolist_to_binary(io_lib:format("~p",[SE]))
+      end, Stack).
 
 
 process_response({Status, [], Body}, Req) when is_integer(Status) ->
