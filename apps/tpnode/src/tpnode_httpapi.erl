@@ -15,20 +15,49 @@ h(Method, [<<"api">>|Path], Req) ->
     h(Method,Path,Req);
 
 h(<<"GET">>, [<<"address">>,Addr], _Req) ->
-    Info=maps:map(
-           fun(_K,V) ->
-                   maps:put(lastblk,
-                            bin2hex:dbin2hex(
-                              maps:get(lastblk,V,<<0,0,0,0,0,0,0,0>>)
-                             ),V)
-           end,gen_server:call(blockchain,{get_addr, Addr},20000)),
+    Ledger=ledger:get([Addr]),
+    case maps:is_key(Addr,Ledger) of
+        false ->
+            {404,
+             #{ result => <<"not_found">>,
+                address=>Addr
+              }
+            };
+        true ->
+            Info=maps:get(Addr,Ledger),
+            {200,
+             #{ result => <<"ok">>,
+                address=>Addr,
+                info=>Info
+              }
+            }
+    end;
 
-    {200,
-     #{ result => <<"ok">>,
-        address=>Addr,
-        info=>Info
-      }
-    };
+
+h(<<"GET">>, [<<"xaddress">>,Addr], _Req) ->
+    Ledger=ledger:get([Addr]),
+    case maps:is_key(Addr,Ledger) of
+        false ->
+            {404,
+             #{ result => <<"not_found">>,
+                address=>Addr
+              }
+            };
+        true ->
+            Info=maps:map(
+                   fun(_K,V) ->
+                           maps:put(lastblk,
+                                    bin2hex:dbin2hex(
+                                      maps:get(lastblk,V,<<0,0,0,0,0,0,0,0>>)
+                                     ),V)
+                   end,maps:get(amount,maps:get(Addr,Ledger),#{})),
+            {200,
+             #{ result => <<"ok">>,
+                address=>Addr,
+                info=>Info
+              }
+            }
+    end;
 
 h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
     BlockHash0=if(BlockId == <<"last">>) -> last;
