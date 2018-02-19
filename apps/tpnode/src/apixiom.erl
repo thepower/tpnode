@@ -72,7 +72,7 @@ format_stack(Stack) ->
                  at=> FormatAt(FL)
                };
           ({M,F,A,FL}) when is_integer(A)->
-              #{ mfa=>iolist_to_binary(io_lib:format("~p:~p/~w",[M,F,A])),
+              #{ mf=>iolist_to_binary(io_lib:format("~p:~p/~w",[M,F,A])),
                  at=> FormatAt(FL)
                };
           (SE) ->
