@@ -56,7 +56,7 @@ init(Args) ->
     }}.
 
 
-handle_call({state}, _From, State) ->
+handle_call(state, _From, State) ->
     lager:notice("state request", []),
     {reply, State, State};
 
@@ -110,7 +110,7 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 
-handle_cast({make_announce}, #{local_services:=Dict} = State) ->
+handle_cast(make_announce, #{local_services:=Dict} = State) ->
     lager:debug("Make local services announce (cast)"),
     make_announce(Dict, State),
     {noreply, State};
@@ -301,7 +301,7 @@ query(Name, State) ->
     lists:merge(Local, Remote).
 
 
-address2key(#{ip:=Ip, port:=Port, proto:=Proto}) ->
+address2key(#{address:=Ip, port:=Port, proto:=Proto}) ->
     {Ip, Port, Proto}.
 
 
@@ -345,7 +345,7 @@ relay_announce(
     andalso is_binary(AnnounceBin)
     andalso size(AnnounceBin) > 0 ->
 
-    lager:debug("relay announce ~p", NewAnnounce),
+    lager:debug("relay announce ~p", [NewAnnounce]),
     send_service_announce(AnnounceBin);
 
 
@@ -354,6 +354,7 @@ relay_announce(_, _, _) ->
 
 
 send_service_announce(AnnounceBin) ->
+    lager:debug("sent tpic ~p", [AnnounceBin]),
     tpic:cast(tpic, service, {<<"discovery">>, AnnounceBin}).
 
 add_sign_to_bin(Sign, Data) ->
@@ -361,7 +362,11 @@ add_sign_to_bin(Sign, Data) ->
 
 split_bin_to_sign_and_data(<<254, SignLen:8/integer, Rest/binary>>) ->
     <<Sign:SignLen/binary, Data/binary>>=Rest,
-    {Sign, Data}.
+    {Sign, Data};
+
+split_bin_to_sign_and_data(Bin) ->
+    lager:info("invalid sign format: ~p", [Bin]),
+    {<<>>, <<>>}.
 
 
 pack(Message) ->
@@ -388,7 +393,7 @@ unpack(<<254, _Rest/binary>> = Packed) ->
                 lager:debug("checksig result ~p", [_X]),
                 throw(invalid_signature)
         end,
-        Atoms = [address, name, valid_until],
+        Atoms = [address, name, valid_until, port, proto, tpic],
         case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of
             {ok, Message} ->
                 {ok, Message};
@@ -397,7 +402,11 @@ unpack(<<254, _Rest/binary>> = Packed) ->
     catch throw:Reason ->
         lager:info("can't unpack announce with reason ~p ~p", [Reason, Packed]),
         error
-    end.
+    end;
+
+unpack(Packed) ->
+    lager:info("Invalid packed data ~p", [Packed]),
+    error.
 
 % --------------------------------------------------------
 
@@ -437,7 +446,7 @@ test() ->
 test1() ->
     Announce = #{
         name => <<"looking_glass">>,
-        address => #{ip => <<"127.0.0.1">>, port => 1234, proto => tpic},
+        address => #{address => <<"127.0.0.1">>, port => 1234, proto => tpic},
         valid_until => 10
     },
 %%  gen_server:cast(discovery, {got_announce, Announce}),
@@ -445,7 +454,7 @@ test1() ->
     D2 = process_announce(Announce#{name => <<"looking_glass2">>}, D1, <<>>),
     D3 = process_announce(Announce#{
         name => <<"looking_glass2">>,
-        address => #{ip => <<"127.0.0.2">>, port => 1234, proto => tpic}
+        address => #{address => <<"127.0.0.2">>, port => 1234, proto => tpic}
     }, D2, <<>>),
     D4 = process_announce(Announce#{name => <<"looking_glass2">>, valid_until => 20}, D3, <<>>),
     query_remote(<<"looking_glass2">>, D4).
@@ -453,7 +462,7 @@ test1() ->
 test2() ->
     Announce = #{
         name => <<"looking_glass">>,
-        address => #{ip => <<"127.0.0.1">>, port => 1234, proto => tpic},
+        address => #{address => <<"127.0.0.1">>, port => 1234, proto => tpic},
         valid_until => get_unixtime() + 100500
     },
     gen_server:cast(discovery, {got_announce, Announce}),
@@ -462,7 +471,7 @@ test2() ->
 test3() ->
     Announce = #{
         name => <<"looking_glass">>,
-        address => #{ip => <<"127.0.0.1">>, port => 1234, proto => tpic},
+        address => #{address => <<"127.0.0.1">>, port => 1234, proto => tpic},
         valid_until => get_unixtime() + 2
     },
     gen_server:cast(discovery, {got_announce, Announce}),
@@ -472,7 +481,7 @@ test3() ->
 test4() ->
     Announce = #{
         name => <<"looking_glass">>,
-        address => #{ip => <<"127.0.0.1">>, port => 1234, proto => tpic},
+        address => #{address => <<"127.0.0.1">>, port => 1234, proto => tpic},
         valid_until => get_unixtime() + 100
     },
     Packed = pack(Announce),
