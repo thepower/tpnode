@@ -9,7 +9,8 @@
          put/3,
          mput/5,
          pack/1,
-         unpack/1
+         unpack/1,
+         merge/2
         ]).
 
 -spec new () -> #{amount:=map()}.
@@ -64,6 +65,8 @@ put(t, V, Bal) when is_integer(V),
     maps:put(t, V, Bal);
 put(lastblk, V, Bal) when is_binary(V) ->
     maps:put(lastblk, V, Bal);
+put(pubkey, V, Bal) when is_binary(V) ->
+    maps:put(pubkey, V, Bal);
 put(T, _, _) ->
     throw({"unsupported bal field",T}).
 
@@ -73,6 +76,8 @@ get(seq, Bal) ->
     maps:get(seq, Bal, 0);
 get(t, Bal) ->
     maps:get(t, Bal, 0);
+get(pubkey, Bal) ->
+    maps:get(pubkey, Bal, <<>>);
 get(lastblk, Bal) ->
     maps:get(lastblk, Bal, <<0,0,0,0,0,0,0,0>>);
 
@@ -86,13 +91,13 @@ pack(#{
     msgpack:pack(
       maps:put(
         amount, Amount,
-        maps:with([t,seq,lastblk],Bal)
+        maps:with([t,seq,lastblk,pubkey],Bal)
        )
      ).
 
 -spec unpack (binary()) -> 'error'|map().
 unpack(Bal) ->
-    case msgpack:unpack(Bal,[{known_atoms,[amount,seq,t,lastblk]}]) of
+    case msgpack:unpack(Bal,[{known_atoms,[amount,seq,t,lastblk,pubkey]}]) of
         {ok, #{amount:=_}=Hash} ->
             maps:filter(
               fun(K,_) -> is_atom(K) end,
@@ -100,4 +105,16 @@ unpack(Bal) ->
         _ ->
             error
     end.
+
+-spec merge(map(), map()) -> map().
+merge(Old, New) ->
+    P1=maps:merge(
+         Old,
+         maps:with([pubkey,lastblk,seq,t],New)
+        ),
+    Bals=maps:merge(
+           maps:get(amount, Old,#{}),
+           maps:get(amount, New,#{})
+          ),
+    P1#{amount=>Bals}.
 
