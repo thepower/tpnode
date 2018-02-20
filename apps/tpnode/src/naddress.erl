@@ -1,8 +1,8 @@
 -module(naddress).
--export([decode/1,encode/1]).
--export([i2g/1,g2i/1]).
+-export([decode/1,encode/1,check/1]).
 -export([construct_public/3,
          construct_private/2,
+         splitby/2,
          parse/1]).
 
 % Numbering plan
@@ -55,14 +55,12 @@ encode(Int) when is_integer(Int) andalso Int >= 9223372036854775808
     case Type of
         private ->
             iolist_to_binary(
-              splitby(
                 lists:flatten(
                   io_lib:format("~16.16.0B~2.16.0B",
                                 [Int band ((1 bsl 61)-1),
                                  CSum rem 256
                                 ])
-                 ),
-                4)
+                 )
              );
         public ->
             Digits=((1 bsl 45)-1) band Int,
@@ -71,13 +69,18 @@ encode(Int) when is_integer(Int) andalso Int >= 9223372036854775808
             iolist_to_binary(
               [
                i2g(Group),
-               " ",
-               splitby(lists:flatten(io_lib:format("~14.10.0B",[Digits])),4),
+               lists:flatten(io_lib:format("~14.10.0B",[Digits])),
                io_lib:format("~2.10.0B",[CSum rem 100])
               ]
              )
     end.
 
+check(UserAddr) ->
+    try
+        {true, decode(UserAddr)}
+    catch _:_ ->
+              {false, unknown}
+    end.
 %% decode address from human-frendly format to int and check checksum
 
 decode(UserAddr) ->

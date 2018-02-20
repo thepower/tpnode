@@ -72,19 +72,23 @@ addr2chainraw(Chain,Address) ->
     end.
 
 check(Address) ->
-    case base58:decode(Address) of
-        <<Ver:8/integer,RipeMD:20/binary,Check:4/binary>> ->
-            <<H3:4/binary,_/binary>>=
-            crypto:hash(sha256,
-                        crypto:hash(sha256,<<Ver:8/integer,RipeMD:20/binary>>)
-                       ),
-            {Check==H3,{ver,Ver}};
-        <<?VER,RipeMD:20/binary,OldChain:32/big,Check:4/binary>> ->
-            <<H3:4/binary,_/binary>>=
-                        crypto:hash(sha256,<<?VER,RipeMD:20/binary,OldChain:32/big>>),
-            {Check==H3,{chain,OldChain}};
-        _ ->
-            {false, unknown}
+    try
+        case base58:decode(Address) of
+            <<Ver:8/integer,RipeMD:20/binary,Check:4/binary>> ->
+                <<H3:4/binary,_/binary>>=
+                crypto:hash(sha256,
+                            crypto:hash(sha256,<<Ver:8/integer,RipeMD:20/binary>>)
+                           ),
+                {Check==H3,{ver,Ver}};
+            <<?VER,RipeMD:20/binary,OldChain:32/big,Check:4/binary>> ->
+                <<H3:4/binary,_/binary>>=
+                crypto:hash(sha256,<<?VER,RipeMD:20/binary,OldChain:32/big>>),
+                {Check==H3,{chain,OldChain}};
+            _ ->
+                {false, unknown}
+        end 
+    catch _:_ ->
+              {false, invalid}
     end.
 
 encodekey(Pvt) ->
