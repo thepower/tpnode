@@ -49,6 +49,7 @@ init([]) ->
             { tpic_sctp, {tpic_sctp, start_link, [TPIC]}, permanent, 5000, worker, []},
             { ledger, {ledger, start_link, []}, permanent, 5000, worker, []},
             { discovery, {discovery, start_link, [#{pid=>discovery, name=>discovery}]}, permanent, 5000, worker, []},
+            { tpnode_announcer, {tpnode_announcer, start_link, [#{}]}, permanent, 5000, worker, []},
             tpnode_http:childspec()
            ]
          } }.
