@@ -129,7 +129,7 @@ h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
                                               Found -> Found
                                           end,
                                 Tx=#{
-                                  amount=>Amount,
+                                  amount=>Amount*1000000000,
                                   cur=>Coin,
                                   extradata=>jsx:encode(#{
                                                message=> <<"Welcome, ", Address/binary>>,
@@ -176,7 +176,7 @@ h(<<"POST">>, [<<"test">>,<<"request_fund">>], Req) ->
                                 Amount=min(CAmount,ReqAmount),
                                 #{seq:=Seq}=gen_server:call(blockchain,{get_addr,Adr,Coin}),
                                 Tx=#{
-                                  amount=>Amount,
+                                  amount=>Amount*1000000000,
                                   cur=>Coin,
                                   extradata=>jsx:encode(#{
                                                message=> <<"Test fund">>
