@@ -108,10 +108,17 @@ sign(#{
 
 verify(#{
   from := From,
-  sig := HSigs
+  sig := HSigs,
+  timestamp := T
  }=Tx) ->
     Message=mkmsg(Tx),
     lager:info("MsgVer ~p",[Message]),
+    if is_integer(T) -> 
+           ok;
+       true ->
+           throw({bad_timestamp,T})
+    end,
+
     {Valid,Invalid}=case naddress:check(From) of 
                         {true, _IAddr} ->
                             maps:fold(
@@ -180,6 +187,16 @@ pack(#{
      );
 
 pack(#{
+  register:=Reg
+ }) ->
+    msgpack:pack(
+      #{
+      type => <<"register">>,
+      register => Reg
+     }
+     );
+
+pack(#{
   sig:=Sigs
  }=Tx) ->
     TxBin=mkmsg(Tx),
@@ -205,7 +222,9 @@ unpack(BinTx) when is_binary(BinTx) ->
     unpack_mp(BinTx).
 
 unpack_mp(BinTx) when is_binary(BinTx) ->
-    {ok, Tx0} = msgpack:unpack(BinTx, [{known_atoms, [type,sig,tx,patch] },
+    {ok, Tx0} = msgpack:unpack(BinTx, [{known_atoms, 
+                                        [type,sig,tx,patch,register,
+                                        register] },
                                {unpack_str,as_binary}] ),
     Tx=maps:fold(
          fun
@@ -217,7 +236,16 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
                                (OI) -> OI
                             end, Val),Acc);
              ("type",Val,Acc) ->
-                 maps:put(type,list_to_binary(Val),Acc);
+                 maps:put(type,
+                          try 
+                              erlang:list_to_existing_atom(Val) 
+                          catch error:badarg -> 
+                                    Val
+                          end,Acc);
+             ("register",Val,Acc) ->
+                 maps:put(register,
+                          list_to_binary(Val),
+                          Acc);
              ("sig",Val,Acc) ->
                  maps:put(sig,
                           if is_map(Val) ->
@@ -246,37 +274,58 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
                                              KAcc)
                                    end, #{}, Val);
                              is_list(Val) ->
-                                 lists:foldl(
-                                   fun([PubK,PrivK],KAcc) ->
-                                           maps:put(PubK,PrivK,KAcc)
-                                   end, #{}, Val)
+                                 case Val of
+                                     [X|_] when is_binary(X) ->
+                                         Val;
+                                     [[_,_]|_] ->
+                                         lists:foldl(
+                                           fun([PubK,PrivK],KAcc) ->
+                                                   maps:put(PubK,PrivK,KAcc)
+                                           end, #{}, Val)
+                                 end
                           end,
                           Acc);
              (K,Val,Acc) ->
                  maps:put(K,Val,Acc)
          end, #{}, Tx0),
-    #{type:=Type, sig:=Sig}=Tx,
+    #{type:=Type}=Tx,
     R=case Type of
-        tx -> %generic finance tx
-            lager:debug("tx ~p",[Tx]),
-            [From,To,Amount, Cur, Timestamp, Seq, ExtraJSON] = maps:get(tx,Tx),
-            #{ type => Type,
-                  from => From,
-                  to => To,
-                  amount => Amount,
-                  cur => Cur,
-                  timestamp => Timestamp,
-                  seq => Seq,
-                  extradata => ExtraJSON,
-                  sig => Sig
-                };
-        patch -> %settings patch
+          tx -> %generic finance tx
+              #{sig:=Sig}=Tx,
+              lager:debug("tx ~p",[Tx]),
+              [From,To,Amount, Cur, Timestamp, Seq, ExtraJSON] = maps:get(tx,Tx),
+              if is_integer(Timestamp) -> 
+                     ok;
+                 true ->
+                     throw({bad_timestamp,Timestamp})
+              end,
+              #{ type => Type,
+                 from => From,
+                 to => To,
+                 amount => Amount,
+                 cur => Cur,
+                 timestamp => Timestamp,
+                 seq => Seq,
+                 extradata => ExtraJSON,
+                 sig => Sig
+               };
+          patch -> %settings patch
+              #{sig:=Sig}=Tx,
               #{ patch => maps:get(patch,Tx),
                  sig => Sig};
-        _ ->
-            lager:error("Bad tx ~p",[Tx]),
-            throw({"bad tx type",Type})
-    end,
+          register ->
+              PubKey=maps:get(register,Tx),
+              case size(PubKey) of
+                  33 -> ok;
+                  true -> throw('bad_pubkey')
+              end,
+              #{ type => register,
+                 register => PubKey
+               };
+          _ ->
+              lager:error("Bad tx ~p",[Tx]),
+              throw({"bad tx type",Type})
+      end,
     case maps:is_key(<<"extdata">>,Tx) of
         true ->
             R#{extdata=>maps:get(<<"extdata">>,Tx)};
@@ -285,6 +334,26 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
     end.
 
 -ifdef(TEST).
+register_test() ->
+    Priv= <<194,124,65,109,233,236,108,24,50,151,189,216,
+           123,142,115,120,124,240,248,115, 150,54,239,
+           58,218,221,145,246,158,15,210,165>>,
+    PubKey=tpecdsa:calc_pub(Priv,true),
+    Res=
+    tx:unpack(
+      tx:pack(
+        tx:unpack(
+          msgpack:pack(
+            #{
+            "type"=>"register",
+            register=>PubKey
+           }
+           )
+         )
+       )
+     ),
+    #{register:=PubKey}=Res.
+
 digaddr_tx_test() ->
     Priv= <<194,124,65,109,233,236,108,24,50,151,189,216,
            123,142,115,120,124,240,248,115, 150,54,239,

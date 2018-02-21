@@ -1,6 +1,6 @@
 -module(settings).
 
--export([new/0,set/3,patch/2,mp/1,mpk/1,dmp/1,get/2]).
+-export([new/0,set/3,patch/2,mp/1,dmp/1,get/2]).
 -export([sign/2,verify/1, get_patches/1]).
 
 -ifndef(TEST).
@@ -184,9 +184,9 @@ dmp(Term) when is_list(Term) -> Term.
 
 mp(Term) ->
     msgpack:pack(Term,[{map_format,jiffy}, {spec,new}]).
-mpk(Key) ->
-    E1=binary:split(Key,<<":">>,[global]),
-    mp(E1).
+%mpk(Key) ->
+%    E1=binary:split(Key,<<":">>,[global]),
+%    mp(E1).
 
 
 action(<<"list_add">>) -> add;
