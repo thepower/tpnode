@@ -124,6 +124,7 @@ renew_peers() ->
 renew_peers([]) ->
     ok;
 renew_peers(Peers) when is_list(Peers) ->
+    lager:debug("add peers to tpic ~p", [Peers]),
     gen_server:call(tpic, {add_peers, Peers}).
 
 register_node() ->
