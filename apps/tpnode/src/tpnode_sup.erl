@@ -25,6 +25,10 @@ start_link() ->
 init([]) ->
     application:ensure_all_started(cowboy),
     application:ensure_all_started(tinymq),
+    CrossChainOpts = application:get_env(tpnode, crosschain, #{}),
+    CrossChainPort = maps:get(port, CrossChainOpts, 43311),
+    {ok, _} = ranch:start_listener(crosschain,
+        ranch_tcp, [{port, CrossChainPort}], crosschain_protocol, []),
     {ok,TPIC0}=application:get_env(tpnode,tpic),
     TPIC=TPIC0#{
            ecdsa=>tpecdsa:generate_priv(),
