@@ -52,7 +52,7 @@ init(Args) ->
         check_expire_interval => CheckExpireInterval,
         announce_interval => AnnounceServicesInterval,
         cleantimer => erlang:send_after(CheckExpireInterval * 1000, self(), cleanup),
-        announcetimer => erlang:send_after(AnnounceServicesInterval * 1000, self(), make_announce)
+        announcetimer => erlang:send_after(10 * 1000, self(), make_announce)
     }}.
 
 
@@ -60,20 +60,25 @@ handle_call(state, _From, State) ->
     lager:notice("state request", []),
     {reply, State, State};
 
-%%% TODO: продублировать с cast'ом
-%%handle_call({register, Service, Description}, _From, State) ->
-%%    #{dict:=Dict} = State,
-%%    {reply, ok, State#{
-%%        dict=>add(Service, Description, _From, Dict)
-%%    }};
+handle_call({get_config, Key}, _From, State) ->
+    {reply, get_config(Key, undefined, State), State};
 
-handle_call({config, Key}, _From, State) ->
-    {reply, ok, get_config(Key, undefined, State), State};
+handle_call({get_config, Key, Default}, _From, State) ->
+    {reply, get_config(Key, Default, State), State};
+
+handle_call({set_config, Key, Value}, _From, State) ->
+    {reply, ok, set_config(Key, Value, State)};
 
 handle_call({register, ServiceName, Pid}, _From, #{local_services:=Dict} = State) ->
     lager:debug("Register local service ~p with pid ~p", [ServiceName, Pid]),
     {reply, ok, State#{
-        local_services => register_service(ServiceName, Pid, Dict)
+        local_services => register_service(ServiceName, Pid, Dict, #{})
+    }};
+
+handle_call({register, ServiceName, Pid, Options}, _From, #{local_services:=Dict} = State) ->
+    lager:debug("Register local service ~p with pid ~p", [ServiceName, Pid]),
+    {reply, ok, State#{
+        local_services => register_service(ServiceName, Pid, Dict, Options)
     }};
 
 handle_call({unregister, Pid}, _From, #{local_services:=Dict} = State) when is_pid(Pid) ->
@@ -96,11 +101,8 @@ handle_call({get_pid, Name}, _From, #{local_services:=Dict} = State) when is_bin
             end,
     {reply, Reply, State};
 
-
-% todo: написать с предикатом
-% handle_call({lookup, Pred}, _From, State) when is_fun(Pred) ->
-%     #{dict:=Dict} = State,
-%     {reply, query(Query, Dict), State};
+handle_call({lookup, Pred}, _From, State) when is_function(Pred) ->
+    {reply, query(Pred, State), State};
 
 handle_call({lookup, Name}, _From, State) ->
     {reply, query(Name, State), State};
@@ -195,6 +197,11 @@ get_config(Key, Default, State) ->
     #{settings:=Config} = State,
     maps:get(Key, Config, Default).
 
+set_config(Key, Value, State) ->
+    #{settings:=Config} = State,
+    State#{
+        settings => maps:put(Key, Value, Config)
+    }.
 
 get_unixtime() ->
     {Mega, Sec, _Micro} = os:timestamp(),
@@ -213,17 +220,38 @@ announce_one_service(Name, Address, ValidUntil) ->
     send_service_announce(AnnounceBin).
 
 
+is_address_advertisable(Address, #{options:=Options} = _ServiceOptions) ->
+    is_address_advertisable(Address, {options, Options});
+
+is_address_advertisable(Address, {options, #{filter:=Filter} = _Options}) ->
+    is_address_advertisable(Address, {filter, Filter});
+
+% filter services by protocol
+is_address_advertisable(#{proto:=Proto} = _Address, {filter, #{proto:=FilterProto}=_Filter})
+    when Proto == FilterProto ->
+    true;
+
+is_address_advertisable(_Address, _ServiceOptions) ->
+    false.
+
+
 % make announce of our local services via tpic
 make_announce(#{names:=Names} = _Dict, State) ->
     lager:debug("Announcing our local services"),
     ValidUntil = get_unixtime() + get_config(our_ttl, 120, State),
     Addresses = get_config(addresses, [], State),
 
-    Announcer = fun(Name, _Settings, Counter) ->
+    Announcer = fun(Name, ServiceSettings, Counter) ->
         Counter + lists:foldl(
             fun(Address, AddrCounter) ->
-                announce_one_service(Name, Address, ValidUntil),
-                AddrCounter + 1
+                IsAdvertisable = is_address_advertisable(Address, ServiceSettings),
+                if
+                    IsAdvertisable == true ->
+                        announce_one_service(Name, Address, ValidUntil),
+                        AddrCounter + 1;
+                    true ->
+                        AddrCounter
+                end
             end,
             0,
             Addresses)
@@ -240,11 +268,12 @@ find_service(Name, #{names:=NamesDict}) when is_binary(Name) ->
     lager:debug("find service by name ~p", [Name]),
     maps:find(Name, NamesDict).
 
-register_service(Name, Pid, #{names:=NameDict, pids:=PidDict} = _Dict) ->
+register_service(Name, Pid, #{names:=NameDict, pids:=PidDict} = _Dict, Options) ->
     Record = #{
         pid => Pid,
         monitor => monitor(process, Pid),
-        updated => get_unixtime()
+        updated => get_unixtime(),
+        options => Options
     },
     #{
         names=>maps:put(Name, Record, NameDict),
@@ -292,6 +321,10 @@ query_remote(Name, Dict) ->
         end, Announces
     ).
 
+
+query(Pred, _State) when is_function(Pred) ->
+    lager:info("Not inmplemented"),
+    error;
 
 % find service by name
 query(Name, State) ->
