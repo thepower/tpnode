@@ -94,7 +94,10 @@ filter_local_addresses(Peers) ->
                 (Ip == LocalIp andalso
                     Port == LocalPort andalso
                     (Proto == tpic orelse Proto == <<"tpic">>)
-                )
+                );
+                (InvalidLocalAddress) ->
+                    lager:info("invalid local address, skip it: ~p", [InvalidLocalAddress]),
+                    true  % use true to skip it by filter and avoid using the invalid address in the renew_peers call
             end,
             LocalAddresses),
         (IsLocalAddress == false)
