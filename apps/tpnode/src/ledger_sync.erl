@@ -124,6 +124,10 @@ send_part(TPIC,PeerID,Act,Itr) ->
 pickx(_, _, 0, A) -> {ok,A};
 pickx(Act, Itr, N, A) ->
     case rocksdb:iterator_move(Itr, Act) of
+        {ok, <<"lb:",_/binary>>, _} ->
+            pickx(next, Itr,N, A);
+        {ok, <<"lastblk">>, _} ->
+            pickx(next, Itr,N, A);
         {ok, K, V} ->
             pickx(next, Itr,N-1,
                   [{K,bal:pack(binary_to_term(V))}|A]);
