@@ -707,17 +707,19 @@ handle_info(runsync, #{
                           [last_hash,last_height,chain]
                          )),
     case lists:foldl( %first suitable will be the quickest
-                fun({Handler,#{chain:=_Ch,
+                fun({CHandler,#{chain:=_HisChain,
                                last_hash:=_,
                                last_height:=_,
-                               null:=<<"sync_available">>}=Info},undefined) ->
-                        {Handler, Info};
-                   ({_Handler,_Info},{H,I}) ->
-                        {H,I}
+                               null:=<<"sync_available">>}=CInfo},undefined) ->
+                        {CHandler, CInfo};
+                   ({_,_},undefined) ->
+                        undefined;
+                   ({_,_},{AccH,AccI}) ->
+                        {AccH,AccI}
                 end, undefined, Candidates) of
         undefined ->
             lager:notice("No candidates for sync."),
-            {noreply, State};
+            {noreply, maps:without([sync,syncblock,syncpeer], State)};
         {Handler, #{chain:=_Ch,
                      last_hash:=_,
                      last_height:=Height,
