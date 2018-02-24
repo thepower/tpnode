@@ -5,6 +5,7 @@
          splitby/2,
          parse/1]).
 -export([g2i/1,i2g/1]).
+-export([mine/1]).
 
 % Numbering plan
 % Whole address is 64 bit yet of which 61 bits are usable
@@ -178,4 +179,19 @@ i2g(I) when I<65536 ->
     L3=I div 2600,
     <<($A+L3),($A+L2),($0+L1),($0+L0)>>.
 
+mine(Num) ->
+    Tail=Num div 100,
+    CS=Num rem 100,
+    lists:filtermap(
+      fun(N) -> 
+              B= <<4:3/big,N:16/big,Tail:45/big>>,
+              C=erlang:crc32(B), 
+              if C rem 100 == CS -> 
+                     {true, encode(B) }; 
+                 true -> false 
+              end 
+      end, 
+      lists:usort(lists:seq(0,256) ++ 
+                  lists:seq(65300,65535) ++
+                  [ X*64 || X<-lists:seq(0,1024)])).
 

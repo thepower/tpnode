@@ -14,7 +14,20 @@ h(Method, [<<"api">>|Path], Req) ->
     lager:info("Path ~p",[Path]),
     h(Method,Path,Req);
 
-h(<<"GET">>, [<<"address">>,Addr], _Req) ->
+h(<<"GET">>, [<<"miner">>,TAddr], _Req) ->
+    {200,
+     #{ result => <<"ok">>,
+        mined=>naddress:mine(binary_to_integer(TAddr))
+      }
+    };
+
+h(<<"GET">>, [<<"address">>,TAddr], _Req) ->
+    Addr=case TAddr of 
+             <<"0x",Hex/binary>> ->
+                 hex:parse(Hex);
+             _ ->
+                 naddress:decode(TAddr)
+         end,
     Ledger=ledger:get([Addr]),
     case maps:is_key(Addr,Ledger) of
         false ->
@@ -30,20 +43,28 @@ h(<<"GET">>, [<<"address">>,Addr], _Req) ->
                           #{};
                       true ->
                           LastBlk=maps:get(lastblk,Info),
-                          #{preblk=>bin2hex:dbin2hex(LastBlk)}
+                          #{preblk=>LastBlk}
                   end,
             InfoU=case maps:is_key(ublk,Info) of
                       false ->
                           InfoL;
                       true ->
                           UBlk=maps:get(ublk,Info),
-                          InfoL#{lastblk=>bin2hex:dbin2hex(UBlk)}
+                          InfoL#{lastblk=>UBlk}
                   end,
             Info1=maps:merge(maps:remove(ublk,Info),InfoU),
+            Info2=maps:map(
+                    fun
+                        (lastblk,V) -> bin2hex:dbin2hex(V);
+                        (ublk,V) -> bin2hex:dbin2hex(V);
+                        (pubkey,V) -> bin2hex:dbin2hex(V);
+                        (_,V) -> V
+                    end, Info1),
             {200,
              #{ result => <<"ok">>,
-                address=>Addr,
-                info=>Info1
+                txtaddress=>naddress:encode(Addr),
+                address=>bin2hex:dbin2hex(Addr),
+                info=>Info2
               }
             }
     end;
