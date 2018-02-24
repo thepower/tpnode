@@ -21,20 +21,27 @@
 
 
 sign(Patch, PrivKey) when is_list(Patch) ->
+    BinPatch=mp(Patch),
+    sign(#{patch=>BinPatch,sig=>[]}, PrivKey);
+sign(Patch, PrivKey) when is_binary(Patch) ->
     sign(#{patch=>Patch,sig=>[]}, PrivKey);
 
-sign(#{patch:=LPatch}=Patch, PrivKey) when is_list(LPatch) ->
-    BinPatch=mp(LPatch),
+sign(#{patch:=LPatch}=Patch, PrivKey) ->
+    BPatch=if is_list(LPatch) -> mp(LPatch);
+                is_binary(LPatch) -> LPatch
+             end,
     Sig=bsig:signhash(
-          crypto:hash(sha256,BinPatch),
+          crypto:hash(sha256,BPatch),
           [{timestamp,os:system_time(millisecond)}],
           PrivKey),
-    #{ patch=>LPatch,
+    #{ patch=>BPatch,
         sig => [Sig|maps:get(sig, Patch, [])]
      }.
 
 verify(#{patch:=LPatch,sig:=HSig}=Patch) ->
-    BinPatch=settings:mp(LPatch),
+    BinPatch=if is_list(LPatch) -> mp(LPatch);
+                is_binary(LPatch) -> LPatch
+             end,
     {Valid,Invalid}=bsig:checksig(crypto:hash(sha256,BinPatch),HSig),
     case length(Valid) of
         0 ->

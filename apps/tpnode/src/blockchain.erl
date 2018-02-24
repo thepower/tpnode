@@ -637,6 +637,11 @@ handle_cast(_Msg, State) ->
     file:write_file("tmp/unknown_cast_state.txt", io_lib:format("~p.~n", [State])),
     {noreply, State}.
 
+handle_info({inst_sync,settings, Patches}, State) ->
+    %sync almost done - got settings
+    Settings=settings:patch(Patches,settings:new()),
+    {noreply, State#{syncsettings=>Settings}};
+
 handle_info({inst_sync,block, BinBlock}, State) ->
     #{hash:=Hash,header:=#{ledger_hash:=LH,height:=Height}}=Block=block:unpack(BinBlock),
     lager:info("BC Sync Got block ~p ~s~n",[Height,bin2hex:dbin2hex(Hash)]),
@@ -656,11 +661,12 @@ handle_info({inst_sync,done,Log}, #{ldb:=LDB}=State) ->
     #{header:=#{ledger_hash:=LH}}=Block=maps:get(syncblock, State),
     if LH==C ->
            lager:info("Sync done"),
-           lager:notice("Fix settings"),
-           CleanState=maps:without([sync,syncblock,syncpeer], State),
+           lager:notice("Verify settings"),
+           CleanState=maps:without([sync,syncblock,syncpeer,syncsettings], State),
            %self() ! runsync,
            save_block(LDB, Block, true),
            {noreply, CleanState#{
+                       settings=>maps:get(syncsettings,State),
                        lastblock=>Block,
                        candidates=>#{}
                       }

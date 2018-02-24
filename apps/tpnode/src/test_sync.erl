@@ -147,13 +147,21 @@ wait_more() ->
         {inst_sync,block,_} ->
             io:format("B"),
             wait_more();
+        {inst_sync,settings} ->
+            io:format("s"),
+            wait_more();
         {inst_sync,ledger} ->
             io:format("L"),
             wait_more();
-        {inst_sync,done,_} ->
-            io:format("~n"),
+        {inst_sync,settings,_} ->
+            io:format("S"),
+            wait_more();
+        {inst_sync,done,Res} ->
+            io:format("~n~p~n",[Res]),
             ok;
-        Any -> {error, Any}
+        Any -> 
+            io:format("error: ~p",[Any]),
+            {error, Any}
     after 10000 ->
               timeout
     end.
