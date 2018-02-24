@@ -48,7 +48,7 @@
   0},
  {<<"tpic">>,
   {git,"https://github.com/thepower/tpic.git",
-       {ref,"20a7fe8e694633ec1cbff0a7b972cbd169993755"}},
+       {ref,"8cf67cedda66685356a9a7b340f8208a686bd646"}},
   0}]}.
 [
 {pkg_hash,[
