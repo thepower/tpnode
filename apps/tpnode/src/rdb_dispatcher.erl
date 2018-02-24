@@ -87,7 +87,11 @@ handle_info(_Info, State) ->
     lager:notice("Unknown info  ~p",[_Info]),
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, #{dbs:=DBS}=_State) ->
+    maps:fold(
+      fun(_Path,{ok,DBH},_) ->
+              rocksdb:close(DBH)
+      end, undefined, DBS),
     lager:error("Terminate me ~p",[_State]),
     ok.
 

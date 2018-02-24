@@ -2,6 +2,7 @@
 -export([run/0,run1/0,test1/0,candidates/0]).
 
 call(Handler, Object, Atoms) ->
+    io:format("Calling ~p~n",[Object]),
     Res=tpic:call(tpic, Handler, msgpack:pack(Object)),
     lists:filtermap(
       fun({Peer, Bin}) ->
@@ -143,13 +144,13 @@ candidates() ->
 
 wait_more() ->
     receive
-        {inst_sync,block} ->
+        {inst_sync,block,_} ->
             io:format("B"),
             wait_more();
         {inst_sync,ledger} ->
             io:format("L"),
             wait_more();
-        {inst_sync,done} ->
+        {inst_sync,done,_} ->
             io:format("~n"),
             ok;
         Any -> {error, Any}

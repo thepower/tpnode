@@ -52,6 +52,9 @@ check(KVS) when is_list(KVS) ->
 check(KVS, Block) when is_list(KVS) ->
     gen_server:call(?SERVER, {check, KVS, Block}).
 
+get(Address) when is_binary(Address) ->
+    gen_server:call(?SERVER, {get, Address});
+
 get(KS) when is_list(KS) ->
     gen_server:call(?SERVER, {get, KS}).
 
@@ -205,7 +208,25 @@ handle_call({Action, KVS0, BlockID}, _From, #{db:=DB, mt:=MT}=State) when
          _ -> State
      end};
 
-handle_call({get, KS}, _From, #{db:=DB}=State) ->
+handle_call({get, Addr}, _From, #{db:=DB}=State) when is_binary(Addr) ->
+    R=case rocksdb:get(DB, Addr, []) of
+          {ok, Value} ->
+              LB=case rocksdb:get(DB, <<"lb:",Addr/binary>>, []) of
+                     {ok, LBH} ->
+                         #{ ublk=>LBH };
+                     _ -> 
+                         #{}
+                 end,
+              maps:merge( erlang:binary_to_term(Value), LB);
+          not_found ->
+              not_found;
+          Error ->
+              lager:error("Can't fetch ~p: ~p",[Addr,Error]),
+              error
+      end,
+    {reply, R, State};
+
+handle_call({get, KS}, _From, #{db:=DB}=State) when is_list(KS) ->
     R=lists:foldl(
         fun(Key, Acc) ->
                 case rocksdb:get(DB, Key, []) of

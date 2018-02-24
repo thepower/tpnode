@@ -4,6 +4,7 @@
          construct_private/2,
          splitby/2,
          parse/1]).
+-export([g2i/1,i2g/1]).
 
 % Numbering plan
 % Whole address is 64 bit yet of which 61 bits are usable
@@ -16,20 +17,27 @@
 % Each group contains 2^21 blocks.
 % Private addresses have no division on groups.
 %
+%
+% binary representation
+% 100GGGGG GGGGGGGG GGGBBBBB BBBBBBBB BBBBBBBB AAAAAAAA AAAAAAAA AAAAAAAA 
+% 101BBBBB BBBBBBBB BBBBBBBB BBBBBBBB BBBBBBBB AAAAAAAA AAAAAAAA AAAAAAAA 
 
 %% Make public address from components
 construct_public(Group, Block, Address) when Group < 16#10000,
-                                             Block < 16#200000,
+                                             Block <    16#200000,
                                              Address < 16#1000000 ->
-    Address bor (Block bsl 24) bor (Group bsl 45) bor (4 bsl 61).
+    binary:encode_unsigned(Address bor (Block bsl 24) bor (Group bsl 45) bor (4 bsl 61)).
 
 %% Make private address from components
 construct_private(Block, Address) when Block<16#2000000000,
                                        Address<16#1000000 ->
     IntPart=Address bor (Block bsl 24),
-    IntPart bor (5 bsl 61).
+    binary:encode_unsigned(IntPart bor (5 bsl 61)).
 
 %% split address to components
+
+parse(<<X:64/big>>) -> parse(X);
+
 parse(Int) when is_integer(Int) andalso Int >= 9223372036854775808 
                  andalso Int < 13835058055282163712 ->
     case Int bsr 61 of
@@ -45,6 +53,7 @@ parse(Int) when is_integer(Int) andalso Int >= 9223372036854775808
     end.
 
 %% encode address to human frendly format
+encode(<<X:64/big>>) -> encode(X);
 encode(Int) when is_integer(Int) andalso Int >= 9223372036854775808 
                  andalso Int < 13835058055282163712 ->
     Type=case Int bsr 61 of
@@ -77,7 +86,7 @@ encode(Int) when is_integer(Int) andalso Int >= 9223372036854775808
 
 check(UserAddr) ->
     try
-        {true, decode(UserAddr)}
+        {true, parse(UserAddr)}
     catch _:_ ->
               {false, unknown}
     end.
@@ -94,7 +103,7 @@ decode(UserAddr) ->
             CSum=erlang:crc32(<<Address:64/big>>) rem 100,
             CRC=binary_to_integer(BCRC),
             if(CSum==CRC) ->
-                  Address;
+                  binary:encode_unsigned(Address);
               true ->
                   throw({error,address_crc})
             end;
@@ -104,10 +113,11 @@ decode(UserAddr) ->
             CRC=PI band 255,
             CSum=erlang:crc32(<<Address:64/big>>) band 255,
             if(CSum==CRC) ->
-                  Address;
+                  binary:encode_unsigned(Address);
               true ->
                   throw({error,address_crc})
-            end
+            end;
+        _ -> throw('bad_addr')
     end.
 
 %%%

@@ -210,7 +210,14 @@ try_process([{TxID,
                       settings=>[{TxID,Tx}|Settings]
                      }
                    )
-    catch Ec:Ee ->
+    catch throw:Ee ->
+              lager:info("Fail to Patch ~p ~p",
+                         [_LPatch,Ee]),
+              try_process(Rest,SetState,Addresses,GetFun,
+                          Acc#{
+                            failed=>[{TxID,Ee}|Failed]
+                           });
+          Ec:Ee ->
               S=erlang:get_stacktrace(),
               lager:info("Fail to Patch ~p ~p:~p against settings ~p",
                          [_LPatch,Ec,Ee,SetState]),
@@ -319,7 +326,9 @@ try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
 
 try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
             SetState, Addresses, GetFun, 
-            #{failed:=Failed,success:=Success}=Acc) ->
+            #{failed:=Failed,
+              success:=Success,
+              settings:=Settings }=Acc) ->
     try
         {CG,CB,CA}=case settings:get([<<"current">>,<<"allocblock">>],SetState) of
                        #{<<"block">> := CurBlk,
@@ -330,25 +339,25 @@ try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
                            throw(unallocable)
                    end,
 
-        NewIAddr=naddress:construct_public(CG, CB, CA),
-        NewBAddr= <<NewIAddr:64/big>>,
-        NewTAddr=naddress:encode(NewIAddr),
+        NewBAddr=naddress:construct_public(CG, CB, CA),
 
         IncAddr=#{<<"t">> => <<"set">>,
                   <<"p">> => [<<"current">>,<<"allocblock">>,<<"last">>],
                   <<"v">> => CA},
         AAlloc={<<"aalloc">>,#{sig=>[],patch=>[IncAddr]}},
         SS1=settings:patch(AAlloc,SetState),
-        lager:info("Alloc address ~p for key ~s",
-                   [NewTAddr,bin2hex:dbin2hex(PubKey)]),
+        lager:info("Alloc address ~p ~s for key ~s",
+                   [NewBAddr,
+                    naddress:encode(NewBAddr),
+                    bin2hex:dbin2hex(PubKey)
+                   ]),
 
         NewF=bal:put(pubkey, PubKey, bal:new()),
         NewAddresses=maps:put(NewBAddr,NewF,Addresses),
 
         try_process(Rest,SS1,NewAddresses,GetFun,
-                    Acc#{success=>
-                         [{TxID,Tx#{address=>NewTAddr}},AAlloc|
-                          lists:keydelete(<<"aalloc">>,1,Success)]
+                    Acc#{success=> [{TxID,Tx#{address=>NewBAddr}}|Success],
+                         settings=>[AAlloc|lists:keydelete(<<"aalloc">>,1,Settings)]
                         })
     catch throw:X ->
               lager:info("Portout fail ~p",[X]),
@@ -356,15 +365,12 @@ try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
                           Acc#{failed=>[{TxID,X}|Failed]})
     end;
 
-
 try_process([{TxID, UnknownTx} |Rest],
             SetState, Addresses, GetFun, 
             #{failed:=Failed}=Acc) ->
     lager:info("Unknown TX ~p type ~p",[TxID,UnknownTx]),
     try_process(Rest,SetState,Addresses,GetFun,
                 Acc#{failed=>[{TxID,'unknown_type'}|Failed]}).
-
-
 
 try_process_inbound([{TxID,
                     #{cur:=Cur,amount:=Amount,to:=To,
@@ -804,7 +810,12 @@ alloc_addr_test() ->
                         {1,ParentHash},
                         GetSettings,
                         GetAddr),
-    %?assertEqual([{<<"2invalid">>,insufficient_fund}], Failed),
+
+    io:format("~p~n",[Block]),
+    [
+    ?assertEqual([], Failed),
+    ?assertMatch(#{bals:=#{<<128,1,64,0,2,0,0,1>>:=_,<<128,1,64,0,2,0,0,1>>:=_}}, Block)
+    ].
     %?assertEqual([<<"3crosschain">>],proplists:get_keys(maps:get(tx_proof,Block))),
     %?assertEqual([{<<"3crosschain">>,1}],maps:get(outbound,Block)),
     %SignedBlock=block:sign(Block,<<1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1>>),
@@ -812,7 +823,6 @@ alloc_addr_test() ->
     %?assertMatch({true, {_,_}},block:verify(SignedBlock)),
     %maps:get(1,block:outward_mk(maps:get(outbound,Block),SignedBlock)),
     %test_xchain_inbound().
-    {Block,Failed}.
 
 
 

@@ -98,6 +98,19 @@ change({member,T},[],Value,M,FPath) ->
             throw({'member',FPath})
     end;
 
+change({exist,T},[Path],_Value,M,FPath) ->
+    if is_map(M) ->
+           Exist=maps:is_key(Path,M),
+           if Exist == T ->
+                  M;
+              true ->
+                  throw({exist, FPath})
+           end;
+       true ->
+           throw({'non_map',FPath})
+    end;
+
+
 change(compare,[Path],Value,M,FPath) ->
     if is_map(M) ->
            Val=maps:get(Path,M,undefined),
@@ -194,6 +207,8 @@ action(<<"list_del">>) -> remove;
 action(<<"set">>) -> set;
 action(<<"delete">>) -> delete;
 action(<<"compare">>) -> compare;
+action(<<"exist">>) -> {exist,true};
+action(<<"nonexist">>) -> {exist,false};
 action(<<"member">>) -> {member,true};
 action(<<"nonmember">>) -> {member,false};
 action(Action) -> throw({action,Action}).
@@ -219,6 +234,22 @@ parse_settings([H|T], Settings, Path, Patches) ->
 
 
 -ifdef(TEST).
+exists_test() ->
+    TestPatch=settings:dmp(
+                settings:mp(
+                  [
+                   #{t=><<"nonexist">>,p=>[current,allocblock,last], v=>any},
+                   #{t=>set,p=>[current,allocblock,group], v=>10},
+                   #{t=>set,p=>[current,allocblock,block], v=>2},
+                   #{t=>set,p=>[current,allocblock,last], v=>3}
+                  ])),
+    ExTest=settings:patch(TestPatch, #{}),
+    [ 
+     ?assertException(throw,
+                       {exist,[<<"current">>,<<"allocblock">>,<<"last">>]}, 
+                       settings:patch(TestPatch, ExTest)) 
+    ].
+
 patch_sign_test() ->
     TestPriv1= <<8,3,173,195,34,179,247,43,170,25,72,141,197,33,16,27,243,255,
                 62,9,86,147,15,193,9,244,229,208,76,222,83,208>>,
@@ -254,7 +285,9 @@ patch_sign_test() ->
     Genesis=patch(TstGenesis,#{}),
     Patched=patch(verify(RePack),Genesis),
 
+    
     [
+
      ?assertMatch({ok,#{
                      sigverify:=#{
                        invalid:=0,

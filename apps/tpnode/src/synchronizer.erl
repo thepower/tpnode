@@ -91,14 +91,14 @@ handle_info(ticktimer,
     case maps:get(bcready,State,false) of
         true ->
             gen_server:cast(txpool,prepare),
-            erlang:send_after(200, whereis(mkblock), process);
+            erlang:send_after(200, whereis(mkblock), process),
+            lager:info("Time to tick. next in ~w", [Wait]);
         false ->
-            erlang:send_after(200, whereis(mkblock), flush)
+            erlang:send_after(200, whereis(mkblock), flush),
+            lager:info("Time to tick. But we not in sync. wait ~w", [Wait])
     end,
-
     catch erlang:cancel_timer(Tmr),
 
-    lager:info("Time to tick. next in ~w", [Wait]),
     {noreply,State#{
                ticktimer=>erlang:send_after(Wait, self(), ticktimer),
                prevtick=>T

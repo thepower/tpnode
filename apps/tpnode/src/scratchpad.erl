@@ -84,6 +84,15 @@ reapply_settings() ->
      gen_server:call(txpool, {patch, Patch})}.
 
 
+test_alloc_addr() ->
+    TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
+    PubKey=tpecdsa:calc_pub(TestPriv,true),
+    TX0=tx:unpack( tx:pack( #{ type=>register, register=>PubKey })),
+    {TX0,
+    gen_server:call(txpool, {register, TX0})
+    }.
+
+
 test_alloc_block() ->
     {ok,HexPrivKey}=application:get_env(tpnode,privkey),
     PrivKey=hex:parse(HexPrivKey),
@@ -91,14 +100,15 @@ test_alloc_block() ->
             settings:dmp(
               settings:mp(
                 [
+                 #{t=><<"nonexist">>,p=>[current,allocblock,last], v=>any},
                  #{t=>set,p=>[current,allocblock,group], v=>10},
                  #{t=>set,p=>[current,allocblock,block], v=>2},
-                 #{t=>set,p=>[current,allocblock,last], v=>0}
+                 #{t=>set,p=>[current,allocblock,last], v=>3}
                 ])),
       PrivKey),
     io:format("PK ~p~n",[settings:verify(Patch)]),
-    {Patch
-    %gen_server:call(txpool, {patch, Patch})
+    {Patch,
+    gen_server:call(txpool, {patch, Patch})
     }.
 
 

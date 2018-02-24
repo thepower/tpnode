@@ -70,6 +70,18 @@ handle_call({portout, #{
       }
     };
 
+handle_call({register, #{
+               register:=_
+              }=Patch}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
+    TxID=generate_txid(Node),
+    {reply,
+     {ok, TxID},
+     State#{
+       queue=>queue:in({TxID, Patch},Queue)
+      }
+    };
+
+
 handle_call({patch, #{
                patch:=_,
                sig:=_
@@ -103,7 +115,10 @@ handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
         end
     catch Ec:Ee ->
               Stack=erlang:get_stacktrace(),
-              lager:info("error at ~p",[hd(Stack)]),
+              lists:foreach(
+                fun(Where) ->
+                        lager:info("error at ~p",[Where])
+                end, Stack),
               {reply, {error, {Ec,Ee}}, State}
     end;
 

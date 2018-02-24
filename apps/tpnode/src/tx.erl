@@ -10,12 +10,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
-checkaddr(Address) ->
-    try 
-        address:check(Address)
-    catch _:_ ->
-              naddress:check(Address)
-    end.
+checkaddr(<<Ia:64/big>>) -> {new, {true, Ia}};
+checkaddr(Address) -> {old, address:check(Address)}.
 
 get_ext(K,Tx) ->
     Ed=maps:get(extdata,Tx,#{}),
@@ -48,19 +44,27 @@ mkmsg(#{ from:=From, amount:=Amount,
         false -> ok
     end,
     Append=maps:get(extradata,Tx,<<"">>),
+    lager:info("tx ~p",[Tx]),
+    if is_binary(From) -> ok;
+       true -> throw('non_bin_addr_from')
+    end,
+    if is_binary(To) -> ok;
+       true -> throw('non_bin_addr_to')
+    end,
 
     msgpack:pack([
                   "tx",
-                  binary_to_list(From),
-                  binary_to_list(To),
+                  From,
+                  To,
                   trunc(Amount),
                   if is_list(Currency) -> Currency;
-                     is_binary(Currency) -> binary_to_list(Currency);
-                     is_integer(Currency) -> Currency
+                     is_binary(Currency) -> binary_to_list(Currency)
                   end,
                   Timestamp,
                   Seq,
-                  binary_to_list(Append)
+                  if is_list(Append) -> Append;
+                     is_binary(Append) -> binary_to_list(Append)
+                  end
                  ]);
 
 mkmsg(Unknown) ->
@@ -71,15 +75,10 @@ sign(#{
   from:=From
  }=Tx,PrivKey) ->
     Pub=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
-    case naddress:check(From) of 
-        {true, _IAddr} ->
+    case checkaddr(From) of 
+        {new,{true, _IAddr}} ->
             ok;
-        {false, _} ->
-            {FromValid,Fat}=checkaddr(From),
-            if not FromValid -> 
-                   throw({invalid_address,from});
-               true -> ok
-            end,
+        {old,{true, Fat}} ->
             if Fat < 256 ->
                    NewFrom=address:pub2addr(Fat,Pub),
                    if NewFrom =/= From -> 
@@ -88,10 +87,13 @@ sign(#{
                    end;
                true ->
                    lager:notice("Check sender's key in ledger")
-            end
+            end;
+        _ ->
+            throw({invalid_address,from})
     end,
 
     TxBin=mkmsg(Tx),
+    io:format("Bin ~p~n",[TxBin]),
     {ok, [MType|LTx]} = msgpack:unpack(TxBin),
 
     Sig = tpecdsa:secp256k1_ecdsa_sign(TxBin, PrivKey, default, <<>>),
@@ -106,6 +108,9 @@ sign(#{
         maps:with([extdata],Tx))
      ).
 
+verify(#{register:=_, type:=register}=Tx) -> 
+    {ok,Tx};
+
 verify(#{
   from := From,
   sig := HSigs,
@@ -119,24 +124,24 @@ verify(#{
            throw({bad_timestamp,T})
     end,
 
-    {Valid,Invalid}=case naddress:check(From) of 
-                        {true, _IAddr} ->
-                            maps:fold(
-                              fun(Pub, Sig, {AValid,AInvalid}) ->
-                                      case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
-                                          correct ->
-                                              {AValid+1, AInvalid};
-                                          _ ->
-                                              {AValid, AInvalid+1}
-                                      end
-                              end,
-                              {0,0}, HSigs);
-                        {false, _} ->
-                            {FromValid,Fat}=checkaddr(From),
-                            if not FromValid -> 
-                                   throw({invalid_address,from});
-                               true -> ok
-                            end,
+    {Valid,Invalid}=case checkaddr(From) of 
+                        {new, {true, _IAddr}} ->
+                            case ledger:get(From) of
+                                #{pubkey:=PK} when is_binary(PK) ->
+                                    maps:fold(
+                                      fun(Pub, Sig, {AValid,AInvalid}) when Pub==PK ->
+                                              case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
+                                                  correct when PK==Pub ->
+                                                      {AValid+1, AInvalid};
+                                                  _ ->
+                                                      {AValid, AInvalid+1}
+                                              end
+                                      end,
+                                      {0,0}, HSigs);
+                                _ ->
+                                    throw({ledger_err,From})
+                            end;
+                        {old, {true, Fat}} ->
                             maps:fold(
                               fun(Pub, Sig, {AValid,AInvalid}) ->
                                       NewFrom=address:pub2addr(Fat,Pub),
@@ -151,7 +156,9 @@ verify(#{
                                              end
                                       end
                               end,
-                              {0,0}, HSigs)
+                              {0,0}, HSigs);
+                        _ ->
+                            throw({invalid_address,from})
                     end,
 
     case Valid of
@@ -222,10 +229,12 @@ unpack(BinTx) when is_binary(BinTx) ->
     unpack_mp(BinTx).
 
 unpack_mp(BinTx) when is_binary(BinTx) ->
+    lager:info("mp ~p",[BinTx]),
     {ok, Tx0} = msgpack:unpack(BinTx, [{known_atoms, 
                                         [type,sig,tx,patch,register,
-                                        register] },
-                               {unpack_str,as_binary}] ),
+                                         register] },
+                                       {unpack_str,as_binary}] ),
+    lager:info("TX ~p",[Tx0]), 
     Tx=maps:fold(
          fun
              ("tx",Val,Acc) ->
@@ -356,10 +365,35 @@ register_test() ->
 
 digaddr_tx_test() ->
     Priv= <<194,124,65,109,233,236,108,24,50,151,189,216,
-           123,142,115,120,124,240,248,115, 150,54,239,
-           58,218,221,145,246,158,15,210,165>>,
-    From=naddress:encode(naddress:construct_public(0,0,1)),
-    To=naddress:encode(naddress:construct_public(0,0,2)),
+            123,142,115,120,124,240,248,115, 150,54,239,
+            58,218,221,145,246,158,15,210,165>>,
+    PubKey=tpecdsa:calc_pub(Priv,true),
+    From=(naddress:construct_public(0,0,1)),
+    To=(naddress:construct_public(0,0,2)),
+
+    NeedStop=case whereis(rdb_dispatcher) of
+                 P1 when is_pid(P1) -> false;
+                 undefined -> 
+                     {ok,P1}=rdb_dispatcher:start_link(),
+                     P1
+             end,
+    Ledger=case whereis(ledger) of
+               P when is_pid(P) -> false;
+               undefined -> 
+                   {ok,P}=ledger:start_link(
+                              [{filename, "db/ledger_txtest"}]
+                             ),
+                   gen_server:call(P, '_flush'),
+                   gen_server:call(P,
+                                   {put, [
+                                          {From,
+                                           bal:put(pubkey,PubKey,bal:new())
+                                          }
+                                         ]}),
+
+                   P
+             end,
+     
     TestTx2=#{ from=>From,
                to=>To, 
                cur=><<"tkn1">>,
@@ -371,6 +405,12 @@ digaddr_tx_test() ->
     BinTx2r=tx:pack(tx:unpack(BinTx2)),
     {ok, CheckTx2}=tx:verify(BinTx2),
     {ok, CheckTx2r}=tx:verify(BinTx2r),
+    if Ledger == false -> ok;
+       true -> gen_server:stop(Ledger, normal, 3000)
+    end,
+    if NeedStop==false -> ok;
+       true -> gen_server:stop(NeedStop, normal, 3000)
+    end,
     CheckTx2=CheckTx2r.
 
 new_tx_test() ->
@@ -381,14 +421,14 @@ new_tx_test() ->
               extdata=>#{<<"aaa">>=>111,222=><<"bbb">>},
               from=>From,
               to=>To, 
-              cur=>0,
+              cur=>"CUR1",
               amount=>1, timestamp => os:system_time(millisecond), seq=>1},
     BinTx1=tx:sign(TestTx1, Priv),
     {ok, CheckTx1}=tx:verify(BinTx1),
 
     TestTx2=#{ from=>From,
              to=>To, 
-             cur=>1231631273374273843,
+             cur=>"XCUR",
              amount=>12344327463428479872, 
              timestamp => os:system_time(millisecond), 
              seq=>1

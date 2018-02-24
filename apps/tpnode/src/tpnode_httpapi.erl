@@ -48,6 +48,13 @@ h(<<"GET">>, [<<"address">>,Addr], _Req) ->
             }
     end;
 
+h(<<"POST">>, [<<"test">>,<<"tx">>], Req) ->
+    {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
+    {200,
+     #{ result => <<"ok">>,
+        address=>ReqBody
+      }
+    };
 
 h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
     BlockHash0=if(BlockId == <<"last">>) -> last;
@@ -160,6 +167,7 @@ h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
 
 
 
+
 h(<<"POST">>, [<<"test">>,<<"request_fund">>], Req) ->
     Body=apixiom:bodyjs(Req),
     lager:info("B ~p",[Body]),
@@ -208,49 +216,68 @@ h(<<"POST">>, [<<"test">>,<<"request_fund">>], Req) ->
 
 
 h(<<"POST">>, [<<"register">>], Req) ->
-    {RemoteIP,_Port}=cowboy_req:peer(Req),
+    {_RemoteIP,_Port}=cowboy_req:peer(Req),
     Body=apixiom:bodyjs(Req),
-    Address=maps:get(<<"address">>,Body),
-    {ok,Config}=application:get_env(tpnode,tpfaucet),
-    Faucet=proplists:get_value(register,Config),
-    Tokens=proplists:get_value(tokens,Config),
-    Res=lists:foldl(fun({Coin,Amount},Acc) ->
-                        case proplists:get_value(Coin,Tokens,undefined) of
-                            undefined -> Acc;
-                            #{key:=Key,
-                              addr:=Adr} ->
-                                #{seq:=Seq}=gen_server:call(blockchain,{get_addr,Adr,Coin}),
-                                Tx=#{
-                                  amount=>Amount,
-                                  cur=>Coin,
-                                  extradata=>jsx:encode(#{
-                                               message=> <<"Welcome, ", Address/binary>>,
-                                               ipaddress => list_to_binary(inet:ntoa(RemoteIP))
-                                              }),
-                                  from=>Adr,
-                                  to=>Address,
-                                  seq=>Seq+1,
-                                  timestamp=>os:system_time(millisecond)
-                                 },
-                                lager:info("Sign tx ~p",[Tx]),
-                                NewTx=tx:sign(Tx,address:parsekey(Key)),
-                                case txpool:new_tx(NewTx) of
-                                    {ok, TxID} ->
-                                        [#{c=>Coin,s=>Amount,tx=>TxID}|Acc];
-                                    {error, Error} ->
-                                        lager:error("Can't make tx: ~p",[Error]),
-                                        Acc
-                                end
-                        end
-                end,[],Faucet),
+    PKey=case maps:get(<<"public_key">>,Body) of
+              <<"0x",BArr/binary>> ->
+                  hex:parse(BArr);
+              Any -> 
+                  base64:decode(Any)
+          end,
+
+    BinTx=tx:pack( #{ type=>register, register=>PKey }),
+    %{TX0,
+    %gen_server:call(txpool, {register, TX0})
+    %}.
+
+    case txpool:new_tx(BinTx) of
+        {ok, Tx} -> 
+            {200,
+             #{ result => <<"ok">>,
+                pkey=>bin2hex:dbin2hex(PKey),
+                txid => Tx
+              }
+            };
+        {error, Err} ->
+            lager:info("error ~p",[Err]),
+            {500,
+             #{ result => <<"error">>,
+                pkey=>bin2hex:dbin2hex(PKey),
+                tx=>base64:encode(BinTx),
+                error => iolist_to_binary(io_lib:format("bad_tx:~p",[Err]))
+              }
+            }
+    end;
+
+h(<<"POST">>, [<<"address">>], Req) ->
+    [Body]=apixiom:bodyjs(Req),
+    lager:debug("New tx from ~s: ~p",[Body]),
+    A=hd(Body), 
+    R=naddress:encode(A),
     {200,
      #{ result => <<"ok">>,
-        address=>Address,
-        info=>Res
+        r=> R
       }
     };
 
 
+
+h(<<"POST">>, [<<"tx">>,<<"debug">>], Req) ->
+    {RemoteIP,_Port}=cowboy_req:peer(Req),
+    Body=apixiom:bodyjs(Req),
+    lager:debug("New tx from ~s: ~p",[inet:ntoa(RemoteIP), Body]),
+    BinTx=case maps:get(<<"tx">>,Body,undefined) of
+              <<"0x",BArr/binary>> ->
+                  hex:parse(BArr);
+              Any -> 
+                  base64:decode(Any)
+          end,
+    X=tx:unpack(BinTx),
+    {200,
+     #{ result => <<"ok">>,
+        tx => iolist_to_binary(io_lib:format("~p",[X]))
+      }
+    };
 
 h(<<"POST">>, [<<"tx">>,<<"new">>], Req) ->
     {RemoteIP,_Port}=cowboy_req:peer(Req),
@@ -304,19 +331,26 @@ prettify_block(#{}=Block0) ->
          (child,BlockHash) ->
               bin2hex:dbin2hex(BlockHash);
          (bals,Bal) ->
-              maps:map(
-                fun(_K,V) ->
-                       case maps:is_key(lastblk,V) of
+              maps:fold(
+                fun(BalAddr,V,A) ->
+                       FixedBal=case maps:is_key(lastblk,V) of
                            false ->
                                maps:remove(ublk,V);
                            true ->
                                LastBlk=maps:get(lastblk,V),
-                               maps:put(lastblk,
-                                        bin2hex:dbin2hex(LastBlk),
-                                        maps:remove(ublk,V)
-                                       )
-                       end
-                end, Bal);
+                                 maps:put(lastblk,
+                                          bin2hex:dbin2hex(LastBlk),
+                                          maps:remove(ublk,V)
+                                         )
+                       end,
+                       PrettyBal=maps:map(
+                                 fun(pubkey,PubKey) ->
+                                         bin2hex:dbin2hex(PubKey);
+                                     (_BalKey,BalVal) -> 
+                                         BalVal
+                                 end, FixedBal),
+                       maps:put(bin2hex:dbin2hex(BalAddr),PrettyBal,A)
+                end, #{}, Bal);
          (header,BlockHeader) ->
               maps:map(
                 fun(parent,V) ->
@@ -365,7 +399,11 @@ prettify_block(#{}=Block0) ->
                 fun({TxID,TXB}) ->
                         {TxID,
                          maps:map(
-                           fun(sig,V1) -> 
+                           fun(register, Val) ->
+                                   bin2hex:dbin2hex(Val);
+                              (address, Val) ->
+                                   bin2hex:dbin2hex(Val);
+                              (sig,#{}=V1) -> 
                                  [
                                   {bin2hex:dbin2hex(SPub),
                                    bin2hex:dbin2hex(SPri)} || {SPub,SPri} <- maps:to_list(V1) ];
