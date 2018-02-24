@@ -22,6 +22,7 @@ h(<<"GET">>, [<<"miner">>,TAddr], _Req) ->
     };
 
 h(<<"GET">>, [<<"address">>,TAddr], _Req) ->
+    try
     Addr=case TAddr of 
              <<"0x",Hex/binary>> ->
                  hex:parse(Hex);
@@ -67,6 +68,13 @@ h(<<"GET">>, [<<"address">>,TAddr], _Req) ->
                 info=>Info2
               }
             }
+    end
+    catch throw:{error,address_crc} ->
+              {200,
+               #{ result => <<"error">>,
+                  error=> <<"bad address">>
+                }
+              }
     end;
 
 h(<<"POST">>, [<<"test">>,<<"tx">>], Req) ->
@@ -82,13 +90,21 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
                 true ->
                     hex:parse(BlockId)
               end,
-    Block=prettify_block(gen_server:call(blockchain,{get_block,BlockHash0})),
-    
-       {200,
-     #{ result => <<"ok">>,
-        block => Block
-      }
-    };
+    case gen_server:call(blockchain,{get_block,BlockHash0}) of
+        undefined ->
+            {404,
+             #{ result=><<"error">>,
+                error=><<"not found">>
+              }
+            };
+        GoodBlock ->
+            Block=prettify_block(GoodBlock),
+            {200,
+             #{ result => <<"ok">>,
+                block => Block
+              }
+            }
+    end;
 
 
 h(<<"GET">>, [<<"settings">>], _Req) ->
