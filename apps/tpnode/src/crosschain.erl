@@ -78,9 +78,11 @@ handle_info({gun_up, ConnPid, http}, State) ->
     gun:ws_upgrade(ConnPid, "/"),
     {noreply, State};
 
-handle_info({gun_ws_upgrade, _ConnPid, ok, _Headers}, State) ->
+handle_info({gun_ws_upgrade, ConnPid, ok, _Headers}, #{subs:=Subs} = State) ->
     lager:notice("crosschain client connection upgraded to websocket"),
-    {noreply, State};
+    {noreply, State#{
+        subs => mark_ws_mode_on(ConnPid, Subs)
+    }};
 
 handle_info({gun_ws, _ConnPid, {text, Msg} }, State) ->
     lager:notice("crosschain client got ws msg: ~p", [Msg]),
@@ -121,17 +123,13 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+
+%% TODO: catch gun:open errors here!!!
 connect_remote({Ip, Port} = _Address) ->
     {ok, _} = application:ensure_all_started(gun),
+    lager:info("crosschain client connecting to ~p ~p", [Ip, Port]),
     {ok, ConnPid} = gun:open(Ip, Port),
-%%    case gun:await_up(ConnPid) of
-%%        {ok, _Protocol} ->
-%%            ok;
-%%        {Error, Reason} ->
-%%            lager:info("crosschain client connection problem ~p ~p : ~p ~p", [Ip, Port, Error, Reason])
-%%    end,
     ConnPid.
-
 
 lost_connection(Pid, Subs) ->
     Cleaner =
@@ -154,6 +152,22 @@ lost_connection(Pid, Subs) ->
         end,
     maps:map(Cleaner, Subs).
 
+
+mark_ws_mode_on(Pid, Subs) ->
+    Marker =
+        fun(_Key, #{connection:=Connection} = Sub) ->
+            case Connection of
+                Pid ->
+                    Sub#{
+                        ws_mode => true
+                    };
+                _ ->
+                    Sub
+            end;
+        (_Key, Sub) ->
+            Sub
+        end,
+    maps:map(Marker, Subs).
 
 
 make_connections(Subs) ->
@@ -222,16 +236,17 @@ add_sub(Subscribe, Subs) ->
             maps:get(Key, Subs, #{})
         ),
         check_empty_subscribes(NewSub),
-        NewSubs = maps:put(Key, NewSub, Subs),
-        make_subscription(Key, NewSub, NewSubs)
+        maps:put(Key, NewSub, Subs)
     catch
         Reason ->
             lager:info("can't process subscribe. ~p", Reason),
             Subs
     end.
 
-subscribe_one_channel(_Connection, _Channel) ->
+subscribe_one_channel(_Connection, Channel) ->
     % subscribe here
+    lager:info("subscribe to ~p channel", [Channel]),
+%%    gun:ws_send(ConnPid, {text, "It's raining!"}),
     1.
 
 make_subscription(Subs) ->
@@ -274,7 +289,7 @@ test() ->
     Subscribe = #{
         address => "127.0.0.1",
         port => 43311,
-        channels => #{ <<"ch1">> => 0, <<"ch2">> => 0, <<"ch3">> => 0}
+        channels => [<<"ch1">>, <<"ch2">>, <<"ch3">>]
     },
     gen_server:call(crosschain, {add_subscribe, Subscribe}).
 %%    {ok, _} = application:ensure_all_started(gun),
