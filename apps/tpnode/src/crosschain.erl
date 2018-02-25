@@ -49,7 +49,7 @@ handle_call(state, _From, State) ->
 
 
 handle_call({add_subscribe, Subscribe}, _From, #{subs:=Subs} = State) ->
-    lager:notice("add subscribe", [Subscribe]),
+    lager:notice("add subscribe ~p", [Subscribe]),
     {reply, ok, State#{
         subs => add_sub(Subscribe, Subs)
     }};
@@ -60,10 +60,10 @@ handle_call({connect, Ip, Port}, _From, State) ->
         conn => connect_remote({Ip, Port})
     }};
 
-handle_call({send, Text}, _From, State) ->
-    #{conn:=ConnPid} = State,
-    gun:ws_send(ConnPid, {text, Text}),
-    {reply, ok, State};
+%%handle_call({send, Text}, _From, State) ->
+%%    #{conn:=ConnPid} = State,
+%%    gun:ws_send(ConnPid, {text, Text}),
+%%    {reply, ok, State};
 
 handle_call(_Request, _From, State) ->
     lager:notice("crosschain unknown call ~p", [_Request]),
@@ -88,6 +88,12 @@ handle_info({gun_ws, _ConnPid, {text, Msg} }, State) ->
     lager:notice("crosschain client got ws msg: ~p", [Msg]),
     {noreply, State};
 
+handle_info({gun_ws, ConnPid, {close, _, _} }, #{subs:=Subs} = State) ->
+    lager:notice("crosschain client got close from server", [_ConnPid]),
+    {noreply, State#{
+        subs => lost_connection(ConnPid, Subs)
+    }};
+
 handle_info({gun_down, ConnPid, _, _, _, _}, #{subs:=Subs} = State) ->
     lager:notice("crosschain client lost connection for pid: ~p", [ConnPid]),
     {noreply, State#{
@@ -99,6 +105,7 @@ handle_info({gun_down, ConnPid, _, _, _, _}, #{subs:=Subs} = State) ->
 %%{gun_down,<0.248.0>,ws,closed,[],[]}
 %%{gun_error,<0.248.0>,{badstate,"Connection needs to be upgraded to Websocket before the gun:ws_send/1 function can be used."}}
 %%{gun_ws_upgrade,<0.248.0>,ok,[{<<"connection">>,<<"Upgrade">>},{<<"date">>,<<"Sat, 24 Feb 2018 23:42:38 GMT">>},{<<"sec-websocket-accept">>,<<"vewcPjnW/Rek72GO2D/WPG9/Sz8=">>},{<<"server">>,<<"Cowboy">>},{<<"upgrade">>,<<"websocket">>}]}
+%%{gun_ws,<0.1214.0>,{close,1000,<<>>}}
 
 handle_info(make_connections, #{connect_timer:=Timer, subs:=Subs} = State) ->
     catch erlang:cancel_timer(Timer),
