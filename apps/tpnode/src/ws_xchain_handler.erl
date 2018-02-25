@@ -7,7 +7,9 @@
 -export([init/2, websocket_init/1, websocket_handle/2, websocket_info/2]).
 
 init(Req, Opts) ->
-    {cowboy_websocket, Req, Opts}.
+    {cowboy_websocket, Req, Opts, #{
+        idle_timeout => 600000
+    }}.
 
 websocket_init(State) ->
 %%    erlang:start_timer(1000, self(), <<"Hello!">>),

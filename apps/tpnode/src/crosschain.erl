@@ -84,15 +84,15 @@ handle_info({gun_ws_upgrade, ConnPid, ok, _Headers}, #{subs:=Subs} = State) ->
         subs => mark_ws_mode_on(ConnPid, Subs)
     }};
 
-handle_info({gun_ws, _ConnPid, {text, Msg} }, State) ->
-    lager:notice("crosschain client got ws msg: ~p", [Msg]),
-    {noreply, State};
-
-handle_info({gun_ws, ConnPid, {close, _, _} }, #{subs:=Subs} = State) ->
-    lager:notice("crosschain client got close from server", [_ConnPid]),
+handle_info({gun_ws, ConnPid, {close, _, _}}, #{subs:=Subs} = State) ->
+    lager:notice("crosschain client got close from server for pid ~p", [ConnPid]),
     {noreply, State#{
         subs => lost_connection(ConnPid, Subs)
     }};
+
+handle_info({gun_ws, _ConnPid, {text, Msg} }, State) ->
+    lager:notice("crosschain client got ws msg: ~p", [Msg]),
+    {noreply, State};
 
 handle_info({gun_down, ConnPid, _, _, _, _}, #{subs:=Subs} = State) ->
     lager:notice("crosschain client lost connection for pid: ~p", [ConnPid]),
