@@ -3,12 +3,10 @@
 -compile(nowarn_export_all).
 
 node_id() ->
-    {ok,K1}=application:get_env(tpnode,privkey),
-    address:pub2addr(node,tpecdsa:secp256k1_ec_pubkey_create(hex:parse(K1), true)).
+    nodekey:node_id().
 
 sign(Message) ->
-    {ok,PKeyH}=application:get_env(tpnode,privkey),
-    PKey=hex:parse(PKeyH),
+    PKey=nodekey:get_priv(),
     Msg32 = crypto:hash(sha256, Message),
     Sig = tpecdsa:secp256k1_ecdsa_sign(Msg32, PKey, default, <<>>),
     Pub=tpecdsa:secp256k1_ec_pubkey_create(PKey, true),
@@ -74,8 +72,7 @@ gentx(BFrom,BTo,Amount,HPrivKey) when is_binary(BFrom)->
     }.
 
 reapply_settings() ->
-    {ok,HexPrivKey}=application:get_env(tpnode,privkey),
-    PrivKey=hex:parse(HexPrivKey),
+    PrivKey=nodekey:get_priv(),
     Patch=settings:sign(
             settings:get_patches(gen_server:call(blockchain,settings)),
             PrivKey),
@@ -94,15 +91,14 @@ test_alloc_addr() ->
 
 
 test_alloc_block() ->
-    {ok,HexPrivKey}=application:get_env(tpnode,privkey),
-    PrivKey=hex:parse(HexPrivKey),
+    PrivKey=nodekey:get_priv(),
     Patch=settings:sign(
             settings:dmp(
               settings:mp(
                 [
                  #{t=><<"nonexist">>,p=>[current,allocblock,last], v=>any},
                  #{t=>set,p=>[current,allocblock,group], v=>10},
-                 #{t=>set,p=>[current,allocblock,block], v=>2},
+                 #{t=>set,p=>[current,allocblock,block], v=>0},
                  #{t=>set,p=>[current,allocblock,last], v=>3}
                 ])),
       PrivKey),
@@ -113,8 +109,7 @@ test_alloc_block() ->
 
 
 test_sign_patch() ->
-    {ok,HexPrivKey}=application:get_env(tpnode,privkey),
-    PrivKey=hex:parse(HexPrivKey),
+    PrivKey=nodekey:get_priv(),
     Patch=settings:sign(
             settings:dmp(
               settings:mp(
@@ -204,17 +199,15 @@ calc_pub(Priv) ->
 
 
 sign1(Message) ->
-    {ok,PKeyH}=application:get_env(tpnode,privkey),
-    PKey=hex:parse(PKeyH),
-    Sig = tpecdsa:secp256k1_ecdsa_sign(Message, PKey, default, <<>>),
-    Pub=tpecdsa:secp256k1_ec_pubkey_create(PKey, true),
+    PrivKey=nodekey:get_priv(),
+    Sig = tpecdsa:secp256k1_ecdsa_sign(Message, PrivKey, default, <<>>),
+    Pub=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
     <<(size(Pub)):8/integer,(size(Sig)):8/integer,Pub/binary,Sig/binary,Message/binary>>.
 
 sign2(Message) ->
-    {ok,PKeyH}=application:get_env(tpnode,privkey),
-    PKey=hex:parse(PKeyH),
-    Sig = crypto:sign(ecdsa, sha256, Message, [PKey, crypto:ec_curve(secp256k1)]),
-    {Pub,PKey}=crypto:generate_key(ecdh, crypto:ec_curve(secp256k1), PKey),
+    PrivKey=nodekey:get_priv(),
+    Sig = crypto:sign(ecdsa, sha256, Message, [PrivKey, crypto:ec_curve(secp256k1)]),
+    {Pub,PrivKey}=crypto:generate_key(ecdh, crypto:ec_curve(secp256k1), PrivKey),
     <<(size(Pub)):8/integer,(size(Sig)):8/integer,Pub/binary,Sig/binary,Message/binary>>.
 
 check(<<PubLen:8/integer,SigLen:8/integer,Rest/binary>>) ->

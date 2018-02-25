@@ -403,13 +403,13 @@ split_bin_to_sign_and_data(Bin) ->
 
 
 pack(Message) ->
-    {ok, PrivKey} = application:get_env(tpnode, privkey),
+    PrivKey=nodekey:get_priv(),
     Packed = msgpack:pack(Message),
     Hash = crypto:hash(sha256, Packed),
     Sign = bsig:signhash(
         Hash,
         [{timestamp,os:system_time(millisecond)}],
-        hex:parse(PrivKey)
+        PrivKey
     ),
     add_sign_to_bin(Sign, Packed).
 

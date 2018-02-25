@@ -36,7 +36,7 @@ start_link() ->
 init(_Args) ->
     {ok, #{
        queue=>queue:new(),
-       nodeid=>tpnode_tools:node_id(),
+       nodeid=>nodekey:node_id(),
        inprocess=>hashqueue:new()
       }}.
 

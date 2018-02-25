@@ -40,7 +40,7 @@ init(_Args) ->
     pg2:create(mkblock),
     pg2:join(mkblock,self()),
     {ok, #{
-       nodeid=>tpnode_tools:node_id(),
+       nodeid=>nodekey:node_id(),
        preptxl=>[],
        settings=>#{}
       }
@@ -529,8 +529,7 @@ try_process_local([{TxID,
 
     
 sign(Blk,ED) when is_map(Blk) ->
-    {ok,K1}=application:get_env(tpnode,privkey),
-    PrivKey=hex:parse(K1),
+    PrivKey=nodekey:get_priv(),
     block:sign(Blk,ED,PrivKey).
 
 load_settings(State) ->

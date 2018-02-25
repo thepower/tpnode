@@ -30,7 +30,7 @@ start_link() ->
 init(_Args) ->
     pg2:create(blockchain),
     pg2:join(blockchain,self()),
-    NodeID=tpnode_tools:node_id(),
+    NodeID=nodekey:node_id(),
     filelib:ensure_dir("db/"),
     {ok,LDB}=ldb:open("db/db_"++atom_to_list(node())),
     LastBlockHash=ldb:read_key(LDB,<<"lastblock">>,<<0,0,0,0,0,0,0,0>>),
@@ -996,9 +996,7 @@ notify_settings() ->
 mychain(#{settings:=S}=State) ->
     KeyDB=maps:get(keys,S,#{}),
     NodeChain=maps:get(nodechain,S,#{}),
-    {ok,K1}=application:get_env(tpnode,privkey),
-    PrivKey=hex:parse(K1),
-    PubKey=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
+    PubKey=nodekey:get_pub(),
     lager:info("My key ~s",[bin2hex:dbin2hex(PubKey)]),
     MyName=maps:fold(
              fun(K,V,undefined) ->
