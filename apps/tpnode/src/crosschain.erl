@@ -132,16 +132,25 @@ connect_remote({Ip, Port} = _Address) ->
 %%    end,
     ConnPid.
 
+
 lost_connection(Pid, Subs) ->
-    Cleaner = fun(_Key, Sub) ->
-            Connection = maps:get(connection, Sub, not_found),
+    Cleaner =
+        fun(_Key, #{connection:=Connection, channels:=Channels} = Sub) ->
             case Connection of
-                not_found ->
-                    Sub;
-                _ ->
+                Pid ->
                     NewSub = maps:remove(connection, Sub),
-                    maps:remove(ws_mode, NewSub)
-            end
+                    NewSub1 = maps:remove(ws_mode, NewSub),
+
+                    % unsubscribe all channels
+                    NewSub1#{
+                        channels => maps:map(fun(_Channel, _OldState) -> 0 end, Channels)
+                    };
+                _ ->
+                    Sub
+            end;
+            (_Key, Sub) ->
+                % skip this subscribe
+                Sub
         end,
     maps:map(Cleaner, Subs).
 
