@@ -13,6 +13,7 @@ get_pub() ->
     tpecdsa:calc_pub(get_priv(),true).
 
 node_id() ->
-    address:pub2addr(node,get_pub()).
+    Hash=crypto:hash(sha,get_pub()),
+    base58:encode(Hash).
 
 
