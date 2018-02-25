@@ -59,6 +59,7 @@ h(<<"GET">>, [<<"address">>,TAddr], _Req) ->
                         (lastblk,V) -> bin2hex:dbin2hex(V);
                         (ublk,V) -> bin2hex:dbin2hex(V);
                         (pubkey,V) -> bin2hex:dbin2hex(V);
+                        (preblk,V) -> bin2hex:dbin2hex(V);
                         (_,V) -> V
                     end, Info1),
             {200,
@@ -198,7 +199,7 @@ h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
     {200,
      #{ result => <<"ok">>,
         address=>Address,
-        addressb=>naddress:decode(Address),
+        addressb=>bin2hex:dbin2hex(naddress:decode(Address)),
         info=>Res
       }
     };
@@ -438,6 +439,10 @@ prettify_block(#{}=Block0) ->
                         {TxID,
                          maps:map(
                            fun(register, Val) ->
+                                   bin2hex:dbin2hex(Val);
+                              (from, <<Val:8/binary>>) ->
+                                   bin2hex:dbin2hex(Val);
+                              (to, <<Val:8/binary>>) ->
                                    bin2hex:dbin2hex(Val);
                               (address, Val) ->
                                    bin2hex:dbin2hex(Val);
