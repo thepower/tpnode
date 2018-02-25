@@ -295,8 +295,8 @@ try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
             SetState, Addresses, GetFun, 
             #{failed:=Failed}=Acc) ->
     MyChain=GetFun(mychain),
-    FAddr=address:check(From),
-    TAddr=address:check(To),
+    FAddr=addrcheck(From),
+    TAddr=addrcheck(To),
     case {FAddr,TAddr} of
         {{true,{chain,MyChain}},{true,{chain,MyChain}}} ->
             try_process_local([{TxID,Tx}|Rest],
@@ -675,6 +675,18 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
       failed=>Failed
      }.
 
+addrcheck(Addr) ->
+    case naddress:check(Addr) of
+        {true, #{}} ->
+            case address_db:lookup(Addr) of
+                {ok, Chain} ->
+                    {true, {chain, Chain}};
+                _ ->
+                    unroutable
+            end;
+        _ ->
+            bad_address
+    end.
 
 benchmark(N) ->
     Parent=crypto:hash(sha256,<<"123">>),

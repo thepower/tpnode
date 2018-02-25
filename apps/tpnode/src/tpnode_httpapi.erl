@@ -180,7 +180,7 @@ h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
                                                ipaddress => list_to_binary(inet:ntoa(RemoteIP))
                                               }),
                                   from=>Adr,
-                                  to=>Address,
+                                  to=>naddress:decode(Address),
                                   seq=>bal:get(seq,AddrState)+1,
                                   timestamp=>os:system_time(millisecond)
                                  },
@@ -198,6 +198,7 @@ h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
     {200,
      #{ result => <<"ok">>,
         address=>Address,
+        addressb=>naddress:decode(Address),
         info=>Res
       }
     };
