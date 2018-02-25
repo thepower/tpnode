@@ -193,5 +193,5 @@ mine(Num) ->
       end, 
       lists:usort(lists:seq(0,256) ++ 
                   lists:seq(65300,65535) ++
-                  [ X*64 || X<-lists:seq(0,1024)])).
+                  [ X*64+1 || X<-lists:seq(0,1024)])).
 
