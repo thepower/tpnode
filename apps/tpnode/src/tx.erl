@@ -93,7 +93,6 @@ sign(#{
     end,
 
     TxBin=mkmsg(Tx),
-    io:format("Bin ~p~n",[TxBin]),
     {ok, [MType|LTx]} = msgpack:unpack(TxBin),
 
     Sig = tpecdsa:secp256k1_ecdsa_sign(TxBin, PrivKey, default, <<>>),
@@ -129,7 +128,7 @@ verify(#{
                             case ledger:get(From) of
                                 #{pubkey:=PK} when is_binary(PK) ->
                                     maps:fold(
-                                      fun(Pub, Sig, {AValid,AInvalid}) when Pub==PK ->
+                                      fun(Pub, Sig, {AValid,AInvalid}) ->
                                               case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
                                                   correct when PK==Pub ->
                                                       {AValid+1, AInvalid};
@@ -291,7 +290,10 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
                                            fun([PubK,PrivK],KAcc) ->
                                                    maps:put(PubK,PrivK,KAcc)
                                            end, #{}, Val)
-                                 end
+                                 end;
+                                 Val==<<>> ->
+                                 lager:notice("Temporary workaround. Fix me"),
+                                 []
                           end,
                           Acc);
              (K,Val,Acc) ->
