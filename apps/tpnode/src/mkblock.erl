@@ -312,10 +312,10 @@ try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
                                               Tx
                                              )}|Rest],
                   SetState, Addresses, GetFun, Acc);
-        {{true,{ver,_}},{true,{chain,MyChain}}}  -> %local
+        {{true,private},{true,{chain,MyChain}}}  -> %local from pvt
             try_process_local([{TxID,Tx}|Rest],
                   SetState, Addresses, GetFun, Acc);
-        {{true,{ver,_}},{true,{ver,_}}}  -> %pure local
+        {{true,MyChain},{true,private}}  -> %local to pvt
             try_process_local([{TxID,Tx}|Rest],
                   SetState, Addresses, GetFun, Acc);
         _ ->
@@ -676,13 +676,15 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
 
 addrcheck(Addr) ->
     case naddress:check(Addr) of
-        {true, #{}} ->
+        {true, #{type:=public}} ->
             case address_db:lookup(Addr) of
                 {ok, Chain} ->
                     {true, {chain, Chain}};
                 _ ->
                     unroutable
             end;
+        {true, #{type:=private}} ->
+            {true, private};
         _ ->
             bad_address
     end.
