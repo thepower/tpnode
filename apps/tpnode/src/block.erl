@@ -1,6 +1,6 @@
 -module(block).
 -export([blkid/1]).
--export([mkblock/1,binarizetx/1,extract/1,outward_mk/2]).
+-export([mkblock/1,binarizetx/1,extract/1,outward_mk/2,outward_mk/1]).
 -export([verify/1,outward_verify/1,sign/2,sign/3]).
 -export([pack/1,unpack/1]).
 
@@ -305,6 +305,9 @@ mkblock(Blk) ->
             io:format("s ~p~n",[maps:keys(Blk)]),
             throw(badmatch)
     end.
+
+outward_mk(Block) -> 
+    outward(maps:get(outbound,Block,[]),Block,#{}).
 
 outward_mk(TxS,Block) -> 
     outward(TxS,Block,#{}).

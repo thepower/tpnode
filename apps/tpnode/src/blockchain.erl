@@ -7,7 +7,8 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
--export([get_settings/1,get_settings/2,get_settings/0,apply_block_conf/2]).
+-export([get_settings/1,get_settings/2,get_settings/0,apply_block_conf/2,
+        last/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -22,6 +23,9 @@
 
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+last() ->
+    gen_server:call(blockchain, last_block).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -459,22 +463,18 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
 
                               apply_ledger(put,MBlk),
 
-                              Outbound=maps:get(outbound,MBlk,[]),
-                              if length(Outbound)>0 ->
-                                     maps:fold(
-                                       fun(ChainId,OutBlock,_) ->
-                                               %Dst=pg2:get_members({txpool,ChainId}),
-                                               Dst=[],
-                                               lager:info("Out to ~b(~p) ~p",
-                                                          [ChainId,Dst,OutBlock]),
-                                               lists:foreach(
-                                                 fun(Pool) ->
-                                                         gen_server:cast(Pool,
-                                                                         {inbound_block,OutBlock})
-                                                 end, Dst)
-                                       end,0, block:outward_mk(Outbound,MBlk));
-                                 true -> ok
-                              end,
+                              maps:fold(
+                                fun(ChainId,OutBlock,_) ->
+                                        %Dst=pg2:get_members({txpool,ChainId}),
+                                        Dst=[],
+                                        lager:info("Out to ~b(~p) ~p",
+                                                   [ChainId,Dst,OutBlock]),
+                                        lists:foreach(
+                                          fun(Pool) ->
+                                                  gen_server:cast(Pool,
+                                                                  {inbound_block,OutBlock})
+                                          end, Dst)
+                                end,0, block:outward_mk(MBlk)),
 
                               {noreply, State#{
                                           prevblock=> NewLastBlock,
