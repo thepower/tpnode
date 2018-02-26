@@ -1,10 +1,13 @@
 % -*- mode: erlang -*-
 % vi: set ft=erlang :
 
--module(ws_xchain_handler).
+-module(xchain_ws_handler).
 
 %% API
 -export([init/2, websocket_init/1, websocket_handle/2, websocket_info/2]).
+
+-export([childspec/0]).
+
 
 init(Req, Opts) ->
     {cowboy_websocket, Req, Opts, #{
@@ -36,3 +39,26 @@ websocket_info(_Info, State) ->
     lager:notice("Unknown info ~p", [_Info]),
     {ok, State}.
 
+
+
+childspec() ->
+    HTTPDispatch = cowboy_router:compile(
+        [
+            {'_', [
+                {"/", xchain_ws_handler, []}
+            ]}
+        ]),
+    CrossChainOpts = application:get_env(tpnode, crosschain, #{}),
+    CrossChainPort = maps:get(port, CrossChainOpts, 43311),
+
+
+    HTTPOpts=[{connection_type,supervisor}, {port, CrossChainPort}],
+    HTTPConnType=#{connection_type => supervisor,
+        env => #{dispatch => HTTPDispatch}},
+    HTTPAcceptors=10,
+    ranch:child_spec(crosschain_api,
+        HTTPAcceptors,
+        ranch_tcp,
+        HTTPOpts,
+        cowboy_clear,
+        HTTPConnType).

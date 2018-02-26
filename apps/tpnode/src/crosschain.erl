@@ -19,6 +19,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
     terminate/2, code_change/3]).
 
+-export([pack/1, unpack/1]).
+
 -export([test/0]).
 
 
@@ -250,10 +252,11 @@ add_sub(Subscribe, Subs) ->
             Subs
     end.
 
-subscribe_one_channel(_Connection, Channel) ->
+subscribe_one_channel(ConnPid, Channel) ->
     % subscribe here
     lager:info("subscribe to ~p channel", [Channel]),
-%%    gun:ws_send(ConnPid, {text, "It's raining!"}),
+    Cmd = pack({subscribe, Channel}),
+    gun:ws_send(ConnPid, {text, Cmd}),
     1.
 
 make_subscription(Subs) ->
@@ -275,6 +278,17 @@ make_subscription(Subs) ->
               Sub
         end,
     maps:map(Subscriber, Subs).
+
+
+pack(Term) ->
+    term_to_binary(Term).
+
+unpack(Bin) when is_binary(Bin) ->
+    binary_to_term(Bin, [safe]);
+
+unpack(Invalid) ->
+    lager:info("invalid data for unpack ~p", [Invalid]),
+    {}.
 
 
 %% -----------------

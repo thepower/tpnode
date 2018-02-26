@@ -25,22 +25,6 @@ start_link() ->
 init([]) ->
     application:ensure_all_started(cowboy),
     application:ensure_all_started(tinymq),
-%%    CrossChainMaxClients = maps:get(max_connections, CrossChainOpts, 100),
-%%    {ok, _} = ranch:start_listener(crosschain,
-%%        ranch_tcp, [
-%%            {port, CrossChainPort},
-%%            {max_connections, CrossChainMaxClients}],
-%%        crosschain_protocol, []),
-
-
-%%    Dispatch = cowboy_router:compile([
-%%        {'_', [
-%%            {"/", ws_xchain_handler, []}
-%%        ]}
-%%    ]),
-%%    {ok, _} = cowboy:start_clear(http, [{port, CrossChainPort}], #{
-%%        env => #{dispatch => Dispatch}
-%%    }),
 
     {ok,TPIC0}=application:get_env(tpnode,tpic),
     TPIC=TPIC0#{
@@ -69,7 +53,7 @@ init([]) ->
             { tpnode_announcer, {tpnode_announcer, start_link, [#{}]}, permanent, 5000, worker, []},
             { crosschain, {crosschain, start_link, [#{}]}, permanent, 5000, worker, []},
             tpnode_http:childspec(),
-            tpnode_xchain:childspec()
+            xchain_ws_handler:childspec()
            ]
          } }.
 
