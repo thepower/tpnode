@@ -65,7 +65,7 @@ my_address_v4() ->
 %% ------------------------------------------------------------------
 
 init(Args) ->
-    lager:debug("start discovery"),
+    lager:notice("start discovery"),
     #{pid:=ParentPid} = Args,
     CheckExpireInterval = maps:get(check_expire_interval, Args, 60), % in seconds
     Settings = read_config(),
@@ -238,20 +238,28 @@ get_unixtime() ->
 
 
 announce_one_service(Name, #{address:=IP}=Address0, ValidUntil) ->
-    Address=case IP of
+    try
+        Address =
+            case IP of
                 local4 ->
-                    maps:put(address,hd(discovery:my_address_v4()),Address0);
+                    maps:put(address, hd(discovery:my_address_v4()), Address0);
                 local6 ->
-                    maps:put(address,hd(discovery:my_address_v6()),Address0)
+                    maps:put(address, hd(discovery:my_address_v6()), Address0);
+                _ ->
+                    IP
             end,
-    lager:debug("make announce for service ~p, ip: ~p", [Name, IP]),
-    Announce = #{
-        name => Name,
-        address => Address,
-        valid_until => ValidUntil
-    },
-    AnnounceBin = pack(Announce),
-    send_service_announce(AnnounceBin).
+        lager:debug("make announce for service ~p, ip: ~p", [Name, IP]),
+        Announce = #{
+            name => Name,
+            address => Address,
+            valid_until => ValidUntil
+        },
+        AnnounceBin = pack(Announce),
+        send_service_announce(AnnounceBin)
+    catch
+        Err:Reason ->
+            lager:error("Announce with name ~p hasn't made because ~p ~p", [Err, Reason])
+    end.
 
 
 is_address_advertisable(Address, #{options:=Options} = _ServiceOptions) ->
