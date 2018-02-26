@@ -19,12 +19,23 @@ websocket_init(State) ->
     {ok, State}.
 
 websocket_handle({binary, Bin}, State) ->
-    lager:notice("ws server got binary msg: ~p", [Bin]),
-    Cmd = crosschain:unpack(Bin),
-    lager:notice("ws server unpacked term: ~p", [Cmd]),
-    Result = crosschain:pack({ok, Cmd}),
-    {reply, {binary, Result}, State};
+    try
+        lager:notice("ws server got binary msg: ~p", [Bin]),
+        Cmd = crosschain:unpack(Bin),
+        lager:notice("ws server unpacked term: ~p", [Cmd]),
+        Result = handle_xchain(Cmd),
+        case Result of
+            ok ->
+                {ok, State};
+            Answer ->
+                {reply, {binary, crosschain:pack(Answer)}, State}
 
+        end
+    catch
+        Err:Reason ->
+        lager:error("WS server error ~p ~p ~p",[Err, Reason, Bin]),
+        {ok, State}
+    end;
 
 websocket_handle({text, <<"ping">>}, State) ->
     {ok, State};
@@ -37,6 +48,10 @@ websocket_handle(_Data, State) ->
     lager:notice("Unknown websocket ~p", [_Data]),
     {ok, State}.
 
+websocket_info({message, Msg}, State) ->
+    lager:info("send message ~p",[Msg]),
+    {reply, {binary, crosschain:pack(Msg)}, State};
+
 websocket_info({timeout, _Ref, Msg}, State) ->
     lager:notice("crosschain ws timeout ~p", [Msg]),
 %%    erlang:start_timer(1000, self(), <<"How' you doin'?">>),
@@ -47,6 +62,9 @@ websocket_info(_Info, State) ->
     {ok, State}.
 
 
+
+
+%% ----------------------------
 
 childspec() ->
     HTTPDispatch = cowboy_router:compile(
@@ -69,3 +87,13 @@ childspec() ->
         HTTPOpts,
         cowboy_clear,
         HTTPConnType).
+
+
+%% ----------------------------
+
+handle_xchain({subscribe, Channel}) ->
+    gen_server:cast(xchain_dispatcher, {subscribe, Channel, self()}),
+    {subscribed, Channel};
+
+handle_xchain(Cmd) ->
+    {ok, Cmd}.

@@ -92,8 +92,9 @@ handle_info({gun_ws, ConnPid, {close, _, _}}, #{subs:=Subs} = State) ->
         subs => lost_connection(ConnPid, Subs)
     }};
 
-handle_info({gun_ws, _ConnPid, {binary, Bin} }, State) ->
+handle_info({gun_ws, ConnPid, {binary, Bin} }, State) ->
     lager:notice("crosschain client got ws bin msg: ~p", [Bin]),
+    handle_xchain(ConnPid, unpack(Bin)),
     {noreply, State};
 
 handle_info({gun_ws, _ConnPid, {text, Msg} }, State) ->
@@ -298,6 +299,9 @@ unpack(Invalid) ->
 
 %% -----------------
 
+
+handle_xchain(_ConnPid, Cmd) ->
+    lager:info("got xchain message from server: ~p", [Cmd]).
 
 
 %%upgrade_success(ConnPid, Headers) ->
