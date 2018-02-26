@@ -96,4 +96,4 @@ handle_xchain({subscribe, Channel}) ->
     {subscribed, Channel};
 
 handle_xchain(Cmd) ->
-    {ok, Cmd}.
+    {unhandled, Cmd}.

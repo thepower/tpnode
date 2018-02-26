@@ -122,6 +122,10 @@ handle_info(make_connections, #{connect_timer:=Timer, subs:=Subs} = State) ->
         connect_timer => erlang:send_after(10 * 1000, self(), make_connections)
     }};
 
+
+handle_info({'DOWN',_Ref,process,Pid,_Reason}, State) ->
+    {noreply, remove_connection(Pid, State)};
+
 handle_info(_Info, State) ->
     lager:notice("crosschain client unknown info ~p", [_Info]),
     {noreply, State}.
@@ -192,11 +196,14 @@ make_connections(Subs) ->
                 false ->
                     try
                         #{address:=Ip, port:=Port} = Sub,
+                        ConnPid = connect_remote({Ip, Port}),
+                        monitor(process, ConnPid),
                         Sub#{
-                            connection => connect_remote({Ip, Port})
+                            connection => ConnPid
                         }
                     catch
-                        _:_ ->
+                        Err:Reason ->
+                            lager:info("error while connection to remote xchain: ~p ~p", [Err, Reason]),
                             Sub
                     end;
                 _ ->
@@ -284,6 +291,10 @@ make_subscription(Subs) ->
               Sub
         end,
     maps:map(Subscriber, Subs).
+
+remove_connection(_Pid, State) ->
+    State.
+
 
 
 pack(Term) ->
