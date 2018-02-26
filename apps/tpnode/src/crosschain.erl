@@ -92,6 +92,10 @@ handle_info({gun_ws, ConnPid, {close, _, _}}, #{subs:=Subs} = State) ->
         subs => lost_connection(ConnPid, Subs)
     }};
 
+handle_info({gun_ws, _ConnPid, {binary, Bin} }, State) ->
+    lager:notice("crosschain client got ws bin msg: ~p", [Bin]),
+    {noreply, State};
+
 handle_info({gun_ws, _ConnPid, {text, Msg} }, State) ->
     lager:notice("crosschain client got ws msg: ~p", [Msg]),
     {noreply, State};
@@ -256,7 +260,8 @@ subscribe_one_channel(ConnPid, Channel) ->
     % subscribe here
     lager:info("subscribe to ~p channel", [Channel]),
     Cmd = pack({subscribe, Channel}),
-    gun:ws_send(ConnPid, {text, Cmd}),
+    Result = gun:ws_send(ConnPid, {binary, Cmd}),
+    lager:info("subscribe result is ~p", [Result]),
     1.
 
 make_subscription(Subs) ->

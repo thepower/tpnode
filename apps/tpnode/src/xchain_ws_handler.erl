@@ -18,6 +18,13 @@ websocket_init(State) ->
 %%    erlang:start_timer(1000, self(), <<"Hello!">>),
     {ok, State}.
 
+websocket_handle({binary, Bin}, State) ->
+    lager:notice("ws server got binary msg: ~p", [Bin]),
+    Cmd = crosschain:unpack(Bin),
+    lager:notice("ws server unpacked term: ~p", [Cmd]),
+    Result = crosschain:pack({ok, Cmd}),
+    {reply, {binary, Result}, State};
+
 
 websocket_handle({text, <<"ping">>}, State) ->
     {ok, State};
