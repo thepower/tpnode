@@ -42,7 +42,7 @@ my_address_v6() ->
                    ({addr,{16#fe80,_,_,_,_,_,_,_}},Acc1) ->
                         Acc1;
                    ({addr,{_,_,_,_,_,_,_,_}=A},Acc1) ->
-                        [A|Acc1];
+                        [inet:ntoa(A)|Acc1];
                    (_,Acc1) -> Acc1
                 end, Acc0, Flags)
       end, [], IL).
@@ -55,7 +55,7 @@ my_address_v4() ->
                 fun({addr,{127,_,_,_}},Acc1) ->
                         Acc1;
                    ({addr,{_,_,_,_}=A},Acc1) ->
-                        [A|Acc1];
+                        [inet:ntoa(A)|Acc1];
                    (_,Acc1) -> Acc1
                 end, Acc0, Flags)
       end, [], IL).
@@ -237,9 +237,14 @@ get_unixtime() ->
     (Mega * 1000000 + Sec).
 
 
-announce_one_service(Name, Address, ValidUntil) ->
-    #{address:=Ip} = Address,
-    lager:debug("make announce for service ~p, ip: ~p", [Name, Ip]),
+announce_one_service(Name, #{address:=IP}=Address0, ValidUntil) ->
+    Address=case IP of
+                local4 ->
+                    maps:put(address,hd(discovery:my_address_v4()),Address0);
+                local6 ->
+                    maps:put(address,hd(discovery:my_address_v6()),Address0)
+            end,
+    lager:debug("make announce for service ~p, ip: ~p", [Name, IP]),
     Announce = #{
         name => Name,
         address => Address,
