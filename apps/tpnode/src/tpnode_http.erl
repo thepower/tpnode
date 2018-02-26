@@ -24,12 +24,20 @@ childspec() ->
     HTTPConnType=#{connection_type => supervisor,
                    env => #{dispatch => HTTPDispatch}},
     HTTPAcceptors=10,
+    [
     ranch:child_spec(http,
                      HTTPAcceptors,
                      ranch_tcp, 
                      HTTPOpts,
                      cowboy_clear,
-                     HTTPConnType).
+                     HTTPConnType),
+    ranch:child_spec(http6,
+                     HTTPAcceptors,
+                     ranch_tcp, 
+                     [inet6,{ipv6_v6only,true}|HTTPOpts],
+                     cowboy_clear,
+                     HTTPConnType)
+    ].
 
 
 
