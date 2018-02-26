@@ -25,6 +25,7 @@ start_link() ->
 init([]) ->
     application:ensure_all_started(cowboy),
     application:ensure_all_started(tinymq),
+    tpnode:reload(),
     {ok,TPIC0}=application:get_env(tpnode,tpic),
     TPIC=TPIC0#{
            ecdsa=>tpecdsa:generate_priv(),
