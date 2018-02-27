@@ -45,9 +45,10 @@ start_link(Options) ->
 
 init(_Args) ->
     State = #{
-        subs => #{},
+        subs => init_subscribes(#{}),
         chain => blockchain:chain(),
-        connect_timer => erlang:send_after(10 * 1000, self(), make_connections)
+        connect_timer => erlang:send_after(10 * 1000, self(), make_connections),
+        pinger_timer => erlang:send_after(10 * 1000, self(), make_pings)
     },
     {ok, State}.
 
@@ -61,7 +62,7 @@ handle_call({add_subscribe, Subscribe}, _From, #{subs:=Subs} = State) ->
     lager:notice("add subscribe ~p: ~p", [Subscribe,AS]),
     {reply, ok, State#{
         subs => AS
-                 }};
+    }};
 
 handle_call({connect, Ip, Port}, _From, State) ->
     lager:notice("crosschain connect to ~p ~p", [Ip, Port]),
@@ -107,8 +108,19 @@ handle_info({gun_ws, ConnPid, {close, _, _}}, #{subs:=Subs} = State) ->
 
 handle_info({gun_ws, ConnPid, {binary, Bin} }, State) ->
     lager:notice("crosschain client got ws bin msg: ~p", [Bin]),
-    handle_xchain(ConnPid, unpack(Bin)),
-    {noreply, State};
+    try
+        handle_xchain(ConnPid, unpack(Bin)),
+        {noreply, State}
+    catch
+        Ec:Ee ->
+            S=erlang:get_stacktrace(),
+            lager:error("crosschain client parse error ~p:~p",[Ec,Ee]),
+            lists:foreach(
+                fun(Se) ->
+                    lager:error("at ~p",[Se])
+                end, S),
+            {noreply, State}
+    end;
 
 handle_info({gun_ws, _ConnPid, {text, Msg} }, State) ->
     lager:notice("crosschain client got ws msg: ~p", [Msg]),
@@ -136,8 +148,18 @@ handle_info(make_connections, #{connect_timer:=Timer, subs:=Subs} = State) ->
     }};
 
 
-handle_info({'DOWN',_Ref,process,Pid,_Reason}, State) ->
-    {noreply, remove_connection(Pid, State)};
+handle_info(make_pings, #{pinger_timer:=Timer, subs:=Subs} = State) ->
+    catch erlang:cancel_timer(Timer),
+    make_pings(Subs),
+    {noreply, State#{
+        pinger_timer => erlang:send_after(30 * 1000, self(), make_pings)
+    }};
+
+
+handle_info({'DOWN', _Ref, process, Pid, _Reason}, #{subs:=Subs} = State) ->
+    {noreply, State#{
+        subs => lost_connection(Pid, Subs)
+    }};
 
 handle_info(_Info, State) ->
     lager:notice("crosschain client unknown info ~p", [_Info]),
@@ -153,6 +175,17 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+
+make_pings(Subs) ->
+    Cmd = pack(ping),
+    maps:fold(
+        fun(_Key, #{connection:=ConnPid, ws_mode:=true} = _Sub, Acc) ->
+            catch gun:ws_send(ConnPid, {binary, Cmd}),
+            Acc + 1;
+           (_, _, Acc) ->
+               Acc
+        end, 0, Subs).
 
 
 %% TODO: catch gun:open errors here!!!
@@ -249,7 +282,7 @@ parse_subscribe(#{address:=Ip, port:=Port, channels:=Channels})
     };
 
 parse_subscribe(Invalid) ->
-    lager:info("invalid subscribe: ~p", [Invalid]),
+    lager:error("invalid subscribe: ~p", [Invalid]),
     throw(invalid_subscribe).
 
 check_empty_subscribes(#{channels:=Channels}=_Sub) ->
@@ -273,7 +306,7 @@ add_sub(Subscribe, Subs) ->
         maps:put(Key, NewSub, Subs)
     catch
         Reason ->
-            lager:info("can't process subscribe. ~p", Reason),
+            lager:error("can't process subscribe. ~p ~p", [Reason, Subscribe]),
             Subs
     end.
 
@@ -305,10 +338,8 @@ make_subscription(Subs) ->
         end,
     maps:map(Subscriber, Subs).
 
-remove_connection(_Pid, State) ->
-    State.
 
-
+%% -----------------
 
 pack(Term) ->
     term_to_binary(Term).
@@ -320,21 +351,61 @@ unpack(Invalid) ->
     lager:info("invalid data for unpack ~p", [Invalid]),
     {}.
 
+%% -----------------
 
-
-change_settings_handler(#{ chain:= Chain} = State) ->
-    case blockchain:chain() of
+change_settings_handler(#{chain:=Chain, subs:=Subs} = State) ->
+    CurrentChain = blockchain:chain(),
+    case CurrentChain of
         Chain ->
-            lager:info("wipe all subscribes"),
-            % TODO
-
             State;
         _ ->
-            State
+            lager:info("wipe all crosschain subscribes"),
+
+            % close all active connections
+            maps:fold(
+                fun(_Key, #{connection:=ConnPid}=_Sub, Acc) ->
+                    catch gun:shutdown(ConnPid),
+                    Acc+1;
+                   (_Key, _Sub, Acc) ->
+                       Acc
+                end,
+                0,
+                Subs),
+
+            % and finally replace all subscribes by new ones
+            State#{
+                subs => init_subscribes(#{}),
+                chain => CurrentChain
+            }
     end.
 
 %% -----------------
 
+init_subscribes(Subs) ->
+    Config = application:get_env(tpnode, crosschain, #{}),
+    ConnectIpsList = maps:get(connect, Config, []),
+    MyChainChannel = pack_chid(blockchain:chain()),
+    lists:foldl(
+        fun({Ip, Port}, Acc) when is_integer(Port) ->
+            Sub = #{
+                address => Ip,
+                port => Port,
+                channels => [MyChainChannel]
+            },
+            add_sub(Sub, Acc);
+
+            (Invalid, Acc) ->
+                lager:error("invalid crosschain connect term: ~p", Invalid),
+                Acc
+        end, Subs, ConnectIpsList).
+
+
+
+%% -----------------
+
+handle_xchain(_ConnPid, pong) ->
+%%    lager:info("Got pong for ~p",[_ConnPid]),
+    ok;
 
 handle_xchain(_ConnPid, {outward_block, FromChain, ToChain, BinBlock}) ->
     lager:info("Got outward block from ~p to ~p",[FromChain,ToChain]),
@@ -349,7 +420,6 @@ handle_xchain(_ConnPid, {outward_block, FromChain, ToChain, BinBlock}) ->
     end,
     lager:info("Here it is ~p",[Block]),
     ok;
-
 
 handle_xchain(_ConnPid, Cmd) ->
     lager:info("got xchain message from server: ~p", [Cmd]).
@@ -369,7 +439,7 @@ handle_xchain(_ConnPid, Cmd) ->
 test() ->
     Subscribe = #{
         address => "127.0.0.1",
-        port => 43323,
+        port => 43312,
         channels => [<<"test123">>,pack_chid(2)]
     },
     gen_server:call(crosschain, {add_subscribe, Subscribe}).
