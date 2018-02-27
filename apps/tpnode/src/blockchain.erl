@@ -301,27 +301,32 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, _PID},
              }=State) when BlockHash==PBlockHash ->
     lager:info("Arrived block from ~p Verify block with ~p",
                [_PID,maps:keys(Blk)]),
-    {true,{Success,_}}=block:verify(Blk),
-    lager:info("Extra confirmation of prev. block ~s ~w",
-               [blkid(BlockHash),length(Success)]),
-    NewPBlk=case length(Success)>0 of
-                true ->
-                    OldSigs=maps:get(sign,PBlk),
-                    NewSigs=lists:usort(OldSigs++Success),
-                    if(OldSigs=/=NewSigs) ->
-                          lager:info("Extra confirm Sig changed ~p",
-                                    [length(NewSigs)]),
-                          PBlk1=PBlk#{sign=>NewSigs},
-                          save_block(LDB,PBlk1,false),
-                          PBlk1;
-                      true ->
-                          lager:info("Extra confirm not changed ~w/~w",
-                                    [length(OldSigs),length(NewSigs)]),
-                          PBlk
-                    end;
-                _ -> PBlk
-            end,
-    {noreply, State#{lastblock=>NewPBlk}};
+    case block:verify(Blk) of
+         {true,{Success,_}} ->
+            lager:info("Extra confirmation of prev. block ~s ~w",
+                       [blkid(BlockHash),length(Success)]),
+            NewPBlk=case length(Success)>0 of
+                        true ->
+                            OldSigs=maps:get(sign,PBlk),
+                            NewSigs=lists:usort(OldSigs++Success),
+                            if(OldSigs=/=NewSigs) ->
+                                  lager:info("Extra confirm Sig changed ~p",
+                                             [length(NewSigs)]),
+                                  PBlk1=PBlk#{sign=>NewSigs},
+                                  save_block(LDB,PBlk1,false),
+                                  PBlk1;
+                              true ->
+                                  lager:info("Extra confirm not changed ~w/~w",
+                                             [length(OldSigs),length(NewSigs)]),
+                                  PBlk
+                            end;
+                        _ -> PBlk
+                    end,
+            {noreply, State#{lastblock=>NewPBlk}};
+        Any -> 
+            lager:error("Can't confirm block: ~p",[Any]),
+            {noreply, State}
+    end;
 
 handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
             #{candidates:=Candidates,ldb:=LDB0,
