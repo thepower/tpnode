@@ -18,6 +18,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
     terminate/2, code_change/3]).
 
+-export([my_address_v4/0,my_address_v6/0]).
+
 -export([test/0, test1/0, test2/0, test3/0, test4/0]).
 
 
@@ -30,13 +32,40 @@ start_link(Options) ->
     lager:notice("start ~p", [Name]),
     gen_server:start_link({local, Name}, ?MODULE, Options, []).
 
+my_address_v6() ->
+    {ok,IL}=inet:getifaddrs(),
+    lists:foldl(
+      fun({_NetIf,Flags},Acc0) ->
+              lists:foldl(
+                fun({addr,{0,_,_,_,_,_,_,_}},Acc1) ->
+                        Acc1;
+                   ({addr,{16#fe80,_,_,_,_,_,_,_}},Acc1) ->
+                        Acc1;
+                   ({addr,{_,_,_,_,_,_,_,_}=A},Acc1) ->
+                        [inet:ntoa(A)|Acc1];
+                   (_,Acc1) -> Acc1
+                end, Acc0, Flags)
+      end, [], IL).
+
+my_address_v4() ->
+    {ok,IL}=inet:getifaddrs(),
+    lists:foldl(
+      fun({_NetIf,Flags},Acc0) ->
+              lists:foldl(
+                fun({addr,{127,_,_,_}},Acc1) ->
+                        Acc1;
+                   ({addr,{_,_,_,_}=A},Acc1) ->
+                        [inet:ntoa(A)|Acc1];
+                   (_,Acc1) -> Acc1
+                end, Acc0, Flags)
+      end, [], IL).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
 init(Args) ->
-    lager:debug("start discovery"),
+    lager:notice("start discovery"),
     #{pid:=ParentPid} = Args,
     CheckExpireInterval = maps:get(check_expire_interval, Args, 60), % in seconds
     Settings = read_config(),
@@ -208,16 +237,29 @@ get_unixtime() ->
     (Mega * 1000000 + Sec).
 
 
-announce_one_service(Name, Address, ValidUntil) ->
-    #{address:=Ip} = Address,
-    lager:debug("make announce for service ~p, ip: ~p", [Name, Ip]),
-    Announce = #{
-        name => Name,
-        address => Address,
-        valid_until => ValidUntil
-    },
-    AnnounceBin = pack(Announce),
-    send_service_announce(AnnounceBin).
+announce_one_service(Name, #{address:=IP}=Address0, ValidUntil) ->
+    try
+        Address =
+            case IP of
+                local4 ->
+                    maps:put(address, hd(discovery:my_address_v4()), Address0);
+                local6 ->
+                    maps:put(address, hd(discovery:my_address_v6()), Address0);
+                _ ->
+                    Address0
+            end,
+        lager:debug("make announce for service ~p, ip: ~p", [Name, IP]),
+        Announce = #{
+            name => Name,
+            address => Address,
+            valid_until => ValidUntil
+        },
+        AnnounceBin = pack(Announce),
+        send_service_announce(AnnounceBin)
+    catch
+        Err:Reason ->
+            lager:error("Announce with name ~p hasn't made because ~p ~p", [Err, Reason])
+    end.
 
 
 is_address_advertisable(Address, #{options:=Options} = _ServiceOptions) ->
@@ -335,7 +377,11 @@ query(Name, State) ->
 
 
 address2key(#{address:=Ip, port:=Port, proto:=Proto}) ->
-    {Ip, Port, Proto}.
+    {Ip, Port, Proto};
+
+address2key(Invalid) ->
+    lager:info("invalid address: ~p", [Invalid]),
+    throw(invalid_address).
 
 
 % foreign service announce validation
@@ -360,13 +406,19 @@ validate_announce(Announce, State) ->
 
 % parse foreign service announce and add it to services database
 process_announce(Announce, Dict, AnnounceBin) ->
-    #{name := Name, address := Address} = Announce,
-    Key = address2key(Address),
-    Nodes = maps:get(Name, Dict, #{}),
-    PrevAnnounce = maps:get(Key, Nodes, not_found),
-    relay_announce(PrevAnnounce, Announce, AnnounceBin),
-    UpdatedNodes = maps:put(Key, Announce, Nodes),
-    maps:put(Name, UpdatedNodes, Dict).
+    try
+        #{name := Name, address := Address} = Announce,
+        Key = address2key(Address),
+        Nodes = maps:get(Name, Dict, #{}),
+        PrevAnnounce = maps:get(Key, Nodes, not_found),
+        relay_announce(PrevAnnounce, Announce, AnnounceBin),
+        UpdatedNodes = maps:put(Key, Announce, Nodes),
+        maps:put(Name, UpdatedNodes, Dict)
+    catch
+        _ ->
+            lager:error("skip announce ~p because error", [Announce]),
+            Dict
+    end.
 
 
 % relay announce to connected nodes
@@ -403,13 +455,13 @@ split_bin_to_sign_and_data(Bin) ->
 
 
 pack(Message) ->
-    {ok, PrivKey} = application:get_env(tpnode, privkey),
+    PrivKey=nodekey:get_priv(),
     Packed = msgpack:pack(Message),
     Hash = crypto:hash(sha256, Packed),
     Sign = bsig:signhash(
         Hash,
         [{timestamp,os:system_time(millisecond)}],
-        hex:parse(PrivKey)
+        PrivKey
     ),
     add_sign_to_bin(Sign, Packed).
 

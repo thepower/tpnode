@@ -52,6 +52,9 @@ check(KVS) when is_list(KVS) ->
 check(KVS, Block) when is_list(KVS) ->
     gen_server:call(?SERVER, {check, KVS, Block}).
 
+get(Address) when is_binary(Address) ->
+    gen_server:call(?SERVER, {get, Address});
+
 get(KS) when is_list(KS) ->
     gen_server:call(?SERVER, {get, KS}).
 
@@ -205,7 +208,25 @@ handle_call({Action, KVS0, BlockID}, _From, #{db:=DB, mt:=MT}=State) when
          _ -> State
      end};
 
-handle_call({get, KS}, _From, #{db:=DB}=State) ->
+handle_call({get, Addr}, _From, #{db:=DB}=State) when is_binary(Addr) ->
+    R=case rocksdb:get(DB, Addr, []) of
+          {ok, Value} ->
+              LB=case rocksdb:get(DB, <<"lb:",Addr/binary>>, []) of
+                     {ok, LBH} ->
+                         #{ ublk=>LBH };
+                     _ -> 
+                         #{}
+                 end,
+              maps:merge( erlang:binary_to_term(Value), LB);
+          not_found ->
+              not_found;
+          Error ->
+              lager:error("Can't fetch ~p: ~p",[Addr,Error]),
+              error
+      end,
+    {reply, R, State};
+
+handle_call({get, KS}, _From, #{db:=DB}=State) when is_list(KS) ->
     R=lists:foldl(
         fun(Key, Acc) ->
                 case rocksdb:get(DB, Key, []) of
@@ -278,7 +299,11 @@ applykv({K0,V},Acc) ->
 
 load(DB) ->
     GB=rocksdb:fold(DB,
-               fun({K,V}, Acc) ->
+               fun({<<"lb:",_/binary>>,_}, Acc) ->
+                       Acc;
+                  ({<<"lastblk",_/binary>>,_}, Acc) ->
+                       Acc;
+                  ({K,V}, Acc) ->
                        applykv({K,binary_to_term(V)},Acc)
                end,
                gb_merkle_trees:from_list([{<<>>,<<>>}]),
@@ -296,15 +321,7 @@ apply_patch(Address,Patch, #{db:=DB}=State) ->
                    Patch;
                {ok, Wallet} ->
                    Element=erlang:binary_to_term(Wallet),
-                   P1=maps:merge(
-                        Element,
-                        maps:with([lastblk,seq,t],Patch)
-                       ),
-                   Bals=maps:merge(
-                          maps:get(amount, Element,#{}),
-                          maps:get(amount, Patch,#{})
-                         ),
-                   P1#{amount=>Bals}
+                   bal:merge(Element,Patch)
            end,
     {NewVal,State}.
 

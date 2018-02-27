@@ -2,6 +2,7 @@
 -export([run/0,run1/0,test1/0,candidates/0]).
 
 call(Handler, Object, Atoms) ->
+    io:format("Calling ~p~n",[Object]),
     Res=tpic:call(tpic, Handler, msgpack:pack(Object)),
     lists:filtermap(
       fun({Peer, Bin}) ->
@@ -143,16 +144,24 @@ candidates() ->
 
 wait_more() ->
     receive
-        {inst_sync,block} ->
+        {inst_sync,block,_} ->
             io:format("B"),
+            wait_more();
+        {inst_sync,settings} ->
+            io:format("s"),
             wait_more();
         {inst_sync,ledger} ->
             io:format("L"),
             wait_more();
-        {inst_sync,done} ->
-            io:format("~n"),
+        {inst_sync,settings,_} ->
+            io:format("S"),
+            wait_more();
+        {inst_sync,done,Res} ->
+            io:format("~n~p~n",[Res]),
             ok;
-        Any -> {error, Any}
+        Any -> 
+            io:format("error: ~p",[Any]),
+            {error, Any}
     after 10000 ->
               timeout
     end.

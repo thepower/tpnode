@@ -40,7 +40,7 @@ init(_Args) ->
     pg2:create(mkblock),
     pg2:join(mkblock,self()),
     {ok, #{
-       nodeid=>tpnode_tools:node_id(),
+       nodeid=>nodekey:node_id(),
        preptxl=>[],
        settings=>#{}
       }
@@ -210,7 +210,14 @@ try_process([{TxID,
                       settings=>[{TxID,Tx}|Settings]
                      }
                    )
-    catch Ec:Ee ->
+    catch throw:Ee ->
+              lager:info("Fail to Patch ~p ~p",
+                         [_LPatch,Ee]),
+              try_process(Rest,SetState,Addresses,GetFun,
+                          Acc#{
+                            failed=>[{TxID,Ee}|Failed]
+                           });
+          Ec:Ee ->
               S=erlang:get_stacktrace(),
               lager:info("Fail to Patch ~p ~p:~p against settings ~p",
                          [_LPatch,Ec,Ee,SetState]),
@@ -288,8 +295,8 @@ try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
             SetState, Addresses, GetFun, 
             #{failed:=Failed}=Acc) ->
     MyChain=GetFun(mychain),
-    FAddr=address:check(From),
-    TAddr=address:check(To),
+    FAddr=addrcheck(From),
+    TAddr=addrcheck(To),
     case {FAddr,TAddr} of
         {{true,{chain,MyChain}},{true,{chain,MyChain}}} ->
             try_process_local([{TxID,Tx}|Rest],
@@ -305,10 +312,10 @@ try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
                                               Tx
                                              )}|Rest],
                   SetState, Addresses, GetFun, Acc);
-        {{true,{ver,_}},{true,{chain,MyChain}}}  -> %local
+        {{true,private},{true,{chain,MyChain}}}  -> %local from pvt
             try_process_local([{TxID,Tx}|Rest],
                   SetState, Addresses, GetFun, Acc);
-        {{true,{ver,_}},{true,{ver,_}}}  -> %pure local
+        {{true,MyChain},{true,private}}  -> %local to pvt
             try_process_local([{TxID,Tx}|Rest],
                   SetState, Addresses, GetFun, Acc);
         _ ->
@@ -317,13 +324,53 @@ try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
                         Acc#{failed=>[{TxID,'bad_src_or_dst_addr'}|Failed]})
     end;
 
+try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
+            SetState, Addresses, GetFun, 
+            #{failed:=Failed,
+              success:=Success,
+              settings:=Settings }=Acc) ->
+    try
+        {CG,CB,CA}=case settings:get([<<"current">>,<<"allocblock">>],SetState) of
+                       #{<<"block">> := CurBlk,
+                         <<"group">> := CurGrp,
+                         <<"last">> := CurAddr} ->
+                           {CurGrp,CurBlk,CurAddr+1};
+                       _ ->
+                           throw(unallocable)
+                   end,
+
+        NewBAddr=naddress:construct_public(CG, CB, CA),
+
+        IncAddr=#{<<"t">> => <<"set">>,
+                  <<"p">> => [<<"current">>,<<"allocblock">>,<<"last">>],
+                  <<"v">> => CA},
+        AAlloc={<<"aalloc">>,#{sig=>[],patch=>[IncAddr]}},
+        SS1=settings:patch(AAlloc,SetState),
+        lager:info("Alloc address ~p ~s for key ~s",
+                   [NewBAddr,
+                    naddress:encode(NewBAddr),
+                    bin2hex:dbin2hex(PubKey)
+                   ]),
+
+        NewF=bal:put(pubkey, PubKey, bal:new()),
+        NewAddresses=maps:put(NewBAddr,NewF,Addresses),
+
+        try_process(Rest,SS1,NewAddresses,GetFun,
+                    Acc#{success=> [{TxID,Tx#{address=>NewBAddr}}|Success],
+                         settings=>[AAlloc|lists:keydelete(<<"aalloc">>,1,Settings)]
+                        })
+    catch throw:X ->
+              lager:info("Portout fail ~p",[X]),
+              try_process(Rest,SetState,Addresses,GetFun,
+                          Acc#{failed=>[{TxID,X}|Failed]})
+    end;
+
 try_process([{TxID, UnknownTx} |Rest],
             SetState, Addresses, GetFun, 
             #{failed:=Failed}=Acc) ->
     lager:info("Unknown TX ~p type ~p",[TxID,UnknownTx]),
     try_process(Rest,SetState,Addresses,GetFun,
                 Acc#{failed=>[{TxID,'unknown_type'}|Failed]}).
-
 
 try_process_inbound([{TxID,
                     #{cur:=Cur,amount:=Amount,to:=To,
@@ -375,7 +422,10 @@ try_process_outbound([{TxID,
                throw ('bad_amount')
         end,
         CurFSeq=bal:get(seq,FBal),
-        if CurFSeq < Seq -> ok;
+        if is_integer(Timestamp) -> ok;
+           true -> throw ('non_int_timestamp')
+        end,
+         if CurFSeq < Seq -> ok;
            true -> throw ('bad_seq')
         end,
         CurFTime=bal:get(t,FBal),
@@ -429,6 +479,9 @@ try_process_local([{TxID,
            true ->
                throw ('bad_amount')
         end,
+        if is_integer(Timestamp) -> ok;
+           true -> throw ('non_int_timestamp')
+        end,
         CurFSeq=bal:get(seq,FBal),
         if CurFSeq < Seq -> ok;
            true -> throw ('bad_seq')
@@ -476,8 +529,7 @@ try_process_local([{TxID,
 
     
 sign(Blk,ED) when is_map(Blk) ->
-    {ok,K1}=application:get_env(tpnode,privkey),
-    PrivKey=hex:parse(K1),
+    PrivKey=nodekey:get_priv(),
     block:sign(Blk,ED,PrivKey).
 
 load_settings(State) ->
@@ -519,6 +571,9 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
                            ({_,#{patch:=_}},{AAcc,undefined}) ->
                                 S1=GetSettings(settings),
                                 {AAcc,S1};
+                           ({_,#{register:=_}},{AAcc,undefined}) ->
+                                S1=GetSettings(settings),
+                                {AAcc,S1};
                            ({_,#{patch:=_}},{AAcc,SAcc}) ->
                                 {AAcc,SAcc};
                            ({_,#{from:=F,portin:=_ToChain}},{AAcc,SAcc}) ->
@@ -543,7 +598,9 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
                            ({_,#{to:=T,from:=F,cur:=Cur}},{AAcc,SAcc}) ->
                                 FB=bal:fetch(F, Cur, true, maps:get(F,AAcc,#{}), GetAddr),
                                 TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
-                                {maps:put(F,FB,maps:put(T,TB,AAcc)),SAcc}
+                                {maps:put(F,FB,maps:put(T,TB,AAcc)),SAcc};
+                           (_,{AAcc,SAcc}) ->
+                                {AAcc,SAcc}
                         end, {#{},undefined}, TXL),
     _T3=erlang:system_time(), 
     #{success:=Success,
@@ -617,6 +674,20 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
       failed=>Failed
      }.
 
+addrcheck(Addr) ->
+    case naddress:check(Addr) of
+        {true, #{type:=public}} ->
+            case address_db:lookup(Addr) of
+                {ok, Chain} ->
+                    {true, {chain, Chain}};
+                _ ->
+                    unroutable
+            end;
+        {true, #{type:=private}} ->
+            {true, private};
+        _ ->
+            bad_address
+    end.
 
 benchmark(N) ->
     Parent=crypto:hash(sha256,<<"123">>),
@@ -705,6 +776,68 @@ ledger_hash(NewBal) ->
 
 
 -ifdef(TEST).
+
+alloc_addr_test() ->
+    GetSettings=
+    fun(mychain) ->
+            0;
+       (settings) ->
+            #{chain => #{0 =>
+                         #{blocktime => 10,
+                           minsig => 2,
+                           nodes => [<<"node1">>,<<"node2">>,<<"node3">>],
+                           <<"allowempty">> => 0}
+                        },
+              chains => [0],
+              globals => #{<<"patchsigs">> => 2},
+              keys =>
+              #{ <<"node1">> => crypto:hash(sha256,<<"node1">>),
+                 <<"node2">> => crypto:hash(sha256,<<"node2">>),
+                 <<"node3">> => crypto:hash(sha256,<<"node3">>),
+                 <<"node4">> => crypto:hash(sha256,<<"node4">>) 
+               },
+              nodechain => #{<<"node1">> => 0,
+                             <<"node2">> => 0,
+                             <<"node3">> => 0}, 
+              <<"current">> => #{
+                  <<"allocblock">> =>
+                  #{<<"block">> => 2,<<"group">> => 10,<<"last">> => 0}
+                 }
+             };
+       ({endless,_Address,_Cur}) ->
+            false;
+       (Other) ->
+            error({bad_setting,Other})
+    end,
+    GetAddr=fun test_getaddr/1,
+
+    Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
+    ParentHash=crypto:hash(sha256,<<"parent">>),
+    Pub1=tpecdsa:secp256k1_ec_pubkey_create(Pvt1),
+
+    TX0=tx:unpack( tx:pack( #{ type=>register, register=>Pub1 })),
+    #{block:=Block,
+      failed:=Failed}=generate_block(
+                        [{<<"alloc_tx1_id">>,TX0},
+                         {<<"alloc_tx2_id">>,TX0}],
+                        {1,ParentHash},
+                        GetSettings,
+                        GetAddr),
+
+    io:format("~p~n",[Block]),
+    [
+    ?assertEqual([], Failed),
+    ?assertMatch(#{bals:=#{<<128,1,64,0,2,0,0,1>>:=_,<<128,1,64,0,2,0,0,1>>:=_}}, Block)
+    ].
+    %?assertEqual([<<"3crosschain">>],proplists:get_keys(maps:get(tx_proof,Block))),
+    %?assertEqual([{<<"3crosschain">>,1}],maps:get(outbound,Block)),
+    %SignedBlock=block:sign(Block,<<1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1>>),
+    %file:write_file("tmp/testblk.txt", io_lib:format("~p.~n",[Block])),
+    %?assertMatch({true, {_,_}},block:verify(SignedBlock)),
+    %maps:get(1,block:outward_mk(maps:get(outbound,Block),SignedBlock)),
+    %test_xchain_inbound().
+
+
 
 mkblock_test() ->
     GetSettings=fun(mychain) ->

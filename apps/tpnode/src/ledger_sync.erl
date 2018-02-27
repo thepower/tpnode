@@ -30,12 +30,21 @@ target(TPIC, PeerID, LedgerPID, _RDB, Parent) ->
 
     gen_server:call(LedgerPID, '_flush'),
     lager:debug("TgtSync start",[]),
-    Result=continue(TPIC,LedgerPID,R,Parent,[]),
+    Result0=continue(TPIC,LedgerPID,R,Parent,[]),
+    {Result,Settings0}=lists:foldl(
+                        fun({settings, List}, {RAcc,SAcc}) ->
+                                {RAcc,[List|SAcc]};
+                           (Res, {RAcc,SAcc}) ->
+                                {[Res|RAcc],SAcc}
+                        end, {[],[]}, Result0),
+    Settings=lists:flatten(Settings0),
     lager:debug("TgtSync done ~p",[Result]),
+    Parent ! {inst_sync,settings,Settings},
     Parent ! {inst_sync,done,Result}.
 
 
 continue(TPIC,LedgerPID,[{Handler,Res}],Parent,Acc) ->
+    lager:debug("sync continue ~p",[Res]),
     case Res of
         #{<<"block">>:=BinBlock} ->
             %#{hash:=Hash,header:=#{ledger_hash:=LH,height:=Height}}=Block=block:unpack(BinBlock),
@@ -44,13 +53,17 @@ continue(TPIC,LedgerPID,[{Handler,Res}],Parent,Acc) ->
             Parent ! {inst_sync, block, BinBlock},
             R=call(TPIC, Handler, #{null=><<"continue">>}, []),
             continue(TPIC,LedgerPID,R,Parent,Acc);
+        #{<<"done">>:=_Done, <<"settings">>:=L} ->
+            Parent ! {inst_sync, settings},
+            R=call(TPIC,Handler, #{null=><<"continue">>}, []),
+            continue(TPIC,LedgerPID,R,Parent,[{settings,L}|Acc]);
         #{<<"done">>:=Done, <<"ledger">>:=L} ->
             gen_server:call(LedgerPID,
                             {put, maps:fold(
                                     fun(K,V,A) ->
                                             [{K,bal:unpack(V)}|A]
                                     end, [], L)}),
-            %lager:info("L ~w~n",[maps:size(L)]),
+            lager:info("L ~w~n",[maps:size(L)]),
             Parent ! {inst_sync, ledger},
             case Done of
                 false  ->
@@ -61,8 +74,9 @@ continue(TPIC,LedgerPID,[{Handler,Res}],Parent,Acc) ->
                     %lager:info("My Ledger hash ~s",[bin2hex:dbin2hex(C)]),
                     [done|Acc]
             end;
-        _ ->
-            [{error, unknonwn}|Acc]
+        _Any ->
+            lager:info("Unknown res ~p",[_Any]),
+            [{error, unknown}|Acc]
     end.
 
 
@@ -77,22 +91,64 @@ run_source(TPIC, PeerID, LastBlock, Settings) ->
 synchronizer(TPIC, PeerID,
              #{hash:=Hash,header:=#{height:=Height}}=Block,
              {DBH,Snapshot},
-             _Settings) ->
-    lager:info("Settings ~p",[_Settings]),
+             Settings) ->
     {ok, Itr} = rocksdb:iterator(DBH, [{snapshot, Snapshot}]),
     Total=rocksdb:count(DBH),
     lager:info("TPIC ~p Peer ~p bh ~p, db ~p total ~p",
-               [TPIC, PeerID, {Height, Hash}, {DBH,Snapshot},
-               Total]),
+               [TPIC, PeerID, {Height, Hash}, {DBH,Snapshot}, Total]),
+    Patches=settings:get_patches(Settings),
+    lager:info("Patches ~p",[Patches]),
     %file:write_file("tmp/syncblock.txt",
     %                io_lib:format("~p.~n",[Block])),
     tpic:cast(TPIC, PeerID, msgpack:pack(#{block=>block:pack(Block)})),
-    SP=send_part(TPIC,PeerID,first,Itr),
-
-    lager:info("Sync finished: ~p",[SP]),
+    SP1=send_settings(TPIC,PeerID,Patches),
+    if SP1 == done ->
+           SP2=send_ledger(TPIC,PeerID,first,Itr),
+           lager:info("Sync finished: ~p / ~p",[SP1,SP2]);
+       true ->
+           lager:info("Sync interrupted ~p",[SP1])
+    end,
     rocksdb:release_snapshot(Snapshot).
 
-send_part(TPIC,PeerID,Act,Itr) ->
+pick_settings(Settings, N) ->
+    LS=length(Settings),
+    if(N>=LS) ->
+          {Settings,[]};
+      true ->
+          lists:split(N,Settings)
+    end.
+
+send_settings(TPIC,PeerID,Settings) ->
+    lager:info("send_settings"),
+    receive
+        {'$gen_cast',{tpic,PeerID,Bin}} ->
+            case msgpack:unpack(Bin) of
+                {ok, #{null:=<<"stop">>}} ->
+                    tpic:cast(TPIC, PeerID, msgpack:pack(#{null=><<"stopped">>})),
+                    interrupted;
+                {ok, #{null:=<<"continue">>}} ->
+                    {ToSend,Rest} = pick_settings(Settings, 5),
+                    lager:info("Sending patches ~p",[ToSend]),
+                    if(Rest == []) -> %last portion
+                          Blob=#{done=>false,settings=>ToSend},
+                          tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                          done;
+                      true -> %Have more
+                          Blob=#{done=>false,settings=>ToSend},
+                          tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                          send_settings(TPIC,PeerID,Rest)
+                    end;
+                {error, _} ->
+                    error
+            end;
+        {'$gen_cast',Any} ->
+            lager:info("Unexpected message ~p",[Any])
+    after 30000 ->
+              tpic:cast(TPIC, PeerID, msgpack:pack(#{null=><<"stopped">>})),
+              timeout
+    end.
+
+send_ledger(TPIC,PeerID,Act,Itr) ->
     receive
         {'$gen_cast',{tpic,PeerID,Bin}} ->
             case msgpack:unpack(Bin) of
@@ -104,7 +160,7 @@ send_part(TPIC,PeerID,Act,Itr) ->
                         {ok, L} ->
                             Blob=#{done=>false,ledger=>maps:from_list(L)},
                             tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
-                            send_part(TPIC,PeerID,next,Itr);
+                            send_ledger(TPIC,PeerID,next,Itr);
                         {error, L} ->
                             Blob=#{done=>true,ledger=>maps:from_list(L)},
                             tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
@@ -124,6 +180,10 @@ send_part(TPIC,PeerID,Act,Itr) ->
 pickx(_, _, 0, A) -> {ok,A};
 pickx(Act, Itr, N, A) ->
     case rocksdb:iterator_move(Itr, Act) of
+        {ok, <<"lb:",_/binary>>, _} ->
+            pickx(next, Itr,N, A);
+        {ok, <<"lastblk">>, _} ->
+            pickx(next, Itr,N, A);
         {ok, K, V} ->
             pickx(next, Itr,N-1,
                   [{K,bal:pack(binary_to_term(V))}|A]);
