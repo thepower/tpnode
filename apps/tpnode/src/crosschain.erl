@@ -108,8 +108,19 @@ handle_info({gun_ws, ConnPid, {close, _, _}}, #{subs:=Subs} = State) ->
 
 handle_info({gun_ws, ConnPid, {binary, Bin} }, State) ->
     lager:notice("crosschain client got ws bin msg: ~p", [Bin]),
-    handle_xchain(ConnPid, unpack(Bin)),
-    {noreply, State};
+    try
+        handle_xchain(ConnPid, unpack(Bin)),
+        {noreply, State}
+    catch
+        Ec:Ee ->
+            S=erlang:get_stacktrace(),
+            lager:error("crosschain client parse error ~p:~p",[Ec,Ee]),
+            lists:foreach(
+                fun(Se) ->
+                    lager:error("at ~p",[Se])
+                end, S),
+            {noreply, State}
+    end;
 
 handle_info({gun_ws, _ConnPid, {text, Msg} }, State) ->
     lager:notice("crosschain client got ws msg: ~p", [Msg]),
