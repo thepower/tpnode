@@ -101,7 +101,7 @@ unsubscribe_all(Pid, #{pid_subs:=Pids,chan_subs:=Chans}=State) when is_pid(Pid) 
             end, Chans)
     }.
 
-publish(Channel, Data, #{chan_subs:=Chans}=State) ->
+publish(Channel, Data, #{chan_subs:=Chans}=_State) ->
     Subscribers = maps:get(Channel, Chans, #{}),
     Publisher =
         fun(ClientPid, _SubscribeState, Counter) ->
