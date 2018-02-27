@@ -246,7 +246,7 @@ announce_one_service(Name, #{address:=IP}=Address0, ValidUntil) ->
                 local6 ->
                     maps:put(address, hd(discovery:my_address_v6()), Address0);
                 _ ->
-                    IP
+                    Address0
             end,
         lager:debug("make announce for service ~p, ip: ~p", [Name, IP]),
         Announce = #{
@@ -377,7 +377,11 @@ query(Name, State) ->
 
 
 address2key(#{address:=Ip, port:=Port, proto:=Proto}) ->
-    {Ip, Port, Proto}.
+    {Ip, Port, Proto};
+
+address2key(Invalid) ->
+    lager:info("invalid address: ~p", [Invalid]),
+    throw(invalid_address).
 
 
 % foreign service announce validation
@@ -402,13 +406,19 @@ validate_announce(Announce, State) ->
 
 % parse foreign service announce and add it to services database
 process_announce(Announce, Dict, AnnounceBin) ->
-    #{name := Name, address := Address} = Announce,
-    Key = address2key(Address),
-    Nodes = maps:get(Name, Dict, #{}),
-    PrevAnnounce = maps:get(Key, Nodes, not_found),
-    relay_announce(PrevAnnounce, Announce, AnnounceBin),
-    UpdatedNodes = maps:put(Key, Announce, Nodes),
-    maps:put(Name, UpdatedNodes, Dict).
+    try
+        #{name := Name, address := Address} = Announce,
+        Key = address2key(Address),
+        Nodes = maps:get(Name, Dict, #{}),
+        PrevAnnounce = maps:get(Key, Nodes, not_found),
+        relay_announce(PrevAnnounce, Announce, AnnounceBin),
+        UpdatedNodes = maps:put(Key, Announce, Nodes),
+        maps:put(Name, UpdatedNodes, Dict)
+    catch
+        _ ->
+            lager:error("skip announce ~p because error", [Announce]),
+            Dict
+    end.
 
 
 % relay announce to connected nodes
