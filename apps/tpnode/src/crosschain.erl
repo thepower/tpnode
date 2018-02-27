@@ -23,10 +23,15 @@
 
 -export([test/0]).
 
+-export([pack_chid/1]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
+
+pack_chid(I) when is_integer(I) ->
+    <<"ch:",(integer_to_binary(I)/binary>>.
+
 
 start_link(Options) ->
     Name = maps:get(name, Options, crosschain),
@@ -51,10 +56,11 @@ handle_call(state, _From, State) ->
 
 
 handle_call({add_subscribe, Subscribe}, _From, #{subs:=Subs} = State) ->
-    lager:notice("add subscribe ~p", [Subscribe]),
+    AS=add_sub(Subscribe, Subs),
+    lager:notice("add subscribe ~p: ~p", [Subscribe,AS]),
     {reply, ok, State#{
-        subs => add_sub(Subscribe, Subs)
-    }};
+        subs => AS
+                 }};
 
 handle_call({connect, Ip, Port}, _From, State) ->
     lager:notice("crosschain connect to ~p ~p", [Ip, Port]),
@@ -329,8 +335,8 @@ handle_xchain(_ConnPid, Cmd) ->
 test() ->
     Subscribe = #{
         address => "127.0.0.1",
-        port => 43311,
-        channels => [<<"ch1">>, <<"ch2">>, <<"ch3">>]
+        port => 43323,
+        channels => [<<"test123">>]
     },
     gen_server:call(crosschain, {add_subscribe, Subscribe}).
 %%    {ok, _} = application:ensure_all_started(gun),

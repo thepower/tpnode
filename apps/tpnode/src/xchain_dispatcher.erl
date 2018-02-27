@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0]).
+-export([start_link/0, pub/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -20,6 +20,9 @@
 
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+pub(Channel, Payload) when is_binary(Channel) ->
+    gen_server:call(xchain_dispatcher, {publish,Channel,Payload}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
