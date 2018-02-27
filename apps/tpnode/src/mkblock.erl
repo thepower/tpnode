@@ -189,9 +189,15 @@ try_process([],_SetState,Addresses,_GetFun,Acc) ->
     Acc#{table=>Addresses};
 
 %process inbound block
-try_process([{BlID, #{ hash:=_, txs:=TxList }}|Rest], 
+try_process([{BlID, #{ hash:=BHash, txs:=TxList, header:=#{height:=BHeight} }}|Rest], 
             SetState, Addresses, GetFun, Acc) ->
-    try_process([ {TxID,maps:put(origin_block,BlID,Tx)} || {TxID,Tx} <- TxList ]++Rest,
+    try_process([ {TxID,
+                   Tx#{
+                     origin_block_hash=>BHash,
+                     origin_block_height=>BHeight,
+                     origin_block=>BlID
+                    }
+                  } || {TxID,Tx} <- TxList ]++Rest,
                 SetState,Addresses,GetFun, Acc);
 
 %process settings
@@ -360,7 +366,7 @@ try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
                          settings=>[AAlloc|lists:keydelete(<<"aalloc">>,1,Settings)]
                         })
     catch throw:X ->
-              lager:info("Portout fail ~p",[X]),
+              lager:info("Address alloc fail ~p",[X]),
               try_process(Rest,SetState,Addresses,GetFun,
                           Acc#{failed=>[{TxID,X}|Failed]})
     end;
@@ -374,16 +380,49 @@ try_process([{TxID, UnknownTx} |Rest],
 
 try_process_inbound([{TxID,
                     #{cur:=Cur,amount:=Amount,to:=To,
-                      origin_block:=OriginBlk
+                      origin_block:=OriginBlock,
+                      origin_block_height:=OriginHeight,
+                      origin_block_hash:=OriginHash
                      }=Tx}
                    |Rest],
                   SetState, Addresses, GetFun,
                   #{success:=Success, 
                     failed:=Failed,
+                    settings:=Settings,
                     pick_block:=PickBlock}=Acc) ->
     lager:error("Check signature once again"),
     TBal=maps:get(To,Addresses),
     try
+        ChID=2,
+        lager:info("Orig Block ~p",[OriginBlock]),
+        lager:notice("Change chain number to actual ~p",[SetState]),
+        ChainPath=[<<"current">>,<<"sync_status">>,crosschain:pack_chid(ChID)],
+        {_,ChainLastH}=case settings:get(ChainPath,SetState) of
+                           #{<<"block">> := LastBlk,
+                             <<"height">> := LastHeight} ->
+                               if(OriginHeight>LastHeight) -> ok;
+                                 true -> throw(overdue)
+                               end,
+                               {LastBlk,LastHeight};
+                           _ ->
+                               {<<0:64/big>>, 0}
+                       end,
+        lager:info("SyncState ~p",[ChainLastH]),
+
+        IncPtr=#{<<"t">> => <<"set">>,
+                  <<"p">> => ChainPath,
+                  <<"v">> => #{<<"block">>=>OriginHash,
+                               <<"height">>=>OriginHeight
+                              }
+                 },
+        PatchTxID= <<"sync",(crosschain:pack_chid(ChID))/binary>>,
+        SyncPatch={PatchTxID, #{sig=>[],patch=>[IncPtr]}},
+%        SS1=settings:patch(AAlloc,SetState),
+%        try_process(Rest,SS1,NewAddresses,GetFun,
+%                    Acc#{success=> [{TxID,Tx#{address=>NewBAddr}}|Success],
+%                         settings=>[AAlloc|lists:keydelete(<<"aalloc">>,1,Settings)]
+%                        })
+
         if Amount >= 0 -> ok;
            true -> throw ('bad_amount')
         end,
@@ -397,7 +436,8 @@ try_process_inbound([{TxID,
         NewAddresses=maps:put(To,NewT,Addresses),
         try_process(Rest,SetState,NewAddresses,GetFun,
                     Acc#{success=>[{TxID,Tx}|Success],
-                         pick_block=>maps:put(OriginBlk, 1, PickBlock)
+                         pick_block=>maps:put(OriginBlock, 1, PickBlock),
+                         settings=>[SyncPatch|lists:keydelete(PatchTxID,1,Settings)]
                         })
     catch throw:X ->
               try_process(Rest,SetState,Addresses,GetFun,
@@ -560,14 +600,19 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
     _T2=erlang:system_time(), 
     {Addrs,XSettings}=lists:foldl(
                         fun({_,#{hash:=_,header:=#{},txs:=Txs}},{AAcc0,SAcc}) ->
-                                %lager:info("TXs ~p",[Txs]),
+                                lager:info("TXs ~p",[Txs]),
                                 {
                                  lists:foldl( 
                                    fun({_,#{to:=T,cur:=Cur}},AAcc) ->
                                            TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
                                            maps:put(T,TB,AAcc)
-                                   end, AAcc0, Txs)
-                                 ,SAcc};
+                                   end, AAcc0, Txs),
+                                 case SAcc of
+                                     undefined -> 
+                                         GetSettings(settings);
+                                     _ ->
+                                         SAcc
+                                 end};
                            ({_,#{patch:=_}},{AAcc,undefined}) ->
                                 S1=GetSettings(settings),
                                 {AAcc,S1};
@@ -840,8 +885,9 @@ alloc_addr_test() ->
 
 
 mkblock_test() ->
+    OurChain=5,
     GetSettings=fun(mychain) ->
-                        0;
+                        OurChain;
                    (settings) ->
                         #{
                       chains => [0,1],
@@ -875,17 +921,12 @@ mkblock_test() ->
     GetAddr=fun test_getaddr/1,
 
     Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
-    Pvt2= <<30,1,172,151,224,97,198,186,132,106,120,141,156,0,13,156,178,193,56,24,180,178,60,235,66,194,121,0,4,220,214,6>>,
-    Pvt3= <<30,1,172,151,224,97,198,186,132,106,120,141,156,0,13,156,178,193,56,24,180,178,60,235,66,194,121,0,4,220,214,7>>,
     ParentHash=crypto:hash(sha256,<<"parent">>),
-    Pub1=tpecdsa:secp256k1_ec_pubkey_create(Pvt1),
-    Pub2=tpecdsa:secp256k1_ec_pubkey_create(Pvt2),
-    Pub3=tpecdsa:secp256k1_ec_pubkey_create(Pvt3),
 
     TX0=tx:unpack( tx:sign(
                      #{
-                     from=>address:pub2caddr(0,Pub1),
-                     to=>address:pub2caddr(0,Pub2),
+                     from=>naddress:construct_public(1,OurChain,3),
+                     to=>naddress:construct_public(1,OurChain,3),
                      amount=>10,
                      cur=><<"FTT">>,
                      seq=>2,
@@ -894,8 +935,8 @@ mkblock_test() ->
                  ),
     TX1=tx:unpack( tx:sign(
                      #{
-                     from=>address:pub2caddr(0,Pub1),
-                     to=>address:pub2caddr(0,Pub2),
+                     from=>naddress:construct_public(1,OurChain,3),
+                     to=>naddress:construct_public(1,OurChain,8),
                      amount=>9000,
                      cur=><<"BAD">>,
                      seq=>3,
@@ -905,8 +946,8 @@ mkblock_test() ->
 
     TX2=tx:unpack( tx:sign(
                      #{
-                     from=>address:pub2caddr(0,Pub1),
-                     to=>address:pub2caddr(1,Pub3),
+                     from=>naddress:construct_public(1,OurChain,3),
+                     to=>naddress:construct_public(1,OurChain+2,1),
                      amount=>9,
                      cur=><<"FTT">>,
                      seq=>4,
@@ -924,12 +965,11 @@ mkblock_test() ->
                         GetAddr),
     ?assertEqual([{<<"2invalid">>,insufficient_fund}], Failed),
     ?assertEqual([<<"3crosschain">>],proplists:get_keys(maps:get(tx_proof,Block))),
-    ?assertEqual([{<<"3crosschain">>,1}],maps:get(outbound,Block)),
+    ?assertEqual([{<<"3crosschain">>,OurChain+2}],maps:get(outbound,Block)),
     SignedBlock=block:sign(Block,<<1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1>>),
     file:write_file("tmp/testblk.txt", io_lib:format("~p.~n",[Block])),
     ?assertMatch({true, {_,_}},block:verify(SignedBlock)),
-    maps:get(1,block:outward_mk(maps:get(outbound,Block),SignedBlock)),
-    test_xchain_inbound().
+    maps:get(OurChain+2,block:outward_mk(maps:get(outbound,Block),SignedBlock)).
 
 %test_getaddr%({_Addr,_Cur}) -> %suitable for inbound tx
 test_getaddr(_Addr) ->
@@ -942,122 +982,162 @@ test_getaddr(_Addr) ->
       lastblk => <<0:64>>
      }.
 
-test_xchain_inbound() ->
-    ParentHash=crypto:hash(sha256,<<"parent2">>),
+xchain_inbound_test() ->
+    BlockTx={bin2hex:dbin2hex(
+               <<210,136,133,138,53,233,33,79,75,12,212,35,130,40,68,210,73,37,251,211,
+                 204,69,65,165,76,171,250,21,89,208,120,119>>),
+             #{
+               hash => <<210,136,133,138,53,233,33,79,75,12,212,35,130,40,68,210,73,37,251,211,
+                         204,69,65,165,76,171,250,21,89,208,120,119>>,
+               header => #{
+                 balroot => <<53,27,182,176,168,205,168,137,118,192,113,80,26,8,168,161,225,
+                              192,179,64,42,131,107,119,228,179,70,213,97,142,22,75>>,
+                 height => 3,
+                 ledger_hash => <<126,177,211,108,143,33,252,102,28,174,183,241,224,199,53,212,190,
+                                  109,9,102,244,128,148,2,141,113,34,173,88,18,54,167>>,
+                 parent => <<209,98,117,147,242,200,255,92,65,98,40,145,134,56,237,108,111,31,
+                             204,11,199,110,119,85,228,154,171,52,57,169,193,128>>,
+                 txroot => <<160,75,167,93,173,15,76,7,206,105,125,171,71,71,73,183,152,20,1,
+                             204,255,238,56,119,48,182,3,128,120,199,119,132>>},
+               sign => [
+                        #{binextra => <<2,33,3,20,168,140,163,14,5,254,154,92,115,194,121,240,35,86,153,
+                                        104,127,21,35,19,190,200,202,242,232,101,102,255,67,64,4,1,8,0,
+                                        0,1,97,216,215,132,30,3,8,0,0,0,0,0,54,225,28>>,
+                          extra => [
+                                    {pubkey,<<3,20,168,140,163,14,5,254,154,92,115,194,121,240,35,
+                                              86,153,104,127,21,35,19,190,200,202,242,232,101,102,
+                                              255,67,64,4>>},
+                                    {timestamp,1519761458206},
+                                    {createduration,3596572}],
+                          signature => <<48,69,2,32,46,71,177,112,252,81,176,202,73,216,45,248,150,187,
+                                         65,47,123,172,210,59,107,36,166,151,105,73,39,153,189,162,165,
+                                         12,2,33,0,239,133,205,191,10,54,223,131,75,133,178,226,150,62,
+                                         90,197,191,170,185,190,202,84,234,147,154,200,78,180,196,145,
+                                         135,30>>},
+                        #{
+                            binextra => <<2,33,2,242,87,82,248,198,80,15,92,32,167,94,146,112,70,81,54,
+                                          120,236,25,141,129,124,215,7,210,142,51,139,230,86,0,245,1,8,0,
+                                          0,1,97,216,215,132,25,3,8,0,0,0,0,0,72,145,55>>,
+                            extra => [
+                                      {pubkey,<<2,242,87,82,248,198,80,15,92,32,167,94,146,112,70,81,
+                                                54,120,236,25,141,129,124,215,7,210,142,51,139,230,86,
+                                                0,245>>},
+                                      {timestamp,1519761458201},
+                                      {createduration,4755767}],
+                            signature => <<48,69,2,33,0,181,13,206,186,91,46,248,47,86,203,119,163,182,
+                                           187,224,19,148,186,230,192,77,37,78,34,159,0,129,20,44,94,100,
+                                           222,2,32,17,113,133,105,203,59,196,83,152,48,93,234,94,203,
+                                           198,204,37,71,163,102,116,222,108,244,177,171,121,241,78,236,
+                                           20,49>>}
+                       ],
+               tx_proof => [
+                            {<<"151746FE691E15EA-34oMyXcpay8pDeuEUGRsdqLp25aC-03">>,
+                             {<<140,165,20,175,211,221,34,143,206,26,228,214,78,239,204,117,248,243,
+                                84,232,154,163,25,31,161,244,123,77,137,49,211,190>>,
+                              <<227,192,87,99,22,171,181,153,82,253,22,226,105,155,190,217,40,
+                                167,35,76,231,83,145,17,235,226,202,176,88,112,164,75>>}}],
+               txs => [
+                       {<<"151746FE691E15EA-34oMyXcpay8pDeuEUGRsdqLp25aC-03">>,
+                        #{amount => 10,cur => <<"FTT">>,
+                          extradata =>
+                          <<"{\"message\":\"preved from test_xchain_tx to AA100000001677721780\"}">>,
+                          from => <<128,1,64,0,2,0,0,1>>,
+                          seq => 1,
+                          sig =>
+                          #{<<3,106,33,240,104,190,146,105,114,104,182,13,150,196,202,147,
+                              5,46,193,4,228,158,0,58,226,196,4,249,22,134,67,114,244>> =>
+                            <<48,69,2,33,0,137,129,11,184,226,47,248,169,88,87,235,54,
+                              114,41,218,54,208,110,177,156,86,154,57,168,248,135,234,
+                              133,48,122,162,159,2,32,111,74,165,165,165,20,39,231,
+                              137,198,69,97,248,202,129,61,131,85,115,106,71,105,254,
+                              113,106,128,151,224,154,162,163,161>>},
+                          timestamp => 1519761457746,
+                          to => <<128,1,64,0,1,0,0,1>>,
+                          type => tx}}]}
+            },
+
+    ParentHash= <<0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3>>,
     GetSettings=fun(mychain) ->
                         1;
                    (settings) ->
-                        #{
-                      chains => [0,1],
-                      chain =>
-                      #{0 =>
-                        #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
-                        1 => 
-                        #{blocktime => 10,minsig => 1}
-                       },
-                      globals => #{<<"patchsigs">> => 2},
-                      keys =>
-                      #{
-                        <<"node1">> => crypto:hash(sha256,<<"node1">>),
-                        <<"node2">> => crypto:hash(sha256,<<"node2">>),
-                        <<"node3">> => crypto:hash(sha256,<<"node3">>),
-                        <<"node4">> => crypto:hash(sha256,<<"node4">>)
-                       },
-                      nodechain =>
-                      #{
-                        <<"node1">> => 0,
-                        <<"node2">> => 0,
-                        <<"node3">> => 0,
-                        <<"node4">> => 1
-                       }
-                     };
+                        #{chain =>
+                          #{1 => #{blocktime => 2,minsig => 2,<<"allowempty">> => 0},
+                            2 => #{blocktime => 2,minsig => 2,<<"allowempty">> => 0}},
+                          chains => [1,2],
+                          globals => #{<<"patchsigs">> => 4},
+                          keys =>
+                          #{<<"c1n1">> =>
+                            <<2,6,167,57,142,3,113,35,25,211,191,20,246,212,125,250,157,15,147,
+                              0,243,194,122,10,100,125,146,90,94,200,163,213,219>>,
+                            <<"c1n2">> =>
+                            <<3,49,215,116,73,54,27,41,144,13,76,183,209,15,238,61,231,222,154,
+                              116,37,161,113,159,2,37,130,166,140,176,51,183,170>>,
+                            <<"c1n3">> =>
+                            <<2,232,199,219,27,18,156,224,149,39,153,173,87,46,204,64,247,2,
+                              124,209,4,156,168,33,95,67,253,87,225,62,85,250,63>>,
+                            <<"c2n1">> =>
+                            <<3,20,168,140,163,14,5,254,154,92,115,194,121,240,35,86,153,104,
+                              127,21,35,19,190,200,202,242,232,101,102,255,67,64,4>>,
+                            <<"c2n2">> =>
+                            <<3,170,173,144,22,230,53,155,16,61,0,29,207,156,35,78,48,153,163,
+                              136,250,63,111,164,34,28,239,85,113,11,33,238,173>>,
+                            <<"c2n3">> =>
+                            <<2,242,87,82,248,198,80,15,92,32,167,94,146,112,70,81,54,120,236,
+                              25,141,129,124,215,7,210,142,51,139,230,86,0,245>>},
+                          nodechain =>
+                          #{<<"c1n1">> => 1,<<"c1n2">> => 1,<<"c1n3">> => 1,
+                            <<"c2n1">> => 2,<<"c2n2">> => 2,<<"c2n3">> => 2},
+                          <<"current">> =>
+                          #{<<"allocblock">> =>
+                            #{<<"block">> => 1,<<"group">> => 10,<<"last">> => 1}}};
                    ({endless,_Address,_Cur}) ->
                         false;
                    (Other) ->
                         error({bad_setting,Other})
                 end,
     GetAddr=fun test_getaddr/1,
-    
 
-    BTX={<<"4F8367774366BC52BFBB1FFD203F815FB2274A871C7EF8F173C23EBA63365DCA">>,
-         #{hash =>
-           <<79,131,103,119,67,102,188,82,191,187,31,253,32,63,129,95,178,39,74,
-             135,28,126,248,241,115,194,62,186,99,54,93,202>>,
-           header =>
-           #{balroot =>
-             <<100,201,127,106,126,195,253,190,51,162,170,35,25,133,55,221,32,
-               222,160,173,151,239,240,207,179,63,32,137,115,220,187,86>>,
-             height => 125,
-             parent =>
-             <<18,157,196,134,44,12,188,92,159,126,22,101,109,214,84,157,29,
-               48,186,246,102,32,147,74,9,174,152,43,150,227,200,70>>,
-             txroot =>
-             <<87,147,0,60,61,240,208,56,196,206,139,213,10,57,241,76,147,35,
-               10,50,214,139,89,45,91,129,154,192,46,185,136,186>>},
-           sign =>
-           [#{binextra =>
-              <<2,33,3,90,231,223,79,203,91,151,168,111,206,187,16,125,68,8,
-                88,221,251,40,199,8,231,14,6,198,37,170,33,14,138,111,22,1,8,
-                0,0,1,96,7,149,104,17,3,8,0,0,0,0,0,9,39,21>>,
-              extra =>
-              [{pubkey,<<3,90,231,223,79,203,91,151,168,111,206,187,16,125,
-                         68,8,88,221,251,40,199,8,231,14,6,198,37,170,33,14,
-                         138,111,22>>},
-               {timestamp,1511955720209},
-               {createduration,599829}],
-              signature =>
-              <<48,68,2,32,83,1,50,58,78,196,138,173,124,198,165,16,113,75,
-                112,45,139,139,106,224,185,98,148,117,44,125,221,251,36,200,
-                102,44,2,32,121,141,16,243,9,156,46,97,206,213,185,109,58,
-                139,77,56,87,243,181,254,188,38,158,6,161,96,20,140,153,236,
-                246,127>>},
-            #{binextra =>
-              <<2,33,2,7,131,239,103,72,81,252,233,190,212,91,73,77,131,140,
-                107,95,57,79,23,91,55,221,38,165,17,242,158,31,33,57,75,1,8,0,
-                0,1,96,7,149,104,13,3,8,0,0,0,0,0,7,100,47>>,
-              extra =>
-              [{pubkey,<<2,7,131,239,103,72,81,252,233,190,212,91,73,77,131,
-                         140,107,95,57,79,23,91,55,221,38,165,17,242,158,31,
-                         33,57,75>>},
-               {timestamp,1511955720205},
-               {createduration,484399}],
-              signature =>
-              <<48,69,2,33,0,193,141,201,10,158,9,186,213,138,169,40,46,147,
-                87,86,95,168,105,38,14,234,0,34,175,197,245,6,179,108,247,
-                66,185,2,32,66,161,36,73,11,127,38,157,73,224,110,16,206,
-                248,16,93,229,161,135,160,224,96,132,45,107,198,204,205,109,
-                39,117,75>>}],
-           tx_proof =>
-           [{<<"14FB8BB66EE28CCF-noded57D9KidJHaHxyKBqyM8T8eBRjDxRGWhZC-2944">>,
-             {<<180,136,203,147,25,47,21,127,67,78,244,67,34,4,125,164,112,88,63,
-                92,178,186,180,59,96,16,142,139,149,133,239,216>>,
-              <<52,182,4,40,176,139,124,238,6,254,144,173,117,149,6,86,177,70,
-                135,10,106,127,22,211,235,68,133,193,231,110,230,16>>}}],
-           txs =>
-           [{<<"14FB8BB66EE28CCF-noded57D9KidJHaHxyKBqyM8T8eBRjDxRGWhZC-2944">>,
-             #{amount => 1.0,cur => <<"FTT">>,
-               extradata => <<"{\"message\":\"preved from gentx\"}">>,
-               from => <<"73VoBpU8Rtkyx1moAPJBgAZGcouhGXWVpD6PVjm5">>,
-               outbound => 1,
-               sig => #{  %incorrect signature for new format
-                 <<"043E9FD2BBA07359FAA4EDC9AC53046EE530418F97ECDEA77E0E98288E6",
-                   "E56178D79D6A023323B0047886DAFEAEDA1F9C05633A536C70C513AB847",
-                   "99B32F20E2DD">>
-                 =>
-                 <<"30450221009B3E4E72F4DBD2A79762C2BE732CFB0D36B7EE3A4C4AC361E",
-                 "B935EFE701BB757022033CD9752D6AB71C939F9C70C56185F7C0FDC9E79E2"
-                 "6BB824B2F1722EFC687A4E">>
-                },
-               seq => 12,
-               timestamp => 1511955715572989476,
-               to => <<"75dF2XsYc5rLgovnekw7DobT7mubTQNN2M6E1kRr">>}}]}},
-    #{block:=Block,
+    #{block:=#{hash:=NewHash,
+               header:=#{height:=NewHeight}}=Block,
       failed:=Failed}=generate_block(
-                        [BTX],
+                        [BlockTx],
                         {1,ParentHash},
                         GetSettings,
                         GetAddr),
+
+%        SS1=settings:patch(AAlloc,SetState),
+    GetSettings2=fun(mychain) ->
+                        1;
+                   (settings) ->
+                         lists:foldl(
+                           fun(Patch, Acc) ->
+                                   settings:patch(Patch,Acc)
+                           end, GetSettings(settings), maps:get(settings,Block));
+                   ({endless,_Address,_Cur}) ->
+                        false;
+                   (Other) ->
+                        error({bad_setting,Other})
+                end,
+    #{block:=Block2,
+      failed:=Failed2}=generate_block(
+                         [BlockTx],
+                         {NewHeight,NewHash},
+                         GetSettings2,
+                         GetAddr),
+
+    [
     ?assertEqual([], Failed),
-    #{block=>Block, failed=>Failed}.
+    ?assertMatch([
+                  {<<"151746FE691E15EA-34oMyXcpay8pDeuEUGRsdqLp25aC-03">>,
+                   #{amount:=10}
+                  }
+                 ], maps:get(txs,Block)),
+    ?assertMatch(#{amount:=#{<<"FTT">>:=120}},
+                 maps:get(<<128,1,64,0,1,0,0,1>>,maps:get(bals,Block))
+                ),
+    ?assertMatch([], maps:get(txs,Block2)),
+    ?assertMatch([{_,overdue}], Failed2)
+    ].
 
 -endif.
+
