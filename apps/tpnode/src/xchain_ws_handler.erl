@@ -91,6 +91,11 @@ childspec() ->
 
 %% ----------------------------
 
+handle_xchain(ping) ->
+%%    lager:notice("got ping"),
+    ok;
+
+
 handle_xchain(chain) ->
     try
         {ok,blockchain:chain()}

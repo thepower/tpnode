@@ -47,7 +47,8 @@ init(_Args) ->
     State = #{
         subs => #{},
         chain => blockchain:chain(),
-        connect_timer => erlang:send_after(10 * 1000, self(), make_connections)
+        connect_timer => erlang:send_after(10 * 1000, self(), make_connections),
+        pinger_timer => erlang:send_after(10 * 1000, self(), make_pings)
     },
     {ok, State}.
 
@@ -136,6 +137,14 @@ handle_info(make_connections, #{connect_timer:=Timer, subs:=Subs} = State) ->
     }};
 
 
+handle_info(make_pings, #{pinger_timer:=Timer, subs:=Subs} = State) ->
+    catch erlang:cancel_timer(Timer),
+    make_pings(Subs),
+    {noreply, State#{
+        pinger_timer => erlang:send_after(30 * 1000, self(), make_pings)
+    }};
+
+
 handle_info({'DOWN',_Ref,process,Pid,_Reason}, State) ->
     {noreply, remove_connection(Pid, State)};
 
@@ -153,6 +162,17 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+
+make_pings(Subs) ->
+    Cmd = pack(ping),
+    maps:fold(
+        fun(_Key, #{connection:=ConnPid} = _Sub, Acc) ->
+            catch gun:ws_send(ConnPid, {binary, Cmd}),
+            Acc + 1;
+           (_, _, Acc) ->
+               Acc
+        end, 0, Subs).
 
 
 %% TODO: catch gun:open errors here!!!
@@ -335,13 +355,15 @@ change_settings_handler(#{ chain:= Chain} = State) ->
 
 %% -----------------
 
+handle_xchain(_ConnPid, pong) ->
+%%    lager:info("Got pong for ~p",[_ConnPid]),
+    ok;
 
 handle_xchain(_ConnPid, {outward_block, FromChain, ToChain, BinBlock}) ->
     lager:info("Got outward block from ~p to ~p",[FromChain,ToChain]),
     Block=block:unpack(BinBlock),
     lager:info("Here it is ~p",[Block]),
     ok;
-
 
 handle_xchain(_ConnPid, Cmd) ->
     lager:info("got xchain message from server: ~p", [Cmd]).
@@ -361,7 +383,7 @@ handle_xchain(_ConnPid, Cmd) ->
 test() ->
     Subscribe = #{
         address => "127.0.0.1",
-        port => 43323,
+        port => 43312,
         channels => [<<"test123">>,pack_chid(2)]
     },
     gen_server:call(crosschain, {add_subscribe, Subscribe}).
