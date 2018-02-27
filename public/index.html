@@ -4,8 +4,7 @@
 <script type="text/javascript">
 var ws = new Object;
 
-function open()
-{
+function open() {
     if (!("WebSocket" in window)) {
         alert("WebSocket NOT supported by your Browser!");
         return;
@@ -66,12 +65,21 @@ function open()
     {
         // websocket is closed.
         console.log('close');
+        open();
     };
+    function doPing() {
+        console.log("Ping");
+        if (ws != "undefined") {
+            ws.send("ping");
+        }
+    }
+    var ping = setInterval(function () { doPing() }, 60000);
 };
 open();
 </script>
 </head>
 <body>
+    <a href="/demo/index.html">Demo wallet</a>
 <style>
 div {
     border-bottom: 1px solid black;

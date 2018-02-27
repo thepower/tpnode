@@ -41,7 +41,7 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(repeat, #{addrsub:=AS,blocksub:=BS}=State) ->
     {ok, [Block]}=file:consult("lastblock.txt"),
-    PrettyBlock=tpnode_handlers:prettify_block(Block),
+    PrettyBlock=tpnode_httpapi:prettify_block(Block),
     maps:fold(
       fun(Address,BalSnap,_) ->
               {Tx,Bal}=lists:foldl(
@@ -93,7 +93,11 @@ handle_cast(repeat, #{addrsub:=AS,blocksub:=BS}=State) ->
     {noreply, State};
 
 handle_cast({new_block, Block}, #{addrsub:=AS,blocksub:=BS}=State) ->
-    PrettyBlock=tpnode_handlers:prettify_block(Block),
+    PrettyBlock=try
+                    tpnode_httpapi:prettify_block(Block)
+                catch _:_ -> 
+                          #{error => true}
+                end,
     maps:fold(
       fun(Address,BalSnap,_) ->
               {Tx,Bal}=lists:foldl(
@@ -146,7 +150,7 @@ handle_cast({new_block, Block}, #{addrsub:=AS,blocksub:=BS}=State) ->
         0 ->
             ok;
         _ ->
-            file:write_file("lastblock.txt",
+            file:write_file("tmp/lastblock_ws.txt",
                             iolist_to_binary(
                               io_lib:format("~p.~n",[Block])
                              )

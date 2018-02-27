@@ -36,45 +36,140 @@ start_link() ->
 init(_Args) ->
     {ok, #{
        queue=>queue:new(),
-       nodeid=>tpnode_tools:node_id(),
+       nodeid=>nodekey:node_id(),
        inprocess=>hashqueue:new()
       }}.
 
 handle_call(state, _Form, State) ->
     {reply, State, State};
 
+handle_call({portout, #{
+               from:=Address,
+               portout:=PortTo,
+               seq:=Seq,
+               timestamp:=Timestamp,
+               public_key:=HPub,
+               signature:=HSig
+              }
+            }, _From, #{nodeid:=Node,queue:=Queue}=State) ->
+    lager:notice("TODO: Check keys"),
+    TxID=generate_txid(Node),
+    {reply, 
+     {ok, TxID}, 
+     State#{
+       queue=>queue:in({TxID,
+                        #{
+                          from=>Address,
+                          portout=>PortTo,
+                          seq=>Seq,
+                          timestamp=>Timestamp,
+                          public_key=>HPub,
+                          signature=>HSig
+                         }
+                        },Queue)
+      }
+    };
+
+handle_call({register, #{
+               register:=_
+              }=Patch}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
+    TxID=generate_txid(Node),
+    {reply,
+     {ok, TxID},
+     State#{
+       queue=>queue:in({TxID, Patch},Queue)
+      }
+    };
+
+
+handle_call({patch, #{
+               patch:=_,
+               sig:=_
+              }=Patch}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
+    case settings:verify(Patch) of
+        {ok, #{ sigverify:=#{valid:=[_|_]} }} ->
+            TxID=generate_txid(Node),
+            {reply, 
+             {ok, TxID}, 
+             State#{
+               queue=>queue:in({TxID, Patch},Queue)
+              }
+            };
+        bad_sig ->
+            {reply, {error, bad_sig}, State};
+        _ ->
+            {reply, {error, verify}, State}
+    end;
+
+
 handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
     try
-    case tx:verify(BinTx) of
-        {ok, Tx} -> 
-            TxID=generate_txid(Node),
-            %lager:info("TX ~p: ~p",[TxID,Tx]),
-            {reply, {ok, TxID}, State#{
-                                  queue=>queue:in({TxID,Tx},Queue)
-                                 }};
-        Err ->
-            {reply, {error, Err}, State}
-    end
+        case tx:verify(BinTx) of
+            {ok, Tx} -> 
+                TxID=generate_txid(Node),
+                {reply, {ok, TxID}, State#{
+                                      queue=>queue:in({TxID,Tx},Queue)
+                                     }};
+            Err ->
+                {reply, {error, Err}, State}
+        end
     catch Ec:Ee ->
+              Stack=erlang:get_stacktrace(),
+              lists:foreach(
+                fun(Where) ->
+                        lager:info("error at ~p",[Where])
+                end, Stack),
               {reply, {error, {Ec,Ee}}, State}
     end;
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+    {reply, unknown_request, State}.
 
-handle_cast(prepare, #{inprocess:=InProc0,queue:=Queue,nodeid:=Node}=State) ->
+handle_cast(settings, State) ->
+    {noreply,load_settings(State)};
+
+handle_cast({inbound_block, #{hash:=Hash}=Block}, #{queue:=Queue}=State) ->
+    BlId=bin2hex:dbin2hex(Hash),
+    lager:info("Inbound block ~p",[{BlId,Block}]),
+    {noreply, State#{
+                queue=>queue:in({BlId,Block},Queue)
+               }
+    };
+
+handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue,nodeid:=Node}=State) ->
     %case hashqueue:head(InProc0) of
     %    empty -> ok;
     %    _ -> lager:info("Still in process ~p",[InProc0])
     %end,
     {Queue1,Res}=pullx(1000,Queue,[]),
-    lists:foreach(
-      fun(Pid)-> 
-              %lager:info("Prepare to ~p",[Pid]),
-              gen_server:cast(Pid, {prepare, Node, Res}) 
-      end, 
-      pg2:get_members(mkblock)
-     ),
+    try
+        %MKb= <<"mkblock",(integer_to_binary(MyChain))/binary>>,
+        MKb= <<"mkblock">>,
+        MRes=msgpack:pack(#{null=><<"mkblock">>,
+                            chain=>MyChain,
+                            origin=>Node,
+                            txs=>maps:from_list(
+                                   lists:map(
+                                     fun({TxID,T}) ->
+                                             {TxID,tx:pack(T)}
+                                     end, Res)
+                                  )
+                           }),
+        tpic:cast(tpic,MKb,MRes)
+        %lager:info("Cast ~p ~p",[MKb,msgpack:unpack(MRes)])
+    catch _:_ ->
+              S=erlang:get_stacktrace(),
+              lager:error("Can't encode at ~p",[S])
+    end,
+    
+    %lists:foreach(
+    %  fun(Pid)-> 
+    %          %lager:info("Prepare to ~p",[Pid]),
+    %          gen_server:cast(Pid, {prepare, Node, Res}) 
+    %  end, 
+    %  pg2:get_members({mkblock,MyChain})
+    % ),
+    gen_server:cast(mkblock, {prepare, Node, Res}), 
     Time=erlang:system_time(seconds),
     {InProc1,Queue2}=recovery_lost(InProc0,Queue1,Time),
     ETime=Time+20,
@@ -89,6 +184,10 @@ handle_cast(prepare, #{inprocess:=InProc0,queue:=Queue,nodeid:=Node}=State) ->
                             )
                }
     }; 
+
+handle_cast(prepare, State) ->
+    lager:notice("TXPOOL Blocktime, but I not ready"),
+    {noreply,load_settings(State)};
 
 handle_cast({done, Txs}, #{inprocess:=InProc0}=State) ->
     InProc1=lists:foldl(
@@ -167,7 +266,19 @@ recovery_lost(InProc,Queue,Now) ->
             end
     end.
 
-
-
-
+load_settings(State) ->
+    MyChain=blockchain:get_settings(chain,0),
+    case maps:get(mychain, State, undefined) of
+        undefined -> %join new pg2
+            pg2:create({?MODULE,MyChain}),
+            pg2:join({?MODULE,MyChain},self());
+        MyChain -> ok; %nothing changed
+        OldChain -> %leave old, join new
+            pg2:leave({?MODULE,OldChain},self()),
+            pg2:create({?MODULE,MyChain}),
+            pg2:join({?MODULE,MyChain},self())
+    end,
+    State#{
+      mychain=>MyChain
+     }.
 

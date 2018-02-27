@@ -25,47 +25,36 @@ start_link() ->
 init([]) ->
     application:ensure_all_started(cowboy),
     application:ensure_all_started(tinymq),
-    case axiom:start(tpnode_handlers,
-                         [
-                          {content_type,"text/html"},
-                          {preprocessor, pre_hook},
-                          {postprocessor, post_hook},
-                          {sessions, []},
-                          {nb_acceptors, 100},
-                          {host, '_'},
-                          {port, 
-                           application:get_env(tpnode,rpcport,43280)
-                          },
-                          {routes, [
-                                    {"/api/ws", tpnode_ws, []}
-                                   ]},
-                          {ip, {0,0,0,0,0,0,0,0}},
-                          {public, "public"}
-                         ]) of
-        {ok,_PID} -> ok;
-        {error,{already_started,axiom}} -> ok
-    end,
-    case application:get_env(tpnode, neighbours) of
-        {ok, Neighbours} when is_list(Neighbours) ->
-            lists:foreach(
-              fun(Node) ->
-                      net_adm:ping(Node)
-              end, Neighbours);
-        _ -> 
-            ok
-    end,
+    tpnode:reload(),
 
+    {ok,TPIC0}=application:get_env(tpnode,tpic),
+    TPIC=TPIC0#{
+           ecdsa=>tpecdsa:generate_priv(),
+           authmod=>tpic_checkauth,
+           handler=>tpnode_tpic_handler,
+           routing=>#{
+             <<"timesync">>=>synchronizer,
+             <<"mkblock">>=>mkblock,
+             <<"blockvote">>=>blockvote,
+             <<"blockchain">>=>blockchain
+            }
+          },
     {ok, { {one_for_one, 5, 10}, 
            [
-            {
-             h2ldb,
-             {h2leveldb, start_link, [ [] ]},
-             permanent, 5000, worker, []
-            },
+            { rdb_dispatcher, {rdb_dispatcher,start_link,[]}, permanent, 5000, worker, []},
             { blockchain, {blockchain,start_link,[]}, permanent, 5000, worker, []},
+            { blockvote, {blockvote,start_link,[]}, permanent, 5000, worker, []},
             { ws_dispatcher, {tpnode_ws_dispatcher,start_link,[]}, permanent, 5000, worker, []},
             { synchronizer, {synchronizer,start_link,[]}, permanent, 5000, worker, []},
             { mkblock, {mkblock,start_link,[]}, permanent, 5000, worker, []},
-            { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []}
-           ]} }.
+            { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []},
+            { tpic_sctp, {tpic_sctp, start_link, [TPIC]}, permanent, 5000, worker, []},
+            { ledger, {ledger, start_link, []}, permanent, 5000, worker, []},
+            { discovery, {discovery, start_link, [#{pid=>discovery, name=>discovery}]}, permanent, 5000, worker, []},
+            { tpnode_announcer, {tpnode_announcer, start_link, [#{}]}, permanent, 5000, worker, []},
+            { crosschain, {crosschain, start_link, [#{}]}, permanent, 5000, worker, []},
+            { xchain_dispatcher, {xchain_dispatcher, start_link, []}, permanent, 5000, worker, []},
+            xchain_ws_handler:childspec()
+           ] ++ tpnode_http:childspec()
+         } }.
 
