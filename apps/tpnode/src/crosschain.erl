@@ -156,8 +156,10 @@ handle_info(make_pings, #{pinger_timer:=Timer, subs:=Subs} = State) ->
     }};
 
 
-handle_info({'DOWN',_Ref,process,Pid,_Reason}, State) ->
-    {noreply, remove_connection(Pid, State)};
+handle_info({'DOWN', _Ref, process, Pid, _Reason}, #{subs:=Subs} = State) ->
+    {noreply, State#{
+        subs => lost_connection(Pid, Subs)
+    }};
 
 handle_info(_Info, State) ->
     lager:notice("crosschain client unknown info ~p", [_Info]),
@@ -335,10 +337,6 @@ make_subscription(Subs) ->
               Sub
         end,
     maps:map(Subscriber, Subs).
-
-remove_connection(_Pid, State) ->
-    State.
-
 
 
 pack(Term) ->
