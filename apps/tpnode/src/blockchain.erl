@@ -467,10 +467,15 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                               apply_ledger(put,MBlk),
 
                               maps:fold(
-                                fun(ChainId,OutBlock,_) ->
-                                        %Dst=pg2:get_members({txpool,ChainId}),
+                                fun(ChainID,OutBlock,_) ->
                                         lager:info("Out to ~b ~p",
-                                                   [ChainId,OutBlock])
+                                                   [ChainID,OutBlock]),
+                                        Chid=crosschain:pack_chid(ChainID),
+                                        xchain_dispatcher:pub(
+                                          {publish,
+                                           Chid,
+                                           block:pack(OutBlock)
+                                          })
                                         %lists:foreach(
                                         %  fun(Pool) ->
                                         %          gen_server:cast(Pool,
