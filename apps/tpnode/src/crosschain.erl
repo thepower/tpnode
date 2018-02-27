@@ -339,6 +339,14 @@ change_settings_handler(#{ chain:= Chain} = State) ->
 handle_xchain(_ConnPid, {outward_block, FromChain, ToChain, BinBlock}) ->
     lager:info("Got outward block from ~p to ~p",[FromChain,ToChain]),
     Block=block:unpack(BinBlock),
+    try 
+        Filename="tmp/inward_block."++integer_to_list(FromChain)++".txt",
+        file:write_file(Filename, io_lib:format("~p.~n",[Block]))
+    catch Ec:Ee -> 
+              S=erlang:get_stacktrace(),
+              lager:error("Can't dump inward block ~p:~p at ~p",
+                          [Ec,Ee,hd(S)])
+    end,
     lager:info("Here it is ~p",[Block]),
     ok;
 
