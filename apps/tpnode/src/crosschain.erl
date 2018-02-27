@@ -45,7 +45,7 @@ start_link(Options) ->
 
 init(_Args) ->
     State = #{
-        subs => #{},
+        subs => init_subscribes(#{}),
         chain => blockchain:chain(),
         connect_timer => erlang:send_after(10 * 1000, self(), make_connections),
         pinger_timer => erlang:send_after(10 * 1000, self(), make_pings)
@@ -62,7 +62,7 @@ handle_call({add_subscribe, Subscribe}, _From, #{subs:=Subs} = State) ->
     lager:notice("add subscribe ~p: ~p", [Subscribe,AS]),
     {reply, ok, State#{
         subs => AS
-                 }};
+    }};
 
 handle_call({connect, Ip, Port}, _From, State) ->
     lager:notice("crosschain connect to ~p ~p", [Ip, Port]),
@@ -282,7 +282,7 @@ parse_subscribe(#{address:=Ip, port:=Port, channels:=Channels})
     };
 
 parse_subscribe(Invalid) ->
-    lager:info("invalid subscribe: ~p", [Invalid]),
+    lager:error("invalid subscribe: ~p", [Invalid]),
     throw(invalid_subscribe).
 
 check_empty_subscribes(#{channels:=Channels}=_Sub) ->
@@ -306,7 +306,7 @@ add_sub(Subscribe, Subs) ->
         maps:put(Key, NewSub, Subs)
     catch
         Reason ->
-            lager:info("can't process subscribe. ~p", Reason),
+            lager:error("can't process subscribe. ~p ~p", [Reason, Subscribe]),
             Subs
     end.
 
@@ -339,6 +339,8 @@ make_subscription(Subs) ->
     maps:map(Subscriber, Subs).
 
 
+%% -----------------
+
 pack(Term) ->
     term_to_binary(Term).
 
@@ -349,18 +351,38 @@ unpack(Invalid) ->
     lager:info("invalid data for unpack ~p", [Invalid]),
     {}.
 
+%% -----------------
 
-
-change_settings_handler(#{ chain:= Chain} = State) ->
+change_settings_handler(#{chain:=Chain} = State) ->
     case blockchain:chain() of
         Chain ->
-            lager:info("wipe all subscribes"),
-            % TODO
-
             State;
         _ ->
+            lager:info("wipe all crosschain subscribes"),
             State
     end.
+
+%% -----------------
+
+init_subscribes(Subs) ->
+    Config = application:get_env(tpnode, crosschain, #{}),
+    ConnectIpsList = maps:get(connect, Config, []),
+    MyChainChannel = pack_chid(blockchain:chain()),
+    lists:foldl(
+        fun({Ip, Port}, Acc) when is_integer(Port) ->
+            Sub = #{
+                address => Ip,
+                port => Port,
+                channels => [MyChainChannel]
+            },
+            add_sub(Sub, Acc);
+
+            (Invalid, Acc) ->
+                lager:error("invalid crosschain connect term: ~p", Invalid),
+                Acc
+        end, Subs, ConnectIpsList).
+
+
 
 %% -----------------
 
