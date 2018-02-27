@@ -30,7 +30,7 @@
 %% ------------------------------------------------------------------
 
 pack_chid(I) when is_integer(I) ->
-    <<"ch:",(integer_to_binary(I)/binary>>.
+    <<"ch:",(integer_to_binary(I))/binary>>.
 
 
 start_link(Options) ->
@@ -81,7 +81,7 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(settings, State) ->
     lager:notice("reload settings"),
-    {noreply, State};
+    {noreply, change_settings_handler(State)};
 
 
 handle_cast(_Msg, State) ->
@@ -334,6 +334,13 @@ change_settings_handler(#{ chain:= Chain} = State) ->
     end.
 
 %% -----------------
+
+
+handle_xchain(_ConnPid, {outward_block, FromChain, ToChain, BinBlock}) ->
+    lager:info("Got outward block from ~p to ~p",[FromChain,ToChain]),
+    Block=block:unpack(BinBlock),
+    lager:info("Here it is ~p",[Block]),
+    ok;
 
 
 handle_xchain(_ConnPid, Cmd) ->
