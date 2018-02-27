@@ -475,17 +475,20 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                                                        [ChainID,OutBlock]),
                                             Chid=crosschain:pack_chid(ChainID),
                                             xchain_dispatcher:pub(
-                                              {publish,
                                                Chid,
                                                {outward_block,
                                                 MyChain,
                                                 ChainID,
                                                 block:pack(OutBlock)
-                                               }
-                                              })
+                                               })
                                         catch XEc:XEe ->
+                                                  S=erlang:get_stacktrace(),
                                                   lager:error("Can't publish outward block: ~p:~p",
-                                                              [XEc,XEe])
+                                                              [XEc,XEe]),
+                                                  lists:foreach(
+                                                    fun(Se) ->
+                                                            lager:error("at ~p",[Se])
+                                                    end, S)
                                         end
 
                                         %lists:foreach(
