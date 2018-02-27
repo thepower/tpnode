@@ -354,7 +354,8 @@ unpack(Invalid) ->
 %% -----------------
 
 change_settings_handler(#{chain:=Chain, subs:=Subs} = State) ->
-    case blockchain:chain() of
+    CurrentChain = blockchain:chain(),
+    case CurrentChain of
         Chain ->
             State;
         _ ->
@@ -373,7 +374,8 @@ change_settings_handler(#{chain:=Chain, subs:=Subs} = State) ->
 
             % and finally replace all subscribes by new ones
             State#{
-                subs => init_subscribes(#{})
+                subs => init_subscribes(#{}),
+                chain => CurrentChain
             }
     end.
 
