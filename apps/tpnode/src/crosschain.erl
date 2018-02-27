@@ -353,13 +353,28 @@ unpack(Invalid) ->
 
 %% -----------------
 
-change_settings_handler(#{chain:=Chain} = State) ->
+change_settings_handler(#{chain:=Chain, subs:=Subs} = State) ->
     case blockchain:chain() of
         Chain ->
             State;
         _ ->
             lager:info("wipe all crosschain subscribes"),
-            State
+
+            % close all active connections
+            maps:fold(
+                fun(_Key, #{connection:=ConnPid}=_Sub, Acc) ->
+                    catch gun:shutdown(ConnPid),
+                    Acc+1;
+                   (_Key, _Sub, Acc) ->
+                       Acc
+                end,
+                0,
+                Subs),
+
+            % and finally replace all subscribes by new ones
+            State#{
+                subs => init_subscribes(#{})
+            }
     end.
 
 %% -----------------
