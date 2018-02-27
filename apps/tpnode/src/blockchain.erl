@@ -8,7 +8,7 @@
 
 -export([start_link/0]).
 -export([get_settings/1,get_settings/2,get_settings/0,apply_block_conf/2,
-        last/0]).
+        last/0,chain/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -23,6 +23,10 @@
 
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+chain() ->
+    {Chain,_Height}=gen_server:call(blockchain, last_block_height),
+    Chain.
 
 last() ->
     gen_server:call(blockchain, last_block).
@@ -145,7 +149,6 @@ handle_call(fix_first_block, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
     catch Ec:Ee ->
               {reply, {error, Ec, Ee}, State}
     end;
-
 
 handle_call(last_block_height, _From,
             #{mychain:=MC,lastblock:=#{header:=#{height:=H}}}=State) ->
@@ -466,14 +469,13 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                               maps:fold(
                                 fun(ChainId,OutBlock,_) ->
                                         %Dst=pg2:get_members({txpool,ChainId}),
-                                        Dst=[],
-                                        lager:info("Out to ~b(~p) ~p",
-                                                   [ChainId,Dst,OutBlock]),
-                                        lists:foreach(
-                                          fun(Pool) ->
-                                                  gen_server:cast(Pool,
-                                                                  {inbound_block,OutBlock})
-                                          end, Dst)
+                                        lager:info("Out to ~b ~p",
+                                                   [ChainId,OutBlock])
+                                        %lists:foreach(
+                                        %  fun(Pool) ->
+                                        %          gen_server:cast(Pool,
+                                        %                          {inbound_block,OutBlock})
+                                        %  end, Dst)
                                 end,0, block:outward_mk(MBlk)),
 
                               {noreply, State#{
