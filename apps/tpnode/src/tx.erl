@@ -178,6 +178,18 @@ verify(Bin) when is_binary(Bin) ->
     verify(Tx).
 
 pack(#{
+  hash:=_,
+  header:=_,
+  sign:=_
+ }=Block) ->
+    msgpack:pack(
+      #{
+      type => <<"block">>,
+      block => block:pack(Block)
+     }
+     );
+
+pack(#{
   patch:=LPatch,
   sig:=Sigs
  }=Tx) ->
@@ -233,7 +245,7 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
     lager:info("mp ~p",[BinTx]),
     {ok, Tx0} = msgpack:unpack(BinTx, [{known_atoms, 
                                         [type,sig,tx,patch,register,
-                                         register,address] },
+                                         register,address,block] },
                                        {unpack_str,as_binary}] ),
     lager:info("TX ~p",[Tx0]), 
     Tx=maps:fold(
@@ -326,6 +338,8 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
                  extradata => ExtraJSON,
                  sig => Sig
                };
+          block ->
+              block:unpack(maps:get(block,Tx));
           patch -> %settings patch
               #{sig:=Sig}=Tx,
               #{ patch => maps:get(patch,Tx),

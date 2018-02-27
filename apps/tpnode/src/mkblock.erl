@@ -409,14 +409,17 @@ try_process_inbound([{TxID,
                        end,
         lager:info("SyncState ~p",[ChainLastH]),
 
-        IncPtr=#{<<"t">> => <<"set">>,
-                  <<"p">> => ChainPath,
-                  <<"v">> => #{<<"block">>=>OriginHash,
-                               <<"height">>=>OriginHeight
-                              }
+        IncPtr=[#{<<"t">> => <<"set">>,
+                  <<"p">> => ChainPath++[<<"block">>],
+                  <<"v">> => OriginHash
                  },
+                #{<<"t">> => <<"set">>,
+                  <<"p">> => ChainPath++[<<"height">>],
+                  <<"v">> => OriginHeight
+                 }
+               ],
         PatchTxID= <<"sync",(crosschain:pack_chid(ChID))/binary>>,
-        SyncPatch={PatchTxID, #{sig=>[],patch=>[IncPtr]}},
+        SyncPatch={PatchTxID, #{sig=>[],patch=>IncPtr}},
 %        SS1=settings:patch(AAlloc,SetState),
 %        try_process(Rest,SS1,NewAddresses,GetFun,
 %                    Acc#{success=> [{TxID,Tx#{address=>NewBAddr}}|Success],

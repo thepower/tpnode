@@ -418,7 +418,8 @@ handle_xchain(_ConnPid, {outward_block, FromChain, ToChain, BinBlock}) ->
               lager:error("Can't dump inward block ~p:~p at ~p",
                           [Ec,Ee,hd(S)])
     end,
-    lager:info("Here it is ~p",[Block]),
+    lager:debug("Here it is ~p",[Block]),
+    gen_server:cast(txpool,{inbound_block,Block}),
     ok;
 
 handle_xchain(_ConnPid, Cmd) ->
