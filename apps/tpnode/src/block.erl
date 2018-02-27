@@ -4,6 +4,8 @@
 -export([verify/1,outward_verify/1,sign/2,sign/3]).
 -export([pack/1,unpack/1]).
 
+-export([bals2bin/1]).
+
 -ifndef(TEST).
 -define(TEST,1).
 -endif.
@@ -17,7 +19,7 @@ pack(Block) ->
               fun(bals,BalsSnap) ->
                       maps:fold(
                         fun(Address,Snap,Acc) ->
-                                maps:put(Address,Snap,Acc)
+                                maps:put(Address,bal:pack(Snap),Acc)
                         end,#{},BalsSnap);
                  (sync,SyncState) ->
                       maps:fold(
@@ -76,8 +78,8 @@ unpack(Block) when is_binary(Block) ->
               fun
                   (bals,BalsSnap) ->
                       maps:fold(
-                        fun(Address,Snap,Acc) ->
-                                maps:put(Address,Snap,Acc)
+                        fun(Address,BinSnap,Acc) ->
+                                maps:put(Address,bal:unpack(BinSnap),Acc)
                         end,#{},BalsSnap);
                   (sync,SyncState) ->
                       maps:fold(
@@ -172,7 +174,10 @@ outward_verify(#{ header:=#{parent:=Parent, height:=H}=Header,
               false
     end.
 
-verify(#{ header:=#{parent:=Parent, height:=H}=Header, 
+verify(#{ header:=#{parent:=Parent, 
+                    height:=H,
+                    ledger_hash:=HLedgerHash
+                   }=Header, 
           hash:=HdrHash, 
           sign:=Sigs
         }=Blk) ->
@@ -190,8 +195,7 @@ verify(#{ header:=#{parent:=Parent, height:=H}=Header,
 
     TxRoot=gb_merkle_trees:root_hash(TxMT),
     BalsRoot=gb_merkle_trees:root_hash(BalsMT),
-    SettingsRoot=gb_merkle_trees:root_hash(SettingsMT),
-
+    SetRoot=gb_merkle_trees:root_hash(SettingsMT),
     BHeader=lists:foldl(
               fun({_,undefined},ABHhr) ->
                       ABHhr;
@@ -205,8 +209,8 @@ verify(#{ header:=#{parent:=Parent, height:=H}=Header,
               >>,
               [{txroot,TxRoot},
                {balroot,BalsRoot},
-               {ledger_hash,maps:get(ledger_hash, Header, undefined)},
-               {setroot,SettingsRoot}
+               {ledger_hash,HLedgerHash},
+               {setroot,SetRoot}
               ]
              ),
 
@@ -214,6 +218,31 @@ verify(#{ header:=#{parent:=Parent, height:=H}=Header,
     %io:format("H1 ~s ~nH2 ~s~n~n",[bin2hex:dbin2hex(Hash),
     %                             bin2hex:dbin2hex(HdrHash)]),
     if Hash =/= HdrHash ->
+           HSetRoot=maps:get(setroot,Header,undefined),
+           HTxRoot=maps:get(txroot,Header,undefined),
+           HBalsRoot=maps:get(balroot,Header,undefined),
+
+           if TxRoot =/= HTxRoot ->
+                  lager:notice("TX root mismatch ~s vs ~s",
+                              [
+                                bin2hex:dbin2hex(TxRoot),
+                                bin2hex:dbin2hex(HTxRoot)
+                              ]);
+              SetRoot =/= HSetRoot ->
+                  lager:notice("Set root mismatch",
+                               [
+                                bin2hex:dbin2hex(SetRoot),
+                                bin2hex:dbin2hex(HSetRoot)
+                               ]);
+              BalsRoot =/= HBalsRoot ->
+                  lager:notice("Bals root mismatch ~s vs ~s",
+                               [
+                                bin2hex:dbin2hex(BalsRoot),
+                                bin2hex:dbin2hex(HBalsRoot)
+                               ]);
+              true ->
+                  lager:notice("Something mismatch")
+           end,
            false;
        true ->
            {true, bsig:checksig(Hash, Sigs)}

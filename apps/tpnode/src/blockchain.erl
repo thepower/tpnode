@@ -454,8 +454,10 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                               gen_server:cast(txpool,{done,proplists:get_keys(Settings)}),
 
                               T3=erlang:system_time(),
-                              lager:info("enough confirmations. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",
-                                         [blkid(BlockHash),
+                              lager:info("enough confirmations ~w/~w. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",
+                                         [
+                                          SigLen,MinSig,
+                                          blkid(BlockHash),
                                           maps:get(height,maps:get(header,Blk)),
                                           (T3-T2)/1000000,
                                           (T3-T0)/1000000
@@ -468,18 +470,24 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
 
                               maps:fold(
                                 fun(ChainID,OutBlock,_) ->
-                                        lager:info("Out to ~b ~p",
-                                                   [ChainID,OutBlock]),
-                                        Chid=crosschain:pack_chid(ChainID),
-                                        xchain_dispatcher:pub(
-                                          {publish,
-                                           Chid,
-                                           {outward_block,
-                                            MyChain,
-                                            ChainID,
-                                            block:pack(OutBlock)
-                                           }
-                                          })
+                                        try
+                                            lager:info("Out to ~b ~p",
+                                                       [ChainID,OutBlock]),
+                                            Chid=crosschain:pack_chid(ChainID),
+                                            xchain_dispatcher:pub(
+                                              {publish,
+                                               Chid,
+                                               {outward_block,
+                                                MyChain,
+                                                ChainID,
+                                                block:pack(OutBlock)
+                                               }
+                                              })
+                                        catch XEc:XEe ->
+                                                  lager:error("Can't publish outward block: ~p:~p",
+                                                              [XEc,XEe])
+                                        end
+
                                         %lists:foreach(
                                         %  fun(Pool) ->
                                         %          gen_server:cast(Pool,

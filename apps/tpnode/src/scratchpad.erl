@@ -89,17 +89,45 @@ test_alloc_addr() ->
     gen_server:call(txpool, {register, TX0})
     }.
 
+test_xchain_tx(ToChain) ->
+    TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
+    From= <<128,1,64,0,1,0,0,1>>,
+    To=naddress:construct_public(10,ToChain,1),
+    Cur= <<"FTT">>,
+    Seq=bal:get(seq,ledger:get(From)),
+    Tx=#{
+      amount=>10,
+      cur=>Cur,
+      extradata=>jsx:encode(#{ message=><<"preved from test_xchain_tx to ",
+                                          (naddress:encode(To))/binary>> }),
+      from=>From,
+      to=>To,
+      seq=>Seq+1,
+      timestamp=>os:system_time(millisecond)
+     },
+    io:format("TX1 ~p.~n",[Tx]),
+    NewTx=tx:sign(Tx,TestPriv),
+    io:format("TX2 ~p.~n",[NewTx]),
+    BinTX=bin2hex:dbin2hex(NewTx),
+    io:format("TX3 ~p.~n",[BinTX]),
+    {
+    tx:unpack(NewTx),
+    txpool:new_tx(NewTx) 
+    }.
+ 
 
 test_alloc_block() ->
     PrivKey=nodekey:get_priv(),
+    MyChain=blockchain:chain(),
+    true=is_integer(MyChain),
     Patch=settings:sign(
             settings:dmp(
               settings:mp(
                 [
                  #{t=><<"nonexist">>,p=>[current,allocblock,last], v=>any},
                  #{t=>set,p=>[current,allocblock,group], v=>10},
-                 #{t=>set,p=>[current,allocblock,block], v=>0},
-                 #{t=>set,p=>[current,allocblock,last], v=>3}
+                 #{t=>set,p=>[current,allocblock,block], v=>MyChain},
+                 #{t=>set,p=>[current,allocblock,last], v=>0}
                 ])),
       PrivKey),
     io:format("PK ~p~n",[settings:verify(Patch)]),

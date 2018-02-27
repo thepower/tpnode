@@ -362,7 +362,7 @@ test() ->
     Subscribe = #{
         address => "127.0.0.1",
         port => 43323,
-        channels => [<<"test123">>]
+        channels => [<<"test123">>,pack_chid(2)]
     },
     gen_server:call(crosschain, {add_subscribe, Subscribe}).
 %%    {ok, _} = application:ensure_all_started(gun),

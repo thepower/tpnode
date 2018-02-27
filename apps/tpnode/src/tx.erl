@@ -194,12 +194,14 @@ pack(#{
 
 pack(#{
   register:=Reg
- }) ->
+ }=Tx) ->
     msgpack:pack(
-      #{
-      type => <<"register">>,
-      register => Reg
-     }
+      maps:merge(
+        maps:with([address],Tx),
+        #{ type => <<"register">>,
+           register => Reg
+         }
+       )
      );
 
 pack(#{
@@ -231,7 +233,7 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
     lager:info("mp ~p",[BinTx]),
     {ok, Tx0} = msgpack:unpack(BinTx, [{known_atoms, 
                                         [type,sig,tx,patch,register,
-                                         register] },
+                                         register,address] },
                                        {unpack_str,as_binary}] ),
     lager:info("TX ~p",[Tx0]), 
     Tx=maps:fold(
@@ -250,6 +252,10 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
                           catch error:badarg -> 
                                     Val
                           end,Acc);
+             ("address",Val,Acc) ->
+                 maps:put(address,
+                          list_to_binary(Val),
+                          Acc);
              ("register",Val,Acc) ->
                  maps:put(register,
                           list_to_binary(Val),
@@ -330,9 +336,17 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
                   33 -> ok;
                   true -> throw('bad_pubkey')
               end,
-              #{ type => register,
-                 register => PubKey
-               };
+              case maps:is_key(address,Tx) of
+                  false ->
+                      #{ type => register,
+                         register => PubKey
+                       };
+                  true ->
+                      #{ type => register,
+                         register => PubKey,
+                         address => maps:get(address,Tx)
+                       }
+              end;
           _ ->
               lager:error("Bad tx ~p",[Tx]),
               throw({"bad tx type",Type})
