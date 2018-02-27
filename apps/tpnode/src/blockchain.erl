@@ -474,7 +474,11 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                                         xchain_dispatcher:pub(
                                           {publish,
                                            Chid,
-                                           block:pack(OutBlock)
+                                           {outward_block,
+                                            MyChain,
+                                            ChainID,
+                                            block:pack(OutBlock)
+                                           }
                                           })
                                         %lists:foreach(
                                         %  fun(Pool) ->
