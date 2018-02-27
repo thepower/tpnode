@@ -21,7 +21,7 @@ handle_tpic(From, _, <<"tping">>, Payload, _State) ->
     ok;
 
 handle_tpic(_From, service, <<"discovery">>, Payload, _State) ->
-    lager:info("Service discovery ~p",[Payload]),
+    lager:debug("Service discovery ~p",[Payload]),
     gen_server:cast(discovery, {got_announce, Payload}),
     ok;
 
