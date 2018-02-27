@@ -180,7 +180,7 @@ code_change(_OldVsn, State, _Extra) ->
 make_pings(Subs) ->
     Cmd = pack(ping),
     maps:fold(
-        fun(_Key, #{connection:=ConnPid} = _Sub, Acc) ->
+        fun(_Key, #{connection:=ConnPid, ws_mode:=true} = _Sub, Acc) ->
             catch gun:ws_send(ConnPid, {binary, Cmd}),
             Acc + 1;
            (_, _, Acc) ->
