@@ -46,6 +46,7 @@ start_link(Options) ->
 init(_Args) ->
     State = #{
         subs => #{},
+        chain => blockchain:chain(),
         connect_timer => erlang:send_after(10 * 1000, self(), make_connections)
     },
     {ok, State}.
@@ -76,6 +77,12 @@ handle_call({connect, Ip, Port}, _From, State) ->
 handle_call(_Request, _From, State) ->
     lager:notice("crosschain unknown call ~p", [_Request]),
     {reply, ok, State}.
+
+
+handle_cast(settings, State) ->
+    lager:notice("reload settings"),
+    {noreply, State};
+
 
 handle_cast(_Msg, State) ->
     lager:notice("crosschain unknown cast ~p", [_Msg]),
@@ -313,6 +320,18 @@ unpack(Invalid) ->
     lager:info("invalid data for unpack ~p", [Invalid]),
     {}.
 
+
+
+change_settings_handler(#{ chain:= Chain} = State) ->
+    case blockchain:chain() of
+        Chain ->
+            lager:info("wipe all subscribes"),
+            % TODO
+
+            State;
+        _ ->
+            State
+    end.
 
 %% -----------------
 

@@ -998,7 +998,8 @@ notify_settings() ->
     gen_server:cast(txpool,settings),
     gen_server:cast(mkblock,settings),
     gen_server:cast(blockvote,settings),
-    gen_server:cast(synchronizer,settings).
+    gen_server:cast(synchronizer,settings),
+    gen_server:cast(crosschain,settings).
 
 mychain(#{settings:=S}=State) ->
     KeyDB=maps:get(keys,S,#{}),
