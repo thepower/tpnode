@@ -66,7 +66,13 @@ pack(Block) ->
              ),
 %    file:write_file("tmp/origblk.txt",[io_lib:format("~p.~n",[Block])]),
 %    file:write_file("tmp/prepblk.txt",[io_lib:format("~p.~n",[Prepare])]),
-    msgpack:pack(Prepare).
+    Packed=msgpack:pack(Prepare),
+    if is_binary(Packed) ->
+           Packed;
+       true ->
+           file:write_file("log/blockpack.txt",[io_lib:format("~p.~n",[Block])]),
+           throw({cant_pack,Packed})
+    end.
 
 unpack(Block) when is_binary(Block) ->
     case msgpack:unpack(Block,[{known_atoms,
