@@ -56,9 +56,9 @@ run(Config,Dir) ->
                                         ]
                                        ),
                         [
-                        io_lib:format("scp configs/genesis.txt \"root@[~s]:thepower-0.1.0/genesis.txt\"~n",
+                        io_lib:format("scp configs/genesis.txt \"root@[~s]:thepower/genesis.txt\"~n",
                                   [hd(proplists:get_value(address,Settings))]),
-                        io_lib:format("scp ~s \"root@[~s]:thepower-0.1.0/node.config\"~n",
+                        io_lib:format("scp ~s \"root@[~s]:thepower/node.config\"~n",
                                   [Filename,hd(proplists:get_value(address,Settings))]) | ANK]
                 end, NK, Nodes)
       end, [], Configuration),
@@ -114,7 +114,7 @@ ncfg(Node, _Chain, Global, Local, Peers, Dir) ->
      {privkey, 
       binary_to_list(bin2hex:dbin2hex(get_key(Node,Dir)))
      }
-    ]++Global.
+    ]++Global++proplists:get_value(raw,Local,[]).
 
 
 
