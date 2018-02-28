@@ -175,13 +175,13 @@ outward_verify(#{ header:=#{parent:=Parent, height:=H}=Header,
     end.
 
 verify(#{ header:=#{parent:=Parent, 
-                    height:=H,
-                    ledger_hash:=HLedgerHash
+                    height:=H
                    }=Header, 
           hash:=HdrHash, 
           sign:=Sigs
         }=Blk) ->
 
+    HLedgerHash=maps:get(ledger_hash,Header,undefined),
     Txs=maps:get(txs,Blk,[]),
     Bals=maps:get(bals,Blk,#{}),
     Settings=maps:get(settings,Blk,[]),
