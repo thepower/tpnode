@@ -19,9 +19,9 @@ websocket_init(State) ->
 
 websocket_handle({binary, Bin}, State) ->
     try
-        lager:notice("ws server got binary msg: ~p", [Bin]),
+%%        lager:debug("ws server got binary msg: ~p", [Bin]),
         Cmd = crosschain:unpack(Bin),
-        lager:notice("ws server unpacked term: ~p", [Cmd]),
+        lager:debug("ws server got term: ~p", [Cmd]),
         Result = handle_xchain(Cmd),
         case Result of
             ok ->
@@ -45,15 +45,15 @@ websocket_handle({text, <<"ping">>}, State) ->
     {ok, State};
 
 websocket_handle({text, Msg}, State) ->
-    lager:notice("ws server got msg: ~p", [Msg]),
+    lager:debug("ws server got msg: ~p", [Msg]),
     {reply, {text, <<"pong: ", Msg/binary >>}, State};
 
 websocket_handle(_Data, State) ->
-    lager:notice("Unknown websocket ~p", [_Data]),
+    lager:info("Unknown websocket ~p", [_Data]),
     {ok, State}.
 
 websocket_info({message, Msg}, State) ->
-    lager:info("send message ~p",[Msg]),
+    lager:debug("send message ~p",[Msg]),
     {reply, {binary, crosschain:pack(Msg)}, State};
 
 websocket_info({timeout, _Ref, Msg}, State) ->
@@ -71,7 +71,9 @@ childspec() ->
     HTTPDispatch = cowboy_router:compile(
         [
             {'_', [
-                {"/", xchain_ws_handler, []}
+                {"/xchain/ws", xchain_ws_handler, []},
+                {"/", xchain_ws_handler, []},
+                {"/xchain/api/[...]", apixiom, {xchain_api,#{}}}
             ]}
         ]),
     CrossChainOpts = application:get_env(tpnode, crosschain, #{}),
@@ -82,12 +84,21 @@ childspec() ->
     HTTPConnType=#{connection_type => supervisor,
         env => #{dispatch => HTTPDispatch}},
     HTTPAcceptors=10,
-    ranch:child_spec(crosschain_api,
-        HTTPAcceptors,
-        ranch_tcp,
-        HTTPOpts,
-        cowboy_clear,
-        HTTPConnType).
+    [
+        ranch:child_spec(crosschain_api,
+            HTTPAcceptors,
+            ranch_tcp,
+            HTTPOpts,
+            cowboy_clear,
+            HTTPConnType),
+
+        ranch:child_spec(crosschain_api6,
+            HTTPAcceptors,
+            ranch_tcp,
+            [inet6,{ipv6_v6only,true}|HTTPOpts],
+            cowboy_clear,
+            HTTPConnType)
+    ].
 
 
 %% ----------------------------
