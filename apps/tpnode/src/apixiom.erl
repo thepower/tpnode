@@ -3,13 +3,11 @@
 -export([init/2]).
 
 %% API
-
 init(Req0, {Target, Opts}) ->
     Method = cowboy_req:method(Req0),
     Path = cowboy_req:path_info(Req0),
-    Req1=parse_reqjs(Req0),
-    PRes=handle_json(Method, Path, Req1, Target, Opts),
-    {Status,Body,ResReq}=process_response(PRes,Req1),
+    PRes=handle_json(Method, Path, Req0, Target, Opts),
+    {Status,Body,ResReq}=process_response(PRes,Req0),
     Response=case erlang:function_exported(Target,after_filter,1) of
                  true ->
                      Target:after_filter(ResReq);
@@ -20,13 +18,14 @@ init(Req0, {Target, Opts}) ->
     {ok, cowboy_req:reply(Status, #{}, Body, Response), Opts}.
 
 bodyjs(Req) ->
-	maps:get(request_json, Req, undefined).
+    maps:get(request_json, Req, undefined).
 
 %% Internals
 
 handle_json(Method, Path, Req, Target, _Opts) ->
 	try
-		Target:h(Method,Path, Req)
+        Req1 = parse_reqjs(Req),
+        Target:h(Method, Path, Req1)
 	catch 
 		throw:{return, Code, MSG} when is_list(MSG) ->
 			{Code, #{error=>list_to_binary(MSG)}};
@@ -46,8 +45,8 @@ handle_json(Method, Path, Req, Target, _Opts) ->
 %					ReqPath = cowboy_req:path(Req),
 %					{404, #{error=><<"not found">>,path=>ReqPath,method=>Method,p=>Path}};
 				Stack ->
-                                        ST=format_stack(Stack),
-					{400, #{error=>unknown_fc,ecee=><<"error:function_clause">>,stack=>ST}}
+                    ST = format_stack(Stack),
+                    {400, #{error=>unknown_fc, ecee=><<"error:function_clause">>, stack=>ST}}
 			end;
 		Ec:Ee ->
 			EcEe=iolist_to_binary(io_lib:format("~p:~p",[Ec,Ee])),
@@ -115,8 +114,9 @@ parse_reqjs(Req) ->
                 {ok, ReqBody, NewReq} = cowboy_req:read_body(Req),
                 ReqJSON=jsx:decode(ReqBody,[return_maps]),
                 maps:put(request_json, ReqJSON, NewReq)
-            catch _:_ -> 
-                      maps:put(request_json, #{}, Req)
+            catch _:_ ->
+                lager:error("json parse error: ~p", [Req]),
+                throw({return, "invalid json"})
             end;
         _ ->
             Req
