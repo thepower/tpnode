@@ -707,26 +707,31 @@ handle_info({b2b_sync, Hash}, #{
                          sync:=b2b,
                          syncpeer:=Handler
                         }=State) ->
-    [{_,R}]=tpiccall(Handler,
-                 #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>next},
-                 [block]
-                ),
-    case maps:is_key(block, R) of
-        false ->
-            lager:error("No block arrived, broken sync ~p",[R]),
-            {noreply, State};
-        true ->
-            #{block:=BinBlock}=R,
-            #{hash:=NewH}=Block=block:unpack(BinBlock),
-            gen_server:cast(self(),{new_block, Block, self()}),
-            case maps:find(child, Block) of
-                {ok, Child} ->
-                    self() ! {b2b_sync, Child},
-                    lager:info("block ~s have child ~s",[blkid(NewH),blkid(Child)]);
-                error ->
-                    self() ! runsync,
-                    lager:info("block ~s no child, sync done?",[blkid(NewH)])
-            end,
+    case tpiccall(Handler,
+                  #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>next},
+                  [block]
+                 ) of
+        [{_,R}] ->
+            case maps:is_key(block, R) of
+                false ->
+                    lager:error("No block arrived, broken sync ~p",[R]),
+                    {noreply, State};
+                true ->
+                    #{block:=BinBlock}=R,
+                    #{hash:=NewH}=Block=block:unpack(BinBlock),
+                    gen_server:cast(self(),{new_block, Block, self()}),
+                    case maps:find(child, Block) of
+                        {ok, Child} ->
+                            self() ! {b2b_sync, Child},
+                            lager:info("block ~s have child ~s",[blkid(NewH),blkid(Child)]);
+                        error ->
+                            self() ! runsync,
+                            lager:info("block ~s no child, sync done?",[blkid(NewH)])
+                    end,
+                    {noreply, State}
+            end;
+        _ -> 
+            erlang:send_after(10000,self(),runsync),
             {noreply, State}
     end;
 

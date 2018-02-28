@@ -46,6 +46,10 @@
  {<<"tpecdsa">>,
   {git,"https://github.com/thepower/tpecdsa.git",
        {ref,"1a6823399a5282a762184f2dafe1a884771da337"}},
+  0},
+ {<<"tpic">>,
+  {git,"https://github.com/thepower/tpic.git",
+       {ref,"c086cb504ac0eb261035aaea188cd820071c6923"}},
   0}]}.
 [
 {pkg_hash,[
