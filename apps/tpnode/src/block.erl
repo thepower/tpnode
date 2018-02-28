@@ -38,6 +38,13 @@ pack(Block) ->
                                   {TxID,tx:pack(T)}
                           end, Txs)
                        );
+                 (inbound_blocks,Blocks) ->
+                      maps:from_list(
+                        lists:map(
+                          fun({TxID,T}) ->
+                                  {TxID,block:pack(T)}
+                          end, Blocks)
+                       );
                  (outbound,Txp) ->
                       lager:notice("FIXME: save outbound flag in tx"),
                       lists:map(
@@ -78,7 +85,8 @@ unpack(Block) when is_binary(Block) ->
     case msgpack:unpack(Block,[{known_atoms,
                                 [hash,outbound,header,settings,txs,sign,bals,
                                  balroot,ledger_hash,height,parent,txroot,tx_proof,
-                                 amount,lastblk,seq,t,child,setroot]}]) of
+                                 amount,lastblk,seq,t,child,setroot,
+                                 inbound_blocks ]}]) of
         {ok, Hash} ->
             maps:map(
               fun
@@ -109,6 +117,12 @@ unpack(Block) when is_binary(Block) ->
                         fun([TxID,Tx]) ->
                                 {TxID, tx:unpack(Tx)}
                         end, TXs);
+                  (inbound_blocks,Blocks) ->
+                      lists:map(
+                        fun({TxID,T}) ->
+                                {TxID,block:unpack(T)}
+                        end, maps:to_list(Blocks)
+                       );
                   (settings,Txs) ->
                       lists:map(
                         fun({TxID,T}) ->
