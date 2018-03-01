@@ -1,0 +1,7 @@
+{tpic,#{peers => [{"::1",43211}],port => 43212}}.
+{rpcport,43282}.
+{endless,[<<128,1,64,0,0,0,0,4>>]}.
+{privkey,"1E919CD3897241D78B420255F66426CC9A31163653AD7685DBBF0C34FFFFFFFF"}.
+{discovery,
+#{addresses => [#{address => local6,port => 43213, proto => tpic}] }
+}.
