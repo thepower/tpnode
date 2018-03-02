@@ -154,6 +154,10 @@ handle_call(last_block_height, _From,
             #{mychain:=MC,lastblock:=#{header:=#{height:=H}}}=State) ->
     {reply, {MC,H}, State};
 
+handle_call(status, _From,
+            #{mychain:=MC,lastblock:=#{header:=H}}=State) ->
+    {reply, { MC, H }, State};
+
 handle_call(last, _From, #{lastblock:=L}=State) ->
     {reply, maps:with([child,header,hash],L), State};
 

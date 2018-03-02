@@ -14,6 +14,35 @@ h(Method, [<<"api">>|Path], Req) ->
     lager:info("Path ~p",[Path]),
     h(Method,Path,Req);
 
+h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
+    {Chain, Header1} = gen_server:call(blockchain, status),
+    Header=maps:map(
+             fun(balroot,V) -> base64:encode(V);
+                (ledger_hash,V) -> base64:encode(V);
+                (parent,V) -> base64:encode(V);
+                (setroot,V) -> base64:encode(V);
+                (txroot,V) -> base64:encode(V);
+                (_,V) -> V
+             end, Header1),
+    Peers=lists:map(
+            fun(#{addr:=_Addr, auth:=Auth, state:=Sta}) ->
+                    #{auth=>Auth,
+                      state=>Sta
+                     }
+            end, tpic:peers()),
+    SynPeers=gen_server:call(synchronizer,peers),
+    {200,
+     #{ result => <<"ok">>,
+        status => #{
+          nodeid=>nodekey:node_id(),
+          public_key=>base64:encode(nodekey:get_pub()),
+          chain=>Chain,
+          header=>Header,
+          tpic_peers=>Peers,
+          sync_peers=>SynPeers
+         }
+      }};
+
 h(<<"GET">>, [<<"miner">>,TAddr], _Req) ->
     {200,
      #{ result => <<"ok">>,
