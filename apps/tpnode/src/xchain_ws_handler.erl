@@ -57,7 +57,7 @@ websocket_info({message, Msg}, State) ->
     {reply, {binary, crosschain:pack(Msg)}, State};
 
 websocket_info({timeout, _Ref, Msg}, State) ->
-    lager:notice("crosschain ws timeout ~p", [Msg]),
+    lager:debug("crosschain ws timeout ~p", [Msg]),
     {reply, {text, Msg}, State};
 
 websocket_info(_Info, State) ->

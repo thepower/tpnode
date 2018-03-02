@@ -242,12 +242,11 @@ unpack(BinTx) when is_binary(BinTx) ->
     unpack_mp(BinTx).
 
 unpack_mp(BinTx) when is_binary(BinTx) ->
-    lager:info("mp ~p",[BinTx]),
     {ok, Tx0} = msgpack:unpack(BinTx, [{known_atoms, 
                                         [type,sig,tx,patch,register,
                                          register,address,block] },
                                        {unpack_str,as_binary}] ),
-    lager:info("TX ~p",[Tx0]), 
+    lager:debug("TX ~p",[Tx0]), 
     Tx=maps:fold(
          fun
              ("tx",Val,Acc) ->
