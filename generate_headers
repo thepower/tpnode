@@ -1,0 +1,14 @@
+#!env escript
+%% -*- erlang -*-
+
+main(_) ->
+    I=lists:flatten(io_lib:format(
+                      "-define(VERSION, ~p).~n"++
+                      "-define(BUILD_TIME, ~p).~n"++
+                      "~n-export([ver/0]).~nver() -> {?VERSION,?BUILD_TIME}.~n",
+                      [
+                       string:trim(os:cmd("git describe"),trailing,"\n"),
+                       os:system_time(seconds)
+                      ])),
+    file:write_file("apps/tpnode/include/version.hrl",I).
+

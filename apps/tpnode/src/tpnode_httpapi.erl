@@ -31,6 +31,7 @@ h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
                      }
             end, tpic:peers()),
     SynPeers=gen_server:call(synchronizer,peers),
+    {Ver,_BuildTime}=tpnode:ver(),
     {200,
      #{ result => <<"ok">>,
         status => #{
@@ -39,7 +40,8 @@ h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
           chain=>Chain,
           header=>Header,
           tpic_peers=>Peers,
-          sync_peers=>SynPeers
+          sync_peers=>SynPeers,
+          ver=>list_to_binary(Ver)
          }
       }};
 

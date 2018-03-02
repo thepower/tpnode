@@ -5,6 +5,7 @@
 %% Application callbacks
 -export([start/2, stop/1, start/0, stop/0, reload/0]).
 
+-include("include/version.hrl").
 %% ===================================================================
 %% Application callbacks
 %% ===================================================================
