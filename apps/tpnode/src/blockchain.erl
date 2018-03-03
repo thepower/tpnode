@@ -66,6 +66,9 @@ init(_Args) ->
     erlang:send_after(6000, self(), runsync),
     {ok, Res}.
 
+handle_call(first_block, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
+    {reply, get_first_block(LDB, maps:get(hash,LB)), State};
+
 handle_call(ready, _From, State) ->
     {reply, not maps:is_key(sync,State), State};
 
@@ -124,10 +127,9 @@ handle_call(fix_tables, _From, #{ldb:=LDB,lastblock:=LB}=State) ->
               {reply, {error, Ec, Ee, S}, State}
     end;
 
-
-handle_call(runsync, _From, State) ->
-    State1=run_sync(State),
-    {reply, sync, State1};
+handle_call({runsync, NewChain}, _From, State) ->
+	self() ! runsync,
+    {reply, sync, State#{mychain:=NewChain}};
 
 handle_call({get_addr, Addr, _RCur}, _From, State) ->
     case ledger:get([Addr]) of
@@ -374,7 +376,8 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
         case block:verify(Blk) of
             false ->
                 T1=erlang:system_time(),
-                file:write_file("tmp/bad_block_"++integer_to_list(maps:get(height,maps:get(header,Blk)))++".txt", io_lib:format("~p.~n", [Blk])),
+				file:write_file("tmp/bad_block_"++integer_to_list(maps:get(height,maps:get(header,Blk)))++".txt", 
+								io_lib:format("~p.~n", [Blk])),
                 lager:info("Got bad block from ~p New block ~w arrived ~s, verify (~.3f ms)",
                    [FromNode,maps:get(height,maps:get(header,Blk)),
                     blkid(BlockHash),(T1-T0)/1000000]),
@@ -942,48 +945,6 @@ get_first_block(LDB, Next) ->
             end;
         Block ->
             lager:info("Unknown block ~p",[Block])
-    end.
-
-sync_candidate(#{mychain:=MyChain,lastblock:=#{header:=#{height:=H}}}=_State) ->
-    CAs=tpic:call(tpic,<<"blockchain">>,msgpack:pack(#{null=>tail})),
-    CA=lists:filtermap(
-         fun({Origin,Bin}) ->
-                 case msgpack:unpack(Bin) of
-                     {ok, Payload} -> {true, {Origin,Payload}};
-                     _ -> false
-                 end
-         end, CAs),
-    lists:foldl(
-      fun({Handler,#{null:=<<"response">>,
-                     %<<"hash">> := Hash,
-                     <<"height">> := Height,
-                     <<"mychain">> := Chain
-                    }=_A},{_LPid,LH}) when Chain==MyChain andalso Height>LH ->
-              {Handler, Height};
-         (_A,Acc) ->
-              lager:info("Non candidate ~p",[_A]),
-              Acc
-      end, {undefined, H}, CA).
-
-
-run_sync(#{mychain:=MyChain,lastblock:=#{hash:=LastBlockId}}=State) ->
-    #{mychain:=MyChain}=S1=mychain(State),
-    Candidate=sync_candidate(State),
-    case Candidate of
-        {undefined, _} ->
-            notify_settings(),
-            lager:info("Nobody here, nothing to sync",[]),
-            S1;
-        {Peer,MaxH} ->
-            lager:info("Sync with ~p height ~p from block ~s",
-                       [Peer,MaxH,blkid(LastBlockId)]),
-            tpic:cast(tpic, Peer, msgpack:pack(#{
-                                    null=><<"continue_sync">>,
-                                    <<"block">>=>LastBlockId,
-                                    <<"cnt">>=>2})),
-            S1#{
-              sync=>Peer
-             }
     end.
 
 foldl(Fun, Acc0, LDB, BlkId) ->
