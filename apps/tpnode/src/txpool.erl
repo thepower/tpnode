@@ -204,8 +204,11 @@ handle_cast({done, Txs}, #{inprocess:=InProc0}=State) ->
 
 handle_cast({failed, Txs}, #{inprocess:=InProc0}=State) ->
     InProc1=lists:foldl(
-              fun({TxID,Reason},Acc) ->
-                      lager:info("TX pool tx failed ~p ~p",[TxID,Reason]),
+			  fun({_,{overdue,Parent}}, Acc) ->
+					  lager:info("TX pool inbound block overdue ~p",[Parent]),
+					  hashqueue:remove(Parent,Acc);
+				 ({TxID,Reason},Acc) ->
+					  lager:info("TX pool tx failed ~p ~p",[TxID,Reason]),
                       hashqueue:remove(TxID,Acc)
               end, 
               InProc0,

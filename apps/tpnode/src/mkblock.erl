@@ -401,7 +401,7 @@ try_process_inbound([{TxID,
                            #{<<"block">> := LastBlk,
                              <<"height">> := LastHeight} ->
                                if(OriginHeight>LastHeight) -> ok;
-                                 true -> throw(overdue)
+                                 true -> throw({overdue,OriginBlock})
                                end,
                                {LastBlk,LastHeight};
                            _ ->
