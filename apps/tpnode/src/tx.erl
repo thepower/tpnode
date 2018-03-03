@@ -44,7 +44,6 @@ mkmsg(#{ from:=From, amount:=Amount,
         false -> ok
     end,
     Append=maps:get(extradata,Tx,<<"">>),
-    lager:info("tx ~p",[Tx]),
     if is_binary(From) -> ok;
        true -> throw('non_bin_addr_from')
     end,
@@ -116,7 +115,6 @@ verify(#{
   timestamp := T
  }=Tx) ->
     Message=mkmsg(Tx),
-    lager:info("MsgVer ~p",[Message]),
     if is_integer(T) -> 
            ok;
        true ->
@@ -246,7 +244,6 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
                                         [type,sig,tx,patch,register,
                                          register,address,block] },
                                        {unpack_str,as_binary}] ),
-    lager:debug("TX ~p",[Tx0]), 
     Tx=maps:fold(
          fun
              ("tx",Val,Acc) ->
