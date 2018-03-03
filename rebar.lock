@@ -44,11 +44,11 @@
        {ref,"0e47ab2ffb90d41885258e8940c3c8de9ba40637"}},
   0},
  {<<"tpecdsa">>,
-  {git,"https://github.com/thepower/tpecdsa.git",
+  {git,"ssh://git@git.wtf-rg.com:15616/thepower/tpecdsa.git",
        {ref,"1a6823399a5282a762184f2dafe1a884771da337"}},
   0},
  {<<"tpic">>,
-  {git,"https://github.com/thepower/tpic.git",
+  {git,"ssh://git@git.wtf-rg.com:15616/thepower/tpic.git",
        {ref,"c086cb504ac0eb261035aaea188cd820071c6923"}},
   0}]}.
 [
