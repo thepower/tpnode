@@ -42,10 +42,15 @@ init(_Args) ->
     filelib:ensure_dir("db/"),
     {ok,LDB}=ldb:open("db/db_"++atom_to_list(node())),
     LastBlockHash=ldb:read_key(LDB,<<"lastblock">>,<<0,0,0,0,0,0,0,0>>),
-    LastBlock=ldb:read_key(LDB,
+    LastBlock=case ldb:read_key(LDB,
                            <<"block:",LastBlockHash/binary>>,
-                           genesis:genesis()
-                           ),
+						   undefined
+                           ) of
+				  undefined ->
+					  genesis:genesis();
+				  Block ->
+					  Block
+			  end,
     Conf=load_sets(LDB,LastBlock),
     lager:info("My last block hash ~s",
                [bin2hex:dbin2hex(LastBlockHash)]),
