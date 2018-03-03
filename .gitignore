@@ -18,6 +18,7 @@ app?.config
 app*.config
 apps/*/.rebar
 apps/*/ebin
+apps/tpnode/include/version.hrl
 db
 db_*
 deps/*

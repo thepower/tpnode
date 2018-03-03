@@ -10,5 +10,6 @@ main(_) ->
                        string:trim(os:cmd("git describe"),trailing,"\n"),
                        os:system_time(seconds)
                       ])),
+    filelib:ensure_dir("apps/tpnode/include/"),
     file:write_file("apps/tpnode/include/version.hrl",I).
 
