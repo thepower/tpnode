@@ -73,9 +73,9 @@ handle_cast({tpic, _From, #{
            lager:info("Got txs from ~s: ~p",[Origin, TXs])
     end,
     handle_cast({prepare, Origin, TXs}, State);
-    
+
 handle_cast({prepare, _Node, Txs}, #{preptxl:=PreTXL}=State) ->
-    {noreply, 
+    {noreply,
      case maps:get(parent, State, undefined) of
          undefined ->
              #{header:=#{height:=Last_Height},hash:=Last_Hash}=gen_server:call(blockchain,last_block),
@@ -110,7 +110,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
                    {A,B} -> {A,B}
                end,
 
-        PropsFun=fun(mychain) -> 
+        PropsFun=fun(mychain) ->
                          MyChain;
                     (settings) ->
                          blockchain:get_settings();
@@ -118,7 +118,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
                          lists:member(
                            From,
                            application:get_env(tpnode,endless,[])
-                          ) 
+                          )
                  end,
         AddrFun=fun({Addr,Cur}) ->
                         gen_server:call(blockchain,{get_addr,Addr,Cur});
@@ -189,7 +189,7 @@ try_process([],_SetState,Addresses,_GetFun,Acc) ->
     Acc#{table=>Addresses};
 
 %process inbound block
-try_process([{BlID, #{ hash:=BHash, txs:=TxList, header:=#{height:=BHeight} }}|Rest], 
+try_process([{BlID, #{ hash:=BHash, txs:=TxList, header:=#{height:=BHeight} }}|Rest],
             SetState, Addresses, GetFun, Acc) ->
     try_process([ {TxID,
                    Tx#{
@@ -201,13 +201,13 @@ try_process([{BlID, #{ hash:=BHash, txs:=TxList, header:=#{height:=BHeight} }}|R
                 SetState,Addresses,GetFun, Acc);
 
 %process settings
-try_process([{TxID, 
+try_process([{TxID,
               #{patch:=_LPatch,
                 sig:=_
-               }=Tx}|Rest], SetState, Addresses, GetFun, 
+               }=Tx}|Rest], SetState, Addresses, GetFun,
             #{failed:=Failed,
               settings:=Settings}=Acc) ->
-    try 
+    try
         lager:error("Check signatures of patch "),
         SS1=settings:patch({TxID,Tx},SetState),
         lager:info("Success Patch ~p against settings ~p",[_LPatch,SetState]),
@@ -237,13 +237,13 @@ try_process([{TxID,
 try_process([{TxID,
               #{seq:=_Seq,timestamp:=_Timestamp,to:=To,portin:=PortInBlock}=Tx}
              |Rest],
-            SetState, Addresses, GetFun, 
+            SetState, Addresses, GetFun,
             #{success:=Success, failed:=Failed}=Acc) ->
     lager:notice("TODO:Check signature once again and check seq"),
     try
         Bals=maps:get(To,Addresses),
         case Bals of
-            #{} -> 
+            #{} ->
                 ok;
             #{chain:=_} ->
                 ok;
@@ -281,7 +281,7 @@ try_process([{TxID,
         end,
         ValidChains=blockchain:get_settings([chains]),
         case lists:member(PortTo,ValidChains) of
-            true -> 
+            true ->
                 ok;
             false ->
                 throw ('bad_chain')
@@ -298,7 +298,7 @@ try_process([{TxID,
 
 
 try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
-            SetState, Addresses, GetFun, 
+            SetState, Addresses, GetFun,
             #{failed:=Failed}=Acc) ->
     MyChain=GetFun(mychain),
     FAddr=addrcheck(From),
@@ -331,7 +331,7 @@ try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
     end;
 
 try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
-            SetState, Addresses, GetFun, 
+            SetState, Addresses, GetFun,
             #{failed:=Failed,
               success:=Success,
               settings:=Settings }=Acc) ->
@@ -372,11 +372,11 @@ try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
     end;
 
 try_process([{TxID, UnknownTx} |Rest],
-            SetState, Addresses, GetFun, 
-            #{failed:=Failed}=Acc) ->
-    lager:info("Unknown TX ~p type ~p",[TxID,UnknownTx]),
-    try_process(Rest,SetState,Addresses,GetFun,
-                Acc#{failed=>[{TxID,'unknown_type'}|Failed]}).
+			SetState, Addresses, GetFun,
+			#{failed:=Failed}=Acc) ->
+	lager:info("Unknown TX ~p type ~p",[TxID,UnknownTx]),
+	try_process(Rest,SetState,Addresses,GetFun,
+				Acc#{failed=>[{TxID,'unknown_type'}|Failed]}).
 
 try_process_inbound([{TxID,
                     #{cur:=Cur,amount:=Amount,to:=To,
@@ -386,7 +386,7 @@ try_process_inbound([{TxID,
                      }=Tx}
                    |Rest],
                   SetState, Addresses, GetFun,
-                  #{success:=Success, 
+                  #{success:=Success,
                     failed:=Failed,
                     settings:=Settings,
                     pick_block:=PickBlock}=Acc) ->
@@ -459,7 +459,7 @@ try_process_outbound([{TxID,
     FBal=maps:get(From,Addresses),
 
     try
-        if Amount >= 0 -> 
+        if Amount >= 0 ->
                ok;
            true ->
                throw ('bad_amount')
@@ -517,7 +517,7 @@ try_process_local([{TxID,
     FBal=maps:get(From,Addresses),
     TBal=maps:get(To,Addresses),
     try
-        if Amount >= 0 -> 
+        if Amount >= 0 ->
                ok;
            true ->
                throw ('bad_amount')
@@ -570,7 +570,7 @@ try_process_local([{TxID,
     end.
 
 
-    
+
 sign(Blk,ED) when is_map(Blk) ->
     PrivKey=nodekey:get_priv(),
     block:sign(Blk,ED,PrivKey).
@@ -598,20 +598,20 @@ load_settings(State) ->
 
 generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
     %file:write_file("tmp/tx.txt", io_lib:format("~p.~n",[PreTXL])),
-    _T1=erlang:system_time(), 
+    _T1=erlang:system_time(),
     TXL=lists:usort(PreTXL),
-    _T2=erlang:system_time(), 
+    _T2=erlang:system_time(),
     {Addrs,XSettings}=lists:foldl(
                         fun({_,#{hash:=_,header:=#{},txs:=Txs}},{AAcc0,SAcc}) ->
                                 lager:info("TXs ~p",[Txs]),
                                 {
-                                 lists:foldl( 
+                                 lists:foldl(
                                    fun({_,#{to:=T,cur:=Cur}},AAcc) ->
                                            TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
                                            maps:put(T,TB,AAcc)
                                    end, AAcc0, Txs),
                                  case SAcc of
-                                     undefined -> 
+                                     undefined ->
                                          GetSettings(settings);
                                      _ ->
                                          SAcc
@@ -650,7 +650,7 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
                            (_,{AAcc,SAcc}) ->
                                 {AAcc,SAcc}
                         end, {#{},undefined}, TXL),
-    _T3=erlang:system_time(), 
+    _T3=erlang:system_time(),
     #{success:=Success,
       failed:=Failed,
       settings:=Settings,
@@ -667,7 +667,7 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
                     }
                   ),
     lager:info("Must pick blocks ~p",[maps:keys(PickBlocks)]),
-    _T4=erlang:system_time(), 
+    _T4=erlang:system_time(),
     NewBal1=maps:filter(
              fun(_,V) ->
                      maps:get(keep,V,true)
@@ -686,9 +686,9 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
 
     LC=ledger_hash(NewBal),
     lager:info("MB LedgerHash ~s",[bin2hex:dbin2hex(LC)]),
-    _T5=erlang:system_time(), 
+    _T5=erlang:system_time(),
     Blk=block:mkblock(#{
-          txs=>Success, 
+          txs=>Success,
           parent=>Parent_Hash,
           height=>Parent_Height+1,
           bals=>NewBal,
@@ -703,7 +703,7 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
                             end, [], maps:keys(PickBlocks))
 
          }),
-    _T6=erlang:system_time(), 
+    _T6=erlang:system_time(),
     lager:info("Created block ~w ~s: txs: ~w, bals: ~w chain ~p",
                [
                 Parent_Height+1,
@@ -806,13 +806,13 @@ decode_tpic_txs(TXs) ->
 
 -ifdef(TEST).
 ledger_hash(NewBal) ->
-    {ok,LC}=case whereis(ledger) of 
+    {ok,LC}=case whereis(ledger) of
                 undefined ->
                     %there is no ledger. Is it test?
                     {ok,LedgerS1}=ledger:init([test]),
                     {reply,LCResp,_LedgerS2}=ledger:handle_call({check,[]},self(),LedgerS1),
                     LCResp;
-                X when is_pid(X) -> 
+                X when is_pid(X) ->
                     ledger:check(maps:to_list(NewBal))
             end,
     LC.
@@ -842,11 +842,11 @@ alloc_addr_test() ->
               #{ <<"node1">> => crypto:hash(sha256,<<"node1">>),
                  <<"node2">> => crypto:hash(sha256,<<"node2">>),
                  <<"node3">> => crypto:hash(sha256,<<"node3">>),
-                 <<"node4">> => crypto:hash(sha256,<<"node4">>) 
+                 <<"node4">> => crypto:hash(sha256,<<"node4">>)
                },
               nodechain => #{<<"node1">> => 0,
                              <<"node2">> => 0,
-                             <<"node3">> => 0}, 
+                             <<"node3">> => 0},
               <<"current">> => #{
                   <<"allocblock">> =>
                   #{<<"block">> => 2,<<"group">> => 10,<<"last">> => 0}
@@ -897,7 +897,7 @@ mkblock_test() ->
                       chain =>
                       #{0 =>
                         #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
-                        1 => 
+                        1 =>
                         #{blocktime => 10,minsig => 1}
                        },
                       globals => #{<<"patchsigs">> => 2},
