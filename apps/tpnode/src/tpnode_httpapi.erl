@@ -15,13 +15,9 @@ h(Method, [<<"api">>|Path], Req) ->
     h(Method,Path,Req);
 
 h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
-    {Chain, Header1} = gen_server:call(blockchain, status),
+    {Chain, Hash, Header1} = gen_server:call(blockchain, status),
     Header=maps:map(
-             fun(balroot,V) -> base64:encode(V);
-                (ledger_hash,V) -> base64:encode(V);
-                (parent,V) -> base64:encode(V);
-                (setroot,V) -> base64:encode(V);
-                (txroot,V) -> base64:encode(V);
+             fun(_,V) when is_binary(V) -> base64:encode(V);
                 (_,V) -> V
              end, Header1),
     Peers=lists:map(
@@ -37,8 +33,11 @@ h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
         status => #{
           nodeid=>nodekey:node_id(),
           public_key=>base64:encode(nodekey:get_pub()),
-          chain=>Chain,
-          header=>Header,
+		  blockchain=>#{
+			chain=>Chain,
+			hash=>base64:encode(Hash),
+			header=>Header
+		   },
           tpic_peers=>Peers,
           sync_peers=>SynPeers,
           ver=>list_to_binary(Ver)
