@@ -1,7 +1,7 @@
 -module(block).
 -export([blkid/1]).
 -export([mkblock/1,binarizetx/1,extract/1,outward_mk/2,outward_mk/1]).
--export([verify/1,outward_verify/1,sign/2,sign/3]).
+-export([verify/1,outward_verify/1,sign/2,sign/3,sigverify/2]).
 -export([pack/1,unpack/1]).
 
 -export([bals2bin/1]).
@@ -193,6 +193,9 @@ outward_verify(#{ header:=#{parent:=Parent, height:=H}=Header,
     catch throw:false ->
               false
     end.
+
+sigverify(#{hash:=Hash}, Sigs) ->
+	bsig:checksig(Hash, Sigs).
 
 verify(#{ header:=#{parent:=Parent, 
                     height:=H

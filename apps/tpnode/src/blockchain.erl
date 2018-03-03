@@ -299,38 +299,38 @@ handle_cast({tpic, Origin, #{null := <<"sync_block">>,
     handle_cast({new_block, Blk, Origin}, State);
 
 
-handle_cast({new_block, #{hash:=BlockHash}=Blk, _PID},
-            #{ldb:=LDB,
-              lastblock:=#{hash:=PBlockHash}=PBlk
-             }=State) when BlockHash==PBlockHash ->
-    lager:info("Arrived block from ~p Verify block with ~p",
-               [_PID,maps:keys(Blk)]),
-    case block:verify(Blk) of
-         {true,{Success,_}} ->
-            lager:info("Extra confirmation of prev. block ~s ~w",
-                       [blkid(BlockHash),length(Success)]),
-            NewPBlk=case length(Success)>0 of
-                        true ->
-                            OldSigs=maps:get(sign,PBlk),
-                            NewSigs=lists:usort(OldSigs++Success),
-                            if(OldSigs=/=NewSigs) ->
-                                  lager:info("Extra confirm Sig changed ~p",
-                                             [length(NewSigs)]),
-                                  PBlk1=PBlk#{sign=>NewSigs},
-                                  save_block(LDB,PBlk1,false),
-                                  PBlk1;
-                              true ->
-                                  lager:info("Extra confirm not changed ~w/~w",
-                                             [length(OldSigs),length(NewSigs)]),
-                                  PBlk
-                            end;
-                        _ -> PBlk
-                    end,
-            {noreply, State#{lastblock=>NewPBlk}};
-        Any -> 
-            lager:error("Can't confirm block: ~p",[Any]),
-            {noreply, State}
-    end;
+handle_cast({signature, BlockHash, Sigs},
+			#{ldb:=LDB,
+			  lastblock:=#{
+				hash:=LastBlockHash,
+				sign:=OldSigs
+			   }=LastBlk
+			 }=State) when BlockHash==LastBlockHash ->
+	case block:sigverify(LastBlk,Sigs) of
+		{[21],_} ->
+			lager:info("Fake signature for block ~s ignored",
+					   [blkid(BlockHash)]),
+			{noreply, State};
+		{Success,_} ->
+			NewSigs=lists:usort(OldSigs++Success),
+			if(OldSigs=/=NewSigs) ->
+				  lager:info("Extra confirmation of prev. block ~s +~w=~w",
+					   [blkid(BlockHash),
+						length(Success),
+						length(NewSigs)
+					   ]),
+				  NewLastBlk=LastBlk#{sign=>NewSigs},
+				  save_block(LDB,NewLastBlk,false),
+				  {noreply, State#{lastblock=>NewLastBlk}};
+			  true ->
+				  lager:info("Extra confirm not changed ~w/~w",
+							 [length(OldSigs),length(NewSigs)]),
+				  {noreply, State}
+			end;
+		Any ->
+			lager:error("Can't confirm block: ~p",[Any]),
+			{noreply, State}
+	end;
 
 handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
             #{candidates:=Candidates,ldb:=LDB0,
