@@ -77,16 +77,17 @@ pack(Block) ->
     if is_binary(Packed) ->
            Packed;
        true ->
-           file:write_file("log/blockpack.txt",[io_lib:format("~p.~n",[Block])]),
+		   file:write_file("log/pack_error.txt",
+						   [io_lib:format("~p.~n",[Block])]),
            throw({cant_pack,Packed})
     end.
 
 unpack(Block) when is_binary(Block) ->
-    case msgpack:unpack(Block,[{known_atoms,
-                                [hash,outbound,header,settings,txs,sign,bals,
-                                 balroot,ledger_hash,height,parent,txroot,tx_proof,
-                                 amount,lastblk,seq,t,child,setroot,
-                                 inbound_blocks,chain ]}]) of
+	Atoms=[hash,outbound,header,settings,txs,sign,bals,
+		   balroot,ledger_hash,height,parent,txroot,tx_proof,
+		   amount,lastblk,seq,t,child,setroot,
+		   inbound_blocks,chain ],
+    case msgpack:unpack(Block,[{known_atoms, Atoms}]) of
         {ok, Hash} ->
             maps:map(
               fun
@@ -399,8 +400,10 @@ blkid(<<X:8/binary,_/binary>>) ->
 
 sign(Blk, ED, PrivKey) when is_map(Blk) ->
     Hash=maps:get(hash,Blk),
-	%There is no need to unpack sig, but it used for tests
-    Sign=bsig:unpacksig(bsig:signhash(Hash, ED, PrivKey)),
+	%There is needs for tests, but breakes packing.
+	%TODO: Fix
+    %Sign=bsig:unpacksig(bsig:signhash(Hash, ED, PrivKey)),
+    Sign=bsig:signhash(Hash, ED, PrivKey),
     Blk#{
       sign=>[Sign|maps:get(sign,Blk,[])]
      }.
