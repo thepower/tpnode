@@ -448,65 +448,110 @@ try_process_inbound([{TxID,
     end.
 
 try_process_outbound([{TxID,
-                       #{outbound:=OutTo,
-                         cur:=Cur,seq:=Seq,timestamp:=Timestamp,
-                         amount:=Amount,to:=To,from:=From}=Tx}
-                      |Rest],
-                  SetState, Addresses, GetFun,
-                  #{success:=Success, failed:=Failed, outbound:=Outbound}=Acc) ->
-    lager:notice("TODO:Check signature once again"),
-    lager:info("outbound to chain ~p ~p",[OutTo,To]),
-    FBal=maps:get(From,Addresses),
+					   #{outbound:=OutTo,
+						 cur:=Cur,seq:=Seq,timestamp:=Timestamp,
+						 amount:=Amount,to:=To,from:=From}=Tx}
+					  |Rest],
+					 SetState, Addresses, GetFun,
+					 #{failed:=Failed, 
+					   success:=Success,
+					   settings:=Settings,
+					   outbound:=Outbound,
+					   parent:=ParentHash,
+					   height:=MyHeight
+					  }=Acc) ->
+	lager:notice("TODO:Check signature once again"),
+	lager:info("outbound to chain ~p ~p",[OutTo,To]),
+	FBal=maps:get(From,Addresses),
+	EnsureSettings=fun(undefined) -> GetFun(settings);
+					  (SettingsReady) -> SettingsReady
+				   end,
 
-    try
-        if Amount >= 0 ->
-               ok;
-           true ->
-               throw ('bad_amount')
-        end,
-        CurFSeq=bal:get(seq,FBal),
-        if is_integer(Timestamp) -> ok;
-           true -> throw ('non_int_timestamp')
-        end,
-         if CurFSeq < Seq -> ok;
-           true -> throw ('bad_seq')
-        end,
-        CurFTime=bal:get(t,FBal),
-        if CurFTime < Timestamp -> ok;
-           true -> throw ('bad_timestamp')
-        end,
+	try
+		if Amount >= 0 ->
+			   ok;
+		   true ->
+			   throw ('bad_amount')
+		end,
+		CurFSeq=bal:get(seq,FBal),
+		if is_integer(Timestamp) -> ok;
+		   true -> throw ('non_int_timestamp')
+		end,
+		if CurFSeq < Seq -> ok;
+		   true -> throw ('bad_seq')
+		end,
+		CurFTime=bal:get(t,FBal),
+		if CurFTime < Timestamp -> ok;
+		   true -> throw ('bad_timestamp')
+		end,
 
-        CurFAmount=bal:get_cur(Cur,FBal),
-        NewFAmount=if CurFAmount >= Amount ->
-                          CurFAmount - Amount;
-                      true ->
-                          case GetFun({endless,From,Cur}) of
-                              true ->
-                                  CurFAmount - Amount;
-                              false ->
-                                  throw ('insufficient_fund')
-                          end
-                   end,
+		PatchTxID= <<"out",(crosschain:pack_chid(OutTo))/binary>>,
+		{SS2,Set2}=case lists:keymember(PatchTxID,1, Settings) of
+					   true ->
+						   {SetState, Settings};
+					   false ->
+						   RealSettings=EnsureSettings(SetState),
+						   ChainPath=[<<"current">>,<<"outward">>,
+									  crosschain:pack_chid(OutTo)],
+						   PCP=case settings:get(ChainPath,RealSettings) of
+								   #{<<"parent">>:=PP,
+									 <<"height">>:=HH} ->
+									   [
+										#{<<"t">> =><<"set">>,
+										  <<"p">> => ChainPath++[<<"pre_parent">>],
+										  <<"v">> => PP
+										 },
+										#{<<"t">> =><<"set">>,
+										  <<"p">> => ChainPath++[<<"pre_height">>],
+										  <<"v">> => HH
+										 }];
+								   _ ->
+									   []
+							   end,
+						   lager:info("PreCP ~p",[PCP]),
+						   IncPtr=[#{<<"t">> => <<"set">>,
+									 <<"p">> => ChainPath++[<<"parent">>],
+									 <<"v">> => ParentHash
+									},
+								   #{<<"t">> => <<"set">>,
+									 <<"p">> => ChainPath++[<<"height">>],
+									 <<"v">> => MyHeight
+									}
+								   |PCP ],
+						   SyncPatch={PatchTxID, #{sig=>[],patch=>IncPtr}},
+						   {
+							settings:patch(SyncPatch,RealSettings),
+							[SyncPatch|Settings]
+						   }
+				   end,
 
-        NewF=maps:remove(keep,
-                         bal:mput(
-                           Cur,
-                           NewFAmount,
-                           Seq,
-                           Timestamp,
-                           FBal)
-                        ),
+		CurFAmount=bal:get_cur(Cur,FBal),
+		NewFAmount=if CurFAmount >= Amount ->
+						  CurFAmount - Amount;
+					  true ->
+						  case GetFun({endless,From,Cur}) of
+							  true ->
+								  CurFAmount - Amount;
+							  false ->
+								  throw ('insufficient_fund')
+						  end
+				   end,
 
-        NewAddresses=maps:put(From,NewF,Addresses),
-        try_process(Rest,SetState,NewAddresses,GetFun,
-                    Acc#{
-                      success=>[{TxID,Tx}|Success],
-                      outbound=>[{TxID,OutTo}|Outbound]
-                     })
-    catch throw:X ->
-              try_process(Rest,SetState,Addresses,GetFun,
-                          Acc#{failed=>[{TxID,X}|Failed]})
-    end.
+		NewF=maps:remove(keep,
+						 bal:mput( Cur, NewFAmount, Seq, Timestamp, FBal)
+						),
+
+		NewAddresses=maps:put(From,NewF,Addresses),
+		try_process(Rest,SS2,NewAddresses,GetFun,
+					Acc#{
+					  settings=>Set2,
+					  success=>[{TxID,Tx}|Success],
+					  outbound=>[{TxID,OutTo}|Outbound]
+					 })
+	catch throw:X ->
+			  try_process(Rest,SetState,Addresses,GetFun,
+						  Acc#{failed=>[{TxID,X}|Failed]})
+	end.
 
 try_process_local([{TxID,
                     #{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,to:=To,from:=From}=Tx}
@@ -597,130 +642,139 @@ load_settings(State) ->
      }.
 
 generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
-    %file:write_file("tmp/tx.txt", io_lib:format("~p.~n",[PreTXL])),
-    _T1=erlang:system_time(),
-    TXL=lists:usort(PreTXL),
-    _T2=erlang:system_time(),
-    {Addrs,XSettings}=lists:foldl(
-                        fun({_,#{hash:=_,header:=#{},txs:=Txs}},{AAcc0,SAcc}) ->
-                                lager:info("TXs ~p",[Txs]),
-                                {
-                                 lists:foldl(
-                                   fun({_,#{to:=T,cur:=Cur}},AAcc) ->
-                                           TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
-                                           maps:put(T,TB,AAcc)
-                                   end, AAcc0, Txs),
-                                 case SAcc of
-                                     undefined ->
-                                         GetSettings(settings);
-                                     _ ->
-                                         SAcc
-                                 end};
-                           ({_,#{patch:=_}},{AAcc,undefined}) ->
-                                S1=GetSettings(settings),
-                                {AAcc,S1};
-                           ({_,#{register:=_}},{AAcc,undefined}) ->
-                                S1=GetSettings(settings),
-                                {AAcc,S1};
-                           ({_,#{patch:=_}},{AAcc,SAcc}) ->
-                                {AAcc,SAcc};
-                           ({_,#{from:=F,portin:=_ToChain}},{AAcc,SAcc}) ->
-                                A1=case maps:get(F,AAcc,undefined) of
-                                       undefined ->
-                                           AddrInfo1=GetAddr(F),
-                                           maps:put(F,AddrInfo1#{keep=>false},AAcc);
-                                       _ ->
-                                           AAcc
-                                   end,
-                                {A1,SAcc};
-                           ({_,#{from:=F,portout:=_ToChain}},{AAcc,SAcc}) ->
-                                A1=case maps:get(F,AAcc,undefined) of
-                                       undefined ->
-                                           AddrInfo1=GetAddr(F),
-                                           lager:info("Add address for portout ~p",[AddrInfo1]),
-                                           maps:put(F,AddrInfo1#{keep=>false},AAcc);
-                                       _ ->
-                                           AAcc
-                                   end,
-                                {A1,SAcc};
-                           ({_,#{to:=T,from:=F,cur:=Cur}},{AAcc,SAcc}) ->
-                                FB=bal:fetch(F, Cur, true, maps:get(F,AAcc,#{}), GetAddr),
-                                TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
-                                {maps:put(F,FB,maps:put(T,TB,AAcc)),SAcc};
-                           (_,{AAcc,SAcc}) ->
-                                {AAcc,SAcc}
-                        end, {#{},undefined}, TXL),
-    _T3=erlang:system_time(),
-    #{success:=Success,
-      failed:=Failed,
-      settings:=Settings,
-      table:=NewBal0,
-      outbound:=Outbound,
-      pick_block:=PickBlocks
-     }=try_process(TXL,XSettings,Addrs,GetSettings,
-                   #{success=>[],
-                     failed=>[],
-                     settings=>[],
-                     export=>[],
-                     outbound=>[],
-                     pick_block=>#{}
-                    }
-                  ),
-    lager:info("Must pick blocks ~p",[maps:keys(PickBlocks)]),
-    _T4=erlang:system_time(),
-    NewBal1=maps:filter(
-             fun(_,V) ->
-                     maps:get(keep,V,true)
-             end, NewBal0),
-    NewBal=maps:map(
-             fun(_,V) ->
-                     case maps:is_key(ublk,V) of
-                         false ->
-                             V;
-                         true ->
-                             bal:put(lastblk, maps:get(ublk,V), V)
-                     end
-             end, NewBal1),
+	%file:write_file("tmp/tx.txt", io_lib:format("~p.~n",[PreTXL])),
+	_T1=erlang:system_time(),
+	TXL=lists:usort(PreTXL),
+	_T2=erlang:system_time(),
+	EnsureSettings=fun(undefined) -> GetSettings(settings);
+					  (SettingsReady) -> SettingsReady
+				   end,
+	{Addrs,XSettings}=lists:foldl(
+						fun({_,#{hash:=_,header:=#{},txs:=Txs}},{AAcc0,SAcc}) ->
+								lager:info("TXs ~p",[Txs]),
+								{
+								 lists:foldl(
+								   fun({_,#{to:=T,cur:=Cur}},AAcc) ->
+										   TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
+										   maps:put(T,TB,AAcc)
+								   end, AAcc0, Txs),
+								 EnsureSettings(SAcc)};
+						   ({_,#{patch:=_}},{AAcc,SAcc}) ->
+								{AAcc,EnsureSettings(SAcc)};
+						   ({_,#{register:=_}},{AAcc,SAcc}) ->
+								{AAcc,EnsureSettings(SAcc)};
+						   ({_,#{from:=F,portin:=_ToChain}},{AAcc,SAcc}) ->
+								A1=case maps:get(F,AAcc,undefined) of
+									   undefined ->
+										   AddrInfo1=GetAddr(F),
+										   maps:put(F,AddrInfo1#{keep=>false},AAcc);
+									   _ ->
+										   AAcc
+								   end,
+								{A1,SAcc};
+						   ({_,#{from:=F,portout:=_ToChain}},{AAcc,SAcc}) ->
+								A1=case maps:get(F,AAcc,undefined) of
+									   undefined ->
+										   AddrInfo1=GetAddr(F),
+										   lager:info("Add address for portout ~p",[AddrInfo1]),
+										   maps:put(F,AddrInfo1#{keep=>false},AAcc);
+									   _ ->
+										   AAcc
+								   end,
+								{A1,SAcc};
+						   ({_,#{to:=T,from:=F,cur:=Cur}},{AAcc,SAcc}) ->
+								FB=bal:fetch(F, Cur, true, maps:get(F,AAcc,#{}), GetAddr),
+								TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
+								{maps:put(F,FB,maps:put(T,TB,AAcc)),SAcc};
+						   (_,{AAcc,SAcc}) ->
+								{AAcc,SAcc}
+						end, {#{},undefined}, TXL),
+	lager:info("MB Pre Setting ~p",[XSettings]),
+	_T3=erlang:system_time(),
+	#{failed:=Failed,
+	  table:=NewBal0,
+	  success:=Success,
+	  settings:=Settings,
+	  outbound:=Outbound,
+	  pick_block:=PickBlocks
+	 }=try_process(TXL,XSettings,Addrs,GetSettings,
+				   #{export=>[],
+					 failed=>[],
+					 success=>[],
+					 settings=>[],
+					 outbound=>[],
+					 pick_block=>#{},
+					 parent=>Parent_Hash,
+					 height=>Parent_Height+1
+					}
+				  ),
+	lager:info("MB Post Setting ~p",[Settings]),
+	OutChains=lists:foldl(
+				fun({_TxID,ChainID},Acc) ->
+						maps:put(ChainID,maps:get(ChainID,Acc,0)+1,Acc)
+				end, #{}, Outbound),
+	lager:info("MB Outbound to ~p",[OutChains]),
+	lager:info("MB Must pick blocks ~p",[maps:keys(PickBlocks)]),
+	_T4=erlang:system_time(),
+	NewBal1=maps:filter(
+			  fun(_,V) ->
+					  maps:get(keep,V,true)
+			  end, NewBal0),
+	NewBal=maps:map(
+			 fun(_,V) ->
+					 case maps:is_key(ublk,V) of
+						 false ->
+							 V;
+						 true ->
+							 bal:put(lastblk, maps:get(ublk,V), V)
+					 end
+			 end, NewBal1),
+	ExtraPatch=maps:fold(
+				 fun(ToChain,_NoOfTxs,AccExtraPatch) ->
+						 [ToChain|AccExtraPatch]
+				 end, [], OutChains),
+	lager:info("MB Extra out settings ~p",[ExtraPatch]),
 
-    lager:info("MB NewBal ~p",[NewBal]),
+	lager:info("MB NewBal ~p",[NewBal]),
 
-    LC=ledger_hash(NewBal),
-    lager:info("MB LedgerHash ~s",[bin2hex:dbin2hex(LC)]),
-    _T5=erlang:system_time(),
-    Blk=block:mkblock(#{
-          txs=>Success,
-          parent=>Parent_Hash,
-          height=>Parent_Height+1,
-          bals=>NewBal,
-          ledger_hash=>LC,
-          settings=>Settings,
-          tx_proof=>[ TxID || {TxID,_ToChain} <- Outbound ],
-          inbound_blocks=>lists:foldl(
-                            fun(PickID,Acc) ->
-                                    [{PickID,
-                                      proplists:get_value(PickID,TXL)
-                                     }|Acc]
-                            end, [], maps:keys(PickBlocks))
+	HedgerHash=ledger_hash(NewBal),
+	_T5=erlang:system_time(),
+	Blk=block:mkblock(#{
+		  txs=>Success,
+		  parent=>Parent_Hash,
+		  mychain=>GetSettings(mychain),
+		  height=>Parent_Height+1,
+		  bals=>NewBal,
+		  ledger_hash=>HedgerHash,
+		  settings=>Settings,
+		  tx_proof=>[ TxID || {TxID,_ToChain} <- Outbound ],
+		  inbound_blocks=>lists:foldl(
+							fun(PickID,Acc) ->
+									[{PickID,
+									  proplists:get_value(PickID,TXL)
+									 }|Acc]
+							end, [], maps:keys(PickBlocks))
 
-         }),
-    _T6=erlang:system_time(),
-    lager:info("Created block ~w ~s: txs: ~w, bals: ~w chain ~p",
-               [
-                Parent_Height+1,
-                block:blkid(maps:get(hash,Blk)),
-                length(Success),
-                maps:size(NewBal),
-                GetSettings(mychain)
-               ]),
-    %lager:info("BENCHMARK txs       ~w~n",[length(TXL)]),
-    %lager:info("BENCHMARK sort tx   ~.6f ~n",[(_T2-_T1)/1000000]),
-    %lager:info("BENCHMARK pull addr ~.6f ~n",[(_T3-_T2)/1000000]),
-    %lager:info("BENCHMARK process   ~.6f ~n",[(_T4-_T3)/1000000]),
-    %lager:info("BENCHMARK filter    ~.6f ~n",[(_T5-_T4)/1000000]),
-    %lager:info("BENCHMARK mk block  ~.6f ~n",[(_T6-_T5)/1000000]),
-    #{block=>Blk#{outbound=>Outbound},
-      failed=>Failed
-     }.
+		 }),
+	_T6=erlang:system_time(),
+	lager:info("Created block ~w ~s: txs: ~w, bals: ~w, LH: ~s, chain ~p",
+			   [
+				Parent_Height+1,
+				block:blkid(maps:get(hash,Blk)),
+				length(Success),
+				maps:size(NewBal),
+				bin2hex:dbin2hex(HedgerHash),
+				GetSettings(mychain)
+			   ]),
+	%lager:info("BENCHMARK txs       ~w~n",[length(TXL)]),
+	%lager:info("BENCHMARK sort tx   ~.6f ~n",[(_T2-_T1)/1000000]),
+	%lager:info("BENCHMARK pull addr ~.6f ~n",[(_T3-_T2)/1000000]),
+	%lager:info("BENCHMARK process   ~.6f ~n",[(_T4-_T3)/1000000]),
+	%lager:info("BENCHMARK filter    ~.6f ~n",[(_T5-_T4)/1000000]),
+	%lager:info("BENCHMARK mk block  ~.6f ~n",[(_T6-_T5)/1000000]),
+	#{block=>Blk#{outbound=>Outbound},
+	  failed=>Failed
+	 }.
 
 addrcheck(Addr) ->
     case naddress:check(Addr) of
@@ -789,11 +843,10 @@ benchmark(N) ->
                                 }
                         end,{2,[]},Addresses),
     T1=erlang:system_time(),
-    _=generate_block(
-                                      _Res,
-                                      {1,Parent},
-                                      GetSettings,
-                                      GetAddr),
+	_=generate_block( _Res,
+					  {1,Parent},
+					  GetSettings,
+					  GetAddr),
 
     T2=erlang:system_time(),
     (T2-T1)/1000000.
@@ -806,7 +859,7 @@ decode_tpic_txs(TXs) ->
 
 -ifdef(TEST).
 ledger_hash(NewBal) ->
-    {ok,LC}=case whereis(ledger) of
+    {ok,HedgerHash}=case whereis(ledger) of
                 undefined ->
                     %there is no ledger. Is it test?
                     {ok,LedgerS1}=ledger:init([test]),
@@ -815,11 +868,11 @@ ledger_hash(NewBal) ->
                 X when is_pid(X) ->
                     ledger:check(maps:to_list(NewBal))
             end,
-    LC.
+    HedgerHash.
 -else.
 ledger_hash(NewBal) ->
-    {ok,LC}=ledger:check(maps:to_list(NewBal)),
-    LC.
+    {ok,HedgerHash}=ledger:check(maps:to_list(NewBal)),
+    HedgerHash.
 -endif.
 
 
@@ -947,7 +1000,7 @@ mkblock_test() ->
                     },Pvt1)
                  ),
 
-    TX2=tx:unpack( tx:sign(
+	TX2=tx:unpack( tx:sign(
                      #{
                      from=>naddress:construct_public(1,OurChain,3),
                      to=>naddress:construct_public(1,OurChain+2,1),
@@ -957,22 +1010,34 @@ mkblock_test() ->
                      timestamp=>os:system_time(millisecond)
                     },Pvt1)
                  ),
+	TX3=tx:unpack( tx:sign(
+                     #{
+                     from=>naddress:construct_public(1,OurChain,3),
+                     to=>naddress:construct_public(1,OurChain+2,2),
+                     amount=>2,
+                     cur=><<"FTT">>,
+                     seq=>5,
+                     timestamp=>os:system_time(millisecond)
+                    },Pvt1)
+                 ),
     #{block:=Block,
       failed:=Failed}=generate_block(
                         [{<<"1interchain">>,TX0},
                          {<<"2invalid">>,TX1},
-                         {<<"3crosschain">>,TX2}
+                         {<<"3crosschain">>,TX2},
+                         {<<"4crosschain">>,TX3}
                         ],
                         {1,ParentHash},
                         GetSettings,
                         GetAddr),
     ?assertEqual([{<<"2invalid">>,insufficient_fund}], Failed),
-    ?assertEqual([<<"3crosschain">>],proplists:get_keys(maps:get(tx_proof,Block))),
-    ?assertEqual([{<<"3crosschain">>,OurChain+2}],maps:get(outbound,Block)),
+    ?assertEqual([<<"3crosschain">>,<<"4crosschain">>],proplists:get_keys(maps:get(tx_proof,Block))),
+    ?assertEqual([{<<"4crosschain">>,OurChain+2},{<<"3crosschain">>,OurChain+2}],maps:get(outbound,Block)),
     SignedBlock=block:sign(Block,<<1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1>>),
     file:write_file("tmp/testblk.txt", io_lib:format("~p.~n",[Block])),
     ?assertMatch({true, {_,_}},block:verify(SignedBlock)),
-    maps:get(OurChain+2,block:outward_mk(maps:get(outbound,Block),SignedBlock)).
+    _=maps:get(OurChain+2,block:outward_mk(maps:get(outbound,Block),SignedBlock)),
+	Block.
 
 %test_getaddr%({_Addr,_Cur}) -> %suitable for inbound tx
 test_getaddr(_Addr) ->
@@ -1139,7 +1204,7 @@ xchain_inbound_test() ->
                  maps:get(<<128,1,64,0,1,0,0,1>>,maps:get(bals,Block))
                 ),
     ?assertMatch([], maps:get(txs,Block2)),
-    ?assertMatch([{_,overdue}], Failed2)
+    ?assertMatch([{_,{overdue,_}}], Failed2)
     ].
 
 -endif.
