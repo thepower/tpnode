@@ -121,6 +121,7 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
 	BinPacker=case proplists:get_value(<<"bin">>,QS) of
 				  <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
 				  <<"hex">> -> fun(Bin) -> bin2hex:dbin2hex(Bin) end;
+				  <<"raw">> -> fun(Bin) -> Bin end;
 				  _ -> fun(Bin) -> bin2hex:dbin2hex(Bin) end
 			  end,
     BlockHash0=if(BlockId == <<"last">>) -> last;
