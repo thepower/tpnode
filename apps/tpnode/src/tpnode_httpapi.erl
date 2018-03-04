@@ -124,6 +124,11 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
 				  <<"raw">> -> fun(Bin) -> Bin end;
 				  _ -> fun(Bin) -> bin2hex:dbin2hex(Bin) end
 			  end,
+	Address=case proplists:get_value(<<"addr">>,QS) of
+				undefined -> undefined;
+				Addr -> naddress:decode(Addr)
+			end,
+
     BlockHash0=if(BlockId == <<"last">>) -> last;
                 true ->
                     hex:parse(BlockId)
@@ -136,7 +141,14 @@ h(<<"GET">>, [<<"block">>,BlockId], _Req) ->
               }
             };
         GoodBlock ->
-            Block=prettify_block(GoodBlock,BinPacker),
+			ReadyBlock=if Address == undefined ->
+							  GoodBlock;
+						  is_binary(Address) ->
+							  filter_block(
+								GoodBlock,
+								Address)
+					   end,
+            Block=prettify_block(ReadyBlock,BinPacker),
             {200,
              #{ result => <<"ok">>,
                 block => Block
@@ -397,6 +409,15 @@ h(_Method, [<<"status">>], Req) ->
     }.
 
 %PRIVATE API
+
+filter_block(Block, Address) ->
+	maps:map(
+	  fun(bals,B) ->
+			  maps:with([Address],B);
+		 (txs, B) ->
+			  [ {TxID, TX} || {TxID, #{from:=F, to:=T}=TX} <- B, F==Address orelse T==Address ];
+		 (_,V) -> V
+	  end, Block).
 
 prettify_block(Block) ->
 	prettify_block(Block, fun(Bin) -> bin2hex:dbin2hex(Bin) end).
