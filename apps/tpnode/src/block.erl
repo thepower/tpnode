@@ -86,7 +86,7 @@ unpack(Block) when is_binary(Block) ->
                                 [hash,outbound,header,settings,txs,sign,bals,
                                  balroot,ledger_hash,height,parent,txroot,tx_proof,
                                  amount,lastblk,seq,t,child,setroot,
-                                 inbound_blocks ]}]) of
+                                 inbound_blocks,chain ]}]) of
         {ok, Hash} ->
             maps:map(
               fun
@@ -219,23 +219,17 @@ verify(#{ header:=#{parent:=Parent,
     TxRoot=gb_merkle_trees:root_hash(TxMT),
     BalsRoot=gb_merkle_trees:root_hash(BalsMT),
     SetRoot=gb_merkle_trees:root_hash(SettingsMT),
-    BHeader=lists:foldl(
-              fun({_,undefined},ABHhr) ->
-                      ABHhr;
-                 ({_N,Root},ABHhr) ->
-                      <<ABHhr/binary,
-                        Root/binary
-                      >>
-              end,
-              <<H:64/integer, %8
-                Parent/binary
-              >>,
-              [{txroot,TxRoot},
-               {balroot,BalsRoot},
-               {ledger_hash,HLedgerHash},
-               {setroot,SetRoot}
-              ]
-             ),
+	HeaderItems=[{txroot,TxRoot},
+				 {balroot,BalsRoot},
+				 {ledger_hash,HLedgerHash},
+				 {setroot,SetRoot}|
+				 case maps:is_key(chain,Header) of
+					 false -> [];
+					 true ->
+						 [{chain, maps:get(chain,Header)}]
+				 end],
+
+    {BHeader,_Hdr}=build_header(HeaderItems,Parent,H),
 
     Hash=crypto:hash(sha256,BHeader),
     %io:format("H1 ~s ~nH2 ~s~n~n",[bin2hex:dbin2hex(Hash),
@@ -292,35 +286,18 @@ mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }
     BalsRoot=gb_merkle_trees:root_hash(BalsMT),
     SettingsRoot=gb_merkle_trees:root_hash(SettingsMT),
 
-    {BHeader,Hdr}=lists:foldl(
-                    fun({_,undefined},{ABHhr,AHdr}) ->
-                            {ABHhr,AHdr};
-                       ({N,Root},{ABHhr,AHdr}) ->
-                            {
-                             <<ABHhr/binary,
-                               Root/binary
-                             >>,
-                             maps:put(N,Root,AHdr)
-                            }
-                    end,
+	HeaderItems=[{txroot,TxRoot},
+				 {balroot,BalsRoot},
+				 {ledger_hash,LH},
+				 {setroot,SettingsRoot}|
+				 case maps:is_key(mychain,Req) of
+					 false -> [];
+					 true ->
+						 [{chain, maps:get(mychain,Req)}]
+				 end],
+    {BHeader,Hdr}=build_header(HeaderItems,Parent,H),
+	lager:info("HI ~p",[Hdr]),
 
-                    {
-                     <<H:64/integer, %8
-                       Parent/binary
-                     >>,
-                     #{ parent=>Parent, height=>H }
-                    }, 
-                    [{txroot,TxRoot},
-                     {balroot,BalsRoot},
-                     {ledger_hash,LH},
-                     {setroot,SettingsRoot}
-                    ]
-                   ),
-
-    %gb_merkle_trees:verify_merkle_proof(<<"aaa">>,<<1>>,T1).
-    %gb_merkle_trees:merkle_proof (<<"aaa">>,T14) 
-    %gb_merkle_trees:from_list([{<<"aaa">>,<<1>>},{<<"bbb">>,<<2>>},{<<"ccc">>,<<4>>}]).
-    %gb_merkle_trees:verify_merkle_proof(<<"aaa">>,<<1>>,gb_merkle_trees:root_hash(T1),P1aaa)
     Block=#{header=>Hdr,
       hash=>crypto:hash(sha256,BHeader),
       txs=>Txsl,
@@ -422,7 +399,8 @@ blkid(<<X:8/binary,_/binary>>) ->
 
 sign(Blk, ED, PrivKey) when is_map(Blk) ->
     Hash=maps:get(hash,Blk),
-    Sign=bsig:signhash(Hash, ED, PrivKey),
+	%There is no need to unpack sig, but it used for tests
+    Sign=bsig:unpacksig(bsig:signhash(Hash, ED, PrivKey)),
     Blk#{
       sign=>[Sign|maps:get(sign,Blk,[])]
      }.
@@ -432,9 +410,34 @@ sign(Blk, PrivKey) when is_map(Blk) ->
     ED=[{timestamp,Timestamp}],
     sign(Blk, ED, PrivKey).
 
+build_header(HeaderItems,Parent,H) ->
+	lists:foldl(
+	  fun({_,undefined},{ABHhr,AHdr}) ->
+			  {ABHhr,AHdr};
+		 ({chain,ChainNo},{ABHhr,AHdr}) ->
+			  {
+			   <<ABHhr/binary, ChainNo:64/big >>,
+			   maps:put(chain,ChainNo,AHdr)
+			  };
+		 ({N,Root},{ABHhr,AHdr}) ->
+			  {
+			   <<ABHhr/binary,
+				 Root/binary
+			   >>,
+			   maps:put(N,Root,AHdr)
+			  }
+	  end,
+	  {
+	   <<H:64/integer, %8
+		 Parent/binary
+	   >>,
+	   #{ parent=>Parent, height=>H }
+	  }, 
+	  HeaderItems	
+	 ).
 
 -ifdef(TEST).
-block_test() ->
+block_test_() ->
     Priv1Key= <<200,100,200,100,200,100,200,100,200,100,200,100,200,100,200,100,
                 200,100,200,100,200,100,200,100,200,100,200,100,200,100,200,100>>,
     Priv2Key= <<200,300,200,100,200,100,200,100,200,100,200,100,200,100,200,100,
@@ -456,6 +459,7 @@ block_test() ->
                     height=>0,
                     txs=>[],
                     bals=>#{},
+					mychain=>100500,
                     settings=>[
                                {
                                 <<"patch123">>,
@@ -468,7 +472,6 @@ block_test() ->
     Block=sign(sign(NewB,Priv1Key),Priv2Key),
     Repacked=unpack(pack(Block)),
     [
-    %?_assertEqual(Block,unpack(pack(Block))),
     ?_assertMatch({true,{_,0}},verify(Block)),
     ?_assertEqual(Block,Repacked),
     ?_assertEqual(true,lists:all(
@@ -478,58 +481,6 @@ block_test() ->
                          end,
                          element(1,element(2,verify(Block))))
                          )
-    ].
- 
-outward_test() ->
-    OWBlock= #{hash =>
-               <<14,1,228,218,193,8,244,9,208,200,240,233,71,180,102,74,228,105,51,218,
-                 183,50,35,187,180,162,124,160,31,202,79,181>>,
-               header =>
-               #{balroot =>
-                 <<242,197,194,74,83,63,114,106,170,29,171,100,110,145,156,229,248,
-                   193,67,96,252,37,74,167,55,118,102,39,230,116,92,37>>,
-                 height => 2,
-                 parent =>
-                 <<228,113,37,150,139,59,113,4,159,188,72,2,209,228,10,113,234,19,
-                   89,222,207,171,172,247,11,52,88,128,55,212,255,12>>,
-                 txroot =>
-                 <<152,24,115,240,203,150,198,199,248,230,189,172,102,188,31,1,165,
-                   252,31,99,255,128,158,57,173,33,45,254,184,234,184,112>>},
-               sign =>
-               [<<255,70,48,68,2,32,9,192,225,152,36,213,20,185,130,242,124,4,152,56,
-                  254,25,201,20,117,34,110,181,169,142,149,231,180,41,127,45,91,238,2,
-                  32,58,8,8,179,135,155,118,195,65,189,150,50,16,110,155,152,100,240,
-                  75,192,205,172,202,154,80,130,185,185,68,207,86,99,2,33,3,27,132,197,
-                  86,123,18,100,64,153,93,62,213,170,186,5,101,215,30,24,52,96,72,25,
-                  255,156,23,245,233,213,221,7,143,1,8,0,0,1,96,6,83,146,206>>],
-               tx_proof =>
-               [{<<"3crosschain">>,
-                 {<<251,228,7,181,109,3,10,116,89,65,126,226,94,160,65,107,54,6,57,240,
-                    190,94,81,94,110,18,100,225,240,244,193,225>>,
-                  {<<116,218,137,92,172,222,193,162,49,219,55,17,33,216,114,180,76,1,
-                     115,192,130,194,213,81,112,18,4,31,143,91,102,98>>,
-                   <<22,213,23,196,75,239,21,127,57,214,89,128,188,225,152,85,12,
-                     190,58,84,22,187,223,26,60,226,166,182,89,161,134,98>>}}}],
-               txs =>
-               [{<<"3crosschain">>,
-                 #{amount => 9.0,cur => <<"FTT">>,extradata => <<>>,
-                   from => <<"73Pa34g3R27Co7KzzNYT7t4UaPjQvpKA6esbuZxB">>,
-                   outbound => 1,
-                   sig => #{
-                   <<"046A21F068BE92697268B60D96C4CA93052EC104E49E003AE2C404F916864372F4137039E85BC2CBA4935B6064B2B79150D99EDC10CA3C29142AA6B7F1E294B159">>
-                   =>
-                   <<"30440220455607D99DC5566660FCEB508FA980C954F74D4C344F4FCA0AE7709E7CBF4AA802202DC0B61A998AD98FDDB7AFD814F464EF0EFBC6D82CB15C2E0D912AE9D5C33498">>
-                    },  %this is incorrect signature for new block format!!!
-                   seq => 3,
-                   timestamp => 1511934628557211514,
-                   to => <<"73f9e9yvV5BVRm9RUw3THVFon4rVqUMfAS1BNikC">>}}]},
-    BinOW=pack(OWBlock),
-    Repacked=unpack(BinOW),
-
-    [
-     ?_assertMatch({true,{_,0}},outward_verify(OWBlock)),
-     ?_assertMatch({true,{_,0}},outward_verify(Repacked)),
-     ?_assertEqual(Repacked,OWBlock)
     ].
 
 -endif.
