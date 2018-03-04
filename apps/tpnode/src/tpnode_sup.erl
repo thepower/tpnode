@@ -25,6 +25,7 @@ start_link() ->
 init([]) ->
     application:ensure_all_started(cowboy),
     application:ensure_all_started(tinymq),
+	code:ensure_loaded(tpic_checkauth),
     tpnode:reload(),
 
     {ok,TPIC0}=application:get_env(tpnode,tpic),
