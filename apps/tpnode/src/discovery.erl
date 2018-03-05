@@ -252,7 +252,8 @@ announce_one_service(Name, #{address:=IP}=Address0, ValidUntil) ->
         Announce = #{
             name => Name,
             address => Address,
-            valid_until => ValidUntil
+            valid_until => ValidUntil,
+            nodeid => nodekey:node_id()
         },
         AnnounceBin = pack(Announce),
         send_service_announce(AnnounceBin)

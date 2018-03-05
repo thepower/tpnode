@@ -32,10 +32,15 @@ init(_) ->
     {
         ok,
         #{
+            pid_info => #{},
             pid_subs => #{},
             chan_subs => #{}
         }
     }.
+
+
+handle_call(peers, _From, #{pid_info:=PidInfo} = State) ->
+    {reply, get_peers(PidInfo), State};
 
 
 handle_call(state, _From, State) ->
@@ -51,6 +56,9 @@ handle_call(_Request, _From, State) ->
     lager:notice("Unknown call ~p", [_Request]),
     {reply, ok, State}.
 
+
+handle_cast({register_peer, Pid, RemoteNodeId, RemoteChannels}, State) ->
+    {noreply, register_peer({Pid, RemoteNodeId, RemoteChannels}, State)};
 
 
 handle_cast({subscribe, Channel, Pid}, #{pid_subs:=_Pids,chan_subs:=_Chans}=State) ->
@@ -80,6 +88,26 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 
 
+get_peers(PidInfo) ->
+    Parser =
+        fun(_ConnPid, PeerInfo, Acc) ->
+            maps:merge(Acc, PeerInfo)
+        end,
+
+    try
+        maps:fold(Parser, #{}, PidInfo)
+    catch
+        Ec:Ee ->
+            iolist_to_binary(io_lib:format("~p:~p",[Ec,Ee]))
+    end.
+
+register_peer({Pid, RemoteNodeId, RemoteChannels}, #{pid_info:=PidInfo} = State) ->
+    lager:info("register remote node ~p ~p ~p", [Pid, RemoteNodeId, RemoteChannels]),
+    RemoteInfo = #{ RemoteNodeId => RemoteChannels},
+    State#{
+        pid_info => maps:put(Pid, RemoteInfo, PidInfo)
+    }.
+
 add_subscription(Channel, Pid, #{pid_subs:=Pids,chan_subs:=Chans}=State) ->
     lager:info("subscribe ~p to ~p", [Pid, Channel]),
     monitor(process,Pid),
@@ -94,9 +122,11 @@ add_subscription(Channel, Pid, #{pid_subs:=Pids,chan_subs:=Chans}=State) ->
     }.
 
 
-unsubscribe_all(Pid, #{pid_subs:=Pids,chan_subs:=Chans}=State) when is_pid(Pid) ->
+unsubscribe_all(Pid, #{pid_info:=PidInfo, pid_subs:=Pids, chan_subs:=Chans}=State)
+    when is_pid(Pid) ->
     lager:info("remove all subs for pid ~p", [Pid]),
     State#{
+        pid_info => maps:remove(Pid, PidInfo),
         pid_subs => maps:remove(Pid, Pids),
         chan_subs => maps:map(
             fun(_Chan, ChanPids) ->
