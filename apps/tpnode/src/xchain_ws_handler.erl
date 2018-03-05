@@ -108,8 +108,9 @@ handle_xchain(ping) ->
     ok;
 
 
-handle_xchain(node_id) ->
+handle_xchain({node_id, RemoteNodeId, RemoteChannels}) ->
     try
+        gen_server:cast(xchain_dispatcher, {register_peer, self(), RemoteNodeId, RemoteChannels}),
         {iam, nodekey:node_id()}
     catch _:_ ->
         error

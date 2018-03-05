@@ -324,9 +324,11 @@ subscribe_one_channel(ConnPid, Channel) ->
     1.
 
 make_subscription(Subs) ->
+    MyNodeId = nodekey:node_id(),
+
     Subscriber =
         fun(_Key, #{connection:=Conn, ws_mode:=true, channels:=Channels}=Sub) ->
-            Cmd = pack(node_id),
+            Cmd = pack({node_id, MyNodeId, maps:keys(Channels)}),
             gun:ws_send(Conn, {binary, Cmd}),
 
             NewChannels = maps:map(
