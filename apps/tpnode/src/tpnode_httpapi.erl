@@ -16,8 +16,15 @@ h(Method, [<<"api">>|Path], Req) ->
 
 h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
     {Chain, Hash, Header1} = gen_server:call(blockchain, status),
+	QS=cowboy_req:parse_qs(_Req),
+	BinPacker=case proplists:get_value(<<"bin">>,QS) of
+				  <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
+				  <<"hex">> -> fun(Bin) -> bin2hex:dbin2hex(Bin) end;
+				  <<"raw">> -> fun(Bin) -> Bin end;
+				  _ -> fun(Bin) -> base64:encode(Bin) end
+			  end,
     Header=maps:map(
-             fun(_,V) when is_binary(V) -> base64:encode(V);
+             fun(_,V) when is_binary(V) -> BinPacker(V);
                 (_,V) -> V
              end, Header1),
     Peers=lists:map(
@@ -32,10 +39,10 @@ h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
      #{ result => <<"ok">>,
         status => #{
           nodeid=>nodekey:node_id(),
-          public_key=>base64:encode(nodekey:get_pub()),
+          public_key=>BinPacker(nodekey:get_pub()),
 		  blockchain=>#{
 			chain=>Chain,
-			hash=>base64:encode(Hash),
+			hash=>BinPacker(Hash),
 			header=>Header
 		   },
           tpic_peers=>Peers,
