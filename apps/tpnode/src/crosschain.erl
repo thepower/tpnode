@@ -75,6 +75,10 @@ handle_call({connect, Ip, Port}, _From, State) ->
 %%    gun:ws_send(ConnPid, {text, Text}),
 %%    {reply, ok, State};
 
+handle_call(peers, _From, #{subs:=Subs} = State) ->
+    {reply, get_peers(Subs), State};
+
+
 handle_call(_Request, _From, State) ->
     lager:notice("crosschain unknown call ~p", [_Request]),
     {reply, ok, State}.
@@ -109,8 +113,8 @@ handle_info({gun_ws, ConnPid, {close, _, _}}, #{subs:=Subs} = State) ->
 handle_info({gun_ws, ConnPid, {binary, Bin} }, State) ->
     lager:notice("crosschain client got ws bin msg: ~p", [Bin]),
     try
-        handle_xchain(ConnPid, unpack(Bin)),
-        {noreply, State}
+        NewState = handle_xchain(unpack(Bin), ConnPid, State),
+        {noreply, NewState}
     catch
         Ec:Ee ->
             S=erlang:get_stacktrace(),
@@ -202,9 +206,10 @@ lost_connection(Pid, Subs) ->
                 Pid ->
                     NewSub = maps:remove(connection, Sub),
                     NewSub1 = maps:remove(ws_mode, NewSub),
+                    NewSub2 = maps:remove(node_id, NewSub1),
 
                     % unsubscribe all channels
-                    NewSub1#{
+                    NewSub2#{
                         channels => maps:map(fun(_Channel, _OldState) -> 0 end, Channels)
                     };
                 _ ->
@@ -321,6 +326,9 @@ subscribe_one_channel(ConnPid, Channel) ->
 make_subscription(Subs) ->
     Subscriber =
         fun(_Key, #{connection:=Conn, ws_mode:=true, channels:=Channels}=Sub) ->
+            Cmd = pack(node_id),
+            gun:ws_send(Conn, {binary, Cmd}),
+
             NewChannels = maps:map(
                 fun(Channel, 0=_CurrentState) ->
                     subscribe_one_channel(Conn, Channel);
@@ -337,6 +345,34 @@ make_subscription(Subs) ->
               Sub
         end,
     maps:map(Subscriber, Subs).
+
+
+set_node_id(Pid, NodeId, Subs) ->
+    Setter =
+        fun(_Key, #{connection:=Connection} = Sub) ->
+            case Connection of
+                Pid ->
+                    Sub#{
+                        node_id => NodeId
+                    };
+                _ ->
+                    Sub
+            end;
+            (_Key, Sub) ->
+                Sub
+        end,
+    maps:map(Setter, Subs).
+
+
+get_peers(Subs) ->
+    Parser =
+        fun(_PeerKey, #{channels:=Channels, node_id:=NodeId, ws_mode:=true} = _PeerInfo, Acc) ->
+            maps:put(NodeId, maps:keys(Channels), Acc);
+
+            (_PeerKey, _PeerInfo, Acc) ->
+                Acc
+        end,
+    maps:fold(Parser, #{}, Subs).
 
 
 %% -----------------
@@ -403,11 +439,16 @@ init_subscribes(Subs) ->
 
 %% -----------------
 
-handle_xchain(_ConnPid, pong) ->
-%%    lager:info("Got pong for ~p",[_ConnPid]),
-    ok;
+handle_xchain({iam, NodeId}, ConnPid, #{subs:=Subs} = State) ->
+    State#{
+        subs => set_node_id(ConnPid, NodeId, Subs)
+    };
 
-handle_xchain(_ConnPid, {outward_block, FromChain, ToChain, BinBlock}) ->
+handle_xchain(pong, _ConnPid, State) ->
+%%    lager:info("Got pong for ~p",[_ConnPid]),
+    State;
+
+handle_xchain({outward_block, FromChain, ToChain, BinBlock}, _ConnPid, State) ->
     lager:info("Got outward block from ~p to ~p",[FromChain,ToChain]),
     Block=block:unpack(BinBlock),
     try 
@@ -420,10 +461,11 @@ handle_xchain(_ConnPid, {outward_block, FromChain, ToChain, BinBlock}) ->
     end,
     lager:debug("Here it is ~p",[Block]),
     gen_server:cast(txpool,{inbound_block,Block}),
-    ok;
+    State;
 
-handle_xchain(_ConnPid, Cmd) ->
-    lager:info("got xchain message from server: ~p", [Cmd]).
+handle_xchain(Cmd, _ConnPid, State) ->
+    lager:info("got xchain message from server: ~p", [Cmd]),
+    State.
 
 
 %%upgrade_success(ConnPid, Headers) ->

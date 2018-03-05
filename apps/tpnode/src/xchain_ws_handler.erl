@@ -108,19 +108,26 @@ handle_xchain(ping) ->
     ok;
 
 
+handle_xchain(node_id) ->
+    try
+        {iam, nodekey:node_id()}
+    catch _:_ ->
+        error
+    end;
+
 handle_xchain(chain) ->
     try
-        {ok,blockchain:chain()}
-    catch _:_ -> 
-              error
+        {ok, blockchain:chain()}
+    catch _:_ ->
+        error
     end;
 
 handle_xchain(height) ->
     try
-        {_,H}=gen_server:call(blockchain,last_block_height),
+        {_, H} = gen_server:call(blockchain, last_block_height),
         {ok, H}
     catch _:_ ->
-              error
+        error
     end;
 
 handle_xchain({subscribe, Channel}) ->
