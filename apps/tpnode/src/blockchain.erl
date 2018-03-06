@@ -457,10 +457,6 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                                               ok
                                       end,
 
-                                      %if(NewTable =/= Tbl) ->
-                                      %      save_bals(LDB, NewTable);
-                                      %  true -> ok
-                                      %end,
                                       if(Sets1 =/= Sets) ->
                                             notify_settings(),
                                             save_sets(LDB, Sets1);
@@ -507,12 +503,6 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                                                             lager:error("at ~p",[Se])
                                                     end, S)
                                         end
-
-                                        %lists:foreach(
-                                        %  fun(Pool) ->
-                                        %          gen_server:cast(Pool,
-                                        %                          {inbound_block,OutBlock})
-                                        %  end, Dst)
                                 end,0, block:outward_mk(MBlk)),
 
                               {noreply, State#{
