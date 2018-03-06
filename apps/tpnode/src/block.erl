@@ -3,6 +3,7 @@
 -export([mkblock/1,binarizetx/1,extract/1,outward_mk/2,outward_mk/1]).
 -export([verify/1,outward_verify/1,sign/2,sign/3,sigverify/2]).
 -export([pack/1,unpack/1]).
+-export([packsig/1,unpacksig/1]).
 
 -export([bals2bin/1]).
 
@@ -439,6 +440,26 @@ build_header(HeaderItems,Parent,H) ->
 	  HeaderItems	
 	 ).
 
+unpacksig(Block) ->
+	maps:map(
+	  fun(sign,Sigs) ->
+			  lists:map(
+				fun(Sig) ->
+						bsig:unpacksig(Sig)
+				end, Sigs);
+		 (_,Val) -> Val
+	  end, Block).
+
+packsig(Block) ->
+	maps:map(
+	  fun(sign,Sigs) ->
+			  lists:map(
+				fun(Sig) ->
+						bsig:packsig(Sig)
+				end, Sigs);
+		 (_,Val) -> Val
+	  end, Block).
+
 -ifdef(TEST).
 block_test_() ->
     Priv1Key= <<200,100,200,100,200,100,200,100,200,100,200,100,200,100,200,100,
@@ -476,7 +497,10 @@ block_test_() ->
     Repacked=unpack(pack(Block)),
     [
     ?_assertMatch({true,{_,0}},verify(Block)),
-    ?_assertEqual(Block,Repacked),
+    ?_assertEqual(packsig(Block),packsig(Repacked)),
+    ?_assertEqual(unpacksig(Block),Repacked),
+    ?_assertEqual(unpacksig(Block),unpacksig(Repacked)),
+    ?_assertEqual(Block,packsig(Repacked)),
     ?_assertEqual(true,lists:all(
                          fun(#{extra:=E}) ->
                                  P=proplists:get_value(pubkey,E),
