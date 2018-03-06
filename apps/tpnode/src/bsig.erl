@@ -39,10 +39,9 @@ signhash(MsgHash, ExtraData, PrivKey) ->
 
 unpack_sign_ed(Bin) -> unpack_sign_ed(Bin,[]).
 unpack_sign_ed(<<>>,Acc) -> lists:reverse(Acc);
-unpack_sign_ed(<<Attr:8/integer,Len:8/integer,Bin/binary>>,Acc) ->
+unpack_sign_ed(<<Attr:8/integer,Len:8/integer,Bin/binary>>,Acc) when Len<128 ->
     <<Val:Len/binary,Rest/binary>>=Bin,
     unpack_sign_ed(Rest,[decode_edval(Attr,Val)|Acc]).
-
 
 pack_sign_ed(List) ->
     lists:foldl( fun({K,V},Acc) ->
@@ -50,9 +49,20 @@ pack_sign_ed(List) ->
                          <<Acc/binary,Val/binary>>
                  end, <<>>, List).
 
+% general pupose fields 
 decode_edval(1,<<Timestamp:64/big>>) -> {timestamp, Timestamp}; 
 decode_edval(2,Bin) -> {pubkey, Bin}; 
 decode_edval(3,<<TimeDiff:64/big>>) -> {createduration, TimeDiff}; 
+decode_edval(4,<<TimeDiff:64/big>>) -> {createduration, TimeDiff}; 
+decode_edval(240,<<KL:8/integer,Rest/binary>>=Raw) -> 
+	try
+		<<Key:KL/binary,Val/binary>>=Rest,
+		{Key,Val}
+	catch _:_ ->
+			  {240,Raw}
+	end;
+
+decode_edval(254,Bin) -> {purpose, Bin}; 
 decode_edval(255,Bin) -> {signature, Bin}; 
 decode_edval(Key,BinVal) -> {Key, BinVal}.
 
@@ -60,6 +70,14 @@ encode_edval(timestamp, Integer) -> <<1,8,Integer:64/big>>;
 encode_edval(pubkey, PK) -> <<2,(size(PK)):8/integer,PK/binary>>;
 encode_edval(createduration, Integer) -> <<3,8,Integer:64/big>>;
 encode_edval(signature, PK) -> <<255,(size(PK)):8/integer,PK/binary>>;
+encode_edval(purpose, PK) -> <<254,(size(PK)):8/integer,PK/binary>>;
+encode_edval(N,PK) when is_binary(N) andalso is_binary(PK) -> 
+	TS=size(N)+size(PK)+1,
+	if TS>=64 -> 
+		   throw('binkey_too_big');
+	   true ->
+		   <<240,TS:8/integer,(size(N)):8/integer,N/binary,PK/binary>>
+	end;
 encode_edval(_, _) -> <<>>.
 
 splitsig(<<255,SLen:8/integer,Rest/binary>>) ->
