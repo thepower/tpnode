@@ -1,6 +1,6 @@
 -module(bsig).
 -export([checksig/2,checksig1/2]).
--export([signhash/3]).
+-export([signhash/3,signhash1/3]).
 -export([packsig/1,unpacksig/1]).
 -export([pack_sign_ed/1,unpack_sign_ed/1]).
 
@@ -27,15 +27,15 @@ checksig(BlockHash, Sigs) ->
               end
       end, {[],0}, Sigs).
 
-signhash(MsgHash, ExtraData, PrivKey) ->
-    PubKey=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
-    BinExtra= pack_sign_ed([
-             {pubkey,PubKey}|
-             ExtraData
-            ]),
+signhash1(MsgHash, ExtraData, PrivKey) ->
+    BinExtra=pack_sign_ed(ExtraData),
     Msg= <<BinExtra/binary,MsgHash/binary>>,
     Signature=tpecdsa:secp256k1_ecdsa_sign(Msg, PrivKey, default, <<>>),
     <<255,(size(Signature)):8/integer,Signature/binary,BinExtra/binary>>.
+
+signhash(MsgHash, ExtraData, PrivKey) ->
+	PubKey=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
+	signhash1(MsgHash, [{pubkey,PubKey}|ExtraData], PrivKey).
 
 unpack_sign_ed(Bin) -> unpack_sign_ed(Bin,[]).
 unpack_sign_ed(<<>>,Acc) -> lists:reverse(Acc);
