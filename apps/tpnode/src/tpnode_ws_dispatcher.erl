@@ -165,17 +165,15 @@ handle_cast({done, Result, Txs}, State) ->
 	lists:foreach(
 	  fun({TxID,Reason}) ->
 			  BlockJS=jsx:encode(#{txid=>TxID,
-								   result=>false,
-								   reason=>iolist_to_binary(
-											 io_lib:format("~p",[Reason])
-											)
+								   result=>Result,
+								   info=>format_reason(Reason)
 								  }),
 			  lists:foreach(fun(Pid) ->
 									erlang:send(Pid, {message, BlockJS})
 							end, BS);
 		 (TxID) ->
 			  BlockJS=jsx:encode(#{txid=>TxID,
-								   result=>true
+								   result=>Result
 								  }),
 			  lists:foreach(fun(Pid) ->
 									erlang:send(Pid, {message, BlockJS})
@@ -249,4 +247,10 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+format_reason(#{address:=Addr}=Reason) when is_binary(Addr) -> 
+	Reason#{address=>naddress:encode(Addr)};
+format_reason(Reason) when is_map(Reason) -> Reason;
+format_reason(Reason) when is_atom(Reason) -> Reason;
+format_reason(Reason) -> iolist_to_binary( io_lib:format("~p",[Reason])).
 

@@ -191,8 +191,11 @@ handle_cast(prepare, State) ->
 
 handle_cast({done, Txs}, #{inprocess:=InProc0}=State) ->
     InProc1=lists:foldl(
-      fun(Tx,Acc) ->
+      fun({Tx,_},Acc) ->
               lager:info("TX pool tx done ~p",[Tx]),
+              hashqueue:remove(Tx,Acc);
+		 (Tx,Acc) ->
+			  lager:info("TX pool tx done ~p",[Tx]),
               hashqueue:remove(Tx,Acc)
       end,
       InProc0,

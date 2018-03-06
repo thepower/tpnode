@@ -447,24 +447,31 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                                   true ->
                                       ok;
                                   false ->
-                                      gen_server:cast(txpool,{done,proplists:get_keys(Txs)}),
-                                      case maps:is_key(inbound_blocks,MBlk) of
-                                          true ->
-                                              lager:info("IB"),
-                                              gen_server:cast(txpool,{done,proplists:get_keys(maps:get(inbound_blocks,MBlk))});
-                                          false ->
-                                              lager:info("NO IB"),
-                                              ok
-                                      end,
+									  SendSuccess=lists:map(
+													fun({TxID,#{register:=_,address:=Addr}}) ->
+															{TxID,#{address=>Addr}};
+													   ({TxID,_}) ->
+															TxID
+													end, Txs),
+									  gen_server:cast(txpool,{done,SendSuccess}),
 
-                                      if(Sets1 =/= Sets) ->
-                                            notify_settings(),
-                                            save_sets(LDB, Sets1);
-                                        true -> ok
-                                      end
+									  case maps:is_key(inbound_blocks,MBlk) of
+										  true ->
+											  gen_server:cast(txpool,
+															  {done,
+															   proplists:get_keys(maps:get(inbound_blocks,MBlk))});
+										  false -> ok
+									  end,
+
+									  Settings=maps:get(settings,MBlk,[]),
+									  gen_server:cast(txpool,{done,proplists:get_keys(Settings)}),
+
+									  if(Sets1 =/= Sets) ->
+											notify_settings(),
+											save_sets(LDB, Sets1);
+										true -> ok
+									  end
                               end,
-                              Settings=maps:get(settings,MBlk,[]),
-                              gen_server:cast(txpool,{done,proplists:get_keys(Settings)}),
 
                               T3=erlang:system_time(),
                               lager:info("enough confirmations ~w/~w. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",
