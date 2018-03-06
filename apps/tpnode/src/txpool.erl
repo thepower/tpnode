@@ -197,26 +197,28 @@ handle_cast({done, Txs}, #{inprocess:=InProc0}=State) ->
       end,
       InProc0,
       Txs),
+	gen_server:cast(tpnode_ws_dispatcher,{done, true, Txs}),
     {noreply, State#{
                 inprocess=>InProc1
                }
     };
 
 handle_cast({failed, Txs}, #{inprocess:=InProc0}=State) ->
-    InProc1=lists:foldl(
+	InProc1=lists:foldl(
 			  fun({_,{overdue,Parent}}, Acc) ->
 					  lager:info("TX pool inbound block overdue ~p",[Parent]),
 					  hashqueue:remove(Parent,Acc);
 				 ({TxID,Reason},Acc) ->
 					  lager:info("TX pool tx failed ~p ~p",[TxID,Reason]),
-                      hashqueue:remove(TxID,Acc)
-              end,
-              InProc0,
-              Txs),
-    {noreply, State#{
-                inprocess=>InProc1
-               }
-    };
+					  hashqueue:remove(TxID,Acc)
+			  end,
+			  InProc0,
+			  Txs),
+	gen_server:cast(tpnode_ws_dispatcher,{done, false, Txs}),
+	{noreply, State#{
+				inprocess=>InProc1
+			   }
+	};
 
 
 handle_cast(_Msg, State) ->

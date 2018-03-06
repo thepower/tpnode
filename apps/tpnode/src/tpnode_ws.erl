@@ -32,6 +32,9 @@ websocket_handle({text, Msg}, State) ->
                 <<"block">> ->
                     gen_server:cast(tpnode_ws_dispatcher,{subscribe,block, self()}),
                     [new_block,any];
+                <<"tx">> ->
+                    gen_server:cast(tpnode_ws_dispatcher,{subscribe,tx, self()}),
+                    [tx,any];
                 <<"addr">> ->
                     #{<<"addr">>:=Address,<<"get">>:=G}=JS,
                     Get=lists:filtermap(

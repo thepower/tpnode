@@ -30,7 +30,8 @@ init(_) ->
     {ok, #{
        blocksub=>[],
        addrsub=>#{},
-       pidsub=>#{}
+       pidsub=>#{},
+	   txsub=>[]
       }
     }.
 
@@ -159,6 +160,37 @@ handle_cast({new_block, Block}, #{addrsub:=AS,blocksub:=BS}=State) ->
 
     {noreply, State};
 
+handle_cast({done, Result, Txs}, State) ->
+	BS=maps:get(txsub,State,[]),
+	lists:foreach(
+	  fun({TxID,Reason}) ->
+			  BlockJS=jsx:encode(#{txid=>TxID,
+								   result=>false,
+								   reason=>iolist_to_binary(
+											 io_lib:format("~p",[Reason])
+											)
+								  }),
+			  lists:foreach(fun(Pid) ->
+									erlang:send(Pid, {message, BlockJS})
+							end, BS);
+		 (TxID) ->
+			  BlockJS=jsx:encode(#{txid=>TxID,
+								   result=>true
+								  }),
+			  lists:foreach(fun(Pid) ->
+									erlang:send(Pid, {message, BlockJS})
+							end, BS)
+	  end, Txs),
+	{noreply, State};
+
+handle_cast({subscribe, tx, Pid}, #{pidsub:=PS}=State) ->
+	TS=maps:get(txsub,State,[]),
+    monitor(process,Pid),
+    {noreply, State#{
+                txsub=>[Pid|TS],
+                pidsub=>maps:put(Pid,[tx|maps:get(Pid,PS,[])],PS)
+               }
+    };
 
 handle_cast({subscribe, block, Pid}, #{blocksub:=BS,pidsub:=PS}=State) ->
     monitor(process,Pid),
@@ -177,38 +209,42 @@ handle_cast({subscribe, address, Address, Subs, Pid}, #{addrsub:=AS,pidsub:=PS}=
     }.
 
 handle_info({'DOWN',_Ref,process,Pid,_Reason}, 
-           #{addrsub:=AS0,blocksub:=BS0,pidsub:=PS}=State) ->
-    Subs=maps:get(Pid,PS,[]),
-    {BS1,AS1}=lists:foldl(
-      fun(block, {BS, AS}) ->
-              {lists:delete(Pid,BS),AS};
-         ({addr, A}, {BS, AS}) ->
-              AAS=lists:filter(
-                    fun({PP,_}) -> PP=/=Pid
-                    end,maps:get(A,AS,[])),
-              if AAS == [] ->
-                     {BS, maps:remove(A,AS)};
-                 true ->
-                     {BS, maps:put(A,AAS,AS)}
-              end
-      end, {BS0, AS0}, Subs),
-    {noreply, State#{
-               blocksub=>BS1,
-               addrsub=>AS1,
-               pidsub=>maps:remove(Pid,PS)
-               }
-    };
+			#{addrsub:=AS0,blocksub:=BS0,pidsub:=PS}=State) ->
+	TS0=maps:get(txsub,State,[]),
+	Subs=maps:get(Pid,PS,[]),
+	{BS1,TS1,AS1}=lists:foldl(
+					fun(block, {BS, TS, AS}) ->
+							{lists:delete(Pid,BS),TS,AS};
+					   (tx, {BS, TS, AS}) ->
+							{BS, lists:delete(Pid,TS),AS};
+					   ({addr, A}, {BS, TS, AS}) ->
+							AAS=lists:filter(
+								  fun({PP,_}) -> PP=/=Pid
+								  end,maps:get(A,AS,[])),
+							if AAS == [] ->
+								   {BS, TS, maps:remove(A,AS)};
+							   true ->
+								   {BS, TS, maps:put(A,AAS,AS)}
+							end
+					end, {BS0, TS0, AS0}, Subs),
+	{noreply, State#{
+				blocksub=>BS1,
+				addrsub=>AS1,
+				txsub=>TS1,
+				pidsub=>maps:remove(Pid,PS)
+			   }
+	};
 
 
 handle_info(_Info, State) ->
-    lager:info("Unknown INFO ~p",[_Info]),
-    {noreply, State}.
+	lager:info("Unknown INFO ~p",[_Info]),
+	{noreply, State}.
 
 terminate(_Reason, _State) ->
-    ok.
+	ok.
 
 code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+	{ok, State}.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
