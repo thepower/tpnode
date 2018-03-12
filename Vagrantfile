@@ -1,11 +1,21 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
 
+domains = [ 'pwr.local', 'dev.pwr.local' ]
+
 Vagrant.configure("2") do |config|
   config.vm.box = "bento/ubuntu-16.04"
   config.vm.box_check_update = false
   config.vm.network "public_network", type: "dhcp", use_dhcp_assigned_default_route: true
   config.vm.hostname = "pwr"
+
+  # hosts settings (host machine)
+  config.vm.provision :hostmanager
+  config.hostmanager.enabled            = true
+  config.hostmanager.manage_host        = true
+  config.hostmanager.ignore_private_ip  = false
+  config.hostmanager.include_offline    = true
+  config.hostmanager.aliases            = domains
 
   # disable ipv6 on eth0
   config.vm.provision "shell",
