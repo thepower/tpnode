@@ -107,15 +107,39 @@ init(Args) ->
             }
     end.
 
+handle_call(keys, _From, #{db:=DB}=State) ->
+	GB=rocksdb:fold(DB,
+					fun({<<"lb:",_/binary>>,_}, Acc) ->
+							Acc;
+					   ({<<"lastblk",_/binary>>,_}, Acc) ->
+							Acc;
+					   ({<<_:64/big>>=K,V}, Acc) ->
+							try
+								[{K,maps:get(pubkey,binary_to_term(V))}|Acc]
+							catch _:_ ->
+									  Acc
+							end;
+					   ({_K,_V}, Acc) -> Acc
+					end,
+					[],
+					[]
+				   ),
+	{reply, GB, State};
+
 handle_call(dump, _From, #{db:=DB}=State) ->
-    GB=rocksdb:fold(DB,
-                       fun({K,V}, Acc) ->
-                                [{K,binary_to_term(V)}|Acc]
-                       end,
-                       [],
-                       []
-                      ),
-    {reply, GB, State};
+	GB=rocksdb:fold(DB,
+					fun({<<"lb:",_/binary>>,_}, Acc) ->
+							Acc;
+					   ({<<"lastblk",_/binary>>,_}, Acc) ->
+							Acc;
+					   ({<<_:64/big>>=K,V}, Acc) ->
+							[{K,binary_to_term(V)}|Acc];
+					   ({_K,_V}, Acc) -> Acc
+					end,
+					[],
+					[]
+				   ),
+	{reply, GB, State};
 
 handle_call(snapshot, _From, #{db:=DB}=State) ->
     {ok,Snap}=rocksdb:snapshot(DB),

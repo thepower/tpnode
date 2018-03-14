@@ -270,3 +270,43 @@ test_pack_unpack(BlkID) ->
   file:write_file("tmp/pack_unpack_orig.txt", io_lib:format("~p.~n", [B1])),
   file:write_file("tmp/pack_unpack_pack.txt", io_lib:format("~p.~n", [B2])),
   B1==B2.
+
+gen_pvt_keys(N) ->
+	case file:read_file("pkeys.tmp") of
+		{error,enoent} -> ok;
+		{ok, _} -> throw("pkeys.tmp exists")
+	end,
+	PKeys=lists:foldl(
+	  fun(_,Acc) ->
+			  PKey=tpecdsa:generate_priv(),
+			  PubKey=tpecdsa:calc_pub(PKey,true),
+			  TX0=tx:unpack( tx:pack( #{ type=>register, register=>PubKey })),
+			  gen_server:call(txpool, {register, TX0}),
+			  [PKey|Acc]
+	  end, [], lists:seq(1,N)),
+	file:write_file("pkeys.tmp", io_lib:format("~p.~n",[PKeys])).
+
+gen_pvt_addrs() ->
+	{ok, [L]} = file:consult("pkeys.tmp"),
+	Ledger=gen_server:call(ledger,keys),
+	LL=lists:foldl(
+		 fun(PKey, Acc) ->
+				 PubKey=tpecdsa:calc_pub(PKey,true),
+				 case lists:keyfind(PubKey,2,Ledger) of
+					 false ->
+						 Acc;
+					 {Addr, PubKey} ->
+						 [{Addr, PubKey}  | Acc]
+				 end
+		 end, [], L),
+	if length(LL) > 0 ->
+		   case file:read_file("addrs.tmp") of
+			   {error,enoent} -> ok;
+			   {ok, _} -> throw("addrs.tmp exists")
+		   end,
+		   file:write_file("addrs.tmp", io_lib:format("~p.~n",[LL])),
+		   file:delete("pkeys.tmp");
+	   true -> error
+	end.
+
+
