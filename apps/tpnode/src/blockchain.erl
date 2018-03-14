@@ -739,6 +739,25 @@ handle_info({b2b_sync, Hash}, #{
             {noreply, State}
     end;
 
+handle_info(checksync, #{
+			  lastblock:=#{header:=#{height:=_MyHeight},hash:=_MyLastHash}
+			 }=State) ->
+	Candidates=lists:reverse(
+				 tpiccall(<<"blockchain">>, 
+						  #{null=><<"sync_request">>},
+						  [last_hash,last_height,chain]
+						 )),
+	_=lists:foldl( %first suitable will be the quickest
+		   fun({_,#{chain:=_HisChain,
+					last_hash:=_,
+					last_height:=_,
+					null:=<<"sync_available">>}=CInfo},_) ->
+				   lager:info("checksync candidate ~p",[CInfo]);
+			  ({_,_},Acc) ->
+				   Acc
+		   end, undefined, Candidates),
+	{noreply, State};
+
 handle_info(runsync, #{
               lastblock:=#{header:=#{height:=MyHeight},hash:=MyLastHash}
              }=State) ->
