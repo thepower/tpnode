@@ -735,7 +735,7 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
 				 end, [], OutChains),
 	lager:info("MB Extra out settings ~p",[ExtraPatch]),
 
-	lager:info("MB NewBal ~p",[NewBal]),
+	%lager:info("MB NewBal ~p",[NewBal]),
 
 	HedgerHash=ledger_hash(NewBal),
 	_T5=erlang:system_time(),
@@ -766,12 +766,13 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
 				bin2hex:dbin2hex(HedgerHash),
 				GetSettings(mychain)
 			   ]),
-	%lager:info("BENCHMARK txs       ~w~n",[length(TXL)]),
-	%lager:info("BENCHMARK sort tx   ~.6f ~n",[(_T2-_T1)/1000000]),
-	%lager:info("BENCHMARK pull addr ~.6f ~n",[(_T3-_T2)/1000000]),
-	%lager:info("BENCHMARK process   ~.6f ~n",[(_T4-_T3)/1000000]),
-	%lager:info("BENCHMARK filter    ~.6f ~n",[(_T5-_T4)/1000000]),
-	%lager:info("BENCHMARK mk block  ~.6f ~n",[(_T6-_T5)/1000000]),
+	lager:info("BENCHMARK txs       ~w~n",[length(TXL)]),
+	lager:info("BENCHMARK sort tx   ~.6f ~n",[(_T2-_T1)/1000000]),
+	lager:info("BENCHMARK pull addr ~.6f ~n",[(_T3-_T2)/1000000]),
+	lager:info("BENCHMARK process   ~.6f ~n",[(_T4-_T3)/1000000]),
+	lager:info("BENCHMARK filter    ~.6f ~n",[(_T5-_T4)/1000000]),
+	lager:info("BENCHMARK mk block  ~.6f ~n",[(_T6-_T5)/1000000]),
+	lager:info("BENCHMARK total ~.6f ~n",[(_T6-_T1)/1000000]),
 	#{block=>Blk#{outbound=>Outbound},
 	  failed=>Failed
 	 }.

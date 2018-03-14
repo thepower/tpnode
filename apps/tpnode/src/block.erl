@@ -298,7 +298,7 @@ mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }
 						 [{chain, maps:get(mychain,Req)}]
 				 end],
     {BHeader,Hdr}=build_header(HeaderItems,Parent,H),
-	lager:info("HI ~p",[Hdr]),
+	%lager:info("HI ~p",[Hdr]),
 
     Block=#{header=>Hdr,
       hash=>crypto:hash(sha256,BHeader),

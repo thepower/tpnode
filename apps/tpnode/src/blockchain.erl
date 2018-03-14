@@ -414,14 +414,8 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                        Sets1=apply_block_conf(MBlk, Sets),
                        lager:info("Ledger dst hash ~p, block ~p",
                                   [LHash, maps:get(ledger_hash,Header,<<0:256>>)]),
-
-                       if Txs==[] -> ok;
-                          true ->
-                              lager:info("Txs ~p", [ Txs ])
-                       end,
-                       NewPHash=maps:get(parent,Header),
-
-
+					   lager:debug("Txs ~p", [ Txs ]),
+					   NewPHash=maps:get(parent,Header),
                        if LBlockHash=/=NewPHash ->
                               lager:info("Need resynchronize, height ~p/~p new block parent ~s, but my ~s",
                                          [
