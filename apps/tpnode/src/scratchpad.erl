@@ -296,7 +296,7 @@ gen_pvt_addrs() ->
 					 false ->
 						 Acc;
 					 {Addr, PubKey} ->
-						 [{Addr, PubKey}  | Acc]
+						 [{Addr, PKey}  | Acc]
 				 end
 		 end, [], L),
 	if length(LL) > 0 ->

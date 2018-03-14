@@ -122,6 +122,9 @@ handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
               {reply, {error, {Ec,Ee}}, State}
     end;
 
+handle_call(status, _From, #{nodeid:=Node,queue:=Queue}=State) ->
+	{reply, {Node, queue:len(Queue)}, State};
+
 handle_call(_Request, _From, State) ->
     {reply, unknown_request, State}.
 
@@ -141,7 +144,7 @@ handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue,nodeid:=
     %    empty -> ok;
     %    _ -> lager:info("Still in process ~p",[InProc0])
     %end,
-    {Queue1,Res}=pullx(1000,Queue,[]),
+    {Queue1,Res}=pullx(2048,Queue,[]),
     try
         %MKb= <<"mkblock",(integer_to_binary(MyChain))/binary>>,
         MKb= <<"mkblock">>,
@@ -253,8 +256,8 @@ pullx(N,Q,Acc) ->
     {Element,Q1}=queue:out(Q),
     case Element of
         {value, E1} ->
-            lager:info("Pull tx ~p",[E1]),
-           pullx(N-1, Q1, [E1|Acc]);
+			%lager:debug("Pull tx ~p",[E1]),
+			pullx(N-1, Q1, [E1|Acc]);
         empty ->
             {Q,Acc}
     end.
