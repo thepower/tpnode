@@ -319,7 +319,8 @@ handle_cast({signature, BlockHash, Sigs},
 					   [blkid(BlockHash)]),
 			{noreply, State};
 		{Success,_} ->
-			NewSigs=lists:usort(OldSigs++Success),
+			%NewSigs=lists:usort(OldSigs++Success),
+			NewSigs=bsig:add_sig(OldSigs, Success),
 			if(OldSigs=/=NewSigs) ->
 				  lager:info("Extra confirmation of prev. block ~s +~w=~w",
 					   [blkid(BlockHash),

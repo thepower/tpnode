@@ -3,6 +3,7 @@
 -export([signhash/3,signhash1/3]).
 -export([packsig/1,unpacksig/1]).
 -export([pack_sign_ed/1,unpack_sign_ed/1]).
+-export([add_sig/2]).
 
 checksig1(BlockHash, SrcSig) ->
     HSig=unpacksig(SrcSig),
@@ -99,4 +100,18 @@ packsig(BinSig) when is_binary(BinSig) ->
 packsig(#{signature:=Signature,binextra:=BinExtra}) ->
     <<255,(size(Signature)):8/integer,Signature/binary,BinExtra/binary>>.
 
+add_sig(OldSigs,NewSigs) ->
+	Apply=fun(#{extra:=EPL}=Sig,Acc) ->
+				   PK=proplists:get_value(pubkey,EPL),
+				   if PK == undefined -> Acc;
+					  is_binary(PK) ->
+						  case maps:is_key(PK, Acc) of
+							  true -> Acc;
+							  false -> maps:put(PK, Sig, Acc)
+						  end
+				   end
+		  end,
+	Map1=lists:foldl(Apply, #{}, OldSigs),
+	Map2=lists:foldl(Apply, Map1, NewSigs),
+	maps:values(Map2).
 

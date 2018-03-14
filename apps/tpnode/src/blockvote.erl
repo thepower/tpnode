@@ -163,7 +163,11 @@ checksig(BlockHash, Sigs, Acc0) ->
                                       blkid(BlockHash),
                                       bin2hex:dbin2hex(Pub)
                                      ]),
-                      maps:put(Pub,US,Acc);
+					  case maps:is_key(Pub, Acc) of
+						  true -> Acc;
+						  false ->
+							  maps:put(Pub,US,Acc)
+					  end;
                   false ->
                       Acc
               end
