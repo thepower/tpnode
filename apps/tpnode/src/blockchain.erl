@@ -196,7 +196,11 @@ handle_call({mysettings, Attr}, _From, #{settings:=S}=State) ->
 handle_call(settings, _From, #{settings:=S}=State) ->
     {reply, S, State};
 
-handle_call({settings,Path}, _From, #{settings:=Settings}=State) ->
+handle_call({settings,minsig}, _From, State) ->
+    Res=minsig(State),
+    {reply, Res, State};
+
+handle_call({settings,Path}, _From, #{settings:=Settings}=State) when is_list(Path) ->
     Res=settings:get(Path,Settings),
     {reply, Res, State};
 
@@ -212,7 +216,7 @@ handle_call(state, _From, State) ->
     {reply, State, State};
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+    {reply, unhandled_call, State}.
 
 handle_cast({new_block, _BlockPayload,  PID},
             #{ sync:=SyncPid }=State) when self()=/=PID ->
@@ -342,15 +346,14 @@ handle_cast({signature, BlockHash, Sigs},
 
 handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
             #{candidates:=Candidates,ldb:=LDB0,
+			  settings:=Sets,
               lastblock:=#{header:=#{parent:=Parent},hash:=LBlockHash}=LastBlock,
-              settings:=Sets,
               mychain:=MyChain
              }=State) ->
     FromNode=if is_pid(PID) -> node(PID);
                 is_tuple(PID) -> PID;
                 true -> emulator
              end,
-
 
     lager:info("Arrived block from ~p Verify block with ~p",
                [FromNode,maps:keys(Blk)]),
@@ -363,20 +366,16 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                 blkid(Parent),
                 blkid(LBlockHash)
                ]),
-    Chains=maps:get(chain,Sets,#{}),
-    Chain=maps:get(MyChain,Chains,#{}),
-    MinSig=maps:get(minsig,Chain,2),
-
+	MinSig=minsig(State),
     try
         LDB=if is_pid(PID) -> LDB0;
                is_tuple(PID) -> LDB0;
                true -> ignore
             end,
-
         T0=erlang:system_time(),
         case block:verify(Blk) of
             false ->
-                T1=erlang:system_time(),
+				T1=erlang:system_time(),
 				file:write_file("tmp/bad_block_"++integer_to_list(maps:get(height,maps:get(header,Blk)))++".txt", 
 								io_lib:format("~p.~n", [Blk])),
                 lager:info("Got bad block from ~p New block ~w arrived ~s, verify (~.3f ms)",
@@ -430,12 +429,10 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                               };
                           true ->
                               %normal block installation
-
                               NewLastBlock=LastBlock#{
                                              child=>BlockHash
                                             },
                               T2=erlang:system_time(),
-
                               save_block(LDB,NewLastBlock,false),
                               save_block(LDB,MBlk,true),
                               case maps:is_key(sync,State) of
@@ -740,22 +737,36 @@ handle_info({b2b_sync, Hash}, #{
     end;
 
 handle_info(checksync, #{
-			  lastblock:=#{header:=#{height:=_MyHeight},hash:=_MyLastHash}
+			  lastblock:=#{header:=#{height:=MyHeight},hash:=_MyLastHash}
 			 }=State) ->
 	Candidates=lists:reverse(
 				 tpiccall(<<"blockchain">>, 
 						  #{null=><<"sync_request">>},
 						  [last_hash,last_height,chain]
 						 )),
-	_=lists:foldl( %first suitable will be the quickest
-		   fun({_,#{chain:=_HisChain,
-					last_hash:=_,
-					last_height:=_,
-					null:=<<"sync_available">>}=CInfo},_) ->
-				   lager:info("checksync candidate ~p",[CInfo]);
-			  ({_,_},Acc) ->
-				   Acc
-		   end, undefined, Candidates),
+	MS=minsig(State),
+	R=maps:filter(
+		fun(_,Sources) ->
+				Sources>=MS
+		end,
+		lists:foldl( %first suitable will be the quickest
+		  fun({_,#{chain:=_HisChain,
+				   last_hash:=Hash,
+				   last_height:=Heig,
+				   null:=<<"sync_available">>}
+			  },Acc) when Heig>=MyHeight ->
+				  maps:put({Heig,Hash},maps:get({Heig,Hash},Acc,0)+1,Acc);
+			 ({_,_},Acc) ->
+				  Acc
+		  end, #{}, Candidates)
+	   ),
+	case maps:size(R) > 0 of
+		true ->
+			lager:info("Looks like we laging behind ~p. Syncing",[R]),
+			self() ! runsync;
+		false ->
+			ok
+	end,
 	{noreply, State};
 
 handle_info(runsync, #{
@@ -1041,4 +1052,9 @@ tpiccall(Handler, Object, Atoms) ->
               end
       end, Res).
 
+
+minsig(#{settings:=Sets,mychain:=MyChain}=_State) ->
+	Chains=maps:get(chain,Sets,#{}),
+	Chain=maps:get(MyChain,Chains,#{}),
+	maps:get(minsig,Chain,2).
 
