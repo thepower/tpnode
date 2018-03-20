@@ -7,8 +7,10 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
--export([get_settings/1,get_settings/2,get_settings/0,apply_block_conf/2,
-        last/0,chain/0]).
+-export([get_settings/1,get_settings/2,get_settings/0,
+		 get_mysettings/1,
+		 apply_block_conf/2,
+		 last/0,chain/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -995,10 +997,21 @@ get_settings() ->
     gen_server:call(blockchain,settings).
 
 get_settings(P) ->
-    gen_server:call(blockchain,{settings,P}).
+	gen_server:call(blockchain,{settings,P}).
 
+default_setting(blocktime) -> 30;
+default_setting(minsig) -> 1000; %avoid running with broken settings
+default_setting(_) -> undefined.
+
+get_mysettings(Param) ->
+    case gen_server:call(blockchain,{mysettings,Param}) of
+        undefined -> default_setting(Param);
+        Any -> Any
+    end.
 
 get_settings(blocktime,Default) ->
+	S=erlang:get_stacktrace(),
+	lager:notice("Deprecated here ~p",[S]),
     case gen_server:call(blockchain,{mysettings,blocktime}) of
         undefined -> Default;
         Any when is_integer(Any) -> Any;
@@ -1006,6 +1019,8 @@ get_settings(blocktime,Default) ->
     end;
 
 get_settings(Param, Default) ->
+	S=erlang:get_stacktrace(),
+	lager:notice("Deprecated here ~p",[S]),
     case gen_server:call(blockchain,{mysettings,Param}) of
         undefined -> Default;
         Any -> Any
