@@ -2,6 +2,7 @@
 -export([blkid/1]).
 -export([mkblock/1,binarizetx/1,extract/1,outward_mk/2,outward_mk/1]).
 -export([verify/1,outward_verify/1,sign/2,sign/3,sigverify/2]).
+-export([prepack/1]).
 -export([pack/1,unpack/1]).
 -export([packsig/1,unpacksig/1]).
 
@@ -15,63 +16,84 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+unpack_mproof(M) ->
+	list_to_tuple(
+	lists:map(
+	  fun(E) when is_binary(E) -> E;
+		 (E) when is_list(E) -> unpack_mproof(E)
+	  end, M)).
+
+pack_mproof(M) ->
+	lists:map(
+	  fun(E) when is_binary(E) -> E;
+		 (E) when is_tuple(E) -> pack_mproof(E);
+		 (E) when is_list(E) -> pack_mproof(E)
+	  end, 
+	  if is_tuple(M) ->
+			 tuple_to_list(M);
+		 is_list(M) ->
+			 M
+	  end).
+
+prepack(Block) ->
+	maps:map(
+	  fun(bals,BalsSnap) ->
+			  maps:fold(
+				fun(Address,Snap,Acc) ->
+						maps:put(Address,bal:pack(Snap),Acc)
+				end,#{},BalsSnap);
+		 (sync,SyncState) ->
+			  maps:fold(
+				fun(Chain,{BlkNo,BlkHash},Acc) ->
+						maps:put(Chain,[BlkNo,BlkHash],Acc)
+				end,#{},SyncState);
+		 (sign,Sigs) ->
+			  lists:map(
+				fun(Sig) ->
+						bsig:packsig(Sig)
+				end, Sigs);
+		 (settings,Txs) ->
+			  maps:from_list(
+				lists:map(
+				  fun({TxID,T}) ->
+						  {TxID,tx:pack(T)}
+				  end, Txs)
+			   );
+		 (inbound_blocks,Blocks) ->
+			  maps:from_list(
+				lists:map(
+				  fun({TxID,T}) ->
+						  {TxID,block:pack(T)}
+				  end, Blocks)
+			   );
+		 (outbound,Txp) ->
+			  lager:notice("FIXME: save outbound flag in tx"),
+			  lists:map(
+				fun({TxID,Cid}) ->
+						[TxID,Cid]
+				end, Txp
+			   );
+		 (tx_proof,Txp) ->
+			  lists:map(
+				fun({TxID,MProof}) ->
+						[TxID,pack_mproof(MProof)];
+				   (Any) ->
+						throw({dont_know_how_to_pack,Any})
+				end, Txp
+			   );
+		 (txs,Txs) ->
+			  lists:map(
+				fun({TxID,T}) ->
+						[TxID,tx:pack(T)]
+				end, Txs
+			   );
+		 (_,V) ->
+			  V
+	  end,
+	  Block
+	 ).
 pack(Block) ->
-    Prepare=maps:map(
-              fun(bals,BalsSnap) ->
-                      maps:fold(
-                        fun(Address,Snap,Acc) ->
-                                maps:put(Address,bal:pack(Snap),Acc)
-                        end,#{},BalsSnap);
-                 (sync,SyncState) ->
-                      maps:fold(
-                        fun(Chain,{BlkNo,BlkHash},Acc) ->
-                                maps:put(Chain,[BlkNo,BlkHash],Acc)
-                        end,#{},SyncState);
-                 (sign,Sigs) ->
-                      lists:map(
-                        fun(Sig) ->
-                                bsig:packsig(Sig)
-                        end, Sigs);
-                 (settings,Txs) ->
-                      maps:from_list(
-                        lists:map(
-                          fun({TxID,T}) ->
-                                  {TxID,tx:pack(T)}
-                          end, Txs)
-                       );
-                 (inbound_blocks,Blocks) ->
-                      maps:from_list(
-                        lists:map(
-                          fun({TxID,T}) ->
-                                  {TxID,block:pack(T)}
-                          end, Blocks)
-                       );
-                 (outbound,Txp) ->
-                      lager:notice("FIXME: save outbound flag in tx"),
-                      lists:map(
-                        fun({TxID,Cid}) ->
-                                [TxID,Cid]
-                        end, Txp
-                       );
-                 (tx_proof,Txp) ->
-                      lists:map(
-                        fun({TxID,{A,{B,C}}}) ->
-                                [TxID,A,B,C];
-                           ({TxID,{A,B}}) ->
-                                [TxID,A,B]
-                        end, Txp
-                       );
-                 (txs,Txs) ->
-                      lists:map(
-                        fun({TxID,T}) ->
-                                [TxID,tx:pack(T)]
-                        end, Txs
-                       );
-                 (_,V) ->
-                      V
-              end,
-              Block
-             ),
+    Prepare=prepack(Block),
 %    file:write_file("tmp/origblk.txt",[io_lib:format("~p.~n",[Block])]),
 %    file:write_file("tmp/prepblk.txt",[io_lib:format("~p.~n",[Prepare])]),
     Packed=msgpack:pack(Prepare),
@@ -109,10 +131,8 @@ unpack(Block) when is_binary(Block) ->
                         end, TXs);
                   (tx_proof,TXs) ->
                       lists:map(
-                        fun([TxID,A,B,C]) ->
-                                {TxID, {A,{B,C}}};
-                           ([TxID,A,B]) ->
-                                {TxID, {A,B}}
+                        fun([TxID,Proof]) ->
+                                {TxID, unpack_mproof(Proof)}
                         end, TXs);
                   (txs,TXs) ->
                       lists:map(
