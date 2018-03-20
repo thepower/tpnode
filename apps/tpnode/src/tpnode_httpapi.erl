@@ -15,7 +15,12 @@ h(Method, [<<"api">>|Path], Req) ->
     h(Method,Path,Req);
 
 h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
-    {Chain, Hash, Header1} = gen_server:call(blockchain, status),
+    {Chain, Hash, Header1} = case catch gen_server:call(blockchain, status) of
+								 {A,B,C} -> {A,B,C};
+								 _Err ->
+									 lager:info("Error ~p",[_Err]),
+									 {-1,<<0,0,0,0,0,0,0,0>>,#{}}
+							 end,
 	QS=cowboy_req:parse_qs(_Req),
 	BinPacker=case proplists:get_value(<<"bin">>,QS) of
 				  <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
