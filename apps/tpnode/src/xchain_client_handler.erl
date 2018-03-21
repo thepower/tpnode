@@ -9,7 +9,7 @@
 
 handle_xchain({iam, NodeId}, ConnPid, #{subs:=Subs} = State) ->
     State#{
-        subs => xchain_client:set_node_id(ConnPid, NodeId, Subs)
+        subs => set_node_id(ConnPid, NodeId, Subs)
     };
 
 handle_xchain(pong, _ConnPid, State) ->
@@ -34,3 +34,25 @@ handle_xchain({outward_block, FromChain, ToChain, BinBlock}, _ConnPid, State) ->
 handle_xchain(Cmd, _ConnPid, State) ->
     lager:info("got xchain message from server: ~p", [Cmd]),
     State.
+
+
+
+
+
+% ------------
+
+set_node_id(Pid, NodeId, Subs) ->
+    Setter =
+        fun(_Key, #{connection:=Connection} = Sub) ->
+            case Connection of
+                Pid ->
+                    Sub#{
+                        node_id => NodeId
+                    };
+                _ ->
+                    Sub
+            end;
+            (_Key, Sub) ->
+                Sub
+        end,
+    maps:map(Setter, Subs).

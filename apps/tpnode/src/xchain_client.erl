@@ -342,21 +342,6 @@ make_subscription(Subs) ->
     maps:map(Subscriber, Subs).
 
 
-set_node_id(Pid, NodeId, Subs) ->
-    Setter =
-        fun(_Key, #{connection:=Connection} = Sub) ->
-            case Connection of
-                Pid ->
-                    Sub#{
-                        node_id => NodeId
-                    };
-                _ ->
-                    Sub
-            end;
-            (_Key, Sub) ->
-                Sub
-        end,
-    maps:map(Setter, Subs).
 
 
 get_peers(Subs) ->
