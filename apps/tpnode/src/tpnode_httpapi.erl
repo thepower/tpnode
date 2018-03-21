@@ -36,6 +36,10 @@ h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
             fun(#{addr:=_Addr, auth:=Auth, state:=Sta}) ->
                     #{auth=>Auth,
                       state=>Sta
+                     };
+			   (#{addr:=_Addr}) ->
+					#{auth=>unknown,
+                      state=>unknown
                      }
             end, tpic:peers()),
     SynPeers=gen_server:call(synchronizer,peers),
