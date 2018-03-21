@@ -192,18 +192,27 @@ pickx(Act, Itr, N, A) ->
             {error,A}
     end.
 
+int_ceil(X) ->
+  T = trunc(X),
+  case (X - T) of
+    Neg when Neg < 0 -> T;
+    Pos when Pos > 0 -> T + 1;
+    _ -> T
+  end.
+
 split_packet(Size, Data) ->
-  split_packet(Size, Data, 0).
-split_packet(Size, Data, Seq) when Size > 0 ->
+  Length = int_ceil(byte_size(Data) / Size),
+  split_packet(Size, Data, 1, Length).
+split_packet(Size, Data, Seq, Length) when Size > 0 ->
   case Data of
     <<Packet:Size/binary, Rest/binary>> ->
-      [{Seq, Packet} | split_packet(Size, Rest, Seq + 1)];
+      [<<Seq:32, Length:32, Packet/binary>> | split_packet(Size, Rest, Seq + 1, Length)];
     <<>> ->
       [];
     _ ->
-      [{Seq, Data}]
+      [<<Seq:32, Length:32, Data/binary>>]
   end.
 
 glue_packet(List) ->
-  SortedList = lists:sort(fun({N1, _}, {N2, _}) -> N1 =< N2 end, List),
-  list_to_binary(lists:map(fun({_, Val}) -> Val end, SortedList)).
+  SortedList = lists:sort(fun(<<N1:32, _/binary>>, <<N2:32, _/binary>>) -> N1 =< N2 end, List),
+  list_to_binary(lists:map(fun(<<_:32, _:32, Val/binary>>) -> Val end, SortedList)).
