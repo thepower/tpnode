@@ -100,6 +100,7 @@ synchronizer(TPIC, PeerID,
     lager:info("Patches ~p",[Patches]),
     %file:write_file("tmp/syncblock.txt",
     %                io_lib:format("~p.~n",[Block])),
+    BlockParts = split_packet(1024, msgpack:pack(#{block=>block:pack(Block)})),
     tpic:cast(TPIC, PeerID, msgpack:pack(#{block=>block:pack(Block)})),
     SP1=send_settings(TPIC,PeerID,Patches),
     if SP1 == done ->
@@ -191,3 +192,18 @@ pickx(Act, Itr, N, A) ->
             {error,A}
     end.
 
+split_packet(Size, Data) ->
+  split_packet(Size, Data, 0).
+split_packet(Size, Data, Seq) when Size > 0 ->
+  case Data of
+    <<Packet:Size/binary, Rest/binary>> ->
+      [{Seq, Packet} | split_packet(Size, Rest, Seq + 1)];
+    <<>> ->
+      [];
+    _ ->
+      [{Seq, Data}]
+  end.
+
+glue_packet(List) ->
+  SortedList = lists:sort(fun({N1, _}, {N2, _}) -> N1 =< N2 end, List),
+  list_to_binary(lists:map(fun({_, Val}) -> Val end, SortedList)).
