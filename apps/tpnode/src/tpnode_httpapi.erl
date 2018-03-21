@@ -54,8 +54,14 @@ h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
 			hash=>BinPacker(Hash),
 			header=>Header
 		   },
-		  xchain_inbound => gen_server:call(xchain_dispatcher,peers),
-		  xchain_outbound => gen_server:call(xchain_client,peers),
+		  xchain_inbound => try 
+								gen_server:call(xchain_dispatcher,peers)
+							catch _:_ -> #{}
+							end,
+		  xchain_outbound => try 
+								 gen_server:call(crosschain,peers)
+							 catch _:_ -> #{}
+							 end,
           tpic_peers=>Peers,
           sync_peers=>SynPeers,
           ver=>list_to_binary(Ver)
