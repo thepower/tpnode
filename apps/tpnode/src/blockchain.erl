@@ -487,7 +487,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                                         try
                                             lager:info("Out to ~b ~p",
                                                        [ChainID,OutBlock]),
-                                            Chid=crosschain:pack_chid(ChainID),
+                                            Chid=xchain:pack_chid(ChainID),
                                             xchain_dispatcher:pub(
                                                Chid,
                                                {outward_block,
@@ -1031,7 +1031,7 @@ notify_settings() ->
     gen_server:cast(mkblock,settings),
     gen_server:cast(blockvote,settings),
     gen_server:cast(synchronizer,settings),
-    gen_server:cast(crosschain,settings).
+    gen_server:cast(xchain_client,settings).
 
 mychain(#{settings:=S}=State) ->
     KeyDB=maps:get(keys,S,#{}),

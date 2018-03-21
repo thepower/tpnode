@@ -396,7 +396,7 @@ try_process_inbound([{TxID,
         ChID=2,
         lager:info("Orig Block ~p",[OriginBlock]),
         lager:notice("Change chain number to actual ~p",[SetState]),
-        ChainPath=[<<"current">>,<<"sync_status">>,crosschain:pack_chid(ChID)],
+        ChainPath=[<<"current">>,<<"sync_status">>,xchain:pack_chid(ChID)],
         {_,ChainLastH}=case settings:get(ChainPath,SetState) of
                            #{<<"block">> := LastBlk,
                              <<"height">> := LastHeight} ->
@@ -418,7 +418,7 @@ try_process_inbound([{TxID,
                   <<"v">> => OriginHeight
                  }
                ],
-        PatchTxID= <<"sync",(crosschain:pack_chid(ChID))/binary>>,
+        PatchTxID= <<"sync",(xchain:pack_chid(ChID))/binary>>,
         SyncPatch={PatchTxID, #{sig=>[],patch=>IncPtr}},
 %        SS1=settings:patch(AAlloc,SetState),
 %        try_process(Rest,SS1,NewAddresses,GetFun,
@@ -485,14 +485,14 @@ try_process_outbound([{TxID,
 		   true -> throw ('bad_timestamp')
 		end,
 
-		PatchTxID= <<"out",(crosschain:pack_chid(OutTo))/binary>>,
+		PatchTxID= <<"out",(xchain:pack_chid(OutTo))/binary>>,
 		{SS2,Set2}=case lists:keymember(PatchTxID,1, Settings) of
 					   true ->
 						   {SetState, Settings};
 					   false ->
 						   RealSettings=EnsureSettings(SetState),
 						   ChainPath=[<<"current">>,<<"outward">>,
-									  crosschain:pack_chid(OutTo)],
+									  xchain:pack_chid(OutTo)],
 						   PCP=case settings:get(ChainPath,RealSettings) of
 								   #{<<"parent">>:=PP,
 									 <<"height">>:=HH} ->

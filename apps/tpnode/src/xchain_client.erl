@@ -1,7 +1,7 @@
 % -*- mode: erlang -*-
 % vi: set ft=erlang :
 
--module(crosschain).
+-module(xchain_client).
 
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
@@ -19,19 +19,12 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
     terminate/2, code_change/3]).
 
--export([pack/1, unpack/1]).
-
 -export([test/0]).
 
--export([pack_chid/1]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-
-pack_chid(I) when is_integer(I) ->
-    <<"ch:",(integer_to_binary(I))/binary>>.
-
 
 start_link(Options) ->
     Name = maps:get(name, Options, crosschain),
@@ -113,7 +106,7 @@ handle_info({gun_ws, ConnPid, {close, _, _}}, #{subs:=Subs} = State) ->
 handle_info({gun_ws, ConnPid, {binary, Bin} }, State) ->
     lager:notice("crosschain client got ws bin msg: ~p", [Bin]),
     try
-        NewState = handle_xchain(unpack(Bin), ConnPid, State),
+        NewState = xchain_client:handle_xchain(unpack(Bin), ConnPid, State),
         {noreply, NewState}
     catch
         Ec:Ee ->
@@ -380,14 +373,11 @@ get_peers(Subs) ->
 %% -----------------
 
 pack(Term) ->
-    term_to_binary(Term).
+    xchain:pack(Term).
 
-unpack(Bin) when is_binary(Bin) ->
-    binary_to_term(Bin, [safe]);
+unpack(Bin) ->
+    xchain:unpack(Bin).
 
-unpack(Invalid) ->
-    lager:info("invalid data for unpack ~p", [Invalid]),
-    {}.
 
 %% -----------------
 
@@ -422,7 +412,7 @@ change_settings_handler(#{chain:=Chain, subs:=Subs} = State) ->
 init_subscribes(Subs) ->
     Config = application:get_env(tpnode, crosschain, #{}),
     ConnectIpsList = maps:get(connect, Config, []),
-    MyChainChannel = pack_chid(blockchain:chain()),
+    MyChainChannel = xchain:pack_chid(blockchain:chain()),
     lists:foldl(
         fun({Ip, Port}, Acc) when is_integer(Port) ->
             Sub = #{
@@ -441,33 +431,6 @@ init_subscribes(Subs) ->
 
 %% -----------------
 
-handle_xchain({iam, NodeId}, ConnPid, #{subs:=Subs} = State) ->
-    State#{
-        subs => set_node_id(ConnPid, NodeId, Subs)
-    };
-
-handle_xchain(pong, _ConnPid, State) ->
-%%    lager:info("Got pong for ~p",[_ConnPid]),
-    State;
-
-handle_xchain({outward_block, FromChain, ToChain, BinBlock}, _ConnPid, State) ->
-    lager:info("Got outward block from ~p to ~p",[FromChain,ToChain]),
-    Block=block:unpack(BinBlock),
-    try 
-        Filename="tmp/inward_block."++integer_to_list(FromChain)++".txt",
-        file:write_file(Filename, io_lib:format("~p.~n",[Block]))
-    catch Ec:Ee -> 
-              S=erlang:get_stacktrace(),
-              lager:error("Can't dump inward block ~p:~p at ~p",
-                          [Ec,Ee,hd(S)])
-    end,
-    lager:debug("Here it is ~p",[Block]),
-    gen_server:cast(txpool,{inbound_block,Block}),
-    State;
-
-handle_xchain(Cmd, _ConnPid, State) ->
-    lager:info("got xchain message from server: ~p", [Cmd]),
-    State.
 
 
 %%upgrade_success(ConnPid, Headers) ->
@@ -485,9 +448,9 @@ test() ->
     Subscribe = #{
         address => "127.0.0.1",
         port => 43312,
-        channels => [<<"test123">>,pack_chid(2)]
+        channels => [<<"test123">>,xchain:pack_chid(2)]
     },
-    gen_server:call(crosschain, {add_subscribe, Subscribe}).
+    gen_server:call(xchain_client, {add_subscribe, Subscribe}).
 %%    {ok, _} = application:ensure_all_started(gun),
 %%    {ok, ConnPid} = gun:open("127.0.0.1", 43311),
 %%    {ok, _Protocol} = gun:await_up(ConnPid),
