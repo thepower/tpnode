@@ -27,7 +27,7 @@
 %% ------------------------------------------------------------------
 
 start_link(Options) ->
-    Name = maps:get(name, Options, crosschain),
+    Name = maps:get(name, Options, xchain_client),
     lager:notice("start ~p", [Name]),
     gen_server:start_link({local, Name}, ?MODULE, Options, []).
 
