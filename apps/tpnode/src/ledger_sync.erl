@@ -30,7 +30,7 @@ target(TPIC, PeerID, LedgerPID, _RDB, Parent) ->
 
     gen_server:call(LedgerPID, '_flush'),
     lager:debug("TgtSync start",[]),
-    Result0=continue(TPIC,LedgerPID,R,Parent,[]),
+    Result0 = continue(TPIC, LedgerPID, R, Parent, [], []),
     {Result,Settings0}=lists:foldl(
                         fun({settings, List}, {RAcc,SAcc}) ->
                                 {RAcc,[List|SAcc]};
@@ -43,20 +43,29 @@ target(TPIC, PeerID, LedgerPID, _RDB, Parent) ->
     Parent ! {inst_sync,done,Result}.
 
 
-continue(TPIC,LedgerPID,[{Handler,Res}],Parent,Acc) ->
+continue(TPIC, LedgerPID, [{Handler,Res}], Parent, Acc, BlockAcc) ->
     lager:debug("sync continue ~p",[Res]),
     case Res of
-        #{<<"block">>:=BinBlock} ->
+        #{<<"done">> := _Done, <<"block">> := BlockPart} ->
             %#{hash:=Hash,header:=#{ledger_hash:=LH,height:=Height}}=Block=block:unpack(BinBlock),
             %lager:info("Got block ~p ~s~n",[Height,bin2hex:dbin2hex(Hash)]),
             %lager:info("Block's Ledger ~s~n",[bin2hex:dbin2hex(LH)]),
-            Parent ! {inst_sync, block, BinBlock},
-            R=call(TPIC, Handler, #{null=><<"continue">>}, []),
-            continue(TPIC,LedgerPID,R,Parent,Acc);
+            <<Number:32, Length:32, _/binary>> = BlockPart,
+            NewBlockAcc = [BlockPart|BlockAcc],
+            if (length(NewBlockAcc) == Length) ->
+                    BinBlock = glue_packet(NewBlockAcc),
+                    %lager:debug("The block is ~p", [BinBlock]),
+                    %lager:debug("unpacked block is ~p", [block:unpack(BinBlock)]),
+                    Parent ! {inst_sync, block, BinBlock};
+                true ->
+                    lager:debug("Received part number ~p out of ~p",[Number, Length])
+            end,
+            R = call(TPIC, Handler, #{null => <<"continue">>}, []),
+            continue(TPIC, LedgerPID, R, Parent, Acc, NewBlockAcc);
         #{<<"done">>:=_Done, <<"settings">>:=L} ->
             Parent ! {inst_sync, settings},
             R=call(TPIC,Handler, #{null=><<"continue">>}, []),
-            continue(TPIC,LedgerPID,R,Parent,[{settings,L}|Acc]);
+            continue(TPIC,LedgerPID,R,Parent,[{settings,L}|Acc], BlockAcc);
         #{<<"done">>:=Done, <<"ledger">>:=L} ->
             gen_server:call(LedgerPID,
                             {put, maps:fold(
@@ -68,7 +77,7 @@ continue(TPIC,LedgerPID,[{Handler,Res}],Parent,Acc) ->
             case Done of
                 false  ->
                     R=call(TPIC,Handler, #{null=><<"continue">>}, []),
-                    continue(TPIC,LedgerPID,R,Parent,Acc);
+                    continue(TPIC, LedgerPID, R, Parent, Acc, BlockAcc);
                 true ->
                     %{ok,C}=gen_server:call(LedgerPID, {check, []}),
                     %lager:info("My Ledger hash ~s",[bin2hex:dbin2hex(C)]),
@@ -76,7 +85,7 @@ continue(TPIC,LedgerPID,[{Handler,Res}],Parent,Acc) ->
             end;
         _Any ->
             lager:info("Unknown res ~p",[_Any]),
-            [{error, unknown}|Acc]
+            [{error, unknown}|[Acc|BlockAcc]]
     end.
 
 
@@ -100,14 +109,20 @@ synchronizer(TPIC, PeerID,
     lager:info("Patches ~p",[Patches]),
     %file:write_file("tmp/syncblock.txt",
     %                io_lib:format("~p.~n",[Block])),
-    BlockParts = split_packet(1024, msgpack:pack(#{block=>block:pack(Block)})),
-    tpic:cast(TPIC, PeerID, msgpack:pack(#{block=>block:pack(Block)})),
-    SP1=send_settings(TPIC,PeerID,Patches),
-    if SP1 == done ->
-           SP2=send_ledger(TPIC,PeerID,first,Itr),
-           lager:info("Sync finished: ~p / ~p",[SP1,SP2]);
-       true ->
-           lager:info("Sync interrupted ~p",[SP1])
+    BlockParts = split_packet(32, block:pack(Block)),
+    [BlockHead|BlockTail] = BlockParts,
+    tpic:cast(TPIC, PeerID, msgpack:pack(#{done => false, block => BlockHead})),
+    BlockSent = send_block(TPIC, PeerID, BlockTail),
+    if BlockSent == done ->
+        SP1 = send_settings(TPIC, PeerID, Patches),
+        if SP1 == done ->
+                SP2 = send_ledger(TPIC, PeerID, first, Itr),
+                lager:info("Sync finished: ~p / ~p", [SP1, SP2]);
+            true ->
+                lager:info("Sync interrupted while sending settings ~p", [SP1])
+        end;
+        true ->
+            lager:info("Sync interrupted while sending block ~p", [BlockSent])
     end,
     rocksdb:release_snapshot(Snapshot).
 
@@ -117,6 +132,36 @@ pick_settings(Settings, N) ->
           {Settings,[]};
       true ->
           lists:split(N,Settings)
+    end.
+
+send_block(TPIC, PeerID, Block) ->
+    lager:info("send_block"),
+    receive
+        {'$gen_cast',{tpic, PeerID, Bin}} ->
+            case msgpack:unpack(Bin) of
+                {ok, #{null := <<"stop">>}} ->
+                    tpic:cast(TPIC, PeerID, msgpack:pack(#{null => <<"stopped">>})),
+                    interrupted;
+                {ok, #{null := <<"continue">>}} ->
+                    [ToSend|Rest] = Block,
+                    lager:info("Sending block ~p", [ToSend]),
+                    if (Rest == []) -> %last portion
+                            Blob =# {done => false, block => ToSend},
+                            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                            done;
+                        true -> %Have more
+                            Blob =# {done => false, block => ToSend},
+                            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                            send_block(TPIC, PeerID, Rest)
+                    end;
+                {error, _} ->
+                    error
+            end;
+        {'$gen_cast', Any} ->
+            lager:info("Unexpected message ~p", [Any])
+    after 30000 ->
+        tpic:cast(TPIC, PeerID, msgpack:pack(#{null => <<"stopped">>})),
+        timeout
     end.
 
 send_settings(TPIC,PeerID,Settings) ->
@@ -193,26 +238,27 @@ pickx(Act, Itr, N, A) ->
     end.
 
 int_ceil(X) ->
-  T = trunc(X),
-  case (X - T) of
-    Neg when Neg < 0 -> T;
-    Pos when Pos > 0 -> T + 1;
-    _ -> T
-  end.
+    T = trunc(X),
+    case (X - T) of
+        Neg when Neg < 0 -> T;
+        Pos when Pos > 0 -> T + 1;
+        _ -> T
+    end.
 
-split_packet(Size, Data) ->
-  Length = int_ceil(byte_size(Data) / Size),
-  split_packet(Size, Data, 1, Length).
-split_packet(Size, Data, Seq, Length) when Size > 0 ->
-  case Data of
-    <<Packet:Size/binary, Rest/binary>> ->
-      [<<Seq:32, Length:32, Packet/binary>> | split_packet(Size, Rest, Seq + 1, Length)];
-    <<>> ->
-      [];
-    _ ->
-      [<<Seq:32, Length:32, Data/binary>>]
-  end.
+split_packet(Size, Data) when Size > 0 ->
+    Length = int_ceil(byte_size(Data) / Size),
+    split_packet(Size, Data, 1, Length).
+split_packet(Size, Data, Seq, Length) ->
+    case Data of
+        <<Packet:Size/binary, Rest/binary>> ->
+            [<<Seq:32, Length:32, Packet/binary>> | split_packet(Size, Rest, Seq + 1, Length)];
+        <<>> ->
+            [];
+        _ ->
+            [<<Seq:32, Length:32, Data/binary>>]
+    end.
 
+%TODO add integrity check
 glue_packet(List) ->
-  SortedList = lists:sort(fun(<<N1:32, _/binary>>, <<N2:32, _/binary>>) -> N1 =< N2 end, List),
-  list_to_binary(lists:map(fun(<<_:32, _:32, Val/binary>>) -> Val end, SortedList)).
+    SortedList = lists:sort(fun(<<N1:32, _/binary>>, <<N2:32, _/binary>>) -> N1 =< N2 end, List),
+    list_to_binary(lists:map(fun(<<_:32, _:32, Val/binary>>) -> Val end, SortedList)).
