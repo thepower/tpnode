@@ -4,6 +4,7 @@
 
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
+-define(DEFAULT_SCOPE, [tpic, xchain, api]).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -156,8 +157,17 @@ handle_cast({got_announce, AnnounceBin}, #{remote_services:=Dict} = State) ->
                 {ok, Unpacked} -> Unpacked
             end,
 
+        lager:debug("Announce details: ~p", [Announce]),
+
         case validate_announce(Announce, State) of
             error -> throw(error);
+            _ -> ok
+        end,
+
+        case is_local_service(Announce) of
+            true ->
+                lager:debug("skip copy of local service: ~p", [Announce]),
+                throw(error);
             _ -> ok
         end,
 
@@ -237,21 +247,13 @@ get_unixtime() ->
     (Mega * 1000000 + Sec).
 
 
-announce_one_service(Name, #{address:=IP}=Address0, ValidUntil) ->
+announce_one_service(Name, Address, ValidUntil) ->
     try
-        Address =
-            case IP of
-                local4 ->
-                    maps:put(address, hd(discovery:my_address_v4()), Address0);
-                local6 ->
-                    maps:put(address, hd(discovery:my_address_v6()), Address0);
-                _ ->
-                    Address0
-            end,
-        lager:debug("make announce for service ~p, ip: ~p", [Name, IP]),
+        TranslatedAddress = translate_address(Address),
+        lager:debug("make announce for service ~p, address: ~p", [Name, TranslatedAddress]),
         Announce = #{
             name => Name,
-            address => Address,
+            address => TranslatedAddress,
             valid_until => ValidUntil,
             nodeid => nodekey:node_id()
         },
@@ -259,42 +261,89 @@ announce_one_service(Name, #{address:=IP}=Address0, ValidUntil) ->
         send_service_announce(AnnounceBin)
     catch
         Err:Reason ->
-            lager:error("Announce with name ~p hasn't made because ~p ~p", [Err, Reason])
+            lager:error(
+                "Announce with name ~p and address ~p hasn't made because ~p ~p",
+                [Name, Address, Err, Reason]
+            )
     end.
 
 
-is_address_advertisable(Address, #{options:=Options} = _ServiceOptions) ->
-    is_address_advertisable(Address, {options, Options});
+%%is_address_advertisable(Address, #{options:=Options} = _ServiceOptions) ->
+%%    is_address_advertisable(Address, {options, Options});
+%%
+%%is_address_advertisable(Address, {options, #{filter:=Filter} = _Options}) ->
+%%    is_address_advertisable(Address, {filter, Filter});
+%%
+%%% filter services by protocol
+%%is_address_advertisable(#{proto:=Proto} = _Address, {filter, #{proto:=FilterProto}=_Filter})
+%%    when Proto == FilterProto ->
+%%    true;
+%%
+%%is_address_advertisable(_Address, _ServiceOptions) ->
+%%    false.
+%%
 
-is_address_advertisable(Address, {options, #{filter:=Filter} = _Options}) ->
-    is_address_advertisable(Address, {filter, Filter});
 
-% filter services by protocol
-is_address_advertisable(#{proto:=Proto} = _Address, {filter, #{proto:=FilterProto}=_Filter})
-    when Proto == FilterProto ->
-    true;
+%%find_local_service(
+%%  #{address:=AnnIp, port:=AnnPort} = _Announce,
+%%  [ #{address:=LocalIp, port:=LocalPort} = _Address | Rest ]
+%%) when AnnIp =:= LocalIp andalso AnnPort =:= LocalPort ->
+%%    true;
+%%
+%%find_local_service( _Announce, [] )->
+%%    false;
+%%
+%%find_local_service(Announce, [ _Address | Rest ]) ->
+%%    find_local_service(Announce, Rest).
+%%
+%%
+%%is_local_service(Announce, State) ->
+%%    LocalServices = get_config(addresses, [], State),
+%%    TranslatedLocalServices = lists:map(
+%%        fun(Address) -> translate_address(Address) end,
+%%        LocalServices
+%%    ),
+%%    find_local_service(Announce, TranslatedLocalServices).
 
-is_address_advertisable(_Address, _ServiceOptions) ->
+
+is_local_service(#{<<"nodeid">>:=RemoteNodeId} = _Announce) ->
+    MyNodeId = nodekey:node_id(),
+    MyNodeId =:= RemoteNodeId;
+
+is_local_service(_Announce) ->
     false.
 
 
-% make announce of our local services via tpic
+
+
+% return true if Scope is exists for ServiceName in AllScopesCfg configuration,
+% we use scopes [tpic, xchain, api] by default if configuration for ServiceName isn't exists in config.
+in_scope(ServiceName, ScopeToCheck, AllScopesCfg) ->
+    AllowedScopes = maps:get(ServiceName, AllScopesCfg, ?DEFAULT_SCOPE),
+    lists:member(ScopeToCheck, AllowedScopes).
+
+
+% make announce of our local services via tpic with scope tpic
 make_announce(#{names:=Names} = _Dict, State) ->
     lager:debug("Announcing our local services"),
     ValidUntil = get_unixtime() + get_config(our_ttl, 120, State),
     Addresses = get_config(addresses, [], State),
+    ScopeCfg = get_config(scope, #{}, State),
 
-    Announcer = fun(Name, ServiceSettings, Counter) ->
+    Announcer = fun(Name, _ServiceSettings, Counter) ->
         Counter + lists:foldl(
-            fun(Address, AddrCounter) ->
-                IsAdvertisable = is_address_advertisable(Address, ServiceSettings),
+            % #{address => local4, port => 53221, proto => tpic}
+            fun(#{proto := Proto} = Address, AddrCounter) ->
+                IsAdvertisable = in_scope(tpic, Proto, ScopeCfg),
                 if
                     IsAdvertisable == true ->
                         announce_one_service(Name, Address, ValidUntil),
                         AddrCounter + 1;
                     true ->
                         AddrCounter
-                end
+                end;
+                ( _Address, AddrCounter ) ->
+                    AddrCounter
             end,
             0,
             Addresses)
@@ -347,11 +396,27 @@ delete_service(Pid, Dict) when is_pid(Pid) ->
     end.
 
 
+translate_address(#{address:=IP}=Address0) when is_map(Address0) ->
+    case IP of
+        local4 ->
+            maps:put(address, hd(discovery:my_address_v4()), Address0);
+        local6 ->
+            maps:put(address, hd(discovery:my_address_v6()), Address0);
+        _ ->
+            Address0
+    end.
+
+
 % check if local service is exists
 query_local(Name, #{names:=Names}=_Dict, State) ->
     case maps:is_key(Name, Names) of
         false -> [];
-        true -> get_config(addresses, [], State)
+        true ->
+            LocalServices = get_config(addresses, [], State),
+            lists:map(
+                fun(Address) -> translate_address(Address) end,
+                LocalServices
+            )
     end.
 
 % find addresses of remote service
@@ -366,7 +431,7 @@ query_remote(Name, Dict) ->
 
 
 query(Pred, _State) when is_function(Pred) ->
-    lager:info("Not inmplemented"),
+    lager:error("Not inmplemented"),
     error;
 
 % find service by name
@@ -374,6 +439,8 @@ query(Name, State) ->
     #{local_services := LocalDict, remote_services := RemoteDict} = State,
     Local = query_local(Name, LocalDict, State),
     Remote = query_remote(Name, RemoteDict),
+%%    lager:debug("query ~p local: ~p", [Name, Local]),
+%%    lager:debug("query ~p remote: ~p", [Name, Remote]),
     lists:merge(Local, Remote).
 
 

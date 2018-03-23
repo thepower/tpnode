@@ -18,7 +18,7 @@ unpack(Bin) when is_binary(Bin) ->
     binary_to_term(Bin, [safe]);
 
 unpack(Invalid) ->
-    lager:info("invalid data for unpack ~p", [Invalid]),
+    lager:info("xchain got invalid data for unpack ~p", [Invalid]),
     {}.
 
 % -----------

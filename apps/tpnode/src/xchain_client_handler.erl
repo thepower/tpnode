@@ -32,7 +32,7 @@ handle_xchain({outward_block, FromChain, ToChain, BinBlock}, _ConnPid, State) ->
     State;
 
 handle_xchain(Cmd, _ConnPid, State) ->
-    lager:info("got xchain message from server: ~p", [Cmd]),
+    lager:info("xchain client got unhandled message from server: ~p", [Cmd]),
     State.
 
 
