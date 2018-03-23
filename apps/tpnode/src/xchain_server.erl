@@ -19,7 +19,7 @@ websocket_handle({binary, Bin}, State) ->
 %%        lager:debug("ws server got binary msg: ~p", [Bin]),
         Cmd = xchain:unpack(Bin),
         lager:debug("ws server got term: ~p", [Cmd]),
-        Result = xchain_server:handle_xchain(Cmd),
+        Result = xchain_server_handler:handle_xchain(Cmd),
         case Result of
             ok ->
                 {ok, State};
