@@ -3,6 +3,7 @@
 -export([init/1,handle_tpic/5,routing/1,handle_response/5]).
 
 init(_S) ->
+	lager:info("TPIC Init ~p",[_S]),
     {ok, #{}}.
 
 routing(_State) ->
@@ -15,10 +16,16 @@ routing(_State) ->
 handle_tpic(From, _, <<"tping">>, Payload, _State) ->
     Rnd=rand:uniform(300),
     timer:sleep(Rnd),
+	lager:info("TPIC tping ~p",[_State]),
     tpic:cast(tpic, From, <<"delay ",(integer_to_binary(Rnd))/binary,
                             " pong ",Payload/binary," from ",
                             (atom_to_binary(node(),utf8))/binary>>),
     ok;
+
+handle_tpic(From, mkblock, <<"beacon">>, Beacon, _State) ->
+	lager:info("Beacon ~p",[Beacon]),
+	gen_server:cast(topology, {tpic, From, Beacon}),
+	ok;
 
 handle_tpic(_From, service, <<"discovery">>, Payload, _State) ->
     lager:debug("Service discovery ~p",[Payload]),

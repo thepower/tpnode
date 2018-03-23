@@ -20,7 +20,7 @@ check(<<16#BE,PayloadLen:8/integer,Rest/binary>>=_Arg) ->
 		{true, #{extra:=Extra}} ->
 			SA=proplists:get_value(pubkey,Extra),
 			#{ to=>Address,
-			   from=>nodekey:node_id(SA),
+			   from=>SA,
 			   timestamp=>Timestamp
 			 };
 		false ->

@@ -33,9 +33,10 @@ h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
                 (_,V) -> V
              end, Header1),
     Peers=lists:map(
-            fun(#{addr:=_Addr, auth:=Auth, state:=Sta}) ->
+            fun(#{addr:=_Addr, auth:=Auth, state:=Sta, authdata:=AD}) ->
                     #{auth=>Auth,
-                      state=>Sta
+                      state=>Sta,
+					  node=>proplists:get_value(nodeid,AD,null)
                      };
 			   (#{addr:=_Addr}) ->
 					#{auth=>unknown,

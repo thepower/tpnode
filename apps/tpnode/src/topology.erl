@@ -27,9 +27,7 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-    pg2:create(?MODULE),
-    pg2:join(?MODULE,self()),
-    gen_server:cast(self(),settings),
+%    gen_server:cast(self(),settings),
 	Tickms=10000,
     {ok, #{
        ticktimer=>erlang:send_after(Tickms, self(), timer),
@@ -46,7 +44,7 @@ handle_call(_Request, _From, State) ->
 handle_cast({tpic, _PeerID, <<16#be,_/binary>>=Payload}, State) ->
 	try
 		Beacon=beacon:check(Payload),
-		lager:info("SYNC beacon ~p",[Beacon]),
+		lager:info("TOPO  beacon ~p",[Beacon]),
 		{noreply, State}
 	catch _:_ ->
 			  {noreply, State}
@@ -65,9 +63,18 @@ handle_info(timer,
             #{ticktimer:=Tmr,tickms:=Delay}=State) ->
     T=erlang:system_time(microsecond),
 	catch erlang:cancel_timer(Tmr),
-	Peers=tpic:cast_prepare(tpic,<<"timesync">>),
-	lager:info("I have ~p peers",[length(Peers)]),
-	%lists:foreach(fun(N) -> tpic:cast(tpic,N,beacon:create((crypto:hash(sha,<<"123">>)))) end,Peers)
+	Peers=tpic:cast_prepare(tpic,<<"mkblock">>),
+	lists:foreach(fun({N,#{authdata:=AD}}) -> 
+						  PK=proplists:get_value(pubkey,AD,<<>>),
+						  lager:info("TOPO ~p: ~p",[N,PK]),
+						  tpic:cast(tpic,N,
+									{<<"beacon">>,
+									 beacon:create(PK)
+									}
+								   );
+					 (_) -> ok
+				  end,
+				  Peers),
 
     {noreply,State#{
                ticktimer=>erlang:send_after(Delay, self(), ticktimer),
