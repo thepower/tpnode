@@ -106,7 +106,7 @@ handle_info({gun_ws, ConnPid, {close, _, _}}, #{subs:=Subs} = State) ->
 handle_info({gun_ws, ConnPid, {binary, Bin} }, State) ->
     lager:notice("crosschain client got ws bin msg: ~p", [Bin]),
     try
-        NewState = xchain_client:handle_xchain(unpack(Bin), ConnPid, State),
+        NewState = xchain_client_handler:handle_xchain(unpack(Bin), ConnPid, State),
         {noreply, NewState}
     catch
         Ec:Ee ->
