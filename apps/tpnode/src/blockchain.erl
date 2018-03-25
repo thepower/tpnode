@@ -226,50 +226,60 @@ handle_cast({new_block, _BlockPayload,  PID},
     {noreply, State};
 
 handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
-                             <<"hash">>:=Hash,
-                             <<"rel">>:=Rel
-                            }},
-            #{ldb:=LDB}=State) ->
-    MyRel=case Rel of
-              <<"self">> -> self;
-              <<"pre",_/binary>> -> prev;
-              <<"child">> -> child;
-              _ -> self
-          end,
+    <<"hash">>:=Hash,
+    <<"rel">>:=Rel
+}},
+    #{ldb:=LDB} = State) ->
+    MyRel = case Rel of
+                <<"self">> -> self;
+                <<"pre", _/binary>> -> prev;
+                <<"child">> -> child;
+                _ -> self
+            end,
 
-    R=case ldb:read_key(LDB, <<"block:",Hash/binary>>, undefined) of
-          undefined -> #{error=>noblock};
-          #{header:=#{}}=Block when MyRel==self ->
-              #{ block => block:pack(Block) };
-          #{header:=#{},child:=Child}=_Block when MyRel==child ->
-              case ldb:read_key(LDB, <<"block:",Child/binary>>, undefined) of
-                  undefined -> #{error=>noblock};
-                  #{header:=#{}}=SBlock ->
-                      #{ block=>block:pack(SBlock) }
-              end;
-          #{header:=#{}}=_Block when MyRel==child ->
-              #{ error=>nochild };
-          #{header:=#{parent:=Parent}}=_Block when MyRel==prev  ->
-              case ldb:read_key(LDB, <<"block:",Parent/binary>>, undefined) of
-                  undefined -> #{error=>noblock};
-                  #{header:=#{}}=SBlock ->
-                      #{ block=>block:pack(SBlock) }
-              end;
-          #{header:=#{}}=_Block when MyRel==prev ->
-              #{ error=>noprev };
-          _ ->
-              #{ error => unknown }
-      end,
-        
-    tpic:cast(tpic,Origin,
-              msgpack:pack(
-                maps:merge(
-                  #{
-                  null=><<"block">>,
-                  req=>#{<<"hash">>=>Hash,
-                         <<"rel">>=>MyRel}
-                 }, R))),
-    {noreply, State};
+    R = case ldb:read_key(LDB, <<"block:", Hash/binary>>, undefined) of
+            undefined -> #{error=>noblock};
+            #{header:=#{}} = Block when MyRel == self ->
+                #{block => block:pack(Block)};
+            #{header:=#{}, child:=Child} = _Block when MyRel == child ->
+                case ldb:read_key(LDB, <<"block:", Child/binary>>, undefined) of
+                    undefined -> #{error=>noblock};
+                    #{header:=#{}} = SBlock ->
+                        #{block=>block:pack(SBlock)}
+                end;
+            #{header:=#{}} = _Block when MyRel == child ->
+                #{error=>nochild};
+            #{header:=#{parent:=Parent}} = _Block when MyRel == prev ->
+                case ldb:read_key(LDB, <<"block:", Parent/binary>>, undefined) of
+                    undefined -> #{error=>noblock};
+                    #{header:=#{}} = SBlock ->
+                        #{block=>block:pack(SBlock)}
+                end;
+            #{header:=#{}} = _Block when MyRel == prev ->
+                #{error=>noprev};
+            _ ->
+                #{error => unknown}
+        end,
+
+    case maps:is_key(block, R) of
+        false ->
+            tpic:cast(tpic, Origin,
+                msgpack:pack(
+                    maps:merge(
+                        #{
+                            null=> <<"block">>,
+                            req=> #{<<"hash">> => Hash,
+                                <<"rel">> => MyRel}
+                        }, R))),
+            {noreply, State};
+
+        true ->
+            #{block := BinBlock} = R,
+            BlockParts = block:split_packet(BinBlock),
+            Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => MyRel}},
+            send_block(tpic, Origin, Map, BlockParts),
+            {noreply, State}
+    end;
 
 
 handle_cast({tpic, Origin, #{null:=<<"instant_sync_run">>}}, 
@@ -717,10 +727,11 @@ handle_info({b2b_sync, Hash}, #{
         [{_,R}] ->
             case maps:is_key(block, R) of
                 false ->
-                    lager:error("No block arrived, broken sync ~p",[R]),
+                    lager:error("No block part arrived, broken sync ~p", [R]),
                     {noreply, State};
                 true ->
-                    #{block:=BinBlock}=R,
+                    #{block := BlockPart} = R,
+                    BinBlock = receive_block(Handler, BlockPart),
                     #{hash:=NewH}=Block=block:unpack(BinBlock),
                     gen_server:cast(self(),{new_block, Block, self()}),
                     case maps:find(child, Block) of
@@ -848,6 +859,40 @@ format_status(_Opt, [_PDict,State]) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+send_block(TPIC, PeerID, Map, [BlockHead|BlockTail]) when BlockTail =:= [] ->
+    tpic:cast(TPIC, PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead})));
+send_block(TPIC, PeerID, Map, [BlockHead|BlockTail]) ->
+    tpic:cast(TPIC, PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead}))),
+    receive
+        {'$gen_cast',{TPIC, PeerID, Bin}} ->
+            case msgpack:unpack(Bin) of
+                {ok, #{null := <<"pick_next_part">>}} ->
+                    send_block(TPIC, PeerID, Map, BlockTail);
+                {error, _} ->
+                    error
+            end;
+        {'$gen_cast', Any} ->
+            lager:info("Unexpected message ~p", [Any])
+    after 30000 ->
+        timeout
+    end.
+
+receive_block(Handler, BlockPart) ->
+    receive_block(Handler, BlockPart, []).
+receive_block(Handler, BlockPart, Acc) ->
+    NewAcc = [BlockPart|Acc],
+    <<Number:32, Length:32, _/binary>> = BlockPart,
+    case length(NewAcc) of
+        Length ->
+            block:glue_packet(NewAcc);
+        _ ->
+            lager:debug("Received block part number ~p out of ~p",[Number, Length]),
+            Response = tpiccall(Handler,  #{null => <<"pick_next_part">>}, [block]),
+            [{_,R}] = Response,
+            #{block := NewBlockPart} = R,
+            receive_block(Handler, NewBlockPart, NewAcc)
+    end.
 
 save_sets(ignore, _Settings) -> ok;
 save_sets(LDB, Settings) ->

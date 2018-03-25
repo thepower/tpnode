@@ -5,6 +5,7 @@
 -export([prepack/1]).
 -export([pack/1,unpack/1]).
 -export([packsig/1,unpacksig/1]).
+-export([split_packet/1, glue_packet/1]).
 
 -export([bals2bin/1]).
 
@@ -479,6 +480,33 @@ packsig(Block) ->
 				end, Sigs);
 		 (_,Val) -> Val
 	  end, Block).
+
+int_ceil(X) ->
+    T = trunc(X),
+    case (X - T) of
+        Neg when Neg < 0 -> T;
+        Pos when Pos > 0 -> T + 1;
+        _ -> T
+    end.
+
+split_packet(Data) ->
+    Size = 32,
+    Length = int_ceil(byte_size(Data) / Size),
+    split_packet(Size, Data, 1, Length).
+split_packet(Size, Data, Seq, Length) when Size > 0 ->
+    case Data of
+        <<Packet:Size/binary, Rest/binary>> ->
+            [<<Seq:32, Length:32, Packet/binary>> | split_packet(Size, Rest, Seq + 1, Length)];
+        <<>> ->
+            [];
+        _ ->
+            [<<Seq:32, Length:32, Data/binary>>]
+    end.
+
+%TODO add integrity check
+glue_packet(List) ->
+    SortedList = lists:sort(fun(<<N1:32, _/binary>>, <<N2:32, _/binary>>) -> N1 =< N2 end, List),
+    list_to_binary(lists:map(fun(<<_:32, _:32, Val/binary>>) -> Val end, SortedList)).
 
 -ifdef(TEST).
 block_test_() ->

@@ -53,7 +53,7 @@ continue(TPIC, LedgerPID, [{Handler,Res}], Parent, Acc, BlockAcc) ->
             <<Number:32, Length:32, _/binary>> = BlockPart,
             NewBlockAcc = [BlockPart|BlockAcc],
             if (length(NewBlockAcc) == Length) ->
-                    BinBlock = glue_packet(NewBlockAcc),
+                    BinBlock = block:glue_packet(NewBlockAcc),
                     %lager:debug("The block is ~p", [BinBlock]),
                     %lager:debug("unpacked block is ~p", [block:unpack(BinBlock)]),
                     Parent ! {inst_sync, block, BinBlock};
@@ -109,7 +109,7 @@ synchronizer(TPIC, PeerID,
     lager:info("Patches ~p",[Patches]),
     %file:write_file("tmp/syncblock.txt",
     %                io_lib:format("~p.~n",[Block])),
-    BlockParts = split_packet(32, block:pack(Block)),
+    BlockParts = block:split_packet(block:pack(Block)),
     [BlockHead|BlockTail] = BlockParts,
     tpic:cast(TPIC, PeerID, msgpack:pack(#{done => false, block => BlockHead})),
     BlockSent = send_block(TPIC, PeerID, BlockTail),
@@ -134,6 +134,8 @@ pick_settings(Settings, N) ->
           lists:split(N,Settings)
     end.
 
+send_block(_, _, []) ->
+    done;
 send_block(TPIC, PeerID, Block) ->
     lager:info("send_block"),
     receive
@@ -236,29 +238,3 @@ pickx(Act, Itr, N, A) ->
         {error, _} ->
             {error,A}
     end.
-
-int_ceil(X) ->
-    T = trunc(X),
-    case (X - T) of
-        Neg when Neg < 0 -> T;
-        Pos when Pos > 0 -> T + 1;
-        _ -> T
-    end.
-
-split_packet(Size, Data) when Size > 0 ->
-    Length = int_ceil(byte_size(Data) / Size),
-    split_packet(Size, Data, 1, Length).
-split_packet(Size, Data, Seq, Length) ->
-    case Data of
-        <<Packet:Size/binary, Rest/binary>> ->
-            [<<Seq:32, Length:32, Packet/binary>> | split_packet(Size, Rest, Seq + 1, Length)];
-        <<>> ->
-            [];
-        _ ->
-            [<<Seq:32, Length:32, Data/binary>>]
-    end.
-
-%TODO add integrity check
-glue_packet(List) ->
-    SortedList = lists:sort(fun(<<N1:32, _/binary>>, <<N2:32, _/binary>>) -> N1 =< N2 end, List),
-    list_to_binary(lists:map(fun(<<_:32, _:32, Val/binary>>) -> Val end, SortedList)).
