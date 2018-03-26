@@ -5,7 +5,7 @@
 -export([prepack/1]).
 -export([pack/1,unpack/1]).
 -export([packsig/1,unpacksig/1]).
--export([split_packet/1, glue_packet/1]).
+-export([split_packet/2, split_packet/1, glue_packet/1]).
 
 -export([bals2bin/1]).
 
@@ -481,17 +481,12 @@ packsig(Block) ->
 		 (_,Val) -> Val
 	  end, Block).
 
-int_ceil(X) ->
-    T = trunc(X),
-    case (X - T) of
-        Neg when Neg < 0 -> T;
-        Pos when Pos > 0 -> T + 1;
-        _ -> T
-    end.
-
 split_packet(Data) ->
     Size = 32,
-    Length = int_ceil(byte_size(Data) / Size),
+    Length = ceil(byte_size(Data) / Size),
+    split_packet(Size, Data, 1, Length).
+split_packet(Size, Data) ->
+    Length = ceil(byte_size(Data) / Size),
     split_packet(Size, Data, 1, Length).
 split_packet(Size, Data, Seq, Length) when Size > 0 ->
     case Data of
@@ -503,10 +498,16 @@ split_packet(Size, Data, Seq, Length) when Size > 0 ->
             [<<Seq:32, Length:32, Data/binary>>]
     end.
 
-%TODO add integrity check
 glue_packet(List) ->
     SortedList = lists:sort(fun(<<N1:32, _/binary>>, <<N2:32, _/binary>>) -> N1 =< N2 end, List),
-    list_to_binary(lists:map(fun(<<_:32, _:32, Val/binary>>) -> Val end, SortedList)).
+    {_, _, Valid} = lists:foldl(fun(<<Seq:32, Length:32, _/binary>>, {PrevSeq, PrevLength, Acc}) ->
+                                   {Seq, Length, Acc and (PrevSeq + 1 =:= Seq) and (PrevLength =:= Length)}
+                                end, {0, length(SortedList), true}, SortedList),
+    if Valid ->
+           list_to_binary(lists:map(fun(<<_:32, _:32, Val/binary>>) -> Val end, SortedList));
+       true ->
+           lager:error("Received block is broken ~p", [SortedList])
+    end.
 
 -ifdef(TEST).
 block_test_() ->
@@ -555,7 +556,14 @@ block_test_() ->
                                  P==Pub2 orelse P==Pub1
                          end,
                          element(1,element(2,verify(Block))))
-                         )
+                         ),
+    ?_assertEqual(split_packet(2, <<1, 2, 3, 4, 5>>), [<<0,0,0,1,0,0,0,3,1,2>>, <<0,0,0,2,0,0,0,3,3,4>>, <<0,0,0,3,0,0,0,3,5>>]),
+    ?_assertEqual(split_packet(2, <<1, 2, 3, 4>>), [<<0,0,0,1,0,0,0,3,1,2>>, <<0,0,0,2,0,0,0,3,3,4>>]),
+    ?_assertEqual(split_packet(3, <<1, 2, 3, 4>>), [<<0,0,0,1,0,0,0,3,1,2,3>>, <<0,0,0,2,0,0,0,3,4>>]),
+    ?_assertEqual(split_packet(2, <<>>), []),
+    ?_assertError({badmatch,{}}, glue_packet([])),
+    ?_assertEqual(glue_packet([<<0,0,0,1,0,0,0,2,1,2>>, <<0,0,0,2,0,0,0,2,3,4>>]), <<1, 2, 3, 4>>),
+    ?_assertEqual(glue_packet([<<0,0,0,1,0,0,0,3,1,2>>, <<0,0,0,2,0,0,0,3,3,4>>, <<0,0,0,2,0,0,0,3,5>>]), <<1, 2, 3, 4, 5>>)
     ].
 
 -endif.

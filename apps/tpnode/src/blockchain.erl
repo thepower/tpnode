@@ -226,9 +226,9 @@ handle_cast({new_block, _BlockPayload,  PID},
     {noreply, State};
 
 handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
-    <<"hash">>:=Hash,
-    <<"rel">>:=Rel
-}},
+                                <<"hash">>:=Hash,
+                                <<"rel">>:=Rel
+                            }},
     #{ldb:=LDB} = State) ->
     MyRel = case Rel of
                 <<"self">> -> self;
