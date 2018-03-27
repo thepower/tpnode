@@ -114,6 +114,8 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
                          MyChain;
                     (settings) ->
                          blockchain:get_settings();
+                    ({valid_timestamp,TS}) ->
+						 abs(os:system_time(millisecond)-TS)<3600000;
                     ({endless,From,_Cur}) ->
                          lists:member(
                            From,
@@ -241,6 +243,7 @@ try_process([{TxID,
             #{success:=Success, failed:=Failed}=Acc) ->
     lager:notice("TODO:Check signature once again and check seq"),
     try
+		throw('fixme'),
         Bals=maps:get(To,Addresses),
         case Bals of
             #{} ->
@@ -271,6 +274,7 @@ try_process([{TxID,
             #{success:=Success, failed:=Failed}=Acc) ->
     lager:error("Check signature once again and check seq"),
     try
+		throw('fixme'),
         Bals=maps:get(From,Addresses),
         A1=maps:remove(keep,Bals),
         Empty=maps:size(A1)==0,
@@ -562,14 +566,38 @@ try_process_local([{TxID,
     FBal=maps:get(From,Addresses),
     TBal=maps:get(To,Addresses),
     try
+
         if Amount >= 0 ->
                ok;
            true ->
                throw ('bad_amount')
         end,
-        if is_integer(Timestamp) -> ok;
+        if is_integer(Timestamp) -> 
+			   case GetFun({valid_timestamp,Timestamp}) of
+				   true ->
+					   ok;
+				   false ->
+					   throw ('invalid_timestamp')
+			   end;
            true -> throw ('non_int_timestamp')
         end,
+		FSK=bal:get_cur(<<"SK">>,FBal),
+		LD=bal:get(t,FBal) div 86400000,
+		CD=Timestamp div 86400000,
+		FSKUsed=if CD>LD ->
+					   0;
+				   true ->
+					   bal:get(usk,FBal)
+				end,
+		lager:info("~s FSK ~p usk ~p LD ~p CD ~p",[TxID, FSK,FSKUsed,LD,CD]),
+		if FSK < 1 -> 
+			   case GetFun({endless,From,<<"SK">>}) of
+				   true -> ok;
+				   false -> throw('no_sk')
+			   end;
+		   FSKUsed >= FSK -> throw('sk_limit');
+		   true -> ok
+		end,
         CurFSeq=bal:get(seq,FBal),
         if CurFSeq < Seq -> ok;
            true -> throw ('bad_seq')
@@ -597,7 +625,11 @@ try_process_local([{TxID,
                            NewFAmount,
                            Seq,
                            Timestamp,
-                           FBal)
+                           FBal,
+						   if CD>LD -> reset;
+							  true -> true
+						   end
+						  )
                         ),
         NewT=maps:remove(keep,
                          bal:put_cur(
@@ -972,6 +1004,10 @@ mkblock_test() ->
                      };
                    ({endless,_Address,_Cur}) ->
                         false;
+                    ({valid_timestamp,TS}) ->
+						abs(os:system_time(millisecond)-TS)<3600000 
+						orelse
+						abs(os:system_time(millisecond)-(TS-86400000))<3600000; 
                    (Other) ->
                         error({bad_setting,Other})
                 end,
@@ -979,10 +1015,11 @@ mkblock_test() ->
 
     Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
     ParentHash=crypto:hash(sha256,<<"parent">>),
+	SG=1,
 
     TX0=tx:unpack( tx:sign(
                      #{
-                     from=>naddress:construct_public(1,OurChain,3),
+                     from=>naddress:construct_public(SG,OurChain,3),
                      to=>naddress:construct_public(1,OurChain,3),
                      amount=>10,
                      cur=><<"FTT">>,
@@ -992,7 +1029,7 @@ mkblock_test() ->
                  ),
     TX1=tx:unpack( tx:sign(
                      #{
-                     from=>naddress:construct_public(1,OurChain,3),
+                     from=>naddress:construct_public(SG,OurChain,3),
                      to=>naddress:construct_public(1,OurChain,8),
                      amount=>9000,
                      cur=><<"BAD">>,
@@ -1003,7 +1040,7 @@ mkblock_test() ->
 
 	TX2=tx:unpack( tx:sign(
                      #{
-                     from=>naddress:construct_public(1,OurChain,3),
+                     from=>naddress:construct_public(SG,OurChain,3),
                      to=>naddress:construct_public(1,OurChain+2,1),
                      amount=>9,
                      cur=><<"FTT">>,
@@ -1013,7 +1050,7 @@ mkblock_test() ->
                  ),
 	TX3=tx:unpack( tx:sign(
                      #{
-                     from=>naddress:construct_public(1,OurChain,3),
+                     from=>naddress:construct_public(SG,OurChain,3),
                      to=>naddress:construct_public(1,OurChain+2,2),
                      amount=>2,
                      cur=><<"FTT">>,
@@ -1021,29 +1058,71 @@ mkblock_test() ->
                      timestamp=>os:system_time(millisecond)
                     },Pvt1)
                  ),
+    TX4=tx:unpack( tx:sign(
+                     #{
+                     from=>naddress:construct_public(0,OurChain,3),
+                     to=>naddress:construct_public(1,OurChain,3),
+                     amount=>10,
+                     cur=><<"FTT">>,
+                     seq=>6,
+                     timestamp=>os:system_time(millisecond)
+                    },Pvt1)
+                 ),
+    TX5=tx:unpack( tx:sign(
+                     #{
+                     from=>naddress:construct_public(SG,OurChain,3),
+                     to=>naddress:construct_public(1,OurChain,3),
+                     amount=>1,
+                     cur=><<"FTT">>,
+                     seq=>7,
+                     timestamp=>os:system_time(millisecond)
+                    },Pvt1)
+                 ),
+    TX6=tx:unpack( tx:sign(
+                     #{
+                     from=>naddress:construct_public(SG,OurChain,3),
+                     to=>naddress:construct_public(1,OurChain,3),
+                     amount=>1,
+                     cur=><<"FTT">>,
+                     seq=>8,
+                     timestamp=>os:system_time(millisecond)+86400000
+                    },Pvt1)
+                 ),
     #{block:=Block,
       failed:=Failed}=generate_block(
-                        [{<<"1interchain">>,TX0},
-                         {<<"2invalid">>,TX1},
+                        [
+                         {<<"1invalid">>,TX1},
+						 {<<"2interchain">>,TX0},
                          {<<"3crosschain">>,TX2},
-                         {<<"4crosschain">>,TX3}
+                         {<<"4crosschain">>,TX3},
+                         {<<"5nosk">>,TX4},
+                         {<<"6sklim">>,TX5},
+                         {<<"7nextday">>,TX6}
                         ],
                         {1,ParentHash},
                         GetSettings,
                         GetAddr),
-    ?assertEqual([{<<"2invalid">>,insufficient_fund}], Failed),
+	Success=proplists:get_keys(maps:get(txs,Block)),
+	?assertEqual([{<<"1invalid">>,insufficient_fund},
+				  {<<"5nosk">>,no_sk},
+				  {<<"6sklim">>,sk_limit}
+				 ], lists:sort(Failed)),
+    ?assertEqual([<<"2interchain">>,<<"3crosschain">>,<<"4crosschain">>,<<"7nextday">>], lists:sort(Success)),
     ?assertEqual([<<"3crosschain">>,<<"4crosschain">>],proplists:get_keys(maps:get(tx_proof,Block))),
     ?assertEqual([{<<"4crosschain">>,OurChain+2},{<<"3crosschain">>,OurChain+2}],maps:get(outbound,Block)),
     SignedBlock=block:sign(Block,<<1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1>>),
     file:write_file("tmp/testblk.txt", io_lib:format("~p.~n",[Block])),
     ?assertMatch({true, {_,_}},block:verify(SignedBlock)),
+	lager:info("FSK B ~p",[proplists:get_keys(maps:get(txs,Block))]),
     _=maps:get(OurChain+2,block:outward_mk(maps:get(outbound,Block),SignedBlock)),
 	Block.
 
 %test_getaddr%({_Addr,_Cur}) -> %suitable for inbound tx
-test_getaddr(_Addr) ->
+test_getaddr(Addr) ->
+	#{address:=_,block:=_,group:=Grp,type:=public}=naddress:parse(Addr),
     #{amount => #{
         <<"FTT">> => 110,
+		<<"SK">> => Grp,
         <<"TST">> => 26
        },
       seq => 1,

@@ -44,7 +44,7 @@ handle_call(_Request, _From, State) ->
 handle_cast({tpic, _PeerID, <<16#be,_/binary>>=Payload}, State) ->
 	try
 		Beacon=beacon:check(Payload),
-		lager:info("TOPO  beacon ~p",[Beacon]),
+		lager:info("TOPO ~p beacon ~p",[_PeerID,Beacon]),
 		{noreply, State}
 	catch _:_ ->
 			  {noreply, State}
