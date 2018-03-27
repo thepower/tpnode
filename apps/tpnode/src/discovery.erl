@@ -376,14 +376,14 @@ make_announce(#{names:=Names} = _Dict, State) ->
                 Scopes = get_scopes(Proto, AllScopesCfg),
                 IsAdvertisable = in_scope(Proto, tpic, AllScopesCfg),
                 IsRightProto = is_right_proto(Name, Proto),
-                lager:debug("ann dbg ~p ~p ~p ~p", [Name, IsAdvertisable, IsRightProto, Address]),
+%%                lager:debug("ann dbg ~p ~p ~p ~p", [Name, IsAdvertisable, IsRightProto, Address]),
 
                 if
                     IsRightProto == true andalso IsAdvertisable == true ->
                         announce_one_service(Name, Address, ValidUntil, Scopes),
                         AddrCounter + 1;
                     true ->
-                        lager:debug("skip announce for address ~p ~p", [Name, Address]),
+%%                        lager:debug("skip announce for address ~p ~p", [Name, Address]),
                         AddrCounter
                 end;
                 ( Address, AddrCounter ) ->
