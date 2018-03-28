@@ -116,13 +116,25 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
                          blockchain:get_settings();
                     ({valid_timestamp,TS}) ->
 						 abs(os:system_time(millisecond)-TS)<3600000;
-                    ({endless,From,_Cur}) ->
-                         lists:member(
-                           From,
-                           application:get_env(tpnode,endless,[])
-                          )
-                 end,
-        AddrFun=fun({Addr,Cur}) ->
+					({endless,From,Cur}) ->
+						 EndlessPath=[<<"current">>,<<"endless">>,From,Cur],
+						 case blockchain:get_settings(EndlessPath) of
+							 true -> true;
+							 _ ->
+								 % TODO: Replace this code with false
+								 Endless=lists:member(
+										   From,
+										   application:get_env(tpnode,endless,[])
+										  ),
+								 if Endless ->
+										lager:notice("Deprecated: issue tokens by address in config");
+									true ->
+										ok
+								 end,
+								 Endless
+						 end
+				 end,
+		AddrFun=fun({Addr,Cur}) ->
                         gen_server:call(blockchain,{get_addr,Addr,Cur});
                    (Addr) ->
                         gen_server:call(blockchain,{get_addr,Addr})

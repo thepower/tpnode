@@ -114,7 +114,40 @@ test_xchain_tx(ToChain) ->
     tx:unpack(NewTx),
     txpool:new_tx(NewTx) 
     }.
- 
+
+test_add_endless(Address,Cur) ->
+    PrivKey=nodekey:get_priv(),
+    MyChain=blockchain:chain(),
+    true=is_integer(MyChain),
+    Patch=settings:sign(
+            settings:dmp(
+              settings:mp(
+                [
+                 #{t=>set,p=>[current,endless,Address,Cur], v=>true}
+                ])),
+      PrivKey),
+    io:format("PK ~p~n",[settings:verify(Patch)]),
+    {Patch,
+    gen_server:call(txpool, {patch, Patch})
+    }.
+
+test_fee_settings() ->
+    PrivKey=nodekey:get_priv(),
+    MyChain=blockchain:chain(),
+    true=is_integer(MyChain),
+    Patch=settings:sign(
+            settings:dmp(
+              settings:mp(
+                [
+                 #{t=>set,p=>[current,fee,<<"FTT">>,base], v=>trunc(1.0e7)},
+                 #{t=>set,p=>[current,fee,<<"FTT">>,baseextra], v=>64},
+                 #{t=>set,p=>[current,fee,<<"FTT">>,kb], v=>trunc(1.0e9)}
+                ])),
+      PrivKey),
+    io:format("PK ~p~n",[settings:verify(Patch)]),
+    {Patch,
+    gen_server:call(txpool, {patch, Patch})
+    }.
 
 test_alloc_block() ->
     PrivKey=nodekey:get_priv(),
