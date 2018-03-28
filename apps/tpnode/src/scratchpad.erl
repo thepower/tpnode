@@ -139,9 +139,11 @@ test_fee_settings() ->
             settings:dmp(
               settings:mp(
                 [
-                 #{t=>set,p=>[current,fee,<<"FTT">>,base], v=>trunc(1.0e7)},
-                 #{t=>set,p=>[current,fee,<<"FTT">>,baseextra], v=>64},
-                 #{t=>set,p=>[current,fee,<<"FTT">>,kb], v=>trunc(1.0e9)}
+                 #{t=>set,p=>[current,fee,params,enable], v=>1},
+                 #{t=>set,p=>[current,fee,params,<<"notip">>], v=>0},
+                 #{t=>set,p=>[current,fee,<<"FTT">>,<<"base">>], v=>trunc(1.0e7)},
+                 #{t=>set,p=>[current,fee,<<"FTT">>,<<"baseextra">>], v=>64},
+                 #{t=>set,p=>[current,fee,<<"FTT">>,<<"kb">>], v=>trunc(1.0e9)}
                 ])),
       PrivKey),
     io:format("PK ~p~n",[settings:verify(Patch)]),

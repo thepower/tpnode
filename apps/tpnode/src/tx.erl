@@ -1,7 +1,7 @@
 -module(tx).
 
 -export([get_ext/2,set_ext/3,sign/2,verify/1,pack/1,unpack/1]).
--export([txlist_hash/1]).
+-export([txlist_hash/1, rate/2]).
 
 -ifndef(TEST).
 -define(TEST,1).
@@ -22,6 +22,18 @@ get_ext(K,Tx) ->
         false ->
             undefined
     end.
+
+set_ext(<<"fee">>,V,Tx) ->
+    Ed=maps:get(extdata,Tx,#{}),
+    Tx#{
+      extdata=>maps:put(fee,V,Ed)
+     };
+
+set_ext(<<"feecur">>,V,Tx) ->
+    Ed=maps:get(extdata,Tx,#{}),
+    Tx#{
+      extdata=>maps:put(feecur,V,Ed)
+     };
 
 set_ext(K,V,Tx) ->
     Ed=maps:get(extdata,Tx,#{}),
@@ -208,7 +220,7 @@ pack(#{
  }=Tx) ->
     msgpack:pack(
       maps:merge(
-        maps:with([address],Tx),
+        maps:with([address,timestamp,pow],Tx),
         #{ type => <<"register">>,
            register => Reg
          }
@@ -325,16 +337,34 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
                  true ->
                      throw({bad_timestamp,Timestamp})
               end,
-              #{ type => Type,
-                 from => From,
-                 to => To,
-                 amount => Amount,
-                 cur => Cur,
-                 timestamp => Timestamp,
-                 seq => Seq,
-                 extradata => ExtraJSON,
-                 sig => Sig
-               };
+			  FTx=#{ type => Type,
+						 from => From,
+						 to => To,
+						 amount => Amount,
+						 cur => Cur,
+						 timestamp => Timestamp,
+						 seq => Seq,
+						 extradata => ExtraJSON,
+						 sig => Sig
+					   },
+			  case maps:is_key(<<"extdata">>,Tx) of
+				  true -> FTx;
+				  false ->
+					  try %parse fee data, if no extdata
+						  DecodedJSON=jsx:decode(ExtraJSON,[return_maps]),
+						  %make exception if no cur data
+						  #{<<"fee">> := Fee,
+							<<"feecur">> := FeeCur}=DecodedJSON,
+						  true=is_integer(Fee),
+						  true=is_binary(FeeCur),
+						  FTx#{extdata=> #{
+								 fee=>Fee,
+								 feecur=>FeeCur
+								}}
+					  catch _:_ ->
+								FTx
+					  end
+			  end;
           block ->
               block:unpack(maps:get(block,Tx));
           patch -> %settings patch
@@ -343,6 +373,8 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
                  sig => Sig};
           register ->
               PubKey=maps:get(register,Tx),
+              T=maps:get(<<"timestamp">>,Tx,0),
+              POW=maps:get(<<"pow">>,Tx,<<>>),
               case size(PubKey) of
                   33 -> ok;
                   true -> throw('bad_pubkey')
@@ -350,11 +382,15 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
               case maps:is_key(address,Tx) of
                   false ->
                       #{ type => register,
-                         register => PubKey
+                         register => PubKey,
+						 timestamp => T,
+						 pow => POW
                        };
                   true ->
                       #{ type => register,
                          register => PubKey,
+						 timestamp => T,
+						 pow => POW,
                          address => maps:get(address,Tx)
                        }
               end;
@@ -362,9 +398,10 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
               lager:error("Bad tx ~p",[Tx]),
               throw({"bad tx type",Type})
       end,
-    case maps:is_key(<<"extdata">>,Tx) of
-        true ->
-            R#{extdata=>maps:get(<<"extdata">>,Tx)};
+	case maps:is_key(<<"extdata">>,Tx) of
+		true ->
+			%probably newly parsed extdata should have priority? or not?
+			maps:fold( fun set_ext/3, R, maps:get(<<"extdata">>,Tx));
         false ->
             R
     end.
@@ -378,26 +415,101 @@ txlist_hash(List) ->
 										   [Id,tx:pack(Tx)|Acc]
 								   end, [], lists:keysort(1,List)))).
 
+rate1(#{extradata:=ED}, Cur, TxAmount, GetRateFun) ->
+	#{<<"base">>:=Base,
+	  <<"kb">>:=KB}=Rates=GetRateFun(Cur),
+	BaseEx=maps:get(<<"baseextra">>,Rates,0),
+	ExtCur=max(0,size(ED)-BaseEx),
+	Cost=Base+trunc(ExtCur*KB/1024),
+	{TxAmount >= Cost, 
+	 #{ cur=>Cur,
+		cost=>Cost,
+		tip => max(0,TxAmount - Cost)
+	  }}.
+
+rate(#{cur:=TCur}=Tx, GetRateFun) ->
+	case maps:get(extdata,Tx,#{}) of
+		#{fee:=TxAmount, feecur:=Cur} ->
+			rate1(Tx, Cur, TxAmount, GetRateFun);
+		#{fee:=TxAmount} ->
+			rate1(Tx, TCur, TxAmount, GetRateFun);
+		_ ->
+			case GetRateFun({params, enable}) of
+				1 ->
+					{false, #{ cost=>null } };
+				_ ->
+					{true, #{ cost=>0, tip => 0, cur=>TCur }}
+			end
+	end.
+
 -ifdef(TEST).
 register_test() ->
     Priv= <<194,124,65,109,233,236,108,24,50,151,189,216,
            123,142,115,120,124,240,248,115, 150,54,239,
            58,218,221,145,246,158,15,210,165>>,
     PubKey=tpecdsa:calc_pub(Priv,true),
+	T=1522252760000,
     Res=
     tx:unpack(
       tx:pack(
         tx:unpack(
           msgpack:pack(
-            #{
-            "type"=>"register",
-            register=>PubKey
-           }
+			#{
+			"type"=>"register",
+			timestamp=>T,
+			pow=>crypto:hash(sha256,<<T:64/big,PubKey/binary>>),
+			register=>PubKey
+		   }
            )
          )
        )
      ),
-    #{register:=PubKey}=Res.
+    #{register:=PubKey,timestamp:=T,pow:=<<223,92,191,_/binary>>}=Res.
+
+tx_jsondata_test() ->
+    Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,
+			248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
+    %Pub1Min=tpecdsa:secp256k1_ec_pubkey_create(Pvt1, true),
+	From=(naddress:construct_public(0,0,1)),
+    BinTx1=sign(#{
+                 from => From,
+                 to => From,
+                 cur => <<"TEST">>,
+                 timestamp => 1512450000,
+                 seq => 1,
+                 amount => 10,
+				 extradata=>jsx:encode(#{
+							  fee=>30,
+							  feecur=><<"TEST">>,
+							  message=><<"preved123456789012345678901234567891234567890">>
+							 })
+                },Pvt1),
+    BinTx2=sign(#{
+                 from => From,
+                 to => From,
+                 cur => <<"TEST">>,
+                 timestamp => 1512450000,
+                 seq => 1,
+                 amount => 10,
+				 extradata=>jsx:encode(#{
+							  fee=>10,
+							  feecur=><<"TEST">>,
+							  message=><<"preved123456789012345678901234567891234567890">>
+							 })
+                },Pvt1),
+	GetRateFun=fun(_Currency) ->
+					   #{ <<"base">> => 1,
+						  <<"baseextra">> => 64,
+						  <<"kb">> => 1000
+						}
+			   end,
+	UTx1=tx:unpack(BinTx1),
+	UTx2=tx:unpack(BinTx2),
+	[
+	 ?assertEqual(UTx1,tx:unpack( tx:pack(UTx1))),
+	 ?assertMatch({true,#{cost:=20,tip:=10}},rate(UTx1,GetRateFun)),
+	 ?assertMatch({false,#{cost:=20,tip:=0}},rate(UTx2,GetRateFun))
+	].
 
 digaddr_tx_test() ->
     Priv= <<194,124,65,109,233,236,108,24,50,151,189,216,

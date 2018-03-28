@@ -77,6 +77,9 @@ change(Action,[Element|Path],Value,M,FPath) when
       Element==<<"patchsig">> orelse
       Element==<<"blocktime">> orelse
       Element==<<"minsig">> orelse
+      Element==<<"enable">> orelse
+      Element==<<"params">> orelse
+      Element==<<"disable">> orelse
       Element==<<"nodes">> ->
     change(Action,[binary_to_atom(Element,utf8)|Path],Value,M,FPath);
 
