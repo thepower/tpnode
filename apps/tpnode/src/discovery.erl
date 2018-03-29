@@ -25,6 +25,9 @@
 
 -export([my_address_v4/0,my_address_v6/0]).
 
+
+% ------ for tests ---
+-export([pack/1, unpack/1]).
 -export([test/0, test1/0, test2/0, test3/0, test4/0]).
 
 
@@ -157,23 +160,13 @@ handle_cast(make_announce, #{local_services:=Dict} = State) ->
 handle_cast({got_announce, AnnounceBin}, #{remote_services:=Dict} = State) ->
 %%    lager:debug("Got service announce ~p", [AnnounceBin]),
     try
-        Announce =
-            case unpack(AnnounceBin) of
-                error -> throw(error);
-                {ok, Unpacked} -> Unpacked
-            end,
-
+        {ok, Announce} = unpack(AnnounceBin),
         lager:debug("Announce details: ~p", [Announce]),
-
-        case validate_announce(Announce, State) of
-            error -> throw(error);
-            _ -> ok
-        end,
-
+        validate_announce(Announce, State),
         case is_local_service(Announce) of
             true ->
                 lager:debug("skip copy of local service: ~p", [Announce]),
-                throw(error);
+                throw("skip copy of local service");
             _ -> ok
         end,
 
@@ -182,9 +175,9 @@ handle_cast({got_announce, AnnounceBin}, #{remote_services:=Dict} = State) ->
         {noreply, State#{
             remote_services => process_announce(Announce, Dict, MaxTtl, AnnounceBin)
         }}
-
     catch
-        throw:error ->
+        throw:Reason ->
+            lager:info("can't process announce ~p", [Reason]),
             {noreply, State}
     end;
 
@@ -564,32 +557,25 @@ validate_announce(
               scopes := _Scopes,
               created := Created,
               ttl := Ttl
-          } = Announce,
+          } = _Announce,
           State) ->
-    try
-        MaxTtl = get_config(xchain_ttl, 1800, State),
-        TtlToCheck = min(Ttl, MaxTtl),
-        Now = get_unixtime(),
-        MaxExpireTime = Now + TtlToCheck,
-        ValidUntil = Created + TtlToCheck,
-        if
-            ValidUntil > MaxExpireTime ->
-                throw(expire_too_big);
-            ValidUntil < Now ->
-                throw(expired);
-            true ->
-                ok
-        end
-    catch
-        throw:Reason ->
-            lager:debug("invalid announce ~p ~p", [Reason, Announce]),
-            error
-    end,
-    ok;
+    MaxTtl = get_config(xchain_ttl, 1800, State),
+    TtlToCheck = min(Ttl, MaxTtl),
+    Now = get_unixtime(),
+    MaxExpireTime = Now + TtlToCheck,
+    ValidUntil = Created + TtlToCheck,
+    if
+        ValidUntil > MaxExpireTime ->
+            throw("too big ttl");
+        ValidUntil < Now ->
+            throw("announce expired");
+        true ->
+            ok
+    end;
 
 validate_announce(Announce, _State) ->
     lager:debug("invalid announce ~p", [Announce]),
-    error.
+    throw("can't validate announce").
 
 
 % --------------------------------------------------------
@@ -703,29 +689,24 @@ pack(Message) ->
 
 
 unpack(<<254, _Rest/binary>> = Packed) ->
-    try
-        {Sign, Bin} = split_bin_to_sign_and_data(Packed),
-        Hash = crypto:hash(sha256, Bin),
-        case bsig:checksig(Hash, [Sign]) of
-            { [ #{ signature:= _FirstSign } | _] , _InvalidSings} ->
-                lager:notice("Check signature here");
-            _X ->
-                lager:debug("checksig result ~p", [_X]),
-                throw(invalid_signature)
-        end,
-        case msgpack:unpack(Bin, [{known_atoms, ?KNOWN_ATOMS}]) of
-            {ok, Message} ->
-                {ok, Message};
-            _ -> throw(msgpack)
-        end
-    catch throw:Reason ->
-        lager:info("can't unpack announce with reason ~p ~p", [Reason, Packed]),
-        error
+    {Sign, Bin} = split_bin_to_sign_and_data(Packed),
+    Hash = crypto:hash(sha256, Bin),
+    case bsig:checksig(Hash, [Sign]) of
+        { [ #{ signature:= _FirstSign } | _] , _InvalidSings} ->
+            lager:notice("Check signature here");
+        _X ->
+            lager:debug("checksig result ~p", [_X]),
+            throw("invalid signature")
+    end,
+    case msgpack:unpack(Bin, [{known_atoms, ?KNOWN_ATOMS}]) of
+        {ok, Message} ->
+            {ok, Message};
+        _ -> throw("msgpack unpack error")
     end;
 
 unpack(Packed) ->
     lager:info("Invalid packed data ~p", [Packed]),
-    error.
+    throw("invalid packed data").
 
 % --------------------------------------------------------
 
