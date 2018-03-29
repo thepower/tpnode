@@ -139,7 +139,8 @@ test_fee_settings() ->
             settings:dmp(
               settings:mp(
                 [
-                 #{t=>set,p=>[current,fee,params,enable], v=>1},
+                 #{t=>set,p=>[current,fee,params,<<"feeaddr">>], v=><<160,0,0,0,0,0,0,1>>},
+                 #{t=>set,p=>[current,fee,params,<<"tipaddr">>], v=><<160,0,0,0,0,0,0,2>>},
                  #{t=>set,p=>[current,fee,params,<<"notip">>], v=>0},
                  #{t=>set,p=>[current,fee,<<"FTT">>,<<"base">>], v=>trunc(1.0e7)},
                  #{t=>set,p=>[current,fee,<<"FTT">>,<<"baseextra">>], v=>64},

@@ -428,18 +428,21 @@ rate1(#{extradata:=ED}, Cur, TxAmount, GetRateFun) ->
 	  }}.
 
 rate(#{cur:=TCur}=Tx, GetRateFun) ->
+	try
 	case maps:get(extdata,Tx,#{}) of
 		#{fee:=TxAmount, feecur:=Cur} ->
 			rate1(Tx, Cur, TxAmount, GetRateFun);
 		#{fee:=TxAmount} ->
 			rate1(Tx, TCur, TxAmount, GetRateFun);
 		_ ->
-			case GetRateFun({params, enable}) of
-				1 ->
+			case GetRateFun({params, <<"feeaddr">>}) of
+				X when is_binary(X) ->
 					{false, #{ cost=>null } };
 				_ ->
 					{true, #{ cost=>0, tip => 0, cur=>TCur }}
 			end
+	end
+	catch _:_ -> throw('cant_calculate_fee')
 	end.
 
 -ifdef(TEST).
