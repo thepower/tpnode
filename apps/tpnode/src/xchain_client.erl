@@ -80,10 +80,14 @@ handle_cast(settings, State) ->
     lager:notice("xchain client reload settings"),
     {noreply, change_settings_handler(State)};
 
+handle_cast({discovery, AnnounceBin}, State) ->
+    lager:notice("xchain client got announce from discovery. We have to relay this announce to all chains"),
+    {noreply, State};
 
 handle_cast(_Msg, State) ->
     lager:error("xchain client unknown cast ~p", [_Msg]),
     {noreply, State}.
+
 
 handle_info({gun_up, ConnPid, http}, State) ->
     lager:notice("xchain client http up"),

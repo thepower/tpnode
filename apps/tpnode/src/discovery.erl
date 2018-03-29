@@ -5,6 +5,8 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 -define(DEFAULT_SCOPE, [tpic, xchain, api]).
+-define(KNOWN_ATOMS,
+    [address, name, valid_until, port, proto, tpic, nodeid, scopes, xchain, api, chain]).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -278,7 +280,8 @@ announce_one_service(Name, Address, ValidUntil, Scopes) ->
             address => TranslatedAddress,
             valid_until => ValidUntil,
             nodeid => nodekey:node_id(),
-            scopes => Scopes
+            scopes => Scopes,
+            chain => blockchain:chain()
         },
         AnnounceBin = pack(Announce),
         send_service_announce(AnnounceBin)
@@ -649,7 +652,9 @@ pack(Message) ->
     Hash = crypto:hash(sha256, Packed),
     Sign = bsig:signhash(
         Hash,
-        [{timestamp,os:system_time(millisecond)}],
+        [
+            {timestamp,os:system_time(millisecond)}
+        ],
         PrivKey
     ),
     add_sign_to_bin(Sign, Packed).
@@ -667,7 +672,7 @@ unpack(<<254, _Rest/binary>> = Packed) ->
                 lager:debug("checksig result ~p", [_X]),
                 throw(invalid_signature)
         end,
-        Atoms = [address, name, valid_until, port, proto, tpic, nodeid, scopes, xchain, api],
+        Atoms = ?KNOWN_ATOMS,
         case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of
             {ok, Message} ->
                 {ok, Message};
