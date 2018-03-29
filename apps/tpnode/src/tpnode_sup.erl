@@ -29,7 +29,7 @@ init([]) ->
     tpnode:reload(),
 
     % we'll register this services-without-pid on discovery starting up
-    Services = [ api ],
+    MandatoryServices = [ api ],
 
     {ok,TPIC0}=application:get_env(tpnode,tpic),
     TPIC=TPIC0#{
@@ -54,7 +54,9 @@ init([]) ->
             { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []},
             { tpic_sctp, {tpic_sctp, start_link, [TPIC]}, permanent, 5000, worker, []},
             { ledger, {ledger, start_link, []}, permanent, 5000, worker, []},
-            { discovery, {discovery, start_link, [#{name=>discovery, services=>Services}]}, permanent, 5000, worker, []},
+            { discovery,
+                {discovery, start_link,
+                    [#{name=>discovery, services=>MandatoryServices}]}, permanent, 5000, worker, []},
             { tpnode_announcer, {tpnode_announcer, start_link, [#{}]}, permanent, 5000, worker, []},
             { xchain_client, {xchain_client, start_link, [#{}]}, permanent, 5000, worker, []},
             { xchain_dispatcher, {xchain_dispatcher, start_link, []}, permanent, 5000, worker, []}
