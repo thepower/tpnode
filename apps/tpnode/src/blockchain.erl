@@ -170,6 +170,29 @@ handle_call(status, _From,
 handle_call(last, _From, #{lastblock:=L}=State) ->
     {reply, maps:with([child,header,hash],L), State};
 
+handle_call(lastsig, _From, #{myname:=MyName,
+							  chainnodes:=CN,
+							  lastblock:=#{hash:=H,sign:=Sig}
+							 }=State) ->
+	SS=lists:foldl(
+		 fun(#{extra:=PL},Acc) ->
+				 case proplists:get_value(pubkey,PL,undefined) of
+					 undefined -> Acc;
+					 BinKey ->
+						 case maps:get(BinKey,CN,undefined) of
+							 undefined -> Acc;
+							 NodeID -> 
+								 [NodeID|Acc]
+						 end
+				 end
+		 end,
+		 [],
+		 Sig
+		),
+    {reply, #{hash=>H,
+			  origin=>MyName,
+			  signed=>SS}, State};
+
 handle_call(last_block, _From, #{lastblock:=LB}=State) ->
     {reply, LB, State};
 
@@ -184,6 +207,10 @@ handle_call({get_block,BlockHash}, _From, #{ldb:=LDB,lastblock:=#{hash:=LBH}=LB}
           end,
     {reply, Block, State};
 
+
+handle_call(chainnodes, _From, State) ->
+    #{chainnodes:=CN}=S1=mychain(State),
+    {reply, CN, S1};
 
 handle_call({mysettings, chain}, _From, State) ->
     #{mychain:=MyChain}=S1=mychain(State),
@@ -1038,21 +1065,20 @@ mychain(#{settings:=S}=State) ->
     NodeChain=maps:get(nodechain,S,#{}),
     PubKey=nodekey:get_pub(),
     lager:info("My key ~s",[bin2hex:dbin2hex(PubKey)]),
-    MyName=maps:fold(
-             fun(K,V,undefined) ->
-%                     lager:info("Compare ~p with ~p", [V,PubKey]),
-                     if V==PubKey ->
-                            K;
-                        true ->
-                            undefined
-                     end;
-                (_,_,Found) ->
-                     Found
-             end, undefined, KeyDB),
+	ChainNodes0=maps:fold(
+				 fun(Name,XPubKey, Acc) ->
+						 maps:put(XPubKey, Name, Acc)
+				 end, #{}, KeyDB),
+    MyName=maps:get(PubKey,ChainNodes0,undefined),
     MyChain=maps:get(MyName,NodeChain,0),
-%    lager:info("My name ~p chain ~p",[MyName,MyChain]),
+	ChainNodes=maps:filter(
+				 fun(_PubKey,Name) ->
+				 maps:get(Name, NodeChain, 0) == MyChain
+				 end, ChainNodes0),
+    lager:info("My name ~p chain ~p ournodes ~p",[MyName,MyChain,maps:values(ChainNodes)]),
     maps:merge(State,
                #{myname=>MyName,
+				 chainnodes=>ChainNodes,
                  mychain=>MyChain
                 }).
 

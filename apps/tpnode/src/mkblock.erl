@@ -15,7 +15,7 @@
 -endif.
 
 -export([start_link/0]).
--export([generate_block/4,benchmark/1,decode_tpic_txs/1]).
+-export([generate_block/5,benchmark/1,decode_tpic_txs/1]).
 
 
 %% ------------------------------------------------------------------
@@ -61,6 +61,19 @@ handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
 
 handle_cast({tpic, _From, #{
                      null:=<<"mkblock">>,
+					 <<"hash">> := ParentHash,
+					 <<"origin">> := Origin, 
+					 <<"signed">> := SignedBy
+                    }}, State)  ->
+	lager:debug("MB got XSig ~s ~p",[Origin,SignedBy]),
+	PreSig=maps:get(presig,State,#{}),
+	{noreply,
+	 State#{
+	   presig=>maps:put(Origin, {ParentHash, SignedBy}, PreSig)
+	  }};
+
+handle_cast({tpic, _From, #{
+                     null:=<<"mkblock">>,
                      <<"chain">>:=_MsgChain,
                      <<"origin">>:=Origin,
                      <<"txs">>:=TPICTXs
@@ -96,17 +109,37 @@ handle_cast(_Msg, State) ->
 handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=State) ->
     lager:info("-------[MAKE BLOCK]-------"),
     AE=maps:get(ae,MySet,1),
-    try
+
+	{_,ParentHash}=Parent=case maps:get(parent,State,undefined) of
+			   undefined ->
+				   lager:info("Fetching last block from blockchain"),
+				   #{header:=#{height:=Last_Height1},hash:=Last_Hash1}=gen_server:call(blockchain,last_block),
+				   {Last_Height1,Last_Hash1};
+			   {A,B} -> {A,B}
+		   end,
+
+	PreNodes=try
+		PreSig=maps:get(presig, State),
+		BK=maps:fold(
+			 fun(_,{BH,_},Acc) when BH =/= ParentHash ->
+					 Acc;
+				(Node1,{_BH,Nodes2},Acc) ->
+					 [{Node1, Nodes2}|Acc]
+			 end,[], PreSig),
+		Clique=bron_kerbosch:max_clique(BK),
+		lager:info("MB Presig ~p",[Clique]),
+		Clique
+	catch Ec:Ee ->
+			  Stack1=erlang:get_stacktrace(),
+			  lager:error("Can't calc xsig ~p:~p ~p",[Ec,Ee,Stack1]),
+			  []
+	end,
+
+	try
         if(AE==0 andalso PreTXL==[]) -> throw(empty);
           true -> ok
         end,
         T1=erlang:system_time(),
-        Parent=case maps:get(parent,State,undefined) of
-                   undefined ->
-                       #{header:=#{height:=Last_Height1},hash:=Last_Hash1}=gen_server:call(blockchain,last_block),
-                       {Last_Height1,Last_Hash1};
-                   {A,B} -> {A,B}
-               end,
 
         PropsFun=fun(mychain) ->
                          MyChain;
@@ -139,7 +172,8 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
                 end,
 
         #{block:=Block,
-          failed:=Failed}=generate_block(PreTXL, Parent, PropsFun, AddrFun),
+          failed:=Failed}=generate_block(PreTXL, Parent, PropsFun, AddrFun,
+										[{prevnodes, PreNodes}]),
         T2=erlang:system_time(),
         if Failed==[] ->
                ok;
@@ -174,10 +208,10 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
                 }
               ),
         tpic:cast(tpic,<<"blockvote">>, HBlk),
-        {noreply, State#{preptxl=>[],parent=>undefined}}
+        {noreply, State#{preptxl=>[],parent=>undefined,presig=>#{}}}
     catch throw:empty ->
               lager:info("Skip empty block"),
-              {noreply, State#{preptxl=>[],parent=>undefined}}
+              {noreply, State#{preptxl=>[],parent=>undefined,presig=>#{}}}
     end;
 
 handle_info(process, State) ->
@@ -768,7 +802,7 @@ load_settings(State) ->
                  )
      }.
 
-generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr) ->
+generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,_ExtraData) ->
 	%file:write_file("tmp/tx.txt", io_lib:format("~p.~n",[PreTXL])),
 	_T1=erlang:system_time(),
 	TXL=lists:usort(PreTXL),
@@ -995,7 +1029,8 @@ benchmark(N) ->
 	_=generate_block( _Res,
 					  {1,Parent},
 					  GetSettings,
-					  GetAddr),
+					  GetAddr,
+					[]),
 
     T2=erlang:system_time(),
     (T2-T1)/1000000.
@@ -1068,12 +1103,13 @@ alloc_addr_test() ->
 
     TX0=tx:unpack( tx:pack( #{ type=>register, register=>Pub1 })),
     #{block:=Block,
-      failed:=Failed}=generate_block(
-                        [{<<"alloc_tx1_id">>,TX0},
-                         {<<"alloc_tx2_id">>,TX0}],
-                        {1,ParentHash},
-                        GetSettings,
-                        GetAddr),
+	  failed:=Failed}=generate_block(
+						[{<<"alloc_tx1_id">>,TX0},
+						 {<<"alloc_tx2_id">>,TX0}],
+						{1,ParentHash},
+						GetSettings,
+						GetAddr,
+						[]),
 
     io:format("~p~n",[Block]),
     [
@@ -1276,7 +1312,8 @@ mkblock_test() ->
 						],
 						{1,ParentHash},
 						GetSettings,
-						GetAddr),
+						GetAddr,
+					   []),
 
 	Success=proplists:get_keys(maps:get(txs,Block)),
 	?assertMatch([{<<"2invalid">>,insufficient_fund},
@@ -1452,7 +1489,8 @@ xchain_inbound_test() ->
                         [BlockTx],
                         {1,ParentHash},
                         GetSettings,
-                        GetAddr),
+                        GetAddr,
+					   []),
 
 %        SS1=settings:patch(AAlloc,SetState),
     GetSettings2=fun(mychain) ->
@@ -1472,7 +1510,8 @@ xchain_inbound_test() ->
                          [BlockTx],
                          {NewHeight,NewHash},
                          GetSettings2,
-                         GetAddr),
+                         GetAddr,
+						[]),
 
     [
     ?assertEqual([], Failed),

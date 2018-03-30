@@ -144,10 +144,24 @@ handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue,nodeid:=
     %    empty -> ok;
     %    _ -> lager:info("Still in process ~p",[InProc0])
     %end,
+
     {Queue1,Res}=pullx(2048,Queue,[]),
+	try
+		PreSig=maps:merge(
+				 gen_server:call(blockchain, lastsig),
+				 #{null=><<"mkblock">>,
+				   chain=>MyChain
+				  }),
+		MResX=msgpack:pack(PreSig),
+		gen_server:cast(mkblock, {tpic, self(), MResX}),
+		tpic:cast(tpic,<<"mkblock">>,MResX)
+    catch _:_ ->
+              Stack1=erlang:get_stacktrace(),
+              lager:error("Can't send xsig ~p",[Stack1])
+	end,
+
     try
-        %MKb= <<"mkblock",(integer_to_binary(MyChain))/binary>>,
-        MKb= <<"mkblock">>,
+
         MRes=msgpack:pack(#{null=><<"mkblock">>,
                             chain=>MyChain,
                             origin=>Node,
@@ -158,11 +172,11 @@ handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue,nodeid:=
                                      end, Res)
                                   )
                            }),
-        tpic:cast(tpic,MKb,MRes)
+        tpic:cast(tpic,<<"mkblock">>,MRes)
         %lager:info("Cast ~p ~p",[MKb,msgpack:unpack(MRes)])
     catch _:_ ->
-              S=erlang:get_stacktrace(),
-              lager:error("Can't encode at ~p",[S])
+              Stack2=erlang:get_stacktrace(),
+              lager:error("Can't encode at ~p",[Stack2])
     end,
 
     %lists:foreach(
