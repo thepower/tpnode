@@ -109,13 +109,11 @@ handle_call({set_config, Key, Value}, _From, State) ->
     {reply, ok, set_config(Key, Value, State)};
 
 handle_call({register, ServiceName, Pid}, _From, #{local_services:=Dict} = State) ->
-    lager:debug("Register local service ~p with pid ~p", [ServiceName, Pid]),
     {reply, ok, State#{
-        local_services => register_service(ServiceName, Pid, Dict, #{})
+        local_services => register_service(ServiceName, Pid, Dict)
     }};
 
 handle_call({register, ServiceName, Pid, Options}, _From, #{local_services:=Dict} = State) ->
-    lager:debug("Register local service ~p with pid ~p", [ServiceName, Pid]),
     {reply, ok, State#{
         local_services => register_service(ServiceName, Pid, Dict, Options)
     }};
@@ -232,16 +230,10 @@ code_change(_OldVsn, State, _Extra) ->
 
 init_local_serivces(PermanentServices, Dict) ->
     Registrator =
-        fun F(ServiceName, CurrentDict) when is_binary(ServiceName) ->
+        fun (ServiceName0, CurrentDict)->
+            ServiceName = convert_to_binary(ServiceName0),
             Name = <<ServiceName/binary, "peer">>,
-            register_service(Name, nopid, CurrentDict, #{});
-            F(ServiceName, CurrentDict) when is_list(ServiceName) ->
-                F(list_to_binary(ServiceName), CurrentDict);
-            F(ServiceName, CurrentDict) when is_atom(ServiceName) ->
-                F(atom_to_binary(ServiceName, utf8), CurrentDict);
-            F(_InvalidServiceName, CurrentDict) ->
-                lager:info("invalid permanent service name: ~p", [_InvalidServiceName]),
-                CurrentDict
+            register_service(Name, nopid, CurrentDict, #{})
         end,
     lists:foldl(Registrator, Dict, PermanentServices).
 
@@ -328,19 +320,9 @@ get_scopes(ServiceName, AllScopesCfg) ->
 
 % --------------------------------------------------------
 
-is_right_proto(ServiceName, Proto) when is_binary(Proto) ->
-    (<<Proto/binary, "peer">> =:= ServiceName);
-
-is_right_proto(ServiceName, Proto) when is_atom(Proto) ->
-    is_right_proto(ServiceName, atom_to_binary(Proto, utf8));
-
-is_right_proto(ServiceName, Proto) when is_list(Proto) ->
-    is_right_proto(ServiceName, list_to_binary(Proto));
-
-is_right_proto(_ServiceName, Proto) ->
-    lager:info("invalid protocol: ~p", Proto),
-    false.
-
+is_right_proto(ServiceName, Proto0)  ->
+    Proto = convert_to_binary(Proto0),
+    (<<Proto/binary, "peer">> =:= ServiceName).
 
 % --------------------------------------------------------
 
@@ -393,8 +375,13 @@ find_service(Name, #{names:=NamesDict}) when is_binary(Name) ->
 
 % --------------------------------------------------------
 
+register_service(Name, Pid, Dict) ->
+    register_service(Name, Pid, Dict, #{}).
 
-register_service(Name, Pid, #{names:=NameDict, pids:=PidDict} = _Dict, Options) ->
+register_service(Name0, Pid, #{names:=NameDict, pids:=PidDict} = _Dict, Options) ->
+    Name = convert_to_binary(Name0),
+    lager:debug("Register local service ~p with pid ~p", [Name, Pid]),
+
     Record0 = #{
         pid => Pid,
         monitor => nopid,
@@ -509,30 +496,42 @@ query_local(Name, #{names:=Names}=_Dict, State) ->
 
 % find addresses of remote service
 query_remote(Name, Dict) ->
+    query_remote(Name, Dict, blockchain:chain()).
+
+
+query_remote(Name0, Dict, Chain) when is_integer(Chain)->
+    Name = add_chain_to_name(Name0, Chain),
     Nodes = maps:get(Name, Dict, #{}),
     Announces = maps:values(Nodes),
     lists:map(
         fun(#{address:=Address}) ->
             Address
         end, Announces
-    ).
+    );
 
+query_remote(Name, _Dict, Chain) ->
+    lager:info("unmached clouse ~p ~p", [Name, Chain]),
+    [].
 
 % --------------------------------------------------------
 
 query(Pred, _State) when is_function(Pred) ->
     lager:error("Not inmplemented"),
-    error;
+    not_implemented;
 
 % find service by name
-query(Name, State) ->
+query(Name0, State) ->
+    Name = convert_to_binary(Name0),
     #{local_services := LocalDict, remote_services := RemoteDict} = State,
     Local = query_local(Name, LocalDict, State),
     Remote = query_remote(Name, RemoteDict),
 %%    lager:debug("query ~p local: ~p", [Name, Local]),
 %%    lager:debug("query ~p remote: ~p", [Name, Remote]),
-    lists:merge(Local, Remote).
+    lists:merge(Local, Remote);
 
+query(Name, _State) ->
+    lager:info("Invalid argument for lookup: ~p", [Name]),
+    [].
 
 % --------------------------------------------------------
 
@@ -580,10 +579,22 @@ validate_announce(Announce, _State) ->
 
 % --------------------------------------------------------
 
+add_chain_to_name(Name, Chain) when is_integer(Chain) andalso is_binary(Name) ->
+    <<Name/binary, ":", (integer_to_binary(Chain))/binary>>;
+
+add_chain_to_name(Name, Chain) ->
+    lager:info("Can't add chain to announce name: ~p ~p", [Name, Chain]),
+    throw("Can't add chain to announce name").
+
+
+% --------------------------------------------------------
+
 % parse foreign service announce and add it to services database
-process_announce(#{name := Name, address := Address} = Announce0, Dict, MaxTtl, AnnounceBin) ->
+process_announce(
+  #{name := Name0, address := Address, chain := Chain} = Announce0, Dict, MaxTtl, AnnounceBin) ->
     try
         Key = address2key(Address),
+        Name = add_chain_to_name(Name0, Chain),
         Nodes = maps:get(Name, Dict, #{}),
         Announce = add_valid_until(Announce0, MaxTtl),
         PrevAnnounce = maps:get(Key, Nodes, #{created => 0, ttl=> 0}),
@@ -720,6 +731,21 @@ filter_expired(Dict, CurrentTime) ->
             maps:filter(ExpireFilter, Nodes)
         end,
     maps:map(NodesMapper, Dict).
+
+
+% --------------------------------------------------------
+
+convert_to_binary(Data) when is_binary(Data) ->
+    Data;
+
+convert_to_binary(Data) when is_list(Data) ->
+    list_to_binary(Data);
+
+convert_to_binary(Data) when is_atom(Data) ->
+    atom_to_binary(Data, utf8);
+
+convert_to_binary(Data) when is_integer(Data) ->
+    integer_to_binary(Data, 10).
 
 
 % --------------------------------------------------------
