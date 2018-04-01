@@ -720,10 +720,12 @@ handle_info({inst_sync,done,Log}, #{ldb:=LDB}=State) ->
            lager:info("Sync done"),
            lager:notice("Verify settings"),
            CleanState=maps:without([sync,syncblock,syncpeer,syncsettings], State),
+		   SS=maps:get(syncsettings,State),
            %self() ! runsync,
            save_block(LDB, Block, true),
+		   save_sets(LDB, SS),
            {noreply, CleanState#{
-                       settings=>maps:get(syncsettings,State),
+                       settings=>SS,
                        lastblock=>Block,
                        candidates=>#{}
                       }
