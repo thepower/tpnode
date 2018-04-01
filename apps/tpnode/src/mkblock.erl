@@ -300,7 +300,7 @@ try_process([], Settings, Addresses, GetFun,
 		GetFeeFun=fun (Parameter) ->
 						  settings:get([<<"current">>,<<"fee">>,params,Parameter],Settings)
 				  end,
-		lager:info("fee ~p tip ~p",[FeeBal,TipBal]),
+		lager:debug("fee ~p tip ~p",[FeeBal,TipBal]),
 		{Addresses2,NewTXL}=lists:foldl(
 							  fun({CType,CBal},{FAcc,TXL}) ->
 									  Addr=case CType of
@@ -317,7 +317,7 @@ try_process([], Settings, Addresses, GetFun,
 											   _ ->
 												   naddress:construct_private(0,0)
 										   end,
-									  lager:info("fee ~s ~p to ~p",[CType,CBal,Addr]),
+									  lager:debug("fee ~s ~p to ~p",[CType,CBal,Addr]),
 									  deposit_fee(CBal, Addr, FAcc, TXL)
 							  end,
 							  {Addresses,[]},
@@ -485,6 +485,52 @@ try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
             lager:info("TX ~s addr error ~p -> ~p",[TxID,FAddr,TAddr]),
             try_process(Rest,SetState,Addresses,GetFun,
                         Acc#{failed=>[{TxID,'bad_src_or_dst_addr'}|Failed]})
+    end;
+
+try_process([{TxID, #{deploy:=VMType,code:=Code,from:=Owner}=Tx} |Rest],
+            SetState, Addresses, GetFun,
+            #{failed:=Failed,
+              success:=Success}=Acc) ->
+	lager:notice("Ensure verified"),
+    try
+		VM=try 
+			   erlang:binary_to_existing_atom(<<"contract_",VMType/binary>>,utf8)
+		   catch error:badarg ->
+					 throw('unknown_vm')
+		   end,
+
+        lager:info("Deploy contract ~s for ~s",
+                   [VM,naddress:encode(Owner)]),
+		State0=maps:get(state,Tx,<<>>),
+		Bal=maps:get(Owner,Addresses),
+        NewF1=bal:put(vm, VMType, Bal),
+        NewF2=bal:put(code, Code, NewF1),
+		State1=try
+				   case erlang:apply(VM,deploy,[Owner,Bal,Code,State0,1,GetFun]) of
+					   {ok, NewS} ->
+						   NewS;
+					   {error, Error} ->
+						   throw({'deploy_failed',Error});
+					   _ ->
+						   throw({'deploy_failed',other})
+				   end
+			   catch Ec:Ee ->
+						 S=erlang:get_stacktrace(),
+						 lager:error("Can't deploy ~p:~p @ ~p",
+									 [Ec,Ee,hd(S)]),
+						 throw({'deploy_error',[Ec,Ee]})
+			   end,
+		NewF3=maps:remove(keep,
+						  bal:put(state, State1, NewF2)
+				   ),
+        NewAddresses=maps:put(Owner,NewF3,Addresses),
+
+        try_process(Rest,SetState,NewAddresses,GetFun,
+                    Acc#{success=> [{TxID,Tx}|Success]})
+    catch throw:X ->
+              lager:info("Contract deploy failed ~p",[X]),
+              try_process(Rest,SetState,Addresses,GetFun,
+                          Acc#{failed=>[{TxID,X}|Failed]})
     end;
 
 try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
@@ -679,7 +725,7 @@ try_process_outbound([{TxID,
 	end.
 
 try_process_local([{TxID,
-                    #{cur:=Cur,amount:=Amount,to:=To,from:=From}=Tx}
+                    #{to:=To,from:=From}=Tx}
                    |Rest],
                   SetState, Addresses, GetFun,
                   #{success:=Success, failed:=Failed}=Acc) ->
@@ -693,14 +739,8 @@ try_process_local([{TxID,
     try
 		RealSettings=EnsureSettings(SetState),
 		{NewF,GotFee}=withdraw(FBal,Tx,GetFun,RealSettings),
-        NewTAmount=bal:get_cur(Cur,TBal) + Amount,
-        NewT=maps:remove(keep,
-                         bal:put_cur(
-                           Cur,
-                           NewTAmount,
-                           TBal)
-                        ),
-        NewAddresses=maps:put(From,NewF,maps:put(To,NewT,Addresses)),
+		{NewT,_Emit,_GasUsed}=deposit(TBal,Tx,GetFun,RealSettings),
+		NewAddresses=maps:put(From,NewF,maps:put(To,NewT,Addresses)),
 
         try_process(Rest,SetState,NewAddresses,GetFun,
 					savefee(GotFee,
@@ -718,11 +758,27 @@ savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
 	  tip=>bal:put_cur(Cur,Tip+bal:get_cur(Cur, TipBal),TipBal)
 	 }.
 
+deposit(TBal,
+		#{cur:=Cur,amount:=Amount}=Tx,
+		GetFun, _Settings) ->
+	NewTAmount=bal:get_cur(Cur,TBal) + Amount,
+	NewT=maps:remove(keep,
+					 bal:put_cur(
+					   Cur,
+					   NewTAmount,
+					   TBal)
+					),
+	case bal:get(vm,NewT) of
+		undefined ->
+			{NewT,[],0};
+		VMType ->
+			smartcontract:run(VMType, Tx, NewT, 1, GetFun)
+	end.
+
+
 withdraw(FBal,
 		 #{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,from:=From}=Tx,
-		 GetFun, 
-		 Settings
-		) ->
+		 GetFun, Settings) ->
 	if Amount >= 0 ->
 		   ok;
 	   true ->
@@ -891,6 +947,15 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 							AAcc
 					end,
 				 {A1,SAcc};
+			({_,#{from:=F,deploy:=_}},{AAcc,SAcc}) ->
+				 A1=case maps:get(F,AAcc,undefined) of
+						undefined ->
+							AddrInfo1=GetAddr(F),
+							maps:put(F,AddrInfo1#{keep=>false},AAcc);
+						_ ->
+							AAcc
+					end,
+				 {A1,SAcc};
 			({_,#{to:=T,from:=F,cur:=Cur}},{AAcc,SAcc}) ->
 				 FB=bal:fetch(F, Cur, true, maps:get(F,AAcc,#{}), GetAddr),
 				 TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
@@ -922,14 +987,24 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 					 height=>Parent_Height+1
 					}
 				  ),
-	lager:info("Collected fee ~p tip ~p",[_FeeCollected, _TipCollected]),
-	lager:info("MB Post Setting ~p",[Settings]),
+	lager:info("MB Collected fee ~p tip ~p",[_FeeCollected, _TipCollected]),
+	if length(Settings)>0 ->
+		   lager:info("MB Post Setting ~p",[Settings]);
+	   true -> ok
+	end,
 	OutChains=lists:foldl(
 				fun({_TxID,ChainID},Acc) ->
 						maps:put(ChainID,maps:get(ChainID,Acc,0)+1,Acc)
 				end, #{}, Outbound),
-	lager:info("MB Outbound to ~p",[OutChains]),
-	lager:info("MB Must pick blocks ~p",[maps:keys(PickBlocks)]),
+	case maps:size(OutChains)>0 of
+		true ->
+			lager:info("MB Outbound to ~p",[OutChains]);
+		false -> ok
+	end,
+	if length(Settings)>0 ->
+		   lager:info("MB Must pick blocks ~p",[maps:keys(PickBlocks)]);
+	   true -> ok
+	end,
 	_T4=erlang:system_time(),
 	NewBal1=maps:filter(
 			  fun(_,V) ->
@@ -939,16 +1014,21 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 			 fun(_,V) ->
 					 case maps:is_key(ublk,V) of
 						 false ->
-							 V;
+							 bal:changes(V);
 						 true ->
-							 bal:put(lastblk, maps:get(ublk,V), V)
+							 bal:changes(
+							   bal:put(lastblk, maps:get(ublk,V), V)
+							  )
 					 end
 			 end, NewBal1),
 	ExtraPatch=maps:fold(
 				 fun(ToChain,_NoOfTxs,AccExtraPatch) ->
 						 [ToChain|AccExtraPatch]
 				 end, [], OutChains),
-	lager:info("MB Extra out settings ~p",[ExtraPatch]),
+	if length(ExtraPatch)>0 ->
+		   lager:info("MB Extra out settings ~p",[ExtraPatch]);
+	   true -> ok
+	end,
 
 	%lager:info("MB NewBal ~p",[NewBal]),
 
@@ -1199,6 +1279,20 @@ contract_test() ->
 						abs(os:system_time(millisecond)-TS)<3600000 
 						orelse
 						abs(os:system_time(millisecond)-(TS-86400000))<3600000; 
+				   ({get_block,Back}) when 20>=Back ->
+						FindBlock=fun FB(H,N) ->
+						case gen_server:call(blockchain,{get_block,H}) of
+							undefined ->
+								undefined;
+							#{header:=#{parent:=P}}=Blk ->
+								if N==0 -> 
+									   maps:without([bals,txs],Blk);
+								   true ->
+									   FB(P,N-1)
+								end
+						end
+				end,
+						FindBlock(last,Back);
 				   (Other) ->
 						error({bad_setting,Other})
 				end,
@@ -1209,13 +1303,38 @@ contract_test() ->
     ParentHash=crypto:hash(sha256,<<"parent">>),
 	SG=3,
 
-	TX0=tx:unpack( 
+	_TX0=tx:unpack( 
+		  tx:sign(
+			#{
+			from=>naddress:construct_public(SG,OurChain,10),
+			deploy=><<"badvm">>,
+			code=><<"code">>,
+			state=><<>>,
+			seq=>2,
+			timestamp=>os:system_time(millisecond)
+		   },Pvt1)
+		 ),
+	TX1=tx:unpack( 
+		  tx:sign(
+			#{
+			from=>naddress:construct_public(SG,OurChain,10),
+			deploy=><<"chainfee">>,
+			code=>erlang:term_to_binary(#{
+					interval=>10
+				   }),
+			state=><<>>,
+			seq=>2,
+			timestamp=>os:system_time(millisecond)
+		   },Pvt1)
+		 ),
+	TX2=tx:unpack( 
 		  tx:sign(
 			#{
 			from=>naddress:construct_public(SG,OurChain,3),
-			deploy=><<"chainfee">>,
-			code=><<"">>,
-			state=><<>>,
+			to=>naddress:construct_public(SG,OurChain,10),
+			amount=>10,
+			cur=><<"FTT">>,
+			extradata=>jsx:encode(#{ fee=>2, feecur=><<"FTT">> }),
 			seq=>2,
 			timestamp=>os:system_time(millisecond)
 		   },Pvt1)
@@ -1223,7 +1342,9 @@ contract_test() ->
 	#{block:=Block,
 	  failed:=Failed}=generate_block(
 						[
-						 {<<"0deploy">>,TX0}
+						 %{<<"0bad">>,_TX0},
+						 {<<"1deploy">>,TX1},
+						 {<<"2exec">>,TX2}
 						],
 						{1,ParentHash},
 						GetSettings,
@@ -1231,7 +1352,8 @@ contract_test() ->
 					   []),
 
 	Success=proplists:get_keys(maps:get(txs,Block)),
-	{ Success, Failed}.
+	NewLedger=maps:get(bals,Block),
+	{ Success, Failed, NewLedger}.
 	
 mkblock_test() ->
     OurChain=5,
@@ -1472,14 +1594,16 @@ test_getaddr(Addr) ->
 			#{amount => #{ <<"FTT">> => 110, <<"SK">> => Grp, <<"TST">> => 26 },
 			  seq => 1,
 			  t => 1512047425350,
-			  lastblk => <<0:64>>
+			  lastblk => <<0:64>>,
+			  changes=>[amount]
 			 };
 		#{address:=_, block:=_, type := private} ->
 			#{amount => #{ 
 				<<"FTT">> => 100, 
 				<<"TST">> => 100 
 			   },
-			  lastblk => <<0:64>>
+			  lastblk => <<0:64>>,
+			  changes=>[amount]
 			 }
 	end.
 
