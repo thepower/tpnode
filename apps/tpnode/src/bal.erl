@@ -15,14 +15,14 @@
 		]).
 
 -define(FIELDS,
-		[t,seq,lastblk,pubkey,ld,usk]
+		[t,seq,lastblk,pubkey,ld,usk,state,code]
 	   ).
 
 -spec new () -> #{amount:=map()}.
 new() ->
 	#{amount=>#{}}.
 
--spec fetch (integer()|binary(), integer()|binary(), 'true'|'false', 
+-spec fetch (integer()|binary(), integer()|binary(), 'true'|'false',
 			 map(), fun()) -> map().
 fetch(Address, _Currency, _Header, Bal, FetchFun) ->
 	%    FetchCur=not maps:is_key(Currency,Bal0),
@@ -30,7 +30,7 @@ fetch(Address, _Currency, _Header, Bal, FetchFun) ->
 	%    if(Header and not IsHdr) ->
 	case maps:is_key(seq,Bal) of
 		true -> Bal;
-		false -> 
+		false ->
 			FetchFun(Address)
 	end.
 
@@ -95,7 +95,7 @@ put(seq, V, Bal) when is_integer(V) ->
 put(t, V, Bal) when is_integer(V),
 					V > 1500000000000,
 					V < 15000000000000  %only msec, not sec and not usec
-					-> 
+					->
 	maps:put(t, V, Bal);
 put(lastblk, V, Bal) when is_binary(V) ->
 	maps:put(lastblk, V, Bal);
@@ -103,6 +103,12 @@ put(pubkey, V, Bal) when is_binary(V) ->
 	maps:put(pubkey, V, Bal);
 put(ld, V, Bal) when is_integer(V) ->
 	maps:put(ld, V, Bal);
+put(vm, V, Bal) when is_binary(V) ->
+	maps:put(vm, V, Bal);
+put(state, V, Bal) when is_binary(V) ->
+	maps:put(state, V, Bal);
+put(code, V, Bal) when is_binary(V) ->
+	maps:put(code, V, Bal);
 put(usk, V, Bal) when is_integer(V) ->
 	maps:put(usk, V, Bal);
 put(T, _, _) ->
@@ -115,6 +121,9 @@ get(t, Bal) ->			maps:get(t, Bal, 0);
 get(pubkey, Bal) ->		maps:get(pubkey, Bal, <<>>);
 get(ld, Bal) ->			maps:get(ld, Bal, 0);
 get(usk, Bal) ->		maps:get(usk, Bal, 0);
+get(vm, Bal) ->			maps:get(vm, Bal, undefined);
+get(state, Bal) ->		maps:get(state, Bal, <<>>);
+get(code, Bal) ->		maps:get(code, Bal, <<>>);
 get(lastblk, Bal) ->	maps:get(lastblk, Bal, <<0,0,0,0,0,0,0,0>>);
 get(T, _) ->			throw({"unsupported bal field",T}).
 

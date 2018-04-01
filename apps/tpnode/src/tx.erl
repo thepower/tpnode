@@ -41,17 +41,59 @@ set_ext(K,V,Tx) ->
       extdata=>maps:put(K,V,Ed)
      }.
 
+mkmsg(#{ from:=From,
+		 deploy:=VMType,
+		 code:=NewCode,
+		 seq:=Seq,
+		 timestamp:=Timestamp
+       }=Tx) ->
+	if is_binary(From) -> ok;
+	   true -> throw('non_bin_addr_from')
+	end,
+	if is_binary(VMType) -> ok;
+	   true -> throw('non_bin_vmtype')
+	end,
+    if is_binary(NewCode) -> ok;
+       true -> throw('non_bin_code')
+    end,
+	TB=case maps:is_key(state, Tx) of
+		   true ->
+			   State=maps:get(state,Tx),
+			   if is_binary(State) -> ok;
+				  true -> throw('non_bin_state')
+			   end,
+			   [
+				"deploy",
+				From,
+				Timestamp,
+				Seq,
+				VMType,
+				NewCode,
+				State
+			   ];
+		   false ->
+			   [
+				"deploy",
+				From,
+				Timestamp,
+				Seq,
+				VMType,
+				NewCode
+			   ]
+	   end,
+	msgpack:pack(TB);
+
 mkmsg(#{ from:=From, amount:=Amount,
          cur:=Currency, to:=To,
          seq:=Seq, timestamp:=Timestamp
        }=Tx) ->
     %{ToValid,_}=checkaddr(To),
-    %if not ToValid -> 
+    %if not ToValid ->
     %       throw({invalid_address,to});
     %   true -> ok
     %end,
 
-    case maps:is_key(outbound,Tx) of 
+    case maps:is_key(outbound,Tx) of
         true ->
             lager:notice("FIXME: save outbound flag in tx");
         false -> ok
@@ -87,13 +129,13 @@ sign(#{
   from:=From
  }=Tx,PrivKey) ->
     Pub=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
-    case checkaddr(From) of 
+    case checkaddr(From) of
         {new,{true, _IAddr}} ->
             ok;
         {old,{true, Fat}} ->
             if Fat < 256 ->
                    NewFrom=address:pub2addr(Fat,Pub),
-                   if NewFrom =/= From -> 
+                   if NewFrom =/= From ->
                           throw({invalid_key,mismatch_from_address});
                       true -> ok
                    end;
@@ -119,7 +161,7 @@ sign(#{
         maps:with([extdata],Tx))
      ).
 
-verify(#{register:=_, type:=register}=Tx) -> 
+verify(#{register:=_, type:=register}=Tx) ->
     {ok,Tx};
 
 verify(#{
@@ -128,13 +170,13 @@ verify(#{
   timestamp := T
  }=Tx) ->
     Message=mkmsg(Tx),
-    if is_integer(T) -> 
+    if is_integer(T) ->
            ok;
        true ->
            throw({bad_timestamp,T})
     end,
 
-    {Valid,Invalid}=case checkaddr(From) of 
+    {Valid,Invalid}=case checkaddr(From) of
                         {new, {true, _IAddr}} ->
                             case ledger:get(From) of
                                 #{pubkey:=PK} when is_binary(PK) ->
@@ -155,9 +197,9 @@ verify(#{
                             maps:fold(
                               fun(Pub, Sig, {AValid,AInvalid}) ->
                                       NewFrom=address:pub2addr(Fat,Pub),
-                                      if NewFrom =/= From -> 
+                                      if NewFrom =/= From ->
                                              {AValid, AInvalid+1};
-                                         true -> 
+                                         true ->
                                              case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
                                                  correct ->
                                                      {AValid+1, AInvalid};
@@ -253,7 +295,7 @@ unpack(BinTx) when is_binary(BinTx) ->
     unpack_mp(BinTx).
 
 unpack_mp(BinTx) when is_binary(BinTx) ->
-    {ok, Tx0} = msgpack:unpack(BinTx, [{known_atoms, 
+    {ok, Tx0} = msgpack:unpack(BinTx, [{known_atoms,
                                         [type,sig,tx,patch,register,
                                          register,address,block] },
                                        {unpack_str,as_binary}] ),
@@ -268,9 +310,9 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
                             end, Val),Acc);
              ("type",Val,Acc) ->
                  maps:put(type,
-                          try 
-                              erlang:list_to_existing_atom(Val) 
-                          catch error:badarg -> 
+                          try
+                              erlang:list_to_existing_atom(Val)
+                          catch error:badarg ->
                                     Val
                           end,Acc);
              ("address",Val,Acc) ->
@@ -328,11 +370,45 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
          end, #{}, Tx0),
     #{type:=Type}=Tx,
     R=case Type of
+		  <<"deploy">> ->
+			  #{sig:=Sig}=Tx,
+              lager:debug("tx ~p",[Tx]),
+			  [From, Timestamp, Seq, VMType, NewCode| State] = maps:get(tx,Tx),
+			  if is_integer(Timestamp) -> ok;
+				 true -> throw({bad_timestamp,Timestamp})
+			  end,
+			  if is_binary(From) -> ok;
+                 true -> throw({bad_type,from})
+              end,
+			  if is_binary(NewCode) -> ok;
+				 true -> throw({bad_type,code})
+			  end,
+			  if is_binary(VMType) -> ok;
+                 true -> throw({bad_type,deploy})
+              end,
+			  FTx=#{ type => Type,
+					 from => From,
+					 timestamp => Timestamp,
+					 seq => Seq,
+					 deploy => VMType,
+					 code => NewCode,
+					 sig => Sig
+				   },
+			  case State of
+				  [] -> FTx;
+				  [St] ->
+					  if is_binary(St) -> ok;
+						 true -> throw({bad_type,state})
+					  end,
+					  FTx#{state => St}
+			  end;
+
+
           tx -> %generic finance tx
               #{sig:=Sig}=Tx,
               lager:debug("tx ~p",[Tx]),
               [From,To,Amount, Cur, Timestamp, Seq, ExtraJSON] = maps:get(tx,Tx),
-              if is_integer(Timestamp) -> 
+              if is_integer(Timestamp) ->
                      ok;
                  true ->
                      throw({bad_timestamp,Timestamp})
@@ -421,7 +497,7 @@ rate1(#{extradata:=ED}, Cur, TxAmount, GetRateFun) ->
 	BaseEx=maps:get(<<"baseextra">>,Rates,0),
 	ExtCur=max(0,size(ED)-BaseEx),
 	Cost=Base+trunc(ExtCur*KB/1024),
-	{TxAmount >= Cost, 
+	{TxAmount >= Cost,
 	 #{ cur=>Cur,
 		cost=>Cost,
 		tip => max(0,TxAmount - Cost)
@@ -514,55 +590,83 @@ tx_jsondata_test() ->
 	 ?assertMatch({false,#{cost:=20,tip:=0}},rate(UTx2,GetRateFun))
 	].
 
+deploy_ledger_for_test(LedgerInit,TestFun) ->
+	NeedStop=case whereis(rdb_dispatcher) of
+				 P1 when is_pid(P1) -> false;
+				 undefined ->
+					 {ok,P1}=rdb_dispatcher:start_link(),
+					 P1
+			 end,
+	Ledger=case whereis(ledger) of
+			   P when is_pid(P) -> false;
+			   undefined ->
+				   {ok,P}=ledger:start_link(
+							[{filename, "db/ledger_txtest"}]
+						   ),
+				   gen_server:call(P, '_flush'),
+				   gen_server:call(P, {put, LedgerInit}),
+				   P
+		   end,
+
+	Res=try
+			TestFun()
+		after
+				  if Ledger == false -> ok;
+					 true -> gen_server:stop(Ledger, normal, 3000)
+				  end,
+				  if NeedStop==false -> ok;
+					 true -> gen_server:stop(NeedStop, normal, 3000)
+				  end
+		end,
+	Res.
+
 digaddr_tx_test() ->
     Priv= <<194,124,65,109,233,236,108,24,50,151,189,216,
             123,142,115,120,124,240,248,115, 150,54,239,
             58,218,221,145,246,158,15,210,165>>,
     PubKey=tpecdsa:calc_pub(Priv,true),
     From=(naddress:construct_public(0,0,1)),
-    To=(naddress:construct_public(0,0,2)),
+	Test=fun() ->
+				 To=(naddress:construct_public(0,0,2)),
+				 TestTx2=#{ from=>From,
+							to=>To,
+							cur=><<"tkn1">>,
+							amount=>1244327463428479872,
+							timestamp => os:system_time(millisecond),
+							seq=>1
+						  },
+				 BinTx2=tx:sign(TestTx2, Priv),
+				 BinTx2r=tx:pack(tx:unpack(BinTx2)),
+				 {ok, CheckTx2}=tx:verify(BinTx2),
+				 {ok, CheckTx2r}=tx:verify(BinTx2r),
+				 CheckTx2=CheckTx2r
+		 end,
+	Ledger=[ {From, bal:put(pubkey,PubKey,bal:new()) } ],
+	deploy_ledger_for_test(Ledger, Test).
 
-    NeedStop=case whereis(rdb_dispatcher) of
-                 P1 when is_pid(P1) -> false;
-                 undefined -> 
-                     {ok,P1}=rdb_dispatcher:start_link(),
-                     P1
-             end,
-    Ledger=case whereis(ledger) of
-               P when is_pid(P) -> false;
-               undefined -> 
-                   {ok,P}=ledger:start_link(
-                              [{filename, "db/ledger_txtest"}]
-                             ),
-                   gen_server:call(P, '_flush'),
-                   gen_server:call(P,
-                                   {put, [
-                                          {From,
-                                           bal:put(pubkey,PubKey,bal:new())
-                                          }
-                                         ]}),
+deploy_test() ->
+	Priv= <<194,124,65,109,233,236,108,24,50,151,189,216,
+			123,142,115,120,124,240,248,115, 150,54,239,
+			58,218,221,145,246,158,15,210,165>>,
+	PubKey=tpecdsa:calc_pub(Priv,true),
+	From=(naddress:construct_public(0,0,1)),
+	Test=fun() ->
+				 TestTx2=#{ from=>From,
+							deploy=><<"chainfee">>,
+							code=><<"code">>,
+							state=><<"">>,
+							timestamp => os:system_time(millisecond),
+							seq=>1
+						  },
+				 BinTx2=tx:sign(TestTx2, Priv),
+				 BinTx2r=tx:pack(tx:unpack(BinTx2)),
+				 {ok, CheckTx2}=tx:verify(BinTx2),
+				 {ok, CheckTx2r}=tx:verify(BinTx2r),
+				 CheckTx2=CheckTx2r
+		 end,
+	Ledger=[ {From, bal:put(pubkey,PubKey,bal:new()) } ],
+	deploy_ledger_for_test(Ledger, Test).
 
-                   P
-             end,
-     
-    TestTx2=#{ from=>From,
-               to=>To, 
-               cur=><<"tkn1">>,
-               amount=>1244327463428479872, 
-               timestamp => os:system_time(millisecond), 
-               seq=>1
-             },
-    BinTx2=tx:sign(TestTx2, Priv),
-    BinTx2r=tx:pack(tx:unpack(BinTx2)),
-    {ok, CheckTx2}=tx:verify(BinTx2),
-    {ok, CheckTx2r}=tx:verify(BinTx2r),
-    if Ledger == false -> ok;
-       true -> gen_server:stop(Ledger, normal, 3000)
-    end,
-    if NeedStop==false -> ok;
-       true -> gen_server:stop(NeedStop, normal, 3000)
-    end,
-    CheckTx2=CheckTx2r.
 
 new_tx_test() ->
     Priv=tpecdsa:generate_priv(),
@@ -571,17 +675,17 @@ new_tx_test() ->
     TestTx1=#{signature=>#{<<"a">>=><<"123">>},
               extdata=>#{<<"aaa">>=>111,222=><<"bbb">>},
               from=>From,
-              to=>To, 
+              to=>To,
               cur=>"CUR1",
               amount=>1, timestamp => os:system_time(millisecond), seq=>1},
     BinTx1=tx:sign(TestTx1, Priv),
     {ok, CheckTx1}=tx:verify(BinTx1),
 
     TestTx2=#{ from=>From,
-             to=>To, 
+             to=>To,
              cur=>"XCUR",
-             amount=>12344327463428479872, 
-             timestamp => os:system_time(millisecond), 
+             amount=>12344327463428479872,
+             timestamp => os:system_time(millisecond),
              seq=>1
              },
     BinTx2=tx:sign(TestTx2, Priv),
