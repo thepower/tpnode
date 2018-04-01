@@ -104,7 +104,20 @@ handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
 							 ])
 		   end,
 		   MarkTx=fun({TxID, TxB}) ->
-						  {TxID, tx:set_ext(origin,Origin,TxB)}
+						  TxB1=try
+								   {ok, Tx1} = tx:verify(TxB),
+								   Tx1
+							   catch _Ec:_Ee ->
+										 S=erlang:get_stacktrace(),
+										 lager:error("Error ~p:~p",[_Ec,_Ee]),
+										 lists:foreach(fun(SE) ->
+															   lager:error("@ ~p",[SE])
+													   end, S),
+										 TxB
+							   end,
+						  {TxID, 
+						   tx:set_ext(origin,Origin,TxB1)
+						  }
 				  end,
 		   {noreply,
 			case maps:get(parent, State, undefined) of
@@ -350,7 +363,7 @@ try_process([{TxID,
             #{failed:=Failed,
               settings:=Settings}=Acc) ->
     try
-        lager:error("Check signatures of patch "),
+		lager:notice("Ensure verified"),
         SS1=settings:patch({TxID,Tx},SetState),
         lager:info("Success Patch ~p against settings ~p",[_LPatch,SetState]),
         try_process(Rest,SS1,Addresses,GetFun,
@@ -412,7 +425,7 @@ try_process([{TxID,
              |Rest],
             SetState, Addresses, GetFun,
             #{success:=Success, failed:=Failed}=Acc) ->
-    lager:error("Check signature once again and check seq"),
+	lager:notice("Ensure verified"),
     try
 		throw('fixme'),
         Bals=maps:get(From,Addresses),
@@ -479,6 +492,7 @@ try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
             #{failed:=Failed,
               success:=Success,
               settings:=Settings }=Acc) ->
+	lager:notice("Ensure verified"),
     try
         {CG,CB,CA}=case settings:get([<<"current">>,<<"allocblock">>],SetState) of
                        #{<<"block">> := CurBlk,
@@ -669,7 +683,7 @@ try_process_local([{TxID,
                    |Rest],
                   SetState, Addresses, GetFun,
                   #{success:=Success, failed:=Failed}=Acc) ->
-    %lager:error("Check signature once again"),
+	lager:notice("Ensure verified"),
     FBal=maps:get(From,Addresses),
     TBal=maps:get(To,Addresses),
 	EnsureSettings=fun(undefined) -> GetFun(settings);
@@ -1137,7 +1151,88 @@ alloc_addr_test() ->
     ?assertMatch(#{bals:=#{<<128,1,64,0,2,0,0,1>>:=_,<<128,1,64,0,2,0,0,1>>:=_}}, Block)
     ].
 
+contract_test() ->
+	OurChain=150,
+	GetSettings=fun(mychain) -> OurChain;
+				   (settings) ->
+						#{
+					  chains => [OurChain],
+					  chain =>
+					  #{OurChain =>
+						#{blocktime => 5, minsig => 2, <<"allowempty">> => 0}
+					   },
+					  globals => #{<<"patchsigs">> => 2},
+					  keys =>
+					  #{
+						<<"node1">> => crypto:hash(sha256,<<"node1">>),
+						<<"node2">> => crypto:hash(sha256,<<"node2">>),
+						<<"node3">> => crypto:hash(sha256,<<"node3">>)
+					   },
+					  nodechain =>
+					  #{
+						<<"node1">> => OurChain,
+						<<"node2">> => OurChain,
+						<<"node3">> => OurChain
+					   },
+					  <<"current">> => #{
+						  <<"fee">> => #{
+							  params=>#{
+								<<"feeaddr">> => <<160,0,0,0,0,0,0,1>>,
+								<<"tipaddr">> => <<160,0,0,0,0,0,0,2>>
+							   },
+							  <<"TST">> => #{
+								  <<"base">> => 2,
+								  <<"baseextra">> => 64, 
+								  <<"kb">> => 20
+								 },
+							  <<"FTT">> => #{
+								  <<"base">> => 1,
+								  <<"baseextra">> => 64, 
+								  <<"kb">> => 10
+								 }
+							 }
+						 }
+					 };
+				   ({endless,_Address,_Cur}) ->
+						false;
+				   ({valid_timestamp,TS}) ->
+						abs(os:system_time(millisecond)-TS)<3600000 
+						orelse
+						abs(os:system_time(millisecond)-(TS-86400000))<3600000; 
+				   (Other) ->
+						error({bad_setting,Other})
+				end,
+    GetAddr=fun test_getaddr/1,
 
+    Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,
+			248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
+    ParentHash=crypto:hash(sha256,<<"parent">>),
+	SG=3,
+
+	TX0=tx:unpack( 
+		  tx:sign(
+			#{
+			from=>naddress:construct_public(SG,OurChain,3),
+			deploy=><<"chainfee">>,
+			code=><<"">>,
+			state=><<>>,
+			seq=>2,
+			timestamp=>os:system_time(millisecond)
+		   },Pvt1)
+		 ),
+	#{block:=Block,
+	  failed:=Failed}=generate_block(
+						[
+						 {<<"0deploy">>,TX0}
+						],
+						{1,ParentHash},
+						GetSettings,
+						GetAddr,
+					   []),
+
+	Success=proplists:get_keys(maps:get(txs,Block)),
+	{ Success, Failed}.
+	
 mkblock_test() ->
     OurChain=5,
 	GetSettings=fun(mychain) ->

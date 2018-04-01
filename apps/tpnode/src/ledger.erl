@@ -19,6 +19,7 @@
          start_link/1,
          put/1,put/2,
          check/1,check/2,
+		 deploy4test/2,
          get/1,restore/2,tpic/2]).
 
 %% ------------------------------------------------------------------
@@ -310,6 +311,36 @@ format_status(_Opt, [_PDict,State]) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+deploy4test(LedgerInit,TestFun) ->
+	NeedStop=case whereis(rdb_dispatcher) of
+				 P1 when is_pid(P1) -> false;
+				 undefined ->
+					 {ok,P1}=rdb_dispatcher:start_link(),
+					 P1
+			 end,
+	Ledger=case whereis(ledger) of
+			   P when is_pid(P) -> false;
+			   undefined ->
+				   {ok,P}=ledger:start_link(
+							[{filename, "db/ledger_txtest"}]
+						   ),
+				   gen_server:call(P, '_flush'),
+				   gen_server:call(P, {put, LedgerInit}),
+				   P
+		   end,
+
+	Res=try
+			TestFun()
+		after
+				  if Ledger == false -> ok;
+					 true -> gen_server:stop(Ledger, normal, 3000)
+				  end,
+				  if NeedStop==false -> ok;
+					 true -> gen_server:stop(NeedStop, normal, 3000)
+				  end
+		end,
+	Res.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

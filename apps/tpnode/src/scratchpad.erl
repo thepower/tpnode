@@ -193,32 +193,6 @@ test_sign_patch() ->
     {Patch,
     gen_server:call(txpool, {patch, Patch})}.
 
-outbound_tx() ->
-    Pvt=address:parsekey(<<"5Kh9DfFypQNSd1GbGYNuHXsuaRcKVfcAWkrEQDJUMEZfi7yrvzm">>),
-    Pub=tpecdsa:secp256k1_ec_pubkey_create(Pvt, false),
-    From=address:pub2caddr(0,Pub),
-
-    Pvt2=address:parsekey(<<"5JNg2WK9RUjxDranifcaTHrk5nGDnb1Pp2yq9Xfz3Arm6g93uCA">>),
-    Pub2=tpecdsa:secp256k1_ec_pubkey_create(Pvt2, true),
-    To=address:pub2caddr(1,Pub2),
-
-    Cur= <<"FTT">>,
-    Tx=#{
-      amount=>3.34,
-      seq=>19,
-      cur=>Cur,
-      extradata=>jsx:encode(#{
-                   message=><<"send pi ftt">>
-                  }),
-      from=>From,
-      to=>To,
-      timestamp=>os:system_time(millisecond)
-     },
-    NewTx=tx:sign(Tx,Pvt),
-    %tx:unpack(NewTx).
-    txpool:new_tx(NewTx).
-
-
 getpvt(Id) ->
     {ok, Pvt}=file:read_file(<<"tmp/addr",(integer_to_binary(Id))/binary,".bin">>),
     Pvt.

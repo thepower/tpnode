@@ -190,48 +190,6 @@ h(<<"GET">>, [<<"settings">>], _Req) ->
       }
     };
 
-
-h(<<"POST">>, [<<"benchmark">>,N], _Req) ->
-    Addresses=lists:map(
-        fun(_) ->
-                address:pub2addr(0,crypto:strong_rand_bytes(16))
-        end, lists:seq(1, binary_to_integer(N))),
-    {ok,Config}=application:get_env(tpnode,tpfaucet),
-    Tokens=proplists:get_value(tokens,Config),
-    Coin= <<"FTT">>,
-    #{key:=Key, addr:=Adr}=proplists:get_value(Coin,Tokens,undefined),
-    #{seq:=Seq0}=gen_server:call(blockchain,{get_addr,Adr,Coin}),
-    BinKey=address:parsekey(Key),
-
-    {_,Res}=lists:foldl(fun(Address,{Seq,Acc}) ->
-                                Tx=#{
-                                  amount=>1,
-                                  cur=>Coin,
-                                  extradata=>jsx:encode(#{
-                                               message=> <<"Preved, ", Address/binary>>
-                                              }),
-                                  from=>Adr,
-                                  to=>Address,
-                                  seq=>Seq,
-                                  timestamp=>os:system_time(millisecond)
-                                 },
-                                NewTx=tx:sign(Tx,BinKey),
-                                case txpool:new_tx(NewTx) of
-                                    {ok, TxID} ->
-                                        {Seq+1,
-                                         [#{addr=>Address,tx=>TxID}|Acc]
-                                        };
-                                    {error, Error} ->
-                                        lager:error("Can't make tx: ~p",[Error]),
-                                        {Seq+1,Acc}
-                                end
-                        end,{Seq0+1,[]},Addresses),
-        {200,
-     #{ result => <<"ok">>,
-        address=>Res
-      }
-    };
-
 h(<<"GET">>, [<<"give">>,<<"me">>,<<"money">>,<<"to">>,Address], Req) ->
     {RemoteIP,_Port}=cowboy_req:peer(Req),
     {ok,Config}=application:get_env(tpnode,tpfaucet),

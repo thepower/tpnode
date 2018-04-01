@@ -53,9 +53,15 @@ mkmsg(#{ from:=From,
 	if is_binary(VMType) -> ok;
 	   true -> throw('non_bin_vmtype')
 	end,
-    if is_binary(NewCode) -> ok;
+	if is_binary(NewCode) -> ok;
        true -> throw('non_bin_code')
     end,
+	try
+		erlang:binary_to_existing_atom(<<"contract_",VMType/binary>>,utf8)
+	catch error:badarg ->
+			  throw('unknown_vmtype')
+	end,
+
 	TB=case maps:is_key(state, Tx) of
 		   true ->
 			   State=maps:get(state,Tx),
@@ -225,6 +231,9 @@ verify(#{
                   }
             }
     end;
+
+verify(#{patch:=_,sig:=_}=Patch) ->
+	settings:verify(Patch);
 
 verify(Bin) when is_binary(Bin) ->
     Tx=unpack(Bin),
@@ -590,36 +599,6 @@ tx_jsondata_test() ->
 	 ?assertMatch({false,#{cost:=20,tip:=0}},rate(UTx2,GetRateFun))
 	].
 
-deploy_ledger_for_test(LedgerInit,TestFun) ->
-	NeedStop=case whereis(rdb_dispatcher) of
-				 P1 when is_pid(P1) -> false;
-				 undefined ->
-					 {ok,P1}=rdb_dispatcher:start_link(),
-					 P1
-			 end,
-	Ledger=case whereis(ledger) of
-			   P when is_pid(P) -> false;
-			   undefined ->
-				   {ok,P}=ledger:start_link(
-							[{filename, "db/ledger_txtest"}]
-						   ),
-				   gen_server:call(P, '_flush'),
-				   gen_server:call(P, {put, LedgerInit}),
-				   P
-		   end,
-
-	Res=try
-			TestFun()
-		after
-				  if Ledger == false -> ok;
-					 true -> gen_server:stop(Ledger, normal, 3000)
-				  end,
-				  if NeedStop==false -> ok;
-					 true -> gen_server:stop(NeedStop, normal, 3000)
-				  end
-		end,
-	Res.
-
 digaddr_tx_test() ->
     Priv= <<194,124,65,109,233,236,108,24,50,151,189,216,
             123,142,115,120,124,240,248,115, 150,54,239,
@@ -642,7 +621,26 @@ digaddr_tx_test() ->
 				 CheckTx2=CheckTx2r
 		 end,
 	Ledger=[ {From, bal:put(pubkey,PubKey,bal:new()) } ],
-	deploy_ledger_for_test(Ledger, Test).
+	ledger:deploy4test(Ledger, Test).
+
+patch_test() ->
+    Priv= <<194,124,65,109,233,236,108,24,50,151,189,216,
+            123,142,115,120,124,240,248,115, 150,54,239,
+            58,218,221,145,246,158,15,210,165>>,
+    Patch=settings:sign(
+            settings:dmp(
+              settings:mp(
+                [
+                 #{t=>set,p=>[current,fee,params,<<"feeaddr">>], v=><<160,0,0,0,0,0,0,1>>},
+                 #{t=>set,p=>[current,fee,params,<<"tipaddr">>], v=><<160,0,0,0,0,0,0,2>>},
+                 #{t=>set,p=>[current,fee,params,<<"notip">>], v=>0},
+                 #{t=>set,p=>[current,fee,<<"FTT">>,<<"base">>], v=>trunc(1.0e7)},
+                 #{t=>set,p=>[current,fee,<<"FTT">>,<<"baseextra">>], v=>64},
+                 #{t=>set,p=>[current,fee,<<"FTT">>,<<"kb">>], v=>trunc(1.0e9)}
+                ])),
+      Priv),
+    io:format("PK ~p~n",[settings:verify(Patch)]),
+    tx:verify(Patch).
 
 deploy_test() ->
 	Priv= <<194,124,65,109,233,236,108,24,50,151,189,216,
@@ -654,7 +652,7 @@ deploy_test() ->
 				 TestTx2=#{ from=>From,
 							deploy=><<"chainfee">>,
 							code=><<"code">>,
-							state=><<"">>,
+							state=><<"state">>,
 							timestamp => os:system_time(millisecond),
 							seq=>1
 						  },
@@ -662,10 +660,13 @@ deploy_test() ->
 				 BinTx2r=tx:pack(tx:unpack(BinTx2)),
 				 {ok, CheckTx2}=tx:verify(BinTx2),
 				 {ok, CheckTx2r}=tx:verify(BinTx2r),
-				 CheckTx2=CheckTx2r
+				 [
+				  ?assertEqual(CheckTx2,CheckTx2r),
+				  ?assertEqual(maps:without([sigverify],CheckTx2r),tx:unpack(BinTx2))
+				 ]
 		 end,
 	Ledger=[ {From, bal:put(pubkey,PubKey,bal:new()) } ],
-	deploy_ledger_for_test(Ledger, Test).
+	ledger:deploy4test(Ledger, Test).
 
 
 new_tx_test() ->
