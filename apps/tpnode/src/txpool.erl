@@ -37,6 +37,7 @@ init(_Args) ->
     {ok, #{
        queue=>queue:new(),
        nodeid=>nodekey:node_id(),
+	   pubkey=>nodekey:get_pub(),
        inprocess=>hashqueue:new()
       }}.
 
@@ -139,13 +140,13 @@ handle_cast({inbound_block, #{hash:=Hash}=Block}, #{queue:=Queue}=State) ->
                }
     };
 
-handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue,nodeid:=Node}=State) ->
-    %case hashqueue:head(InProc0) of
-    %    empty -> ok;
-    %    _ -> lager:info("Still in process ~p",[InProc0])
-    %end,
+handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue}=State) ->
+	{Queue1,Res}=pullx(2048,Queue,[]),
+	PK=case maps:get(pubkey, State, undefined) of
+		   undefined -> nodekey:get_pub();
+		   FoundKey -> FoundKey
+	   end,
 
-    {Queue1,Res}=pullx(2048,Queue,[]),
 	try
 		PreSig=maps:merge(
 				 gen_server:call(blockchain, lastsig),
@@ -153,54 +154,45 @@ handle_cast(prepare, #{mychain:=MyChain,inprocess:=InProc0,queue:=Queue,nodeid:=
 				   chain=>MyChain
 				  }),
 		MResX=msgpack:pack(PreSig),
-		gen_server:cast(mkblock, {tpic, self(), MResX}),
+		gen_server:cast(mkblock, {tpic, PK, MResX}),
 		tpic:cast(tpic,<<"mkblock">>,MResX)
-    catch _:_ ->
-              Stack1=erlang:get_stacktrace(),
-              lager:error("Can't send xsig ~p",[Stack1])
+	catch _:_ ->
+			  Stack1=erlang:get_stacktrace(),
+			  lager:error("Can't send xsig ~p",[Stack1])
 	end,
 
-    try
+	try
+		MRes=msgpack:pack(#{null=><<"mkblock">>,
+							chain=>MyChain,
+							txs=>maps:from_list(
+								   lists:map(
+									 fun({TxID,T}) ->
+											 {TxID,tx:pack(T)}
+									 end, Res)
+								  )
+						   }),
+		gen_server:cast(mkblock, {tpic, PK, MRes}),
+		tpic:cast(tpic,<<"mkblock">>,MRes)
+	catch _:_ ->
+			  Stack2=erlang:get_stacktrace(),
+			  lager:error("Can't encode at ~p",[Stack2])
+	end,
 
-        MRes=msgpack:pack(#{null=><<"mkblock">>,
-                            chain=>MyChain,
-                            origin=>Node,
-                            txs=>maps:from_list(
-                                   lists:map(
-                                     fun({TxID,T}) ->
-                                             {TxID,tx:pack(T)}
-                                     end, Res)
-                                  )
-                           }),
-        tpic:cast(tpic,<<"mkblock">>,MRes)
-        %lager:info("Cast ~p ~p",[MKb,msgpack:unpack(MRes)])
-    catch _:_ ->
-              Stack2=erlang:get_stacktrace(),
-              lager:error("Can't encode at ~p",[Stack2])
-    end,
-
-    %lists:foreach(
-    %  fun(Pid)->
-    %          %lager:info("Prepare to ~p",[Pid]),
-    %          gen_server:cast(Pid, {prepare, Node, Res})
-    %  end,
-    %  pg2:get_members({mkblock,MyChain})
-    % ),
-    gen_server:cast(mkblock, {prepare, Node, Res}),
-    Time=erlang:system_time(seconds),
-    {InProc1,Queue2}=recovery_lost(InProc0,Queue1,Time),
-    ETime=Time+20,
-    {noreply, State#{
-                queue=>Queue2,
-                inprocess=>lists:foldl(
-                             fun({TxId,TxBody},Acc) ->
-                                     hashqueue:add(TxId,ETime,TxBody,Acc)
-                             end,
-                             InProc1,
-                             Res
-                            )
-               }
-    };
+	%gen_server:cast(mkblock, {prepare, PK, Res}),
+	Time=erlang:system_time(seconds),
+	{InProc1,Queue2}=recovery_lost(InProc0,Queue1,Time),
+	ETime=Time+20,
+	{noreply, State#{
+				queue=>Queue2,
+				inprocess=>lists:foldl(
+							 fun({TxId,TxBody},Acc) ->
+									 hashqueue:add(TxId,ETime,TxBody,Acc)
+							 end,
+							 InProc1,
+							 Res
+							)
+			   }
+	};
 
 handle_cast(prepare, State) ->
     lager:notice("TXPOOL Blocktime, but I not ready"),

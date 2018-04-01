@@ -59,51 +59,72 @@ handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
             {noreply, State}
     end;
 
-handle_cast({tpic, _From, #{
+handle_cast({tpic, FromKey, #{
                      null:=<<"mkblock">>,
 					 <<"hash">> := ParentHash,
-					 <<"origin">> := Origin, 
 					 <<"signed">> := SignedBy
                     }}, State)  ->
-	lager:debug("MB got XSig ~s ~p",[Origin,SignedBy]),
-	PreSig=maps:get(presig,State,#{}),
-	{noreply,
-	 State#{
-	   presig=>maps:put(Origin, {ParentHash, SignedBy}, PreSig)
-	  }};
+	Origin=gen_server:call(blockchain,{is_our_node,FromKey}),
+	lager:debug("MB presig got ~s ~p",[Origin,SignedBy]),
+	if Origin==false ->
+		   {noreply, State};
+	   true ->
+		   PreSig=maps:get(presig,State,#{}),
+		   {noreply,
+			State#{
+			  presig=>maps:put(Origin, {ParentHash, SignedBy}, PreSig)
+			 }}
+	end;
 
-handle_cast({tpic, _From, #{
+handle_cast({tpic, Origin, #{
                      null:=<<"mkblock">>,
                      <<"chain">>:=_MsgChain,
-                     <<"origin">>:=Origin,
                      <<"txs">>:=TPICTXs
                     }}, State)  ->
-    TXs=decode_tpic_txs(TPICTXs),
-    if TXs==[] -> ok;
-       true ->
-           lager:info("Got txs from ~s: ~p",[Origin, TXs])
-    end,
-    handle_cast({prepare, Origin, TXs}, State);
+	TXs=decode_tpic_txs(TPICTXs),
+	if TXs==[] -> ok;
+	   true ->
+		   lager:info("Got txs from ~s: ~p",[Origin, TXs])
+	end,
+	handle_cast({prepare, Origin, TXs}, State);
 
-handle_cast({prepare, _Node, Txs}, #{preptxl:=PreTXL}=State) ->
-    {noreply,
-     case maps:get(parent, State, undefined) of
-         undefined ->
-             #{header:=#{height:=Last_Height},hash:=Last_Hash}=gen_server:call(blockchain,last_block),
-             State#{
-               preptxl=>PreTXL++Txs,
-               parent=>{Last_Height,Last_Hash}
-              };
-         _ ->
-             State#{ preptxl=>PreTXL++Txs }
-     end
-    };
+handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
+	Origin=gen_server:call(blockchain,{is_our_node,Node}),
+	if Origin==false ->
+		   lager:error("Got txs from bad node ~s",
+					   [bin2hex:dbin2hex(Node)]),
+		   {noreply, State};
+	   true ->
+		   if Txs==[] -> ok;
+			  true ->
+				  lager:info("TXs from node ~s: ~p",
+							 [
+							  Origin,
+							  length(Txs)
+							 ])
+		   end,
+		   MarkTx=fun({TxID, TxB}) ->
+						  {TxID, tx:set_ext(origin,Origin,TxB)}
+				  end,
+		   {noreply,
+			case maps:get(parent, State, undefined) of
+				undefined ->
+					#{header:=#{height:=Last_Height},hash:=Last_Hash}=gen_server:call(blockchain,last_block),
+					State#{
+					  preptxl=>PreTXL++lists:map(MarkTx, Txs),
+					  parent=>{Last_Height,Last_Hash}
+					 };
+				_ ->
+					State#{ preptxl=>PreTXL++lists:map(MarkTx, Txs) }
+			end
+		   }
+	end;
 
 handle_cast(settings, State) ->
     {noreply, load_settings(State)};
 
 handle_cast(_Msg, State) ->
-    lager:info("unknown cast ~p",[_Msg]),
+    lager:info("MB unknown cast ~p",[_Msg]),
     {noreply, State}.
 
 handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=State) ->
@@ -126,9 +147,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
 				(Node1,{_BH,Nodes2},Acc) ->
 					 [{Node1, Nodes2}|Acc]
 			 end,[], PreSig),
-		Clique=bron_kerbosch:max_clique(BK),
-		lager:info("MB Presig ~p",[Clique]),
-		Clique
+		bron_kerbosch:max_clique(BK)
 	catch Ec:Ee ->
 			  Stack1=erlang:get_stacktrace(),
 			  lager:error("Can't calc xsig ~p:~p ~p",[Ec,Ee,Stack1]),
@@ -140,6 +159,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
           true -> ok
         end,
         T1=erlang:system_time(),
+		lager:notice("MB pre nodes ~p",[PreNodes]),
 
         PropsFun=fun(mychain) ->
                          MyChain;
@@ -802,7 +822,7 @@ load_settings(State) ->
                  )
      }.
 
-generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,_ExtraData) ->
+generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData) ->
 	%file:write_file("tmp/tx.txt", io_lib:format("~p.~n",[PreTXL])),
 	_T1=erlang:system_time(),
 	TXL=lists:usort(PreTXL),
@@ -934,8 +954,8 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,_ExtraData
 									[{PickID,
 									  proplists:get_value(PickID,TXL)
 									 }|Acc]
-							end, [], maps:keys(PickBlocks))
-
+							end, [], maps:keys(PickBlocks)),
+		  extdata=>ExtraData
 		 }),
 	_T6=erlang:system_time(),
 	lager:info("Created block ~w ~s: txs: ~w, bals: ~w, LH: ~s, chain ~p",

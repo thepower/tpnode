@@ -27,8 +27,6 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-    pg2:create(?MODULE),
-    pg2:join(?MODULE,self()),
     gen_server:cast(self(),settings),
     {ok, #{
        myoffset=>undefined,
@@ -120,7 +118,6 @@ handle_info(ticktimer,
 
 handle_info(selftimer5, #{mychain:=_MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs}=State) ->
     Friends=maps:keys(Offs), 
-    %pg2:get_members({synchronizer,MyChain})--[self()],
     {Avg,Off2}=lists:foldl(
           fun(Friend,{Acc,NewOff}) ->
                   case maps:get(Friend,Offs,undefined) of
@@ -189,20 +186,10 @@ median(List) ->
     end.
 
 
-load_settings(#{tickms:=Time}=State) ->
-    BlockTime=blockchain:get_settings(blocktime,Time div 1000),
-    MyChain=blockchain:get_settings(chain,0),
-    case maps:get(mychain, State, undefined) of
-        undefined -> %join new pg2
-            pg2:create({?MODULE,MyChain}),
-            pg2:join({?MODULE,MyChain},self());
-        MyChain -> ok; %nothing changed
-        OldChain -> %leave old, join new
-            pg2:leave({?MODULE,OldChain},self()),
-            pg2:create({?MODULE,MyChain}),
-            pg2:join({?MODULE,MyChain},self())
-    end,
-    BCReady=try
+load_settings(State) ->
+    BlockTime=blockchain:get_mysettings(blocktime),
+    MyChain=blockchain:get_mysettings(chain),
+	BCReady=try
                 gen_server:call(blockchain,ready,50)
             catch Ec:Ee ->
                       lager:error("SYNC BC is not ready err ~p:~p ",[Ec,Ee]),

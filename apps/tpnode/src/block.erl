@@ -81,6 +81,12 @@ prepack(Block) ->
 						throw({dont_know_how_to_pack,Any})
 				end, Txp
 			   );
+		 (extdata,ED) ->
+			  lists:map(
+				fun({Key,Val}) ->
+						[Key,Val]
+				end, ED
+			   );
 		 (txs,Txs) ->
 			  lists:map(
 				fun({TxID,T}) ->
@@ -139,6 +145,11 @@ unpack(Block) when is_binary(Block) ->
                         fun([TxID,Tx]) ->
                                 {TxID, tx:unpack(Tx)}
                         end, TXs);
+                  (extdata,ED) ->
+                      lists:map(
+                        fun([Key,Val]) ->
+                                {Key, Val}
+                        end, ED);
                   (inbound_blocks,Blocks) ->
                       lists:map(
                         fun({TxID,T}) ->
@@ -336,17 +347,23 @@ mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }
                            end, List),
                    maps:put(tx_proof,Proof,Block)
            end,
-    case maps:get(inbound_blocks, Req, []) of
-               [] ->
-                   Block1;
-               List2 ->
-                   maps:put(inbound_blocks,
-                            lists:map(
-                              fun({InBlId, InBlk}) ->
-                                      {InBlId, maps:remove(txs,InBlk)} 
-                              end,List2),
-                            Block1)
-           end;
+	Block2=case maps:get(inbound_blocks, Req, []) of
+			   [] ->
+				   Block1;
+			   List2 ->
+				   maps:put(inbound_blocks,
+							lists:map(
+							  fun({InBlId, InBlk}) ->
+									  {InBlId, maps:remove(txs,InBlk)} 
+							  end,List2),
+							Block1)
+		   end,
+	case maps:get(extdata, Req, []) of
+		[] ->
+			Block2;
+		List3 ->
+			maps:put(extdata,List3,Block2)
+	end;
 
 mkblock(Blk) ->
     case maps:is_key(settings,Blk) of

@@ -127,8 +127,6 @@ handle_info(init, undefined) ->
     LastBlock=gen_server:call(blockchain,last_block),
     lager:info("BV My last block hash ~s",
                [bin2hex:dbin2hex(maps:get(hash,LastBlock))]),
-    pg2:create(blockvote),
-    pg2:join(blockvote,self()),
     Res=#{
       candidatesig=>#{},
       candidates=>#{},
@@ -247,19 +245,9 @@ is_block_ready(BlockHash, State) ->
 	end.
 
 load_settings(State) ->
-    MyChain=blockchain:get_settings(chain,0),
-    MinSig=blockchain:get_settings(minsig,2),
-    case maps:get(mychain, State, undefined) of
-        undefined -> %join new pg2
-            pg2:create({?MODULE,MyChain}),
-            pg2:join({?MODULE,MyChain},self());
-        MyChain -> ok; %nothing changed
-        OldChain -> %leave old, join new
-            pg2:leave({?MODULE,OldChain},self()),
-            pg2:create({?MODULE,MyChain}),
-            pg2:join({?MODULE,MyChain},self())
-    end,
-    LastBlock=gen_server:call(blockchain,last_block),
+    MyChain=blockchain:get_mysettings(chain),
+    MinSig=blockchain:get_mysettings(minsig),
+	LastBlock=gen_server:call(blockchain,last_block),
     lager:info("BV My last block hash ~s",
                [bin2hex:dbin2hex(maps:get(hash,LastBlock))]),
     State#{

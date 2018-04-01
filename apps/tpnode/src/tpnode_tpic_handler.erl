@@ -27,6 +27,10 @@ handle_tpic(From, mkblock, <<"beacon">>, Beacon, _State) ->
 	gen_server:cast(topology, {tpic, From, Beacon}),
 	ok;
 
+handle_tpic(_From, mkblock, <<>>, Payload, #{authdata:=AD}=_State) ->
+    gen_server:cast(mkblock,{tpic,proplists:get_value(pubkey,AD),Payload}),
+	ok;
+
 handle_tpic(_From, service, <<"discovery">>, Payload, _State) ->
     lager:debug("Service discovery ~p",[Payload]),
     gen_server:cast(discovery, {got_announce, Payload}),

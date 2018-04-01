@@ -174,24 +174,32 @@ handle_call(lastsig, _From, #{myname:=MyName,
 							  chainnodes:=CN,
 							  lastblock:=#{hash:=H,sign:=Sig}
 							 }=State) ->
-	SS=lists:foldl(
-		 fun(#{extra:=PL},Acc) ->
-				 case proplists:get_value(pubkey,PL,undefined) of
-					 undefined -> Acc;
-					 BinKey ->
-						 case maps:get(BinKey,CN,undefined) of
-							 undefined -> Acc;
-							 NodeID -> 
-								 [NodeID|Acc]
-						 end
-				 end
-		 end,
-		 [],
-		 Sig
-		),
+	SS=try
+		   lists:foldl(
+			 fun(#{extra:=PL},Acc) ->
+					 case proplists:get_value(pubkey,PL,undefined) of
+						 undefined -> Acc;
+						 BinKey ->
+							 case maps:get(BinKey,CN,undefined) of
+								 undefined -> Acc;
+								 NodeID ->
+									 [NodeID|Acc]
+							 end
+					 end
+			 end,
+			 [],
+			 Sig
+			)
+	   catch _:_ -> []
+	   end,
     {reply, #{hash=>H,
 			  origin=>MyName,
 			  signed=>SS}, State};
+
+handle_call({is_our_node, PubKey}, _From,
+			#{chainnodes:=CN}=State) ->
+	Res=maps:get(PubKey,CN,false),
+	{reply, Res, State};
 
 handle_call(last_block, _From, #{lastblock:=LB}=State) ->
     {reply, LB, State};
@@ -244,6 +252,18 @@ handle_call({settings,signature}, _From, #{settings:=Settings}=State) ->
 handle_call(state, _From, State) ->
     {reply, State, State};
 
+handle_call(saveset, _From, #{settings:=Settings}=State) ->
+	file:write_file("tmp/settings.dump",
+					io_lib:format("~p.~n",[Settings])),
+    {reply, Settings, State};
+
+handle_call(restoreset, _From, #{ldb:=LDB}=State) ->
+	{ok,[S1]}=file:consult("tmp/settings.dump"),
+	true=is_map(S1),
+	save_sets(LDB, S1),
+	notify_settings(),
+    {reply, S1, State#{settings=>S1}};
+
 handle_call(_Request, _From, State) ->
     {reply, unhandled_call, State}.
 
@@ -287,7 +307,7 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
           _ ->
               #{ error => unknown }
       end,
-        
+
     tpic:cast(tpic,Origin,
               msgpack:pack(
                 maps:merge(
@@ -299,14 +319,14 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
     {noreply, State};
 
 
-handle_cast({tpic, Origin, #{null:=<<"instant_sync_run">>}}, 
+handle_cast({tpic, Origin, #{null:=<<"instant_sync_run">>}},
             #{settings:=Settings, lastblock:=LastBlock}=State) ->
     lager:info("Starting instant sync source"),
     ledger_sync:run_source(tpic, Origin, LastBlock, Settings),
     {noreply, State};
 
 
-handle_cast({tpic, Origin, #{null:=<<"sync_request">>}}, 
+handle_cast({tpic, Origin, #{null:=<<"sync_request">>}},
             #{lastblock:=#{hash:=Hash,header:=#{height:=Height}},
               mychain:=MyChain
              }=State) ->
@@ -405,7 +425,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
         case block:verify(Blk) of
             false ->
 				T1=erlang:system_time(),
-				file:write_file("tmp/bad_block_"++integer_to_list(maps:get(height,maps:get(header,Blk)))++".txt", 
+				file:write_file("tmp/bad_block_"++integer_to_list(maps:get(height,maps:get(header,Blk)))++".txt",
 								io_lib:format("~p.~n", [Blk])),
                 lager:info("Got bad block from ~p New block ~w arrived ~s, verify (~.3f ms)",
                    [FromNode,maps:get(height,maps:get(header,Blk)),
@@ -566,7 +586,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
     end;
 
 handle_cast({tpic,Peer,#{null := <<"sync_done">>}},
-            #{ldb:=LDB, settings:=Set, 
+            #{ldb:=LDB, settings:=Set,
               sync:=SyncPeer}=State) when Peer==SyncPeer ->
     %save_bals(LDB, Tbl),
     save_sets(LDB, Set),
@@ -762,7 +782,7 @@ handle_info({b2b_sync, Hash}, #{
                     end,
                     {noreply, State}
             end;
-        _ -> 
+        _ ->
             erlang:send_after(10000,self(),runsync),
             {noreply, State}
     end;
@@ -771,7 +791,7 @@ handle_info(checksync, #{
 			  lastblock:=#{header:=#{height:=MyHeight},hash:=_MyLastHash}
 			 }=State) ->
 	Candidates=lists:reverse(
-				 tpiccall(<<"blockchain">>, 
+				 tpiccall(<<"blockchain">>,
 						  #{null=><<"sync_request">>},
 						  [last_hash,last_height,chain]
 						 )),
@@ -805,7 +825,7 @@ handle_info(runsync, #{
              }=State) ->
     %State1=run_sync(State),
     Candidates=lists:reverse(
-                 tpiccall(<<"blockchain">>, 
+                 tpiccall(<<"blockchain">>,
                           #{null=><<"sync_request">>},
                           [last_hash,last_height,chain]
                          )),
@@ -868,7 +888,7 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-format_status(_Opt, [_PDict,State]) -> 
+format_status(_Opt, [_PDict,State]) ->
     State#{
       ldb=>handler
      }.
@@ -1088,8 +1108,8 @@ tpiccall(Handler, Object, Atoms) ->
     Res=tpic:call(tpic, Handler, msgpack:pack(Object)),
     lists:filtermap(
       fun({Peer, Bin}) ->
-              case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of 
-                  {ok, Decode} -> 
+              case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of
+                  {ok, Decode} ->
                       {true, {Peer, Decode}};
                   _ -> false
               end
