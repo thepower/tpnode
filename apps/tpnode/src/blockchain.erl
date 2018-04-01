@@ -667,7 +667,7 @@ handle_cast({tpic,Peer,#{null := <<"sync_suspend">>,
 handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
     case msgpack:unpack(Bin,[]) of
         {ok, Struct} ->
-            lager:info("Inbound TPIC ~p",[maps:get(null,Struct)]),
+            lager:debug("Inbound TPIC ~p",[maps:get(null,Struct)]),
             handle_cast({tpic, From, Struct}, State);
         _Any ->
             lager:info("Can't decode  TPIC ~p",[_Any]),
