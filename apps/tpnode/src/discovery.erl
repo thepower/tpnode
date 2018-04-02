@@ -144,6 +144,10 @@ handle_call({lookup, Pred}, _From, State) when is_function(Pred) ->
 handle_call({lookup, Name}, _From, State) ->
     {reply, query(Name, State), State};
 
+handle_call({lookup, Name, Chain}, _From, State) ->
+    {reply, query(Name, Chain, State), State};
+
+
 handle_call(_Request, _From, State) ->
     lager:notice("Unknown call ~p", [_Request]),
     {reply, ok, State}.
@@ -155,29 +159,34 @@ handle_cast(make_announce, #{local_services:=Dict} = State) ->
     {noreply, State};
 
 
-handle_cast({got_announce, AnnounceBin}, #{remote_services:=Dict} = State) ->
+handle_cast({got_announce, AnnounceBin}, State) ->
 %%    lager:debug("Got service announce ~p", [AnnounceBin]),
     try
-        {ok, Announce} = unpack(AnnounceBin),
-        lager:debug("Announce details: ~p", [Announce]),
-        validate_announce(Announce, State),
-        case is_local_service(Announce) of
-            true ->
-                lager:debug("skip copy of local service: ~p", [Announce]),
-                throw("skip copy of local service");
-            _ -> ok
-        end,
-
-        MaxTtl = get_config(out_ttl, 120, State),
+        MaxTtl = get_config(intrachain_ttl, 120, State),
 
         {noreply, State#{
-            remote_services => process_announce(Announce, Dict, MaxTtl, AnnounceBin)
+            remote_services => parse_and_process_announce(MaxTtl, AnnounceBin, State)
         }}
     catch
-        throw:Reason ->
-            lager:info("can't process announce ~p", [Reason]),
+        Err:Reason ->
+            lager:info("can't process announce ~p ~p", [Err, Reason]),
             {noreply, State}
     end;
+
+handle_cast({got_xchain_announce, AnnounceBin}, State) ->
+%%    lager:debug("Got service announce ~p", [AnnounceBin]),
+    try
+        MaxTtl = get_config(xchain_ttl, 1800, State),
+
+        {noreply, State#{
+            remote_services => parse_and_process_announce(MaxTtl, AnnounceBin, State)
+        }}
+    catch
+        Err:Reason ->
+            lager:info("can't process announce ~p ~p", [Err, Reason]),
+            {noreply, State}
+    end;
+
 
 handle_cast(_Msg, State) ->
     lager:notice("Unknown cast ~p", [_Msg]),
@@ -238,7 +247,6 @@ init_local_serivces(PermanentServices, Dict) ->
     lists:foldl(Registrator, Dict, PermanentServices).
 
 % --------------------------------------------------------
-
 read_config() ->
     application:get_env(tpnode, discovery, #{}).
 
@@ -249,7 +257,6 @@ get_config(Key, Default, State) ->
     maps:get(Key, Config, Default).
 
 % --------------------------------------------------------
-
 set_config(Key, Value, State) ->
     #{settings:=Config} = State,
     State#{
@@ -257,14 +264,11 @@ set_config(Key, Value, State) ->
     }.
 
 % --------------------------------------------------------
-
 get_unixtime() ->
     {Mega, Sec, _Micro} = os:timestamp(),
     (Mega * 1000000 + Sec).
 
 % --------------------------------------------------------
-
-
 announce_one_service(Name, Address, Ttl, Scopes) ->
     try
         TranslatedAddress = translate_address(Address),
@@ -283,7 +287,7 @@ announce_one_service(Name, Address, Ttl, Scopes) ->
             chain => blockchain:chain()
         },
         AnnounceBin = pack(Announce),
-        send_service_announce(AnnounceBin)
+        send_service_announce(local, AnnounceBin)
     catch
         Err:Reason ->
             lager:error(
@@ -515,23 +519,31 @@ query_remote(Name, _Dict, Chain) ->
 
 % --------------------------------------------------------
 
+query(Name0, Chain, State) ->
+    Name = convert_to_binary(Name0),
+    LocalChain = blockchain:chain(),
+    #{local_services := LocalDict, remote_services := RemoteDict} = State,
+    Local = case Chain of
+        LocalChain ->
+            query_local(Name, LocalDict, State);
+        _ ->
+            []
+    end,
+    Remote = query_remote(Name, RemoteDict, Chain),
+%%    lager:debug("query ~p local: ~p", [Name, Local]),
+%%    lager:debug("query ~p remote: ~p", [Name, Remote]),
+    lists:merge(Local, Remote).
+
+
+% --------------------------------------------------------
+
 query(Pred, _State) when is_function(Pred) ->
     lager:error("Not inmplemented"),
     not_implemented;
 
 % find service by name
-query(Name0, State) ->
-    Name = convert_to_binary(Name0),
-    #{local_services := LocalDict, remote_services := RemoteDict} = State,
-    Local = query_local(Name, LocalDict, State),
-    Remote = query_remote(Name, RemoteDict),
-%%    lager:debug("query ~p local: ~p", [Name, Local]),
-%%    lager:debug("query ~p remote: ~p", [Name, Remote]),
-    lists:merge(Local, Remote);
-
-query(Name, _State) ->
-    lager:info("Invalid argument for lookup: ~p", [Name]),
-    [].
+query(Name, State) ->
+    query(Name, blockchain:chain(), State).
 
 % --------------------------------------------------------
 
@@ -540,7 +552,7 @@ address2key(#{address:=Ip, port:=Port, proto:=Proto}) ->
 
 address2key(Invalid) ->
     lager:info("invalid address: ~p", [Invalid]),
-    throw(invalid_address).
+    throw("can't parse address").
 
 
 
@@ -589,25 +601,43 @@ add_chain_to_name(Name, Chain) ->
 
 % --------------------------------------------------------
 
+parse_and_process_announce(MaxTtl, AnnounceBin, #{remote_services:=Dict} = State) ->
+    {ok, Announce} = unpack(AnnounceBin),
+    lager:debug("Announce details: ~p", [Announce]),
+    validate_announce(Announce, State),
+    case is_local_service(Announce) of
+        true ->
+            lager:debug("skip copy of local service: ~p", [Announce]),
+            throw("skip copy of local service");
+        _ -> ok
+    end,
+
+    XChainThrottle = get_config(xchain_throttle, 600, State),
+    process_announce(Announce, Dict, MaxTtl, XChainThrottle, AnnounceBin).
+
+
+
 % parse foreign service announce and add it to services database
 process_announce(
-  #{name := Name0, address := Address, chain := Chain} = Announce0, Dict, MaxTtl, AnnounceBin) ->
+  #{name := Name0, address := Address, chain := Chain} = Announce0,
+  Dict, MaxTtl, XChainThrottle, AnnounceBin) ->
     try
         Key = address2key(Address),
         Name = add_chain_to_name(Name0, Chain),
         Nodes = maps:get(Name, Dict, #{}),
         Announce = add_valid_until(Announce0, MaxTtl),
-        PrevAnnounce = maps:get(Key, Nodes, #{created => 0, ttl=> 0}),
-        relay_announce(PrevAnnounce, Announce, AnnounceBin),
-        UpdatedNodes = maps:put(Key, Announce, Nodes),
+        PrevAnnounce = maps:get(Key, Nodes, #{created => 0, ttl=> 0, sent_xchain => 0}),
+        SentXchain = relay_announce(PrevAnnounce, Announce, AnnounceBin, XChainThrottle),
+        Announce1 = Announce#{sent_xchain => SentXchain},
+        UpdatedNodes = maps:put(Key, Announce1, Nodes),
         maps:put(Name, UpdatedNodes, Dict)
     catch
         Err:Reason ->
-            lager:error("skip announce ~p because error: ~p ~p", [Announce0, Err, Reason]),
+            lager:error("skip announce because of error: ~p ~p ~p", [Err, Reason, Announce0]),
             Dict
     end;
 
-process_announce(Announce, Dict, _MaxTtl, _AnnounceBin) ->
+process_announce(Announce, Dict, _MaxTtl, _XchainThrottle, _AnnounceBin) ->
     lager:error("invalid announce: ~p", [Announce]),
     Dict.
 
@@ -632,9 +662,11 @@ add_valid_until(Announce, _MaxTtl) ->
 
 % relay announce to connected nodes
 relay_announce(
-        #{created:=CreatedPrev} = _PrevAnnounce,
+        #{created:=CreatedPrev, sent_xchain:=SentXChainPrev} = PrevAnnounce,
         #{created:=CreatedNew, nodeid:=NodeId} = NewAnnounce,
-        AnnounceBin)
+        AnnounceBin,
+        XChainThrottle
+    )
     when is_binary(AnnounceBin)
     andalso size(AnnounceBin) > 0 ->
 
@@ -642,26 +674,44 @@ relay_announce(
     if
         NodeId =:= MyNodeId ->
             lager:debug("skip relaying of self announce: ~p", [NewAnnounce]),
-            norelay;
+            SentXChainPrev;
         CreatedPrev /= CreatedNew ->
             lager:debug("relay announce ~p", [NewAnnounce]),
-            send_service_announce(AnnounceBin);
+            send_service_announce(NewAnnounce, AnnounceBin),
+            xchain_relay_announce(SentXChainPrev, XChainThrottle, NewAnnounce, AnnounceBin);
         CreatedPrev =:= CreatedNew ->
 %%            lager:debug("skip relaying of announce (equal created): ~p", [NewAnnounce]),
-            norelay;
+            SentXChainPrev;
         true ->
-            lager:debug("skip relaying of announce: new ~p, prev ~p", [NewAnnounce, _PrevAnnounce]),
-            norelay
+            lager:debug("skip relaying of announce: new ~p, prev ~p", [NewAnnounce, PrevAnnounce]),
+            SentXChainPrev
     end;
 
-relay_announce(_PrevAnnounce, NewAnnounce, _AnnounceBin) ->
+relay_announce(_PrevAnnounce, NewAnnounce, _AnnounceBin, _XChainThrottle) ->
     lager:debug("skip relaying of invalid announce ~p", [NewAnnounce]),
-    norelay.
+    0.
 
 % --------------------------------------------------------
+xchain_relay_announce(SentXchain, Throttle, Announce, AnnounceBin) ->
+    Now = get_unixtime(),
+    if
+        SentXchain + Throttle < Now ->
+            % relay here
+            gen_server:cast(xchain_client, {discovery, Announce, AnnounceBin}),
+            Now;
+        true ->
+            lager:debug("skipping xchain relay"),
+            SentXchain
+    end.
 
-send_service_announce(AnnounceBin) ->
+% --------------------------------------------------------
+send_service_announce(local, AnnounceBin) ->
 %%    lager:debug("send tpic announce ~p", [AnnounceBin]),
+    tpic:cast(tpic, service, {<<"discovery">>, AnnounceBin});
+
+send_service_announce(Announce, AnnounceBin) ->
+%%    lager:debug("send tpic announce ~p", [AnnounceBin]),
+    gen_server:cast(xchain_client, {discovery, Announce, AnnounceBin}),
     tpic:cast(tpic, service, {<<"discovery">>, AnnounceBin}).
 
 
@@ -777,13 +827,14 @@ test1() ->
     },
 %%  gen_server:cast(discovery, {got_announce, Announce}),
     MaxTtl = 120,
-    D1 = process_announce(Announce, #{}, MaxTtl, <<>>),
-    D2 = process_announce(Announce#{name => <<"looking_glass2">>}, D1, MaxTtl, <<>>),
+    XChainThrottle = 600,
+    D1 = process_announce(Announce, #{}, MaxTtl, XChainThrottle, <<>>),
+    D2 = process_announce(Announce#{name => <<"looking_glass2">>}, D1, MaxTtl, XChainThrottle, <<>>),
     D3 = process_announce(Announce#{
         name => <<"looking_glass2">>,
         address => #{address => <<"127.0.0.2">>, port => 1234, proto => tpic}
-    }, D2, MaxTtl, <<>>),
-    D4 = process_announce(Announce#{name => <<"looking_glass2">>, valid_until => 20}, D3, MaxTtl, <<>>),
+    }, D2, MaxTtl, XChainThrottle, <<>>),
+    D4 = process_announce(Announce#{name => <<"looking_glass2">>, valid_until => 20}, D3, MaxTtl, XChainThrottle, <<>>),
     query_remote(<<"looking_glass2">>, D4).
 
 test2() ->

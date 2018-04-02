@@ -80,8 +80,17 @@ handle_cast(settings, State) ->
     lager:notice("xchain client reload settings"),
     {noreply, change_settings_handler(State)};
 
-handle_cast({discovery, AnnounceBin}, State) ->
-    lager:notice("xchain client got announce from discovery. We have to relay this announce to all chains"),
+handle_cast({discovery, Announce, AnnounceBin}, #{subs:=Subs} = State) ->
+    lager:notice("xchain client got announce from discovery. Relay it to all connected chains"),
+    try
+        relay_discovery(Announce, AnnounceBin, Subs)
+    catch
+        Err:Reason ->
+            lager:error(
+                "xchain client can't relay announce ~p ~p ~p",
+                [Err, Reason, Announce]
+            )
+    end,
     {noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -176,7 +185,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-
 make_pings(Subs) ->
     Cmd = pack(ping),
     maps:fold(
@@ -188,12 +196,16 @@ make_pings(Subs) ->
         end, 0, Subs).
 
 
-%% TODO: catch gun:open errors here!!!
+%% --------------------------------------------------------------------
+
 connect_remote({Ip, Port} = _Address) ->
     {ok, _} = application:ensure_all_started(gun),
     lager:info("xchain client connecting to ~p ~p", [Ip, Port]),
     {ok, ConnPid} = gun:open(Ip, Port),
     ConnPid.
+
+
+%% --------------------------------------------------------------------
 
 lost_connection(Pid, Subs) ->
     Cleaner =
@@ -217,6 +229,7 @@ lost_connection(Pid, Subs) ->
         end,
     maps:map(Cleaner, Subs).
 
+%% --------------------------------------------------------------------
 
 mark_ws_mode_on(Pid, Subs) ->
     Marker =
@@ -234,6 +247,8 @@ mark_ws_mode_on(Pid, Subs) ->
         end,
     maps:map(Marker, Subs).
 
+
+%% --------------------------------------------------------------------
 
 make_connections(Subs) ->
     lager:info("xchain client make connections"),
@@ -261,9 +276,13 @@ make_connections(Subs) ->
         Subs
     ).
 
+%% --------------------------------------------------------------------
+
 subscribe2key(#{address:=Ip, port:=Port}) ->
     {Ip, Port}.
 
+
+%% --------------------------------------------------------------------
 
 %% #{ {Ip, Port} =>  #{ address =>, port =>, channels => #{ <<"ch1">> => 0, <<"ch2">> => 0, <<"ch3">> => 0}}}
 
@@ -282,9 +301,13 @@ parse_subscribe(#{address:=Ip, port:=Port, channels:=Channels})
         channels => NewChannels
     };
 
+
 parse_subscribe(Invalid) ->
     lager:error("xchain client got invalid subscribe: ~p", [Invalid]),
     throw(invalid_subscribe).
+
+%% --------------------------------------------------------------------
+
 
 check_empty_subscribes(#{channels:=Channels}=_Sub) ->
     SubCount = maps:size(Channels),
@@ -294,6 +317,8 @@ check_empty_subscribes(#{channels:=Channels}=_Sub) ->
         true ->
             ok
     end.
+
+%% --------------------------------------------------------------------
 
 add_sub(Subscribe, Subs) ->
     try
@@ -311,6 +336,8 @@ add_sub(Subscribe, Subs) ->
             Subs
     end.
 
+%% --------------------------------------------------------------------
+
 subscribe_one_channel(ConnPid, Channel) ->
     % subscribe here
     lager:info("xhcain client subscribe to ~p channel", [Channel]),
@@ -318,6 +345,8 @@ subscribe_one_channel(ConnPid, Channel) ->
     Result = gun:ws_send(ConnPid, {binary, Cmd}),
     lager:info("xchain client subscribe result is ~p", [Result]),
     1.
+
+%% --------------------------------------------------------------------
 
 make_subscription(Subs) ->
     MyNodeId = nodekey:node_id(),
@@ -345,6 +374,7 @@ make_subscription(Subs) ->
     maps:map(Subscriber, Subs).
 
 
+%% --------------------------------------------------------------------
 
 
 get_peers(Subs) ->
@@ -358,16 +388,29 @@ get_peers(Subs) ->
     maps:fold(Parser, #{}, Subs).
 
 
-%% -----------------
+%% --------------------------------------------------------------------
+
+relay_discovery(_Announce, AnnounceBin, Subs) ->
+    Sender =
+        fun(_Key, #{connection:=Conn, ws_mode:=true}=Sub) ->
+            Cmd = pack({xdiscovery, AnnounceBin}),
+            gun:ws_send(Conn, {binary, Cmd}),
+            Sub
+        end,
+    maps:map(Sender, Subs),
+    ok.
+
+%% --------------------------------------------------------------------
 
 pack(Term) ->
     xchain:pack(Term).
 
+%% --------------------------------------------------------------------
+
 unpack(Bin) ->
     xchain:unpack(Bin).
 
-
-%% -----------------
+%% --------------------------------------------------------------------
 
 change_settings_handler(#{chain:=Chain, subs:=Subs} = State) ->
     CurrentChain = blockchain:chain(),
