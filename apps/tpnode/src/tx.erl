@@ -56,12 +56,6 @@ mkmsg(#{ from:=From,
 	if is_binary(NewCode) -> ok;
        true -> throw('non_bin_code')
     end,
-	try
-		erlang:binary_to_existing_atom(<<"contract_",VMType/binary>>,utf8)
-	catch error:badarg ->
-			  throw('unknown_vmtype')
-	end,
-
 	TB=case maps:is_key(state, Tx) of
 		   true ->
 			   State=maps:get(state,Tx),

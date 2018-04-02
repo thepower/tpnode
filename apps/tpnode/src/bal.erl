@@ -11,7 +11,8 @@
 		 mput/6,
 		 pack/1,
 		 unpack/1,
-		 merge/2
+		 merge/2,
+		 changes/1
 		]).
 
 -define(FIELDS,
@@ -20,7 +21,13 @@
 
 -spec new () -> #{amount:=map()}.
 new() ->
-	#{amount=>#{}}.
+	#{amount=>#{},changes=>[]}.
+
+-spec changes (map()) -> map().
+changes(Bal) ->
+	Changes=maps:get(changes,Bal,[]),
+	maps:with(Changes,Bal).
+
 
 -spec fetch (integer()|binary(), integer()|binary(), 'true'|'false',
 			 map(), fun()) -> map().
@@ -41,7 +48,8 @@ get_cur(Currency, #{amount:=A}=_Bal) ->
 -spec put_cur (integer()|binary(), integer(), #{amount:=map()}) -> map().
 put_cur(Currency, Value, #{amount:=A}=Bal) ->
 	Bal#{
-	  amount => A#{ Currency => Value}
+	  amount => A#{ Currency => Value},
+	  changes=>[state|maps:get(changes,Bal,[])]
 	 }.
 
 -spec mput (integer()|binary(), integer(), integer(), integer(), map()) -> map().
@@ -55,6 +63,7 @@ mput(Cur, Amount, Seq, T, #{amount:=A}=Bal, false) when is_integer(Amount),
 														T > 1500000000000,
 														T < 15000000000000 ->
 	Bal#{
+	  changes=>[amount,seq,t|maps:get(changes,Bal,[])],
 	  amount=>A#{Cur=>Amount},
 	  seq=>Seq,
 	  t=>T
@@ -67,6 +76,7 @@ mput(Cur, Amount, Seq, T, #{amount:=A}=Bal, true) when is_integer(Amount),
 														T < 15000000000000 ->
 	USK=maps:get(usk, Bal, 0),
 	Bal#{
+	  changes=>[amount,seq,t,usk|maps:get(changes,Bal,[])],
 	  amount=>A#{Cur=>Amount},
 	  seq=>Seq,
 	  t=>T,
@@ -79,6 +89,7 @@ mput(Cur, Amount, Seq, T, #{amount:=A}=Bal, reset) when is_integer(Amount),
 														T > 1500000000000,
 														T < 15000000000000 ->
 	Bal#{
+	  changes=>[amount,seq,t,usk|maps:get(changes,Bal,[])],
 	  amount=>A#{Cur=>Amount},
 	  seq=>Seq,
 	  t=>T,
@@ -91,26 +102,55 @@ mput(_Cur, _Amount, _Seq, T, _Bal, _) when T < 1500000000000 orelse
 
 -spec put (atom(), integer()|binary(), map()) -> map().
 put(seq, V, Bal) when is_integer(V) ->
-	maps:put(seq, V, Bal);
+	Bal#{ seq=>V,
+		  changes=>[seq|maps:get(changes,Bal,[])]
+		};
+
 put(t, V, Bal) when is_integer(V),
 					V > 1500000000000,
 					V < 15000000000000  %only msec, not sec and not usec
 					->
-	maps:put(t, V, Bal);
+	Bal#{ t=>V,
+		  changes=>[t|maps:get(changes,Bal,[])]
+		};
 put(lastblk, V, Bal) when is_binary(V) ->
-	maps:put(lastblk, V, Bal);
+	Bal#{ lastblk=>V,
+		  changes=>[lastblk|maps:get(changes,Bal,[])]
+		};
 put(pubkey, V, Bal) when is_binary(V) ->
-	maps:put(pubkey, V, Bal);
+	Bal#{ pubkey=>V,
+		  changes=>[pubkey|maps:get(changes,Bal,[])]
+		};
 put(ld, V, Bal) when is_integer(V) ->
-	maps:put(ld, V, Bal);
+	Bal#{ ld=>V,
+		  changes=>[ld|maps:get(changes,Bal,[])]
+		};
 put(vm, V, Bal) when is_binary(V) ->
-	maps:put(vm, V, Bal);
+	Bal#{ vm=>V,
+		  changes=>[vm|maps:get(changes,Bal,[])]
+		};
 put(state, V, Bal) when is_binary(V) ->
-	maps:put(state, V, Bal);
+	case maps:get(state,Bal,undefined) of
+		OldState when OldState==V ->
+			Bal;
+		_ ->
+			Bal#{ state=>V,
+				  changes=>[state|maps:get(changes,Bal,[])]
+				}
+	end;
 put(code, V, Bal) when is_binary(V) ->
-	maps:put(code, V, Bal);
+	case maps:get(code,Bal,undefined) of
+		OldCode when OldCode==V ->
+			Bal;
+		_ ->
+			Bal#{ code=>V,
+				  changes=>[code|maps:get(changes,Bal,[])]
+				}
+	end;
 put(usk, V, Bal) when is_integer(V) ->
-	maps:put(usk, V, Bal);
+	Bal#{ usk=>V,
+		  changes=>[usk|maps:get(changes,Bal,[])]
+		};
 put(T, _, _) ->
 	throw({"unsupported bal field",T}).
 
@@ -142,9 +182,9 @@ pack(#{
 unpack(Bal) ->
 	case msgpack:unpack(Bal,[{known_atoms,[amount|?FIELDS]}]) of
 		{ok, #{amount:=_}=Hash} ->
-			maps:filter(
-			  fun(K,_) -> is_atom(K) end,
-			  Hash);
+			maps:put(changes,[],
+					 maps:filter( fun(K,_) -> is_atom(K) end, Hash)
+					);
 		_ ->
 			throw('ledger_unpack_error')
 	end.
