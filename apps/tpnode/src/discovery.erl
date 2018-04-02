@@ -613,14 +613,15 @@ parse_and_process_announce(MaxTtl, AnnounceBin, #{remote_services:=Dict} = State
     end,
 
     XChainThrottle = get_config(xchain_throttle, 600, State),
-    process_announce(Announce, Dict, MaxTtl, XChainThrottle, AnnounceBin).
+    Settings = {Dict, MaxTtl, XChainThrottle, AnnounceBin},
+    process_announce(Announce, Settings).
 
 
 
 % parse foreign service announce and add it to services database
 process_announce(
-  #{name := Name0, address := Address, chain := Chain} = Announce0,
-  Dict, MaxTtl, XChainThrottle, AnnounceBin) ->
+  #{name := Name0, address := Address, chain := Chain} = Announce0, Settings) ->
+    {Dict, MaxTtl, XChainThrottle, AnnounceBin} = Settings,
     try
         Key = address2key(Address),
         Name = add_chain_to_name(Name0, Chain),
@@ -637,7 +638,8 @@ process_announce(
             Dict
     end;
 
-process_announce(Announce, Dict, _MaxTtl, _XchainThrottle, _AnnounceBin) ->
+process_announce(Announce, Settings) ->
+    {Dict, _MaxTtl, _XChainThrottle, _AnnounceBin} = Settings,
     lager:error("invalid announce: ~p", [Announce]),
     Dict.
 
@@ -692,17 +694,23 @@ relay_announce(_PrevAnnounce, NewAnnounce, _AnnounceBin, _XChainThrottle) ->
     0.
 
 % --------------------------------------------------------
-xchain_relay_announce(SentXchain, Throttle, Announce, AnnounceBin) ->
+xchain_relay_announce(SentXchain, Throttle, #{chain:=Chain}=Announce, AnnounceBin) ->
     Now = get_unixtime(),
+    MyChain = blockchain:chain(),
     if
-        SentXchain + Throttle < Now ->
-            % relay here
+        % relay own chain announces which isn't throttled
+        MyChain =:= Chain andalso SentXchain + Throttle < Now ->
             gen_server:cast(xchain_client, {discovery, Announce, AnnounceBin}),
             Now;
         true ->
             lager:debug("skipping xchain relay"),
             SentXchain
-    end.
+    end;
+
+xchain_relay_announce(SentXchain, _Throttle, Announce, _AnnounceBin) ->
+    lager:error("invalid announce can't be xchain relayed: ~p", [Announce]),
+    SentXchain.
+
 
 % --------------------------------------------------------
 send_service_announce(local, AnnounceBin) ->
@@ -828,13 +836,13 @@ test1() ->
 %%  gen_server:cast(discovery, {got_announce, Announce}),
     MaxTtl = 120,
     XChainThrottle = 600,
-    D1 = process_announce(Announce, #{}, MaxTtl, XChainThrottle, <<>>),
-    D2 = process_announce(Announce#{name => <<"looking_glass2">>}, D1, MaxTtl, XChainThrottle, <<>>),
+    D1 = process_announce(Announce, {#{}, MaxTtl, XChainThrottle, <<>>}),
+    D2 = process_announce(Announce#{name => <<"looking_glass2">>}, {D1, MaxTtl, XChainThrottle, <<>>}),
     D3 = process_announce(Announce#{
         name => <<"looking_glass2">>,
         address => #{address => <<"127.0.0.2">>, port => 1234, proto => tpic}
-    }, D2, MaxTtl, XChainThrottle, <<>>),
-    D4 = process_announce(Announce#{name => <<"looking_glass2">>, valid_until => 20}, D3, MaxTtl, XChainThrottle, <<>>),
+    }, {D2, MaxTtl, XChainThrottle, <<>>}),
+    D4 = process_announce(Announce#{name => <<"looking_glass2">>, valid_until => 20}, {D3, MaxTtl, XChainThrottle, <<>>}),
     query_remote(<<"looking_glass2">>, D4).
 
 test2() ->
