@@ -739,7 +739,12 @@ try_process_local([{TxID,
     try
 		RealSettings=EnsureSettings(SetState),
 		{NewF,GotFee}=withdraw(FBal,Tx,GetFun,RealSettings),
-		{NewT,_Emit,_GasUsed}=deposit(TBal,Tx,GetFun,RealSettings),
+		{NewT,Emit,_GasUsed}=deposit(To, TBal,Tx,GetFun,RealSettings),
+		if Emit==[] ->
+			   ok;
+		   true ->
+			   lager:info("Must emit txs ~p",[Emit])
+		end,
 		NewAddresses=maps:put(From,NewF,maps:put(To,NewT,Addresses)),
 
         try_process(Rest,SetState,NewAddresses,GetFun,
@@ -758,7 +763,7 @@ savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
 	  tip=>bal:put_cur(Cur,Tip+bal:get_cur(Cur, TipBal),TipBal)
 	 }.
 
-deposit(TBal,
+deposit(Address, TBal,
 		#{cur:=Cur,amount:=Amount}=Tx,
 		GetFun, _Settings) ->
 	NewTAmount=bal:get_cur(Cur,TBal) + Amount,
@@ -772,7 +777,14 @@ deposit(TBal,
 		undefined ->
 			{NewT,[],0};
 		VMType ->
-			smartcontract:run(VMType, Tx, NewT, 1, GetFun)
+			{L1,TXs,Gas}=smartcontract:run(VMType, Tx, NewT, 1, GetFun),
+			{L1,lists:map(
+				  fun(ETx) ->
+						  maps:put(contract_issued, Address,
+								   tx:unpack(
+									 tx:sign(ETx,nodekey:get_priv())
+									))
+				  end,TXs),Gas}
 	end.
 
 
@@ -1270,6 +1282,14 @@ contract_test() ->
 								  <<"baseextra">> => 64, 
 								  <<"kb">> => 10
 								 }
+							 },
+						  <<"rewards">>=>#{
+							  <<"c1n1">>=><<128,1,64,0,OurChain,0,0,101>>,
+							  <<"c1n2">>=><<128,1,64,0,OurChain,0,0,102>>,
+							  <<"c1n3">>=><<128,1,64,0,OurChain,0,0,103>>,
+							  <<"node1">>=><<128,1,64,0,OurChain,0,0,101>>,
+							  <<"node2">>=><<128,1,64,0,OurChain,0,0,102>>,
+							  <<"node3">>=><<128,1,64,0,OurChain,0,0,103>>
 							 }
 						 }
 					 };
