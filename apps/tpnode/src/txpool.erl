@@ -102,6 +102,11 @@ handle_call({patch, #{
             {reply, {error, verify}, State}
     end;
 
+handle_call({push_etx, [{_,_}|_]=Lst}, _From, #{queue:=Queue}=State) ->
+	{reply, ok, 
+	 State#{
+	   queue=>lists:foldl( fun queue:in_r/2, Queue, Lst)
+	  }};
 
 handle_call({new_tx, BinTx}, _From, #{nodeid:=Node,queue:=Queue}=State) ->
     try

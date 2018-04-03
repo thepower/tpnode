@@ -171,6 +171,43 @@ test_alloc_block() ->
     gen_server:call(txpool, {patch, Patch})
     }.
 
+test_contract_test() ->
+    TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
+	From= <<128,1,64,0,1,0,0,1>>,
+	Seq=bal:get(seq,ledger:get(From)),
+	DeployTX=tx:unpack(
+			   tx:sign(
+				 #{
+				 from=>From,
+				 to=><<128,1,64,0,1,0,0,3>>,
+				 amount=>1000000000,
+				 cur=><<"FTT">>,
+				 extradata=>jsx:encode(#{ fee=>10000000, feecur=><<"FTT">> }),
+				 seq=>Seq+1,
+				 timestamp=>os:system_time(millisecond)
+				},TestPriv)
+			  ),
+	{DeployTX,
+	 txpool:new_tx(DeployTX) 
+    }.
+
+
+test_deploy_contract_test() ->
+    TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
+	DeployTX=tx:unpack(
+			   tx:sign(
+				 #{
+				 from=><<128,1,64,0,1,0,0,3>>,
+				 deploy=><<"test">>,
+				 code=><<>>,
+				 seq=>2,
+				 timestamp=>os:system_time(millisecond)
+				},TestPriv)
+			  ),
+	{DeployTX,
+	 txpool:new_tx(DeployTX) 
+    }.
+
 
 test_sign_patch() ->
     PrivKey=nodekey:get_priv(),

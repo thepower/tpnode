@@ -429,7 +429,9 @@ bals2bin(NewBal) ->
            #{chain:=NewChain}
           },Acc) ->
               [{<<Addr/binary>>,
-                <<"pout", NewChain:64/big>>}|Acc]
+                <<"pout", NewChain:64/big>>}|Acc];
+		 (Any,_) -> 
+			  throw({"Bad bal",Any})
       end, [], L).
 
 blkid(<<X:8/binary,_/binary>>) ->

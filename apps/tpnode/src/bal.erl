@@ -16,7 +16,7 @@
 		]).
 
 -define(FIELDS,
-		[t,seq,lastblk,pubkey,ld,usk,state,code]
+		[t,seq,lastblk,pubkey,ld,usk,state,code,vm]
 	   ).
 
 -spec new () -> #{amount:=map()}.
@@ -26,7 +26,7 @@ new() ->
 -spec changes (map()) -> map().
 changes(Bal) ->
 	Changes=maps:get(changes,Bal,[]),
-	maps:with(Changes,Bal).
+	maps:with([amount|Changes],Bal).
 
 
 -spec fetch (integer()|binary(), integer()|binary(), 'true'|'false',
@@ -57,6 +57,14 @@ mput(Cur, Amount, Seq, T, Bal) ->
 	mput(Cur, Amount, Seq, T, Bal, false).
 
 -spec mput (integer()|binary(), integer(), integer(), integer(), map(), atom()) -> map().
+mput(Cur, Amount, Seq, 0, #{amount:=A}=Bal, false) when is_integer(Amount),
+														is_integer(Seq) ->
+	Bal#{
+	  changes=>[amount,seq,t|maps:get(changes,Bal,[])],
+	  amount=>A#{Cur=>Amount},
+	  seq=>Seq
+	 };
+
 mput(Cur, Amount, Seq, T, #{amount:=A}=Bal, false) when is_integer(Amount),
 														is_integer(Seq),
 														is_integer(T),
