@@ -10,7 +10,8 @@
 -export([get_settings/1,get_settings/2,get_settings/0,
 		 get_mysettings/1,
 		 apply_block_conf/2,
-		 last/0,chain/0]).
+		 last/0,chain/0,
+		chainstate/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -32,6 +33,24 @@ chain() ->
 
 last() ->
     gen_server:call(blockchain, last_block).
+
+chainstate() ->
+	Candidates=lists:reverse(
+				 tpiccall(<<"blockchain">>,
+						  #{null=><<"sync_request">>},
+						  [last_hash,last_height,chain]
+						 )),
+	lists:foldl( %first suitable will be the quickest
+	  fun({_,#{chain:=_HisChain,
+			   last_hash:=Hash,
+			   last_height:=Heig,
+			   null:=<<"sync_available">>}
+		  },Acc) ->
+			  maps:put({Heig,Hash},maps:get({Heig,Hash},Acc,0)+1,Acc);
+		 ({_,_},Acc) ->
+			  Acc
+	  end, #{}, Candidates).
+
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -782,16 +801,28 @@ handle_info({b2b_sync, Hash}, #{
                     #{block := BlockPart} = R,
                     BinBlock = receive_block(Handler, BlockPart),
                     #{hash:=NewH}=Block=block:unpack(BinBlock),
-                    gen_server:cast(self(),{new_block, Block, self()}),
-                    case maps:find(child, Block) of
-                        {ok, Child} ->
-                            self() ! {b2b_sync, Child},
-                            lager:info("block ~s have child ~s",[blkid(NewH),blkid(Child)]);
-                        error ->
-                            self() ! runsync,
-                            lager:info("block ~s no child, sync done?",[blkid(NewH)])
-                    end,
-                    {noreply, State}
+					case block:verify(Block) of
+						{true, _} ->
+							gen_server:cast(self(),{new_block, Block, self()}),
+							case maps:find(child, Block) of
+								{ok, Child} ->
+									self() ! {b2b_sync, Child},
+									lager:info("block ~s have child ~s",[blkid(NewH),blkid(Child)]);
+								error ->
+									erlang:send_after(1000,self(),runsync),
+									lager:info("block ~s no child, sync done? Try after 1 sec again",[blkid(NewH)])
+							end,
+							{noreply, State};
+						false ->
+							lager:error("Broken block ~s got from ~p. Wait a little",
+										[blkid(NewH), 
+										 proplists:get_value(pubkey,
+															 maps:get(authdata,tpic:peer(Handler),[])
+															)
+										]),
+							erlang:send_after(10000,self(),runsync),
+							{noreply, State}
+					end
             end;
         _ ->
             erlang:send_after(10000,self(),runsync),
