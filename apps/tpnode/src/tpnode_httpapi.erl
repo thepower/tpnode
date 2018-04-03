@@ -55,11 +55,11 @@ h(<<"GET">>, [<<"node">>,<<"status">>], _Req) ->
 			hash=>BinPacker(Hash),
 			header=>Header
 		   },
-		  xchain_inbound => try 
+		  xchain_inbound => try
 								gen_server:call(xchain_dispatcher,peers)
 							catch _:_ -> #{}
 							end,
-		  xchain_outbound => try 
+		  xchain_outbound => try
 								 gen_server:call(crosschain,peers)
 							 catch _:_ -> #{}
 							 end,
@@ -115,6 +115,17 @@ h(<<"GET">>, [<<"address">>,TAddr], _Req) ->
                         (ublk,V) -> bin2hex:dbin2hex(V);
                         (pubkey,V) -> bin2hex:dbin2hex(V);
                         (preblk,V) -> bin2hex:dbin2hex(V);
+                        (code,V) -> base64:encode(V);
+                        (state,V) ->
+							try
+								iolist_to_binary(
+								io_lib:format("~p",
+											  [
+											   erlang:binary_to_term(V,[safe])])
+								 )
+							catch _:_ ->
+									  base64:encode(V)
+							end;
                         (_,V) -> V
                     end, Info1),
             {200,
