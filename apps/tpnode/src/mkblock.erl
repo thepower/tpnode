@@ -102,10 +102,7 @@ handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
 		   if Txs==[] -> ok;
 			  true ->
 				  lager:info("TXs from node ~s: ~p",
-							 [
-							  Origin,
-							  length(Txs)
-							 ])
+							 [ Origin, length(Txs) ])
 		   end,
 		   MarkTx=fun({TxID, TxB}) ->
 						  TxB1=try
@@ -117,6 +114,9 @@ handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
 										 lists:foreach(fun(SE) ->
 															   lager:error("@ ~p",[SE])
 													   end, S),
+										 file:write_file("tmp/mkblk_badsig_"++binary_to_list(nodekey:node_id()),
+														 io_lib:format("~p.~n",[TxB])),
+
 										 TxB
 							   end,
 						  {TxID, 
@@ -144,8 +144,22 @@ handle_cast(_Msg, State) ->
     lager:info("MB unknown cast ~p",[_Msg]),
     {noreply, State}.
 
-handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=State) ->
+handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL0}=State) ->
     lager:info("-------[MAKE BLOCK]-------"),
+	PreTXL1=lists:foldl(
+			  fun({TxID,TXB},Acc) ->
+					  case maps:is_key(TxID,Acc) of
+						  true ->
+							  TXB1=tx:mergesig(TXB,
+											   maps:get(TxID,Acc)),
+							  {ok, Tx1} = tx:verify(TXB1),
+							  maps:put(TxID, Tx1, Acc);
+						  false ->
+							  maps:put(TxID, TXB, Acc)
+					  end
+			  end, #{}, PreTXL0),
+	PreTXL=lists:keysort(1,maps:to_list(PreTXL1)),
+
     AE=maps:get(ae,MySet,1),
 
 	{_,ParentHash}=Parent=case maps:get(parent,State,undefined) of
@@ -225,7 +239,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
 		#{block:=Block,
 		  failed:=Failed,
 		  emit:=EmitTXs}=generate_block(PreTXL, Parent, PropsFun, AddrFun,
-										[{prevnodes, PreNodes}]),
+										[{<<"prevnodes">>, PreNodes}]),
         T2=erlang:system_time(),
         if Failed==[] ->
                ok;
@@ -247,8 +261,11 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL}=Stat
             {createduration,T2-T1}
            ],
         SignedBlock=sign(Block,ED),
+		#{header:=#{height:=NewH}}=Block,
         %cast whole block for my local blockvote
         gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
+		file:write_file("tmp/mkblk_"++integer_to_list(NewH)++"_"++binary_to_list(nodekey:node_id()),
+						io_lib:format("~p.~n",[SignedBlock])),
         %Block signature for each other
         lager:info("MB My sign ~p emit ~p",
 				   [
@@ -293,24 +310,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL) ->
-	TBal=maps:get(Addr,Addresses,bal:new()),
-	TBal2=maps:fold(
-			fun(Cur, Summ, Acc) ->
-					bal:put_cur(Cur,
-								bal:get_cur(Cur,Acc) + Summ,
-								Acc)
-			end,
-			TBal,
-			Amounts),
-	if TBal==TBal2 ->
-		   {Addresses,TXL};
-	   true ->
-		   {maps:put(Addr,
-					 maps:remove(keep, TBal2),
-					 Addresses),TXL}
-	end.
-
 getaddr([], _GetFun, Fallback) ->
 	Fallback;
 
@@ -322,15 +321,36 @@ getaddr([E|Rest], GetFun, Fallback) ->
 			getaddr(Rest,GetFun,Fallback)
 	end.
 
+deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings) ->
+	TBal=maps:get(Addr,Addresses,bal:new()),
+	{TBal2,TXL2}=maps:fold(
+				   fun(Cur, Summ, {Acc,TxAcc}) ->
+						   {NewT,NewTXL,_}=deposit(Addr, Acc,
+												   #{cur=>Cur,
+													 amount=>Summ,
+													 to=>Addr},
+												   GetFun, Settings),
+						   {NewT,TxAcc++NewTXL}
+				   end,
+			{TBal,TXL},
+			Amounts),
+	if TBal==TBal2 ->
+		   {Addresses,TXL2};
+	   true ->
+		   {maps:put(Addr,
+					 maps:remove(keep, TBal2),
+					 Addresses),TXL2}
+	end.
+
 
 try_process([], Settings, Addresses, GetFun, 
-			#{fee:=FeeBal,tip:=TipBal}=Acc) ->
+			#{fee:=FeeBal,tip:=TipBal,emit:=Emit}=Acc) ->
 	try
 		GetFeeFun=fun (Parameter) ->
 						  settings:get([<<"current">>,<<"fee">>,params,Parameter],Settings)
 				  end,
 		lager:debug("fee ~p tip ~p",[FeeBal,TipBal]),
-		{Addresses2,NewTXL}=lists:foldl(
+		{Addresses2,NewEmit}=lists:foldl(
 							  fun({CType,CBal},{FAcc,TXL}) ->
 									  Addr=case CType of
 											   fee -> 
@@ -347,22 +367,15 @@ try_process([], Settings, Addresses, GetFun,
 												   naddress:construct_private(0,0)
 										   end,
 									  lager:debug("fee ~s ~p to ~p",[CType,CBal,Addr]),
-									  deposit_fee(CBal, Addr, FAcc, TXL)
+									  deposit_fee(CBal, Addr, FAcc, TXL, GetFun, Settings)
 							  end,
 							  {Addresses,[]},
 							  [ {tip,TipBal}, {fee,FeeBal} ]
 							 ),
-		case length(NewTXL) of 
-			0 ->
-				Acc#{table=>Addresses2};
-			_ ->
-				try_process(NewTXL, Settings, Addresses2, GetFun, 
-							Acc#{
-							  fee:=bal:new(),
-							  tip:=bal:new()
-							 }
-						   )
-		end
+		lager:info("NewEmit ~p",[NewEmit]),
+		Acc#{table=>Addresses2,
+			 emit=>Emit++NewEmit
+			}
 	catch _Ec:_Ee ->
 			  S=erlang:get_stacktrace(),
 			  lager:error("Can't save fees: ~p:~p",[_Ec,_Ee]),
@@ -507,7 +520,7 @@ try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
         {{true,private},{true,{chain,MyChain}}}  -> %local from pvt
             try_process_local([{TxID,Tx}|Rest],
                   SetState, Addresses, GetFun, Acc);
-        {{true,MyChain},{true,private}}  -> %local to pvt
+        {{true,{chain,MyChain}},{true,private}}  -> %local to pvt
             try_process_local([{TxID,Tx}|Rest],
                   SetState, Addresses, GetFun, Acc);
         _ ->
@@ -552,6 +565,12 @@ try_process([{TxID, #{deploy:=VMType,code:=Code,from:=Owner}=Tx} |Rest],
 		NewF3=maps:remove(keep,
 						  bal:put(state, State1, NewF2)
 				   ),
+		lager:info("deploy for ~p ledger1 ~p ledger2 ~p",
+				   [Owner,
+					Bal,
+					NewF3
+				   ]),
+
         NewAddresses=maps:put(Owner,NewF3,Addresses),
 
         try_process(Rest,SetState,NewAddresses,GetFun,
@@ -760,7 +779,18 @@ try_process_local([{TxID,
 				  #{success:=Success, 
 					failed:=Failed,
 					emit:=Emit}=Acc) ->
-	lager:notice("Ensure verified"),
+	Verify=try
+			   %TODO: If it contract issued tx check for minsig
+			   #{sigverify:=#{valid:=SigValid}}=Tx,
+			   SigValid>0
+		   catch _:_ ->
+					 false
+		   end,
+	if Verify -> ok;
+	   true -> 
+		   throw('unverified')
+	end,
+
     FBal=maps:get(From,Addresses),
     TBal=maps:get(To,Addresses),
 	EnsureSettings=fun(undefined) -> GetFun(settings);
@@ -773,10 +803,22 @@ try_process_local([{TxID,
 		{NewT,NewEmit,_GasUsed}=deposit(To, TBal,Tx,GetFun,RealSettings),
 		NewAddresses=maps:put(From,NewF,maps:put(To,NewT,Addresses)),
 
+		CI=tx:get_ext(<<"contract_issued">>,Tx),
+		Tx1=if CI=={ok, From} ->
+				   #{extdata:=ED}=Tx,
+				   Tx#{
+					 extdata=> maps:with([<<"contract_issued">>],ED),
+					 sig => #{}
+					};
+			   true ->
+				   Tx
+			end,
+
+
         try_process(Rest,SetState,NewAddresses,GetFun,
 					savefee(GotFee,
 							Acc#{
-							  success=>[{TxID,Tx}|Success],
+							  success=>[{TxID,Tx1}|Success],
 							  emit=>Emit++NewEmit
 							 }
 						   )
@@ -797,15 +839,13 @@ deposit(Address, TBal,
 		GetFun, _Settings) ->
 	NewTAmount=bal:get_cur(Cur,TBal) + Amount,
 	NewT=maps:remove(keep,
-					 bal:put_cur(
-					   Cur,
-					   NewTAmount,
-					   TBal)
+					 bal:put_cur( Cur, NewTAmount, TBal)
 					),
 	case bal:get(vm,NewT) of
 		undefined ->
 			{NewT,[],0};
 		VMType ->
+			lager:info("Smartcontract ~p",[VMType]),
 			{L1,TXs,Gas}=smartcontract:run(VMType, Tx, NewT, 1, GetFun),
 			{L1,lists:map(
 				  fun(#{seq:=Seq}=ETx) ->
@@ -1071,21 +1111,28 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 	   true -> ok
 	end,
 	_T4=erlang:system_time(),
-	NewBal1=maps:filter(
-			  fun(_,V) ->
-					  maps:get(keep,V,true)
-			  end, NewBal0),
-	NewBal=maps:map(
-			 fun(_,V) ->
-					 case maps:is_key(ublk,V) of
+	NewBal=maps:fold(
+			 fun(K,V,BA) ->
+					 case maps:get(keep,V,true) of
 						 false ->
-							 bal:changes(V);
+							 BA;
 						 true ->
-							 bal:changes(
-							   bal:put(lastblk, maps:get(ublk,V), V)
-							  )
+							 case maps:is_key(ublk,V) of
+								 false ->
+									 maps:put(K,bal:changes(V),BA);
+								 true ->
+									 C1=bal:changes(V),
+									 case (maps:size(C1)>0) of
+										 true ->
+											 maps:put(K,
+													  maps:put(lastblk, maps:get(ublk,V), C1),
+													  BA);
+										 false ->
+											 BA
+									 end
+							 end
 					 end
-			 end, NewBal1),
+			 end, #{}, NewBal0),
 	ExtraPatch=maps:fold(
 				 fun(ToChain,_NoOfTxs,AccExtraPatch) ->
 						 [ToChain|AccExtraPatch]
@@ -1116,6 +1163,29 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 							end, [], maps:keys(PickBlocks)),
 		  extdata=>ExtraData
 		 }),
+
+
+	% TODO: Remove after testing
+	% Verify myself
+	% Ensure block may be packed/unapcked correctly
+	case block:verify(block:unpack(block:pack(Blk))) of
+		{true, _} -> ok;
+		false ->
+			lager:error("Block is not verifiable after repacking!!!!"),
+			file:write_file("tmp/blk_repack_error.txt", 
+							io_lib:format("~p.~n",[Blk])
+						   ),
+
+			case block:verify(Blk) of
+				{true, _} -> ok;
+				false ->
+					lager:error("Block is not verifiable at all!!!!") 
+			end
+
+	end,
+
+
+
 	EmitTXs=lists:map(
 			  fun({TxID, ETx}) ->
 					  C={TxID, 

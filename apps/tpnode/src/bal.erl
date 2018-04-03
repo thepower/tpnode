@@ -26,7 +26,7 @@ new() ->
 -spec changes (map()) -> map().
 changes(Bal) ->
 	Changes=maps:get(changes,Bal,[]),
-	maps:with([amount|Changes],Bal).
+	maps:with([amount|Changes],maps:remove(changes,Bal)).
 
 
 -spec fetch (integer()|binary(), integer()|binary(), 'true'|'false',
@@ -49,7 +49,7 @@ get_cur(Currency, #{amount:=A}=_Bal) ->
 put_cur(Currency, Value, #{amount:=A}=Bal) ->
 	Bal#{
 	  amount => A#{ Currency => Value},
-	  changes=>[state|maps:get(changes,Bal,[])]
+	  changes=>[amount|maps:get(changes,Bal,[])]
 	 }.
 
 -spec mput (integer()|binary(), integer(), integer(), integer(), map()) -> map().

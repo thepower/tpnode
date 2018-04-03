@@ -116,7 +116,7 @@ unpack(Block) when is_binary(Block) ->
 	Atoms=[hash,outbound,header,settings,txs,sign,bals,
 		   balroot,ledger_hash,height,parent,txroot,tx_proof,
 		   amount,lastblk,seq,t,child,setroot,
-		   inbound_blocks,chain ],
+		   inbound_blocks,chain,extdata],
     case msgpack:unpack(Block,[{known_atoms, Atoms}]) of
         {ok, Hash} ->
             maps:map(

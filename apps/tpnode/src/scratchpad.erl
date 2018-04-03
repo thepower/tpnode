@@ -139,12 +139,15 @@ test_fee_settings() ->
             settings:dmp(
               settings:mp(
                 [
-                 #{t=>set,p=>[current,fee,params,<<"feeaddr">>], v=><<160,0,0,0,0,0,0,1>>},
-                 #{t=>set,p=>[current,fee,params,<<"tipaddr">>], v=><<160,0,0,0,0,0,0,2>>},
+                 #{t=>set,p=>[current,fee,params,<<"feeaddr">>], v=><<128,1,64,0,1,0,0,4>>},
+                 #{t=>set,p=>[current,fee,params,<<"tipaddr">>], v=><<128,1,64,0,1,0,0,4>>},
                  #{t=>set,p=>[current,fee,params,<<"notip">>], v=>0},
                  #{t=>set,p=>[current,fee,<<"FTT">>,<<"base">>], v=>trunc(1.0e7)},
                  #{t=>set,p=>[current,fee,<<"FTT">>,<<"baseextra">>], v=>64},
-                 #{t=>set,p=>[current,fee,<<"FTT">>,<<"kb">>], v=>trunc(1.0e9)}
+                 #{t=>set,p=>[current,fee,<<"FTT">>,<<"kb">>], v=>trunc(1.0e9)},
+				 #{t=>set,p=>[<<"current">>,<<"rewards">>,<<"c1n1">>], v=><<160,0,0,0,0,0,1,1>>},
+				 #{t=>set,p=>[<<"current">>,<<"rewards">>,<<"c1n2">>], v=><<160,0,0,0,0,0,1,2>>},
+				 #{t=>set,p=>[<<"current">>,<<"rewards">>,<<"c1n3">>], v=><<160,0,0,0,0,0,1,3>>}
                 ])),
       PrivKey),
     io:format("PK ~p~n",[settings:verify(Patch)]),
@@ -170,6 +173,25 @@ test_alloc_block() ->
     {Patch,
     gen_server:call(txpool, {patch, Patch})
     }.
+
+deploy_fee_contract() ->
+	TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
+	DeployTX=tx:unpack(
+			   tx:sign(
+				 #{
+				 from=><<128,1,64,0,1,0,0,4>>,
+				 deploy=><<"chainfee">>,
+				 code=>erlang:term_to_binary(#{
+					interval=>10
+				   }),
+				 seq=>1,
+				 timestamp=>os:system_time(millisecond)
+				},TestPriv)
+			  ),
+	{DeployTX,
+	 txpool:new_tx(DeployTX) 
+	}.
+
 
 test_contract_test() ->
     TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),

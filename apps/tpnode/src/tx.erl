@@ -1,7 +1,7 @@
 -module(tx).
 
 -export([get_ext/2,set_ext/3,sign/2,verify/1,pack/1,unpack/1]).
--export([txlist_hash/1, rate/2]).
+-export([txlist_hash/1, rate/2, mergesig/2]).
 
 -ifndef(TEST).
 -define(TEST,1).
@@ -10,6 +10,11 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
+mergesig(#{sig:=S1}=Tx1,#{sig:=S2}) ->
+	Tx1#{sig=>
+		 maps:merge(S1,S2)
+		}.
 
 checkaddr(<<Ia:64/big>>) -> {new, {true, Ia}};
 checkaddr(Address) -> {old, address:check(Address)}.
@@ -33,6 +38,12 @@ set_ext(<<"feecur">>,V,Tx) ->
     Ed=maps:get(extdata,Tx,#{}),
     Tx#{
       extdata=>maps:put(feecur,V,Ed)
+     };
+
+set_ext(K,V,Tx) when is_atom(K) ->
+    Ed=maps:get(extdata,Tx,#{}),
+    Tx#{
+      extdata=>maps:put(atom_to_binary(K,utf8),V,Ed)
      };
 
 set_ext(K,V,Tx) ->
@@ -95,7 +106,7 @@ mkmsg(#{ from:=From, amount:=Amount,
 
     case maps:is_key(outbound,Tx) of
         true ->
-            lager:notice("FIXME: save outbound flag in tx");
+            lager:notice("MKMSG FIXME: save outbound flag in tx");
         false -> ok
     end,
     Append=maps:get(extradata,Tx,<<"">>),
@@ -176,7 +187,31 @@ verify(#{
            throw({bad_timestamp,T})
     end,
 
+	CI=get_ext(<<"contract_issued">>,Tx),
     {Valid,Invalid}=case checkaddr(From) of
+						{new, {true, _IAddr}} when CI=={ok,From} ->
+							%contract issued. Check nodes key.
+							try
+								maps:fold(
+								  fun(Pub, Sig, {AValid,AInvalid}) ->
+										  case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
+											  correct ->
+												  V=gen_server:call(
+													blockchain,
+													{is_our_node,Pub}) =/= false,
+												  if V ->
+														 {AValid+1, AInvalid};
+													 true ->
+														 {AValid, AInvalid+1}
+												  end;
+											  _ ->
+												  {AValid, AInvalid+1}
+										  end
+								  end,
+							  {0,0}, HSigs)
+							catch _:_ ->
+									  throw(verify_error)
+							end;
                         {new, {true, _IAddr}} ->
                             case ledger:get(From) of
                                 #{pubkey:=PK} when is_binary(PK) ->
