@@ -264,8 +264,16 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL0}=Sta
 		#{header:=#{height:=NewH}}=Block,
         %cast whole block for my local blockvote
         gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
-		file:write_file("tmp/mkblk_"++integer_to_list(NewH)++"_"++binary_to_list(nodekey:node_id()),
-						io_lib:format("~p.~n",[SignedBlock])),
+
+		case application:get_env(tpnode,dumpblocks) of
+			true ->
+				file:write_file("tmp/mkblk_"++
+								integer_to_list(NewH)++"_"++
+								binary_to_list(nodekey:node_id()),
+								io_lib:format("~p.~n",[SignedBlock])
+							   );
+			_ -> ok
+		end,
         %Block signature for each other
         lager:info("MB My sign ~p emit ~p",
 				   [
