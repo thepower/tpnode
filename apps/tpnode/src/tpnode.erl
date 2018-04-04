@@ -23,12 +23,12 @@ stop(_State) ->
     ok.
 
 reload() ->
-    ConfigFile=application:get_env(tpnode,config,"node.config"),
+    ConfigFile=application:get_env(tpnode, config, "node.config"),
     case file:consult(ConfigFile) of
         {ok, Config} ->
             lists:foreach(
-              fun({K,V}) ->
-                      application:set_env(tpnode,K,V)
+              fun({K, V}) ->
+                      application:set_env(tpnode, K, V)
               end, Config);
         {error, Any} ->
             {error, Any}

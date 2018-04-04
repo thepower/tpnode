@@ -7,17 +7,17 @@
         ]).
 
 get_priv() ->
-    {ok,K1}=application:get_env(tpnode,privkey),
+    {ok, K1}=application:get_env(tpnode, privkey),
     hex:parse(K1).
 
 get_pub() ->
-    tpecdsa:calc_pub(get_priv(),true).
+    tpecdsa:calc_pub(get_priv(), true).
 
 node_id() ->
     node_id(get_pub()).
 
 node_id(PubKey) ->
-    Hash=crypto:hash(sha,PubKey),
+    Hash=crypto:hash(sha, PubKey),
     base58:encode(Hash).
 
 

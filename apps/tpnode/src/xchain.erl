@@ -24,7 +24,7 @@ unpack(Invalid) ->
 % -----------
 
 pack_chid(I) when is_integer(I) ->
-    <<"ch:",(integer_to_binary(I))/binary>>.
+    <<"ch:", (integer_to_binary(I))/binary>>.
 
 % -----------
 
@@ -34,14 +34,14 @@ childspec() ->
             {'_', [
                 {"/xchain/ws", xchain_server, []},
                 {"/", xchain_server, []},
-                {"/xchain/api/[...]", apixiom, {xchain_api,#{}}}
+                {"/xchain/api/[...]", apixiom, {xchain_api, #{}}}
             ]}
         ]),
     CrossChainOpts = application:get_env(tpnode, crosschain, #{}),
     CrossChainPort = maps:get(port, CrossChainOpts, 43311),
 
 
-    HTTPOpts=[{connection_type,supervisor}, {port, CrossChainPort}],
+    HTTPOpts=[{connection_type, supervisor}, {port, CrossChainPort}],
     HTTPConnType=#{connection_type => supervisor,
         env => #{dispatch => HTTPDispatch}},
     HTTPAcceptors=10,
@@ -56,7 +56,7 @@ childspec() ->
         ranch:child_spec(crosschain_api6,
             HTTPAcceptors,
             ranch_tcp,
-            [inet6,{ipv6_v6only,true}|HTTPOpts],
+            [inet6, {ipv6_v6only, true}|HTTPOpts],
             cowboy_clear,
             HTTPConnType)
     ].

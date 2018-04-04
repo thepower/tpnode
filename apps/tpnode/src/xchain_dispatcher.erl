@@ -22,7 +22,7 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 pub(Channel, Payload) when is_binary(Channel) ->
-    gen_server:call(xchain_dispatcher, {publish,Channel,Payload}).
+    gen_server:call(xchain_dispatcher, {publish, Channel, Payload}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -61,7 +61,7 @@ handle_cast({register_peer, Pid, RemoteNodeId, RemoteChannels}, State) ->
     {noreply, register_peer({Pid, RemoteNodeId, RemoteChannels}, State)};
 
 
-handle_cast({subscribe, Channel, Pid}, #{pid_subs:=_Pids,chan_subs:=_Chans}=State) ->
+handle_cast({subscribe, Channel, Pid}, #{pid_subs:=_Pids, chan_subs:=_Chans}=State) ->
     {noreply, add_subscription(Channel, Pid, State)};
 
 handle_cast(_Msg, State) ->
@@ -69,7 +69,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 
-handle_info({'DOWN',_Ref,process,Pid,_Reason}, State) ->
+handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
     {noreply, unsubscribe_all(Pid, State)};
 
 handle_info(_Info, State) ->
@@ -98,7 +98,7 @@ get_peers(PidInfo) ->
         maps:fold(Parser, #{}, PidInfo)
     catch
         Ec:Ee ->
-            iolist_to_binary(io_lib:format("~p:~p",[Ec,Ee]))
+            iolist_to_binary(io_lib:format("~p:~p", [Ec, Ee]))
     end.
 
 register_peer({Pid, RemoteNodeId, RemoteChannels}, #{pid_info:=PidInfo} = State) ->
@@ -108,9 +108,9 @@ register_peer({Pid, RemoteNodeId, RemoteChannels}, #{pid_info:=PidInfo} = State)
         pid_info => maps:put(Pid, RemoteInfo, PidInfo)
     }.
 
-add_subscription(Channel, Pid, #{pid_subs:=Pids,chan_subs:=Chans}=State) ->
+add_subscription(Channel, Pid, #{pid_subs:=Pids, chan_subs:=Chans}=State) ->
     lager:info("subscribe ~p to ~p", [Pid, Channel]),
-    monitor(process,Pid),
+    monitor(process, Pid),
     OldPidChannels = maps:get(Pid, Pids, #{}),
     NewPidChannels = maps:put(Channel, 1, OldPidChannels),
     OldChanPids = maps:get(Channel, Chans, #{}),

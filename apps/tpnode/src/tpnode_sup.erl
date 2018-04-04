@@ -28,7 +28,7 @@ init([]) ->
 	code:ensure_loaded(tpic_checkauth),
     tpnode:reload(),
 
-    {ok,TPIC0}=application:get_env(tpnode,tpic),
+    {ok, TPIC0}=application:get_env(tpnode, tpic),
     TPIC=TPIC0#{
            ecdsa=>tpecdsa:generate_priv(),
            authmod=>tpic_checkauth,
@@ -40,18 +40,19 @@ init([]) ->
              <<"blockchain">>=>blockchain
             }
           },
-    {ok, { {one_for_one, 5, 10}, 
+		Discovery=#{pid=>discovery, name=>discovery},
+    {ok, { {one_for_one, 5, 10},
            [
-            { rdb_dispatcher, {rdb_dispatcher,start_link,[]}, permanent, 5000, worker, []},
-            { blockchain, {blockchain,start_link,[]}, permanent, 5000, worker, []},
-            { blockvote, {blockvote,start_link,[]}, permanent, 5000, worker, []},
-            { ws_dispatcher, {tpnode_ws_dispatcher,start_link,[]}, permanent, 5000, worker, []},
-            { synchronizer, {synchronizer,start_link,[]}, permanent, 5000, worker, []},
-            { mkblock, {mkblock,start_link,[]}, permanent, 5000, worker, []},
-            { txpool, {txpool,start_link,[]}, permanent, 5000, worker, []},
+            { rdb_dispatcher, {rdb_dispatcher, start_link, []}, permanent, 5000, worker, []},
+            { blockchain, {blockchain, start_link, []}, permanent, 5000, worker, []},
+            { blockvote, {blockvote, start_link, []}, permanent, 5000, worker, []},
+            { ws_dispatcher, {tpnode_ws_dispatcher, start_link, []}, permanent, 5000, worker, []},
+            { synchronizer, {synchronizer, start_link, []}, permanent, 5000, worker, []},
+            { mkblock, {mkblock, start_link, []}, permanent, 5000, worker, []},
+            { txpool, {txpool, start_link, []}, permanent, 5000, worker, []},
             { tpic_sctp, {tpic_sctp, start_link, [TPIC]}, permanent, 5000, worker, []},
             { ledger, {ledger, start_link, []}, permanent, 5000, worker, []},
-            { discovery, {discovery, start_link, [#{pid=>discovery, name=>discovery}]}, permanent, 5000, worker, []},
+            { discovery, {discovery, start_link, [Discovery]}, permanent, 5000, worker, []},
             { tpnode_announcer, {tpnode_announcer, start_link, [#{}]}, permanent, 5000, worker, []},
             { xchain_client, {xchain_client, start_link, [#{}]}, permanent, 5000, worker, []},
             { xchain_dispatcher, {xchain_dispatcher, start_link, []}, permanent, 5000, worker, []}

@@ -52,7 +52,7 @@ handle_call(state, _From, State) ->
 
 handle_call({add_subscribe, Subscribe}, _From, #{subs:=Subs} = State) ->
     AS=add_sub(Subscribe, Subs),
-    lager:notice("add subscribe ~p: ~p", [Subscribe,AS]),
+    lager:notice("add subscribe ~p: ~p", [Subscribe, AS]),
     {reply, ok, State#{
         subs => AS
     }};
@@ -111,10 +111,10 @@ handle_info({gun_ws, ConnPid, {binary, Bin} }, State) ->
     catch
         Ec:Ee ->
             S=erlang:get_stacktrace(),
-            lager:error("crosschain client parse error ~p:~p",[Ec,Ee]),
+            lager:error("crosschain client parse error ~p:~p", [Ec, Ee]),
             lists:foreach(
                 fun(Se) ->
-                    lager:error("at ~p",[Se])
+                    lager:error("at ~p", [Se])
                 end, S),
             {noreply, State}
     end;
@@ -129,12 +129,18 @@ handle_info({gun_down, ConnPid, _, _, _, _}, #{subs:=Subs} = State) ->
         subs => lost_connection(ConnPid, Subs)
     }};
 
-%%{gun_down,<0.271.0>,http,closed,[],[]}
-%%{gun_ws,<0.248.0>,{close,1000,<<>>}}
-%%{gun_down,<0.248.0>,ws,closed,[],[]}
-%%{gun_error,<0.248.0>,{badstate,"Connection needs to be upgraded to Websocket before the gun:ws_send/1 function can be used."}}
-%%{gun_ws_upgrade,<0.248.0>,ok,[{<<"connection">>,<<"Upgrade">>},{<<"date">>,<<"Sat, 24 Feb 2018 23:42:38 GMT">>},{<<"sec-websocket-accept">>,<<"vewcPjnW/Rek72GO2D/WPG9/Sz8=">>},{<<"server">>,<<"Cowboy">>},{<<"upgrade">>,<<"websocket">>}]}
-%%{gun_ws,<0.1214.0>,{close,1000,<<>>}}
+%%{gun_down, <0.271.0>, http, closed, [], []}
+%%{gun_ws, <0.248.0>, {close, 1000, <<>>}}
+%%{gun_down, <0.248.0>, ws, closed, [], []}
+%%{gun_error, <0.248.0>, {badstate, "Connection needs to be upgraded to Websocket "++
+%%								"before the gun:ws_send/1 function can be used."}}
+%%
+%%{gun_ws_upgrade, <0.248.0>, ok, [{<<"connection">>, <<"Upgrade">>},
+%%{<<"date">>, <<"Sat, 24 Feb 2018 23:42:38 GMT">>},
+%%{<<"sec-websocket-accept">>, <<"vewcPjnW/Rek72GO2D/WPG9/Sz8=">>},
+%%{<<"server">>, <<"Cowboy">>}, {<<"upgrade">>, <<"websocket">>}]}
+%%
+%%{gun_ws, <0.1214.0>, {close, 1000, <<>>}}
 
 handle_info(make_connections, #{connect_timer:=Timer, subs:=Subs} = State) ->
     catch erlang:cancel_timer(Timer),
@@ -233,36 +239,38 @@ mark_ws_mode_on(Pid, Subs) ->
 
 
 make_connections(Subs) ->
-    lager:info("make connections"),
-    maps:map(
-        fun(_Key, Sub) ->
-            case maps:is_key(connection, Sub) of
-                false ->
-                    try
-                        #{address:=Ip, port:=Port} = Sub,
-                        ConnPid = connect_remote({Ip, Port}),
-                        monitor(process, ConnPid),
-                        Sub#{
-                            connection => ConnPid
-                        }
-                    catch
-                        Err:Reason ->
-                            lager:info("error while connection to remote xchain: ~p ~p", [Err, Reason]),
-                            Sub
-                    end;
-                _ ->
-                    Sub
+	lager:info("make connections"),
+	maps:map(
+		fun(_Key, Sub) ->
+				case maps:is_key(connection, Sub) of
+					false ->
+						try
+							#{address:=Ip, port:=Port} = Sub,
+							ConnPid = connect_remote({Ip, Port}),
+							monitor(process, ConnPid),
+							Sub#{
+								connection => ConnPid
+							 }
+						catch
+							Err:Reason ->
+								lager:info("error while connection to remote xchain: ~p ~p",
+													 [Err, Reason]),
+								Sub
+						end;
+					_ ->
+						Sub
 
-            end
-        end,
-        Subs
-    ).
+				end
+		end,
+		Subs
+	 ).
 
 subscribe2key(#{address:=Ip, port:=Port}) ->
     {Ip, Port}.
 
 
-%% #{ {Ip, Port} =>  #{ address =>, port =>, channels => #{ <<"ch1">> => 0, <<"ch2">> => 0, <<"ch3">> => 0}}}
+%% #{ {Ip, Port} =>  #{ address =>, port =>, channels =>
+%%						#{ <<"ch1">> => 0, <<"ch2">> => 0, <<"ch3">> => 0}}}
 
 parse_subscribe(#{address:=Ip, port:=Port, channels:=Channels})
     when is_integer(Port) andalso is_list(Channels) ->
@@ -433,7 +441,7 @@ test() ->
     Subscribe = #{
         address => "127.0.0.1",
         port => 43312,
-        channels => [<<"test123">>,xchain:pack_chid(2)]
+        channels => [<<"test123">>, xchain:pack_chid(2)]
     },
     gen_server:call(xchain_client, {add_subscribe, Subscribe}).
 %%    {ok, _} = application:ensure_all_started(gun),

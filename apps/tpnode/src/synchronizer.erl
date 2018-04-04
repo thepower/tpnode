@@ -27,7 +27,7 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-    gen_server:cast(self(),settings),
+    gen_server:cast(self(), settings),
     {ok, #{
        myoffset=>undefined,
        offsets=>#{},
@@ -38,9 +38,9 @@ init(_Args) ->
       }}.
 
 handle_call(peers, _From, #{offsets:=Offs}=State) ->
-    Friends=maps:keys(Offs), 
+    Friends=maps:keys(Offs),
     {reply, Friends, State};
- 
+
 handle_call(state, _From, State) ->
     {reply, State, State};
 
@@ -50,10 +50,10 @@ handle_call(_Request, _From, State) ->
 handle_cast(settings, State) ->
     {noreply, load_settings(State)};
 
-handle_cast({tpic, _PeerID, <<16#be,_/binary>>=Payload}, State) ->
+handle_cast({tpic, _PeerID, <<16#be, _/binary>>=Payload}, State) ->
 	try
 		Beacon=beacon:check(Payload),
-		lager:info("SYNC beacon ~p",[Beacon]),
+		lager:info("SYNC beacon ~p", [Beacon]),
 		{noreply, State}
 	catch _:_ ->
 			  {noreply, State}
@@ -61,47 +61,47 @@ handle_cast({tpic, _PeerID, <<16#be,_/binary>>=Payload}, State) ->
 
 handle_cast({tpic, _PeerID, Payload}, State) ->
     case msgpack:unpack(Payload) of
-        {ok, #{null:=<<"hello">>,<<"n">>:=Node,<<"t">>:=T}} ->
+        {ok, #{null:=<<"hello">>, <<"n">>:=Node, <<"t">>:=T}} ->
             handle_cast({hello, Node, T}, State);
         Any ->
-            lager:info("Bad TPIC received ~p",[Any]),
+            lager:info("Bad TPIC received ~p", [Any]),
             {noreply, State}
     end;
-    
+
 
 handle_cast({hello, PID, WallClock}, State) ->
     Behind=erlang:system_time(microsecond)-WallClock,
-    lager:debug("Hello from ~p our clock diff ~p",[PID,Behind]),
+    lager:debug("Hello from ~p our clock diff ~p", [PID, Behind]),
     {noreply, State#{
                 offsets=>maps:put(PID,
                                   {
                                    Behind,
                                    erlang:system_time(seconds)
                                   },
-                                  maps:get(offsets,State,#{})
+                                  maps:get(offsets, State, #{})
                                  )
                }
     };
 
-handle_cast({setdelay,Ms}, State) when Ms>900 ->
-    lager:info("Setting ~p ms block delay",[Ms]),
+handle_cast({setdelay, Ms}, State) when Ms>900 ->
+    lager:info("Setting ~p ms block delay", [Ms]),
     {noreply, State#{
                 tickms=>Ms
                }
     };
 
 handle_cast(_Msg, State) ->
-    lager:info("Unknown cast ~p",[_Msg]),
+    lager:info("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(ticktimer, 
-            #{meandiff:=MeanDiff,ticktimer:=Tmr,tickms:=Delay,prevtick:=_T0}=State) ->
+handle_info(ticktimer,
+            #{meandiff:=MeanDiff, ticktimer:=Tmr, tickms:=Delay, prevtick:=_T0}=State) ->
     T=erlang:system_time(microsecond),
     MeanMs=round((T+MeanDiff)/1000),
     Wait=Delay-(MeanMs rem Delay),
-    case maps:get(bcready,State,false) of
+    case maps:get(bcready, State, false) of
         true ->
-            gen_server:cast(txpool,prepare),
+            gen_server:cast(txpool, prepare),
             erlang:send_after(200, whereis(mkblock), process),
             lager:info("Time to tick. next in ~w", [Wait]);
         false ->
@@ -110,48 +110,48 @@ handle_info(ticktimer,
     end,
     catch erlang:cancel_timer(Tmr),
 
-    {noreply,State#{
+    {noreply, State#{
                ticktimer=>erlang:send_after(Wait, self(), ticktimer),
                prevtick=>T
               }
     };
 
-handle_info(selftimer5, #{mychain:=_MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs}=State) ->
-    Friends=maps:keys(Offs), 
-    {Avg,Off2}=lists:foldl(
-          fun(Friend,{Acc,NewOff}) ->
-                  case maps:get(Friend,Offs,undefined) of
+handle_info(selftimer5, #{mychain:=_MyChain, tickms:=Ms, timer5:=Tmr, offsets:=Offs}=State) ->
+    Friends=maps:keys(Offs),
+    {Avg, Off2}=lists:foldl(
+          fun(Friend, {Acc, NewOff}) ->
+                  case maps:get(Friend, Offs, undefined) of
                       undefined ->
                           {Acc, NewOff};
-                      {LOffset,LTime} ->
-                          {[LOffset|Acc],maps:put(Friend,{LOffset,LTime},NewOff)}
+                      {LOffset, LTime} ->
+                          {[LOffset|Acc], maps:put(Friend, {LOffset, LTime}, NewOff)}
                   end
-          end,{[],#{}}, Friends),
+          end, {[], #{}}, Friends),
     MeanDiff=median(Avg),
     T=erlang:system_time(microsecond),
     Hello=msgpack:pack(#{null=><<"hello">>,
 						 <<"n">>=>nodekey:node_id(),
 						 <<"t">>=>T
 						}),
-    tpic:cast(tpic,<<"timesync">>,Hello),
+    tpic:cast(tpic, <<"timesync">>, Hello),
     BCReady=try
-                gen_server:call(blockchain,ready,50)
+                gen_server:call(blockchain, ready, 50)
             catch Ec:Ee ->
-                      lager:error("SYNC BC is not ready err ~p:~p ",[Ec,Ee]),
+                      lager:error("SYNC BC is not ready err ~p:~p ", [Ec, Ee]),
                       false
             end,
     MeanMs=round((T-MeanDiff)/1000),
     if(Friends==[]) ->
-          lager:debug("I'm alone in universe my time ~w",[(MeanMs rem 3600000)/1000]);
+          lager:debug("I'm alone in universe my time ~w", [(MeanMs rem 3600000)/1000]);
       true ->
           lager:info("I have ~b friends, and mean hospital time ~w, mean diff ~w blocktime ~w",
-                     [length(Friends),(MeanMs rem 3600000)/1000,MeanDiff/1000,Ms]
+                     [length(Friends), (MeanMs rem 3600000)/1000, MeanDiff/1000, Ms]
                     )
     end,
 
     catch erlang:cancel_timer(Tmr),
 
-    {noreply,State#{
+    {noreply, State#{
                timer5=>erlang:send_after(10000-(MeanMs rem 10000)+500, self(), selftimer5),
                offsets=>Off2,
                meandiff=>MeanDiff,
@@ -160,7 +160,7 @@ handle_info(selftimer5, #{mychain:=_MyChain,tickms:=Ms,timer5:=Tmr,offsets:=Offs
     };
 
 handle_info(_Info, State) ->
-    lager:info("Unknown info ~p",[_Info]),
+    lager:info("Unknown info ~p", [_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -177,7 +177,7 @@ median([E]) -> E;
 median(List) ->
     LL=length(List),
     DropL=(LL div 2)-1,
-    {_,[M1,M2|_]}=lists:split(DropL,List),
+    {_, [M1, M2|_]}=lists:split(DropL, List),
     case LL rem 2 of
         0 -> %even elements
             (M1+M2)/2;
@@ -190,9 +190,9 @@ load_settings(State) ->
     BlockTime=blockchain:get_mysettings(blocktime),
     MyChain=blockchain:get_mysettings(chain),
 	BCReady=try
-                gen_server:call(blockchain,ready,50)
+                gen_server:call(blockchain, ready, 50)
             catch Ec:Ee ->
-                      lager:error("SYNC BC is not ready err ~p:~p ",[Ec,Ee]),
+                      lager:error("SYNC BC is not ready err ~p:~p ", [Ec, Ee]),
                       false
             end,
     State#{

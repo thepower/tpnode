@@ -4,7 +4,7 @@
 parse(B) when is_binary(B) ->
     parse(binary_to_list(B));
 
-parse([$0,$x|L])  ->
+parse([$0, $x|L])  ->
     parse(L);
 
 parse(L) when is_list(L) ->
@@ -12,13 +12,13 @@ parse(L) when is_list(L) ->
         0 -> ok;
         1 -> throw('bad length')
     end,
-    parse(string:to_lower(L),<<>>).
+    parse(string:to_lower(L), <<>>).
 
-parse([],Acc) ->
+parse([], Acc) ->
     Acc;
 
-parse([H1,H2|Rest],Acc) ->
-    parse(Rest,<<Acc/binary,((h2i(H1) bsl 4) bor h2i(H2))/integer>>).
+parse([H1, H2|Rest], Acc) ->
+    parse(Rest, <<Acc/binary, ((h2i(H1) bsl 4) bor h2i(H2))/integer>>).
 
 
 h2i($0) -> 0;
@@ -37,7 +37,7 @@ h2i($c) -> 12;
 h2i($d) -> 13;
 h2i($e) -> 14;
 h2i($f) -> 15;
-h2i(Any) -> throw({'bad_symbol',Any}).
+h2i(Any) -> throw({'bad_symbol', Any}).
 
 
 

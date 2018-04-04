@@ -1,18 +1,18 @@
 -module(smartcontract).
 -export([run/5]).
 
--callback deploy(Address :: binary(), 
+-callback deploy(Address :: binary(),
 				 Ledger :: map(),
-				 Code :: binary(), 
+				 Code :: binary(),
 				 State :: binary()|undefined,
 				 GasLimit :: integer(),
-				 GetFun :: fun()) -> 
+				 GetFun :: fun()) ->
 	{'ok', NewLedger :: map()}.
 
 -callback handle_tx(Tx :: binary(),
 					Ledger :: map(),
 					GasLimit :: integer(),
-					GetFun :: fun()) -> 
+					GetFun :: fun()) ->
 	{'ok',  %success finish, emit new txs
 	 NewState :: 'unchanged' | binary(), % atom unchanged if no state changed
 	 GasUsed :: integer(),
@@ -21,27 +21,27 @@
 	{'ok',  %success finish
 	 NewState :: 'unchanged' | binary(), % atom unchanged if no state changed
 	 GasUsed :: integer()
-	} | 
+	} |
 	{'error', %error during execution
 	 Reason :: 'insufficient_gas' | string(),
 	 GasUsed :: integer()
-	} | 
+	} |
 	{'error', %error during start
 	 Reason :: string()
 	}.
 
 run(VMType, #{to:=To}=Tx, Ledger, GasLimit, GetFun) ->
-	VM=try 
-		   erlang:binary_to_existing_atom(<<"contract_",VMType/binary>>,utf8)
+	VM=try
+		   erlang:binary_to_existing_atom(<<"contract_", VMType/binary>>, utf8)
 	   catch error:badarg ->
 				 throw('unknown_vm')
 	   end,
-	lager:info("run contract ~s for ~s", [VM,naddress:encode(To)]),
+	lager:info("run contract ~s for ~s", [VM, naddress:encode(To)]),
 	try
 		case erlang:apply(VM,
 						  handle_tx,
 						  [Tx, Ledger, GasLimit, GetFun]) of
-			{ok, NewState, GasUsed, EmitTxs} when 
+			{ok, NewState, GasUsed, EmitTxs} when
 				  NewState==unchanged orelse is_binary(NewState) ->
 				if NewState == unchanged ->
 					   {Ledger, EmitTxs, GasUsed};
@@ -50,7 +50,7 @@ run(VMType, #{to:=To}=Tx, Ledger, GasLimit, GetFun) ->
 						bal:put(state, NewState, Ledger),
 						EmitTxs, GasUsed}
 				end;
-			{ok, NewState, GasUsed} when 
+			{ok, NewState, GasUsed} when
 				  NewState==unchanged orelse is_binary(NewState) ->
 				if NewState == unchanged ->
 					   {Ledger, [], GasUsed};
@@ -60,19 +60,19 @@ run(VMType, #{to:=To}=Tx, Ledger, GasLimit, GetFun) ->
 						[], GasUsed}
 				end;
 			{error, Reason, GasUsed} ->
-				%throw({'run_failed',Reason});
-				lager:error("Contract error ~p",[Reason]),
+				%throw({'run_failed', Reason});
+				lager:error("Contract error ~p", [Reason]),
 				{Ledger, [], GasUsed};
 			{error, Reason} ->
-				throw({'run_failed',Reason});
+				throw({'run_failed', Reason});
 			Any ->
-				lager:error("Contract return error ~p",[Any]),
-				throw({'run_failed',other})
+				lager:error("Contract return error ~p", [Any]),
+				throw({'run_failed', other})
 		end
 	catch Ec:Ee ->
 			  S=erlang:get_stacktrace(),
 			  lager:error("Can't run contract ~p:~p @ ~p",
-						  [Ec,Ee,hd(S)]),
-			  throw({'contract_error',[Ec,Ee]})
+						  [Ec, Ee, hd(S)]),
+			  throw({'contract_error', [Ec, Ee]})
 	end.
-	
+

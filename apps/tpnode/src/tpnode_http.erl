@@ -6,9 +6,9 @@ childspec() ->
                      [
                       {'_', [
                              {"/api/ws", tpnode_ws, []},
-                             {"/api/[...]", apixiom, {tpnode_httpapi,#{}}},
-                             {"/[...]", cowboy_static, 
-                              {dir, "public", 
+                             {"/api/[...]", apixiom, {tpnode_httpapi, #{}}},
+                             {"/[...]", cowboy_static,
+                              {dir, "public",
                                [
                                 {mimetypes, cow_mimetypes, all},
                                 {dir_handler, directory_handler}
@@ -17,9 +17,9 @@ childspec() ->
                              }
                             ]}
                      ]),
-    HTTPOpts=[{connection_type,supervisor},
+    HTTPOpts=[{connection_type, supervisor},
               {port,
-               application:get_env(tpnode,rpcport,43280)
+               application:get_env(tpnode, rpcport, 43280)
               }],
     HTTPConnType=#{connection_type => supervisor,
                    env => #{dispatch => HTTPDispatch}},
@@ -27,14 +27,14 @@ childspec() ->
     [
     ranch:child_spec(http,
                      HTTPAcceptors,
-                     ranch_tcp, 
+                     ranch_tcp,
                      HTTPOpts,
                      cowboy_clear,
                      HTTPConnType),
     ranch:child_spec(http6,
                      HTTPAcceptors,
-                     ranch_tcp, 
-                     [inet6,{ipv6_v6only,true}|HTTPOpts],
+                     ranch_tcp,
+                     [inet6, {ipv6_v6only, true}|HTTPOpts],
                      cowboy_clear,
                      HTTPConnType)
     ].

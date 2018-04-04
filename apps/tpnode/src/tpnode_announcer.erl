@@ -96,8 +96,11 @@ filter_local_addresses(Peers) ->
                     (Proto == tpic orelse Proto == <<"tpic">>)
                 );
                 (InvalidLocalAddress) ->
-                    lager:info("invalid local address, skip it: ~p", [InvalidLocalAddress]),
-                    true  % use true to skip it by filter and avoid using the invalid address in the renew_peers call
+                    lager:info("invalid local address, skip it: ~p",
+															 [InvalidLocalAddress]),
+										% use true to skip it by filter and avoid using
+										% the invalid address in the renew_peers call
+                    true
             end,
             LocalAddresses),
         (IsLocalAddress == false)
@@ -152,7 +155,7 @@ test1() ->
 test2() ->
     register_node(),
     LocalAddresses = get_local_addresses(),
-    Peers = get_peers() ++ [{"127.0.0.1",43214}],
+    Peers = get_peers() ++ [{"127.0.0.1", 43214}],
     io:fwrite("local addresses: ~p~n", [LocalAddresses]),
     io:fwrite("peers: ~p~n", [Peers]),
     LocalAddressFilter = fun({Ip, Port} = _Address) ->

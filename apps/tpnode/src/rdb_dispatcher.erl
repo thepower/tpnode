@@ -45,12 +45,12 @@ handle_call({open, DBPath, Args}, _Form, #{dbs:=DBS}=State) ->
             {reply, maps:get(DBPath, DBS), State};
         false ->
             R=rocksdb:open(DBPath, Args),
-            case R of 
+            case R of
                 {ok, Pid} ->
-                    {reply, 
+                    {reply,
                      R,
                      State#{
-                       dbs=> maps:put(DBPath, {ok, Pid}, DBS) 
+                       dbs=> maps:put(DBPath, {ok, Pid}, DBS)
                       }
                     };
                 Any ->
@@ -62,7 +62,7 @@ handle_call({close, DBPath}, _Form, #{dbs:=DBS}=State) ->
     case maps:is_key(DBPath, DBS) of
         true ->
             case maps:get(DBPath, DBS) of
-                {ok,DBH} ->
+                {ok, DBH} ->
                     rocksdb:close(DBH),
                     {reply, ok, State#{
                                   dbs=>maps:remove(DBPath, DBS)
@@ -76,23 +76,23 @@ handle_call({close, DBPath}, _Form, #{dbs:=DBS}=State) ->
     end;
 
 handle_call(_Request, _From, State) ->
-    lager:notice("Unknown call ~p",[_Request]),
+    lager:notice("Unknown call ~p", [_Request]),
     {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
-    lager:notice("Unknown cast ~p",[_Msg]),
+    lager:notice("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(_Info, State) ->
-    lager:notice("Unknown info  ~p",[_Info]),
+    lager:notice("Unknown info  ~p", [_Info]),
     {noreply, State}.
 
 terminate(_Reason, #{dbs:=DBS}=_State) ->
     maps:fold(
-      fun(_Path,{ok,DBH},_) ->
+      fun(_Path, {ok, DBH}, _) ->
               rocksdb:close(DBH)
       end, undefined, DBS),
-    lager:error("Terminate me ~p",[_State]),
+    lager:error("Terminate me ~p", [_State]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

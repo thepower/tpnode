@@ -7,7 +7,7 @@
 %% ------------------------------------------------------------------
 
 -ifndef(TEST).
--define(TEST,1).
+-define(TEST, 1).
 -endif.
 
 -ifdef(TEST).
@@ -15,7 +15,7 @@
 -endif.
 
 -export([start_link/0]).
--export([generate_block/5,benchmark/1,decode_tpic_txs/1]).
+-export([generate_block/5, benchmark/1, decode_tpic_txs/1]).
 
 
 %% ------------------------------------------------------------------
@@ -55,7 +55,7 @@ handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
         {ok, Struct} ->
             handle_cast({tpic, From, Struct}, State);
         _Any ->
-            lager:info("Can't decode TPIC ~p",[_Any]),
+            lager:info("Can't decode TPIC ~p", [_Any]),
             {noreply, State}
     end;
 
@@ -64,12 +64,12 @@ handle_cast({tpic, FromKey, #{
 					 <<"hash">> := ParentHash,
 					 <<"signed">> := SignedBy
                     }}, State)  ->
-	Origin=gen_server:call(blockchain,{is_our_node,FromKey}),
-	lager:debug("MB presig got ~s ~p",[Origin,SignedBy]),
+	Origin=gen_server:call(blockchain, {is_our_node, FromKey}),
+	lager:debug("MB presig got ~s ~p", [Origin, SignedBy]),
 	if Origin==false ->
 		   {noreply, State};
 	   true ->
-		   PreSig=maps:get(presig,State,#{}),
+		   PreSig=maps:get(presig, State, #{}),
 		   {noreply,
 			State#{
 			  presig=>maps:put(Origin, {ParentHash, SignedBy}, PreSig)
@@ -86,14 +86,14 @@ handle_cast({tpic, Origin, #{
 	   true ->
 		   lager:info("Got txs from ~s: ~p",
 					  [
-					   gen_server:call(blockchain,{is_our_node,Origin}),
+					   gen_server:call(blockchain, {is_our_node, Origin}),
 					   TXs
 					  ])
 	end,
 	handle_cast({prepare, Origin, TXs}, State);
 
 handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
-	Origin=gen_server:call(blockchain,{is_our_node,Node}),
+	Origin=gen_server:call(blockchain, {is_our_node, Node}),
 	if Origin==false ->
 		   lager:error("Got txs from bad node ~s",
 					   [bin2hex:dbin2hex(Node)]),
@@ -110,29 +110,29 @@ handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
 								   Tx1
 							   catch _Ec:_Ee ->
 										 S=erlang:get_stacktrace(),
-										 lager:error("Error ~p:~p",[_Ec,_Ee]),
+										 lager:error("Error ~p:~p", [_Ec, _Ee]),
 										 lists:foreach(fun(SE) ->
-															   lager:error("@ ~p",[SE])
+															   lager:error("@ ~p", [SE])
 													   end, S),
-										 file:write_file("tmp/mkblk_badsig_"++binary_to_list(nodekey:node_id()),
-														 io_lib:format("~p.~n",[TxB])),
+										 file:write_file("tmp/mkblk_badsig_" ++ binary_to_list(nodekey:node_id()),
+														 io_lib:format("~p.~n", [TxB])),
 
 										 TxB
 							   end,
-						  {TxID, 
-						   tx:set_ext(origin,Origin,TxB1)
+						  {TxID,
+						   tx:set_ext(origin, Origin, TxB1)
 						  }
 				  end,
 		   {noreply,
 			case maps:get(parent, State, undefined) of
 				undefined ->
-					#{header:=#{height:=Last_Height},hash:=Last_Hash}=gen_server:call(blockchain,last_block),
+					#{header:=#{height:=Last_Height}, hash:=Last_Hash}=gen_server:call(blockchain, last_block),
 					State#{
-					  preptxl=>PreTXL++lists:map(MarkTx, Txs),
-					  parent=>{Last_Height,Last_Hash}
+					  preptxl=>PreTXL ++ lists:map(MarkTx, Txs),
+					  parent=>{Last_Height, Last_Hash}
 					 };
 				_ ->
-					State#{ preptxl=>PreTXL++lists:map(MarkTx, Txs) }
+					State#{ preptxl=>PreTXL ++ lists:map(MarkTx, Txs) }
 			end
 		   }
 	end;
@@ -141,47 +141,47 @@ handle_cast(settings, State) ->
     {noreply, load_settings(State)};
 
 handle_cast(_Msg, State) ->
-    lager:info("MB unknown cast ~p",[_Msg]),
+    lager:info("MB unknown cast ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL0}=State) ->
+handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=State) ->
     lager:info("-------[MAKE BLOCK]-------"),
 	PreTXL1=lists:foldl(
-			  fun({TxID,TXB},Acc) ->
-					  case maps:is_key(TxID,Acc) of
+			  fun({TxID, TXB}, Acc) ->
+					  case maps:is_key(TxID, Acc) of
 						  true ->
 							  TXB1=tx:mergesig(TXB,
-											   maps:get(TxID,Acc)),
+											   maps:get(TxID, Acc)),
 							  {ok, Tx1} = tx:verify(TXB1),
 							  maps:put(TxID, Tx1, Acc);
 						  false ->
 							  maps:put(TxID, TXB, Acc)
 					  end
 			  end, #{}, PreTXL0),
-	PreTXL=lists:keysort(1,maps:to_list(PreTXL1)),
+	PreTXL=lists:keysort(1, maps:to_list(PreTXL1)),
 
-    AE=maps:get(ae,MySet,1),
+    AE=maps:get(ae, MySet, 1),
 
-	{_,ParentHash}=Parent=case maps:get(parent,State,undefined) of
+	{_, ParentHash}=Parent=case maps:get(parent, State, undefined) of
 			   undefined ->
 				   lager:info("Fetching last block from blockchain"),
-				   #{header:=#{height:=Last_Height1},hash:=Last_Hash1}=gen_server:call(blockchain,last_block),
-				   {Last_Height1,Last_Hash1};
-			   {A,B} -> {A,B}
+				   #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=gen_server:call(blockchain, last_block),
+				   {Last_Height1, Last_Hash1};
+			   {A, B} -> {A, B}
 		   end,
 
 	PreNodes=try
 		PreSig=maps:get(presig, State),
 		BK=maps:fold(
-			 fun(_,{BH,_},Acc) when BH =/= ParentHash ->
+			 fun(_, {BH, _}, Acc) when BH =/= ParentHash ->
 					 Acc;
-				(Node1,{_BH,Nodes2},Acc) ->
+				(Node1, {_BH, Nodes2}, Acc) ->
 					 [{Node1, Nodes2}|Acc]
-			 end,[], PreSig),
+			 end, [], PreSig),
 		lists:sort(bron_kerbosch:max_clique(BK))
 	catch Ec:Ee ->
 			  Stack1=erlang:get_stacktrace(),
-			  lager:error("Can't calc xsig ~p:~p ~p",[Ec,Ee,Stack1]),
+			  lager:error("Can't calc xsig ~p:~p ~p", [Ec, Ee, Stack1]),
 			  []
 	end,
 
@@ -190,23 +190,23 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL0}=Sta
           true -> ok
         end,
         T1=erlang:system_time(),
-		lager:notice("MB pre nodes ~p",[PreNodes]),
+		lager:notice("MB pre nodes ~p", [PreNodes]),
 
         PropsFun=fun(mychain) ->
                          MyChain;
                     (settings) ->
                          blockchain:get_settings();
-                    ({valid_timestamp,TS}) ->
+                    ({valid_timestamp, TS}) ->
 						 abs(os:system_time(millisecond)-TS)<3600000;
-					({endless,From,Cur}) ->
-						 EndlessPath=[<<"current">>,<<"endless">>,From,Cur],
+					({endless, From, Cur}) ->
+						 EndlessPath=[<<"current">>, <<"endless">>, From, Cur],
 						 case blockchain:get_settings(EndlessPath) of
 							 true -> true;
 							 _ ->
 								 % TODO 2018-05-01: Replace this code with false
 								 Endless=lists:member(
 										   From,
-										   application:get_env(tpnode,endless,[])
+										   application:get_env(tpnode, endless, [])
 										  ),
 								 if Endless ->
 										lager:notice("Deprecated: issue tokens by address in config");
@@ -215,25 +215,25 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL0}=Sta
 								 end,
 								 Endless
 						 end;
-					({get_block,Back}) when 32>=Back ->
-						 FindBlock=fun FB(H,N) ->
-							 case gen_server:call(blockchain,{get_block,H}) of
+					({get_block, Back}) when 32>=Back ->
+						 FindBlock=fun FB(H, N) ->
+							 case gen_server:call(blockchain, {get_block, H}) of
 								 undefined ->
 									 undefined;
 								 #{header:=#{parent:=P}}=Blk ->
-									 if N==0 -> 
-											maps:without([bals,txs],Blk);
+									 if N==0 ->
+											maps:without([bals, txs], Blk);
 										true ->
-											FB(P,N-1)
+											FB(P, N-1)
 									 end
 							 end
 						 end,
-						FindBlock(last,Back)
+						FindBlock(last, Back)
 					end,
-		AddrFun=fun({Addr,Cur}) ->
-                        gen_server:call(blockchain,{get_addr,Addr,Cur});
+		AddrFun=fun({Addr, Cur}) ->
+                        gen_server:call(blockchain, {get_addr, Addr, Cur});
                    (Addr) ->
-                        gen_server:call(blockchain,{get_addr,Addr})
+                        gen_server:call(blockchain, {get_addr, Addr})
                 end,
 
 		#{block:=Block,
@@ -245,9 +245,9 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL0}=Sta
                ok;
            true ->
                %there was failed tx. Block empty?
-               gen_server:cast(txpool,{failed,Failed}),
+               gen_server:cast(txpool, {failed, Failed}),
                if(AE==0) ->
-                     case maps:get(txs,Block,[]) of
+                     case maps:get(txs, Block, []) of
                          [] -> throw(empty);
                          _ -> ok
                      end;
@@ -257,48 +257,48 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet,preptxl:=PreTXL0}=Sta
         end,
         Timestamp=os:system_time(millisecond),
         ED=[
-            {timestamp,Timestamp},
-            {createduration,T2-T1}
+            {timestamp, Timestamp},
+            {createduration, T2-T1}
            ],
-        SignedBlock=sign(Block,ED),
+        SignedBlock=sign(Block, ED),
 		#{header:=#{height:=NewH}}=Block,
         %cast whole block for my local blockvote
         gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
 
-		case application:get_env(tpnode,dumpblocks) of
+		case application:get_env(tpnode, dumpblocks) of
 			true ->
-				file:write_file("tmp/mkblk_"++
-								integer_to_list(NewH)++"_"++
+				file:write_file("tmp/mkblk_" ++
+								integer_to_list(NewH) ++ "_" ++
 								binary_to_list(nodekey:node_id()),
-								io_lib:format("~p.~n",[SignedBlock])
+								io_lib:format("~p.~n", [SignedBlock])
 							   );
 			_ -> ok
 		end,
         %Block signature for each other
         lager:info("MB My sign ~p emit ~p",
 				   [
-					maps:get(sign,SignedBlock),
+					maps:get(sign, SignedBlock),
 					length(EmitTXs)
 				   ]),
         HBlk=msgpack:pack(
                #{null=><<"blockvote">>,
                  <<"n">>=>node(),
-                 <<"hash">>=>maps:get(hash,SignedBlock),
-                 <<"sign">>=>maps:get(sign,SignedBlock),
+                 <<"hash">>=>maps:get(hash, SignedBlock),
+                 <<"sign">>=>maps:get(sign, SignedBlock),
                  <<"chain">>=>MyChain
                 }
               ),
-        tpic:cast(tpic,<<"blockvote">>, HBlk),
+        tpic:cast(tpic, <<"blockvote">>, HBlk),
 		if EmitTXs==[] -> ok;
 		   true ->
-			   lager:info("Inject TXs ~p",[
+			   lager:info("Inject TXs ~p", [
 										   gen_server:call(txpool, {push_etx, EmitTXs})
 										  ])
 		end,
-        {noreply, State#{preptxl=>[],parent=>undefined,presig=>#{}}}
+        {noreply, State#{preptxl=>[], parent=>undefined, presig=>#{}}}
     catch throw:empty ->
               lager:info("Skip empty block"),
-              {noreply, State#{preptxl=>[],parent=>undefined,presig=>#{}}}
+              {noreply, State#{preptxl=>[], parent=>undefined, presig=>#{}}}
     end;
 
 handle_info(process, State) ->
@@ -326,69 +326,69 @@ getaddr([E|Rest], GetFun, Fallback) ->
 		B when is_binary(B) ->
 			B;
 		_ ->
-			getaddr(Rest,GetFun,Fallback)
+			getaddr(Rest, GetFun, Fallback)
 	end.
 
 deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings) ->
-	TBal=maps:get(Addr,Addresses,bal:new()),
-	{TBal2,TXL2}=maps:fold(
-				   fun(Cur, Summ, {Acc,TxAcc}) ->
-						   {NewT,NewTXL,_}=deposit(Addr, Acc,
+	TBal=maps:get(Addr, Addresses, bal:new()),
+	{TBal2, TXL2}=maps:fold(
+				   fun(Cur, Summ, {Acc, TxAcc}) ->
+						   {NewT, NewTXL, _}=deposit(Addr, Acc,
 												   #{cur=>Cur,
 													 amount=>Summ,
 													 to=>Addr},
 												   GetFun, Settings),
-						   {NewT,TxAcc++NewTXL}
+						   {NewT, TxAcc ++ NewTXL}
 				   end,
-			{TBal,TXL},
+			{TBal, TXL},
 			Amounts),
 	if TBal==TBal2 ->
-		   {Addresses,TXL2};
+		   {Addresses, TXL2};
 	   true ->
 		   {maps:put(Addr,
 					 maps:remove(keep, TBal2),
-					 Addresses),TXL2}
+					 Addresses), TXL2}
 	end.
 
 
-try_process([], Settings, Addresses, GetFun, 
-			#{fee:=FeeBal,tip:=TipBal,emit:=Emit}=Acc) ->
+try_process([], Settings, Addresses, GetFun,
+			#{fee:=FeeBal, tip:=TipBal, emit:=Emit}=Acc) ->
 	try
 		GetFeeFun=fun (Parameter) ->
-						  settings:get([<<"current">>,<<"fee">>,params,Parameter],Settings)
+						  settings:get([<<"current">>, <<"fee">>, params, Parameter], Settings)
 				  end,
-		lager:debug("fee ~p tip ~p",[FeeBal,TipBal]),
-		{Addresses2,NewEmit}=lists:foldl(
-							  fun({CType,CBal},{FAcc,TXL}) ->
+		lager:debug("fee ~p tip ~p", [FeeBal, TipBal]),
+		{Addresses2, NewEmit}=lists:foldl(
+							  fun({CType, CBal}, {FAcc, TXL}) ->
 									  Addr=case CType of
-											   fee -> 
+											   fee ->
 												   getaddr([<<"feeaddr">>],
 														   GetFeeFun,
-														   naddress:construct_private(0,0));
-											   tip -> 
+														   naddress:construct_private(0, 0));
+											   tip ->
 												   getaddr([<<"tipaddr">>,
 															<<"feeaddr">>],
 														   GetFeeFun,
-														   naddress:construct_private(0,0)
+														   naddress:construct_private(0, 0)
 														  );
 											   _ ->
-												   naddress:construct_private(0,0)
+												   naddress:construct_private(0, 0)
 										   end,
-									  lager:debug("fee ~s ~p to ~p",[CType,CBal,Addr]),
+									  lager:debug("fee ~s ~p to ~p", [CType, CBal, Addr]),
 									  deposit_fee(CBal, Addr, FAcc, TXL, GetFun, Settings)
 							  end,
-							  {Addresses,[]},
-							  [ {tip,TipBal}, {fee,FeeBal} ]
+							  {Addresses, []},
+							  [ {tip, TipBal}, {fee, FeeBal} ]
 							 ),
-		lager:info("NewEmit ~p",[NewEmit]),
+		lager:info("NewEmit ~p", [NewEmit]),
 		Acc#{table=>Addresses2,
-			 emit=>Emit++NewEmit
+			 emit=>Emit ++ NewEmit
 			}
 	catch _Ec:_Ee ->
 			  S=erlang:get_stacktrace(),
-			  lager:error("Can't save fees: ~p:~p",[_Ec,_Ee]),
+			  lager:error("Can't save fees: ~p:~p", [_Ec, _Ee]),
 			  lists:foreach(fun(E) ->
-								  lager:info("Can't save fee at ~p",[E])
+								  lager:info("Can't save fee at ~p", [E])
 						  end, S),
 			  Acc#{table=>Addresses}
 	end;
@@ -402,8 +402,8 @@ try_process([{BlID, #{ hash:=BHash, txs:=TxList, header:=#{height:=BHeight} }}|R
                      origin_block_height=>BHeight,
                      origin_block=>BlID
                     }
-                  } || {TxID,Tx} <- TxList ]++Rest,
-                SetState,Addresses,GetFun, Acc);
+                  } || {TxID, Tx} <- TxList ] ++ Rest,
+                SetState, Addresses, GetFun, Acc);
 
 %process settings
 try_process([{TxID,
@@ -414,40 +414,40 @@ try_process([{TxID,
               settings:=Settings}=Acc) ->
     try
 		lager:notice("Ensure verified"),
-        SS1=settings:patch({TxID,Tx},SetState),
-        lager:info("Success Patch ~p against settings ~p",[_LPatch,SetState]),
-        try_process(Rest,SS1,Addresses,GetFun,
+        SS1=settings:patch({TxID, Tx}, SetState),
+        lager:info("Success Patch ~p against settings ~p", [_LPatch, SetState]),
+        try_process(Rest, SS1, Addresses, GetFun,
                     Acc#{
-                      settings=>[{TxID,Tx}|Settings]
+                      settings=>[{TxID, Tx}|Settings]
                      }
                    )
     catch throw:Ee ->
               lager:info("Fail to Patch ~p ~p",
-                         [_LPatch,Ee]),
-              try_process(Rest,SetState,Addresses,GetFun,
+                         [_LPatch, Ee]),
+              try_process(Rest, SetState, Addresses, GetFun,
                           Acc#{
-                            failed=>[{TxID,Ee}|Failed]
+                            failed=>[{TxID, Ee}|Failed]
                            });
           Ec:Ee ->
               S=erlang:get_stacktrace(),
               lager:info("Fail to Patch ~p ~p:~p against settings ~p",
-                         [_LPatch,Ec,Ee,SetState]),
+                         [_LPatch, Ec, Ee, SetState]),
               lager:info("at ~p", [S]),
-              try_process(Rest,SetState,Addresses,GetFun,
+              try_process(Rest, SetState, Addresses, GetFun,
                           Acc#{
-                            failed=>[{TxID,Tx}|Failed]
+                            failed=>[{TxID, Tx}|Failed]
                            })
     end;
 
 try_process([{TxID,
-              #{seq:=_Seq,timestamp:=_Timestamp,to:=To,portin:=PortInBlock}=Tx}
+              #{seq:=_Seq, timestamp:=_Timestamp, to:=To, portin:=PortInBlock}=Tx}
              |Rest],
             SetState, Addresses, GetFun,
             #{success:=Success, failed:=Failed}=Acc) ->
     lager:notice("TODO:Check signature once again and check seq"),
     try
 		throw('fixme'),
-        Bals=maps:get(To,Addresses),
+        Bals=maps:get(To, Addresses),
         case Bals of
             #{} ->
                 ok;
@@ -457,118 +457,118 @@ try_process([{TxID,
                 throw('address_exists')
         end,
         lager:notice("TODO:check block before porting in"),
-        NewAddrBal=maps:get(To,maps:get(bals,PortInBlock)),
+        NewAddrBal=maps:get(To, maps:get(bals, PortInBlock)),
 
         NewAddresses=maps:fold(
-                       fun(Cur,Info,FAcc) ->
-                               maps:put({To,Cur},Info,FAcc)
-                       end, Addresses, maps:remove(To,NewAddrBal)),
-        try_process(Rest,SetState,NewAddresses,GetFun,
-                    Acc#{success=>[{TxID,Tx}|Success]})
+                       fun(Cur, Info, FAcc) ->
+                               maps:put({To, Cur}, Info, FAcc)
+                       end, Addresses, maps:remove(To, NewAddrBal)),
+        try_process(Rest, SetState, NewAddresses, GetFun,
+                    Acc#{success=>[{TxID, Tx}|Success]})
     catch throw:X ->
-              try_process(Rest,SetState,Addresses,GetFun,
-                          Acc#{failed=>[{TxID,X}|Failed]})
+              try_process(Rest, SetState, Addresses, GetFun,
+                          Acc#{failed=>[{TxID, X}|Failed]})
     end;
 
 try_process([{TxID,
-              #{seq:=_Seq,timestamp:=_Timestamp,from:=From,portout:=PortTo}=Tx}
+              #{seq:=_Seq, timestamp:=_Timestamp, from:=From, portout:=PortTo}=Tx}
              |Rest],
             SetState, Addresses, GetFun,
             #{success:=Success, failed:=Failed}=Acc) ->
 	lager:notice("Ensure verified"),
     try
 		throw('fixme'),
-        Bals=maps:get(From,Addresses),
-        A1=maps:remove(keep,Bals),
+        Bals=maps:get(From, Addresses),
+        A1=maps:remove(keep, Bals),
         Empty=maps:size(A1)==0,
-        OffChain=maps:is_key(chain,A1),
+        OffChain=maps:is_key(chain, A1),
         if Empty -> throw('badaddress');
            OffChain -> throw('offchain');
            true -> ok
         end,
         ValidChains=blockchain:get_settings([chains]),
-        case lists:member(PortTo,ValidChains) of
+        case lists:member(PortTo, ValidChains) of
             true ->
                 ok;
             false ->
                 throw ('bad_chain')
         end,
-        NewAddresses=maps:put(From,#{chain=>PortTo},Addresses),
+        NewAddresses=maps:put(From, #{chain=>PortTo}, Addresses),
         lager:info("Portout ok"),
-        try_process(Rest,SetState,NewAddresses,GetFun,
-                    Acc#{success=>[{TxID,Tx}|Success]})
+        try_process(Rest, SetState, NewAddresses, GetFun,
+                    Acc#{success=>[{TxID, Tx}|Success]})
     catch throw:X ->
-              lager:info("Portout fail ~p",[X]),
-              try_process(Rest,SetState,Addresses,GetFun,
-                          Acc#{failed=>[{TxID,X}|Failed]})
+              lager:info("Portout fail ~p", [X]),
+              try_process(Rest, SetState, Addresses, GetFun,
+                          Acc#{failed=>[{TxID, X}|Failed]})
     end;
 
 
-try_process([{TxID, #{from:=From,to:=To}=Tx} |Rest],
+try_process([{TxID, #{from:=From, to:=To}=Tx} |Rest],
             SetState, Addresses, GetFun,
             #{failed:=Failed}=Acc) ->
     MyChain=GetFun(mychain),
     FAddr=addrcheck(From),
     TAddr=addrcheck(To),
-    case {FAddr,TAddr} of
-        {{true,{chain,MyChain}},{true,{chain,MyChain}}} ->
-            try_process_local([{TxID,Tx}|Rest],
+    case {FAddr, TAddr} of
+        {{true, {chain, MyChain}}, {true, {chain, MyChain}}} ->
+            try_process_local([{TxID, Tx}|Rest],
                   SetState, Addresses, GetFun, Acc);
-        {{true,{chain,MyChain}}, {true,{chain,OtherChain}}} ->
-            try_process_outbound([{TxID,Tx#{
+        {{true, {chain, MyChain}}, {true, {chain, OtherChain}}} ->
+            try_process_outbound([{TxID, Tx#{
                                           outbound=>OtherChain
                                          }}|Rest],
                   SetState, Addresses, GetFun, Acc);
-        {{true,{chain,_OtherChain}}, {true,{chain,MyChain}}} ->
+        {{true, {chain, _OtherChain}}, {true, {chain, MyChain}}} ->
             try_process_inbound([{TxID,
                                   maps:remove(outbound,
                                               Tx
                                              )}|Rest],
                   SetState, Addresses, GetFun, Acc);
-        {{true,private},{true,{chain,MyChain}}}  -> %local from pvt
-            try_process_local([{TxID,Tx}|Rest],
+        {{true, private}, {true, {chain, MyChain}}}  -> %local from pvt
+            try_process_local([{TxID, Tx}|Rest],
                   SetState, Addresses, GetFun, Acc);
-        {{true,{chain,MyChain}},{true,private}}  -> %local to pvt
-            try_process_local([{TxID,Tx}|Rest],
+        {{true, {chain, MyChain}}, {true, private}}  -> %local to pvt
+            try_process_local([{TxID, Tx}|Rest],
                   SetState, Addresses, GetFun, Acc);
         _ ->
-            lager:info("TX ~s addr error ~p -> ~p",[TxID,FAddr,TAddr]),
-            try_process(Rest,SetState,Addresses,GetFun,
-                        Acc#{failed=>[{TxID,'bad_src_or_dst_addr'}|Failed]})
+            lager:info("TX ~s addr error ~p -> ~p", [TxID, FAddr, TAddr]),
+            try_process(Rest, SetState, Addresses, GetFun,
+                        Acc#{failed=>[{TxID, 'bad_src_or_dst_addr'}|Failed]})
     end;
 
-try_process([{TxID, #{deploy:=VMType,code:=Code,from:=Owner}=Tx} |Rest],
+try_process([{TxID, #{deploy:=VMType, code:=Code, from:=Owner}=Tx} |Rest],
             SetState, Addresses, GetFun,
             #{failed:=Failed,
               success:=Success}=Acc) ->
 	lager:notice("Ensure verified"),
     try
-		VM=try 
-			   erlang:binary_to_existing_atom(<<"contract_",VMType/binary>>,utf8)
+		VM=try
+			   erlang:binary_to_existing_atom(<<"contract_", VMType/binary>>, utf8)
 		   catch error:badarg ->
 					 throw('unknown_vm')
 		   end,
 
         lager:info("Deploy contract ~s for ~s",
-                   [VM,naddress:encode(Owner)]),
-		State0=maps:get(state,Tx,<<>>),
-		Bal=maps:get(Owner,Addresses),
+                   [VM, naddress:encode(Owner)]),
+		State0=maps:get(state, Tx, <<>>),
+		Bal=maps:get(Owner, Addresses),
         NewF1=bal:put(vm, VMType, Bal),
         NewF2=bal:put(code, Code, NewF1),
 		State1=try
-				   case erlang:apply(VM,deploy,[Owner,Bal,Code,State0,1,GetFun]) of
+				   case erlang:apply(VM, deploy, [Owner, Bal, Code, State0, 1, GetFun]) of
 					   {ok, NewS} ->
 						   NewS;
 					   {error, Error} ->
-						   throw({'deploy_failed',Error});
+						   throw({'deploy_failed', Error});
 					   _ ->
-						   throw({'deploy_failed',other})
+						   throw({'deploy_failed', other})
 				   end
 			   catch Ec:Ee ->
 						 S=erlang:get_stacktrace(),
 						 lager:error("Can't deploy ~p:~p @ ~p",
-									 [Ec,Ee,hd(S)]),
-						 throw({'deploy_error',[Ec,Ee]})
+									 [Ec, Ee, hd(S)]),
+						 throw({'deploy_error', [Ec, Ee]})
 			   end,
 		NewF3=maps:remove(keep,
 						  bal:put(state, State1, NewF2)
@@ -579,14 +579,14 @@ try_process([{TxID, #{deploy:=VMType,code:=Code,from:=Owner}=Tx} |Rest],
 					NewF3
 				   ]),
 
-        NewAddresses=maps:put(Owner,NewF3,Addresses),
+        NewAddresses=maps:put(Owner, NewF3, Addresses),
 
-        try_process(Rest,SetState,NewAddresses,GetFun,
-                    Acc#{success=> [{TxID,Tx}|Success]})
+        try_process(Rest, SetState, NewAddresses, GetFun,
+                    Acc#{success=> [{TxID, Tx}|Success]})
     catch throw:X ->
-              lager:info("Contract deploy failed ~p",[X]),
-              try_process(Rest,SetState,Addresses,GetFun,
-                          Acc#{failed=>[{TxID,X}|Failed]})
+              lager:info("Contract deploy failed ~p", [X]),
+              try_process(Rest, SetState, Addresses, GetFun,
+                          Acc#{failed=>[{TxID, X}|Failed]})
     end;
 
 try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
@@ -596,11 +596,11 @@ try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
               settings:=Settings }=Acc) ->
 	lager:notice("Ensure verified"),
     try
-        {CG,CB,CA}=case settings:get([<<"current">>,<<"allocblock">>],SetState) of
+        {CG, CB, CA}=case settings:get([<<"current">>, <<"allocblock">>], SetState) of
                        #{<<"block">> := CurBlk,
                          <<"group">> := CurGrp,
                          <<"last">> := CurAddr} ->
-                           {CurGrp,CurBlk,CurAddr+1};
+                           {CurGrp, CurBlk, CurAddr+1};
                        _ ->
                            throw(unallocable)
                    end,
@@ -608,10 +608,10 @@ try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
         NewBAddr=naddress:construct_public(CG, CB, CA),
 
         IncAddr=#{<<"t">> => <<"set">>,
-                  <<"p">> => [<<"current">>,<<"allocblock">>,<<"last">>],
+                  <<"p">> => [<<"current">>, <<"allocblock">>, <<"last">>],
                   <<"v">> => CA},
-        AAlloc={<<"aalloc">>,#{sig=>[],patch=>[IncAddr]}},
-        SS1=settings:patch(AAlloc,SetState),
+        AAlloc={<<"aalloc">>, #{sig=>[], patch=>[IncAddr]}},
+        SS1=settings:patch(AAlloc, SetState),
         lager:info("Alloc address ~p ~s for key ~s",
                    [NewBAddr,
                     naddress:encode(NewBAddr),
@@ -619,27 +619,27 @@ try_process([{TxID, #{register:=PubKey}=Tx} |Rest],
                    ]),
 
         NewF=bal:put(pubkey, PubKey, bal:new()),
-        NewAddresses=maps:put(NewBAddr,NewF,Addresses),
+        NewAddresses=maps:put(NewBAddr, NewF, Addresses),
 
-        try_process(Rest,SS1,NewAddresses,GetFun,
-                    Acc#{success=> [{TxID,Tx#{address=>NewBAddr}}|Success],
-                         settings=>[AAlloc|lists:keydelete(<<"aalloc">>,1,Settings)]
+        try_process(Rest, SS1, NewAddresses, GetFun,
+                    Acc#{success=> [{TxID, Tx#{address=>NewBAddr}}|Success],
+                         settings=>[AAlloc|lists:keydelete(<<"aalloc">>, 1, Settings)]
                         })
     catch throw:X ->
-              lager:info("Address alloc fail ~p",[X]),
-              try_process(Rest,SetState,Addresses,GetFun,
-                          Acc#{failed=>[{TxID,X}|Failed]})
+              lager:info("Address alloc fail ~p", [X]),
+              try_process(Rest, SetState, Addresses, GetFun,
+                          Acc#{failed=>[{TxID, X}|Failed]})
     end;
 
 try_process([{TxID, UnknownTx} |Rest],
 			SetState, Addresses, GetFun,
 			#{failed:=Failed}=Acc) ->
-	lager:info("Unknown TX ~p type ~p",[TxID,UnknownTx]),
-	try_process(Rest,SetState,Addresses,GetFun,
-				Acc#{failed=>[{TxID,'unknown_type'}|Failed]}).
+	lager:info("Unknown TX ~p type ~p", [TxID, UnknownTx]),
+	try_process(Rest, SetState, Addresses, GetFun,
+				Acc#{failed=>[{TxID, 'unknown_type'}|Failed]}).
 
 try_process_inbound([{TxID,
-                    #{cur:=Cur,amount:=Amount,to:=To,
+                    #{cur:=Cur, amount:=Amount, to:=To,
                       origin_block:=OriginBlock,
                       origin_block_height:=OriginHeight,
                       origin_block_hash:=OriginHash
@@ -651,67 +651,67 @@ try_process_inbound([{TxID,
                     settings:=Settings,
                     pick_block:=PickBlock}=Acc) ->
     lager:error("Check signature once again"),
-    TBal=maps:get(To,Addresses),
+    TBal=maps:get(To, Addresses),
     try
         ChID=2,
-        lager:info("Orig Block ~p",[OriginBlock]),
-        lager:notice("Change chain number to actual ~p",[SetState]),
-        ChainPath=[<<"current">>,<<"sync_status">>,xchain:pack_chid(ChID)],
-        {_,ChainLastH}=case settings:get(ChainPath,SetState) of
+        lager:info("Orig Block ~p", [OriginBlock]),
+        lager:notice("Change chain number to actual ~p", [SetState]),
+        ChainPath=[<<"current">>, <<"sync_status">>, xchain:pack_chid(ChID)],
+        {_, ChainLastH}=case settings:get(ChainPath, SetState) of
                            #{<<"block">> := LastBlk,
                              <<"height">> := LastHeight} ->
                                if(OriginHeight>LastHeight) -> ok;
-                                 true -> throw({overdue,OriginBlock})
+                                 true -> throw({overdue, OriginBlock})
                                end,
-                               {LastBlk,LastHeight};
+                               {LastBlk, LastHeight};
                            _ ->
                                {<<0:64/big>>, 0}
                        end,
-        lager:info("SyncState ~p",[ChainLastH]),
+        lager:info("SyncState ~p", [ChainLastH]),
 
         IncPtr=[#{<<"t">> => <<"set">>,
-                  <<"p">> => ChainPath++[<<"block">>],
+                  <<"p">> => ChainPath ++ [<<"block">>],
                   <<"v">> => OriginHash
                  },
                 #{<<"t">> => <<"set">>,
-                  <<"p">> => ChainPath++[<<"height">>],
+                  <<"p">> => ChainPath ++ [<<"height">>],
                   <<"v">> => OriginHeight
                  }
                ],
-        PatchTxID= <<"sync",(xchain:pack_chid(ChID))/binary>>,
-        SyncPatch={PatchTxID, #{sig=>[],patch=>IncPtr}},
-%        SS1=settings:patch(AAlloc,SetState),
-%        try_process(Rest,SS1,NewAddresses,GetFun,
-%                    Acc#{success=> [{TxID,Tx#{address=>NewBAddr}}|Success],
-%                         settings=>[AAlloc|lists:keydelete(<<"aalloc">>,1,Settings)]
+        PatchTxID= <<"sync", (xchain:pack_chid(ChID))/binary>>,
+        SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
+%        SS1=settings:patch(AAlloc, SetState),
+%        try_process(Rest, SS1, NewAddresses, GetFun,
+%                    Acc#{success=> [{TxID, Tx#{address=>NewBAddr}}|Success],
+%                         settings=>[AAlloc|lists:keydelete(<<"aalloc">>, 1, Settings)]
 %                        })
 
         if Amount >= 0 -> ok;
            true -> throw ('bad_amount')
         end,
-        NewTAmount=bal:get_cur(Cur,TBal) + Amount,
+        NewTAmount=bal:get_cur(Cur, TBal) + Amount,
         NewT=maps:remove(keep,
                          bal:put_cur(
                            Cur,
                            NewTAmount,
                            TBal)
                         ),
-        NewAddresses=maps:put(To,NewT,Addresses),
-        try_process(Rest,SetState,NewAddresses,GetFun,
-                    Acc#{success=>[{TxID,Tx}|Success],
+        NewAddresses=maps:put(To, NewT, Addresses),
+        try_process(Rest, SetState, NewAddresses, GetFun,
+                    Acc#{success=>[{TxID, Tx}|Success],
                          pick_block=>maps:put(OriginBlock, 1, PickBlock),
-                         settings=>[SyncPatch|lists:keydelete(PatchTxID,1,Settings)]
+                         settings=>[SyncPatch|lists:keydelete(PatchTxID, 1, Settings)]
                         })
     catch throw:X ->
-              try_process(Rest,SetState,Addresses,GetFun,
-                          Acc#{failed=>[{TxID,X}|Failed]})
+              try_process(Rest, SetState, Addresses, GetFun,
+                          Acc#{failed=>[{TxID, X}|Failed]})
     end.
 
 try_process_outbound([{TxID,
-					   #{outbound:=OutTo,to:=To,from:=From}=Tx}
+					   #{outbound:=OutTo, to:=To, from:=From}=Tx}
 					  |Rest],
 					 SetState, Addresses, GetFun,
-					 #{failed:=Failed, 
+					 #{failed:=Failed,
 					   success:=Success,
 					   settings:=Settings,
 					   outbound:=Outbound,
@@ -719,72 +719,72 @@ try_process_outbound([{TxID,
 					   height:=MyHeight
 					  }=Acc) ->
 	lager:notice("TODO:Check signature once again"),
-	lager:info("outbound to chain ~p ~p",[OutTo,To]),
-	FBal=maps:get(From,Addresses),
+	lager:info("outbound to chain ~p ~p", [OutTo, To]),
+	FBal=maps:get(From, Addresses),
 	EnsureSettings=fun(undefined) -> GetFun(settings);
 					  (SettingsReady) -> SettingsReady
 				   end,
 
 	try
 		RealSettings=EnsureSettings(SetState),
-		{NewF,GotFee}=withdraw(FBal,Tx,GetFun,RealSettings),
+		{NewF, GotFee}=withdraw(FBal, Tx, GetFun, RealSettings),
 
-		PatchTxID= <<"out",(xchain:pack_chid(OutTo))/binary>>,
-		{SS2,Set2}=case lists:keymember(PatchTxID,1, Settings) of
+		PatchTxID= <<"out", (xchain:pack_chid(OutTo))/binary>>,
+		{SS2, Set2}=case lists:keymember(PatchTxID, 1, Settings) of
 					   true ->
 						   {SetState, Settings};
 					   false ->
-						   ChainPath=[<<"current">>,<<"outward">>,
+						   ChainPath=[<<"current">>, <<"outward">>,
 									  xchain:pack_chid(OutTo)],
-						   PCP=case settings:get(ChainPath,RealSettings) of
+						   PCP=case settings:get(ChainPath, RealSettings) of
 								   #{<<"parent">>:=PP,
 									 <<"height">>:=HH} ->
 									   [
 										#{<<"t">> =><<"set">>,
-										  <<"p">> => ChainPath++[<<"pre_parent">>],
+										  <<"p">> => ChainPath ++ [<<"pre_parent">>],
 										  <<"v">> => PP
 										 },
 										#{<<"t">> =><<"set">>,
-										  <<"p">> => ChainPath++[<<"pre_height">>],
+										  <<"p">> => ChainPath ++ [<<"pre_height">>],
 										  <<"v">> => HH
 										 }];
 								   _ ->
 									   []
 							   end,
 						   IncPtr=[#{<<"t">> => <<"set">>,
-									 <<"p">> => ChainPath++[<<"parent">>],
+									 <<"p">> => ChainPath ++ [<<"parent">>],
 									 <<"v">> => ParentHash
 									},
 								   #{<<"t">> => <<"set">>,
-									 <<"p">> => ChainPath++[<<"height">>],
+									 <<"p">> => ChainPath ++ [<<"height">>],
 									 <<"v">> => MyHeight
 									}
 								   |PCP ],
-						   SyncPatch={PatchTxID, #{sig=>[],patch=>IncPtr}},
+						   SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
 						   {
-							settings:patch(SyncPatch,RealSettings),
+							settings:patch(SyncPatch, RealSettings),
 							[SyncPatch|Settings]
 						   }
 				   end,
-		NewAddresses=maps:put(From,NewF,Addresses),
-		try_process(Rest,SS2,NewAddresses,GetFun,
+		NewAddresses=maps:put(From, NewF, Addresses),
+		try_process(Rest, SS2, NewAddresses, GetFun,
 					savefee(GotFee,
 							Acc#{
 							  settings=>Set2,
-							  success=>[{TxID,Tx}|Success],
-							  outbound=>[{TxID,OutTo}|Outbound]
+							  success=>[{TxID, Tx}|Success],
+							  outbound=>[{TxID, OutTo}|Outbound]
 							 })
 				   )
 	catch throw:X ->
-			  try_process(Rest,SetState,Addresses,GetFun,
-						  Acc#{failed=>[{TxID,X}|Failed]})
+			  try_process(Rest, SetState, Addresses, GetFun,
+						  Acc#{failed=>[{TxID, X}|Failed]})
 	end.
 
 try_process_local([{TxID,
-                    #{to:=To,from:=From}=Tx}
+                    #{to:=To, from:=From}=Tx}
                    |Rest],
                   SetState, Addresses, GetFun,
-				  #{success:=Success, 
+				  #{success:=Success,
 					failed:=Failed,
 					emit:=Emit}=Acc) ->
 	Verify=try
@@ -795,27 +795,27 @@ try_process_local([{TxID,
 					 false
 		   end,
 	if Verify -> ok;
-	   true -> 
+	   true ->
 		   throw('unverified')
 	end,
 
-    FBal=maps:get(From,Addresses),
-    TBal=maps:get(To,Addresses),
+    FBal=maps:get(From, Addresses),
+    TBal=maps:get(To, Addresses),
 	EnsureSettings=fun(undefined) -> GetFun(settings);
 					  (SettingsReady) -> SettingsReady
 				   end,
 
     try
 		RealSettings=EnsureSettings(SetState),
-		{NewF,GotFee}=withdraw(FBal,Tx,GetFun,RealSettings),
-		{NewT,NewEmit,_GasUsed}=deposit(To, TBal,Tx,GetFun,RealSettings),
-		NewAddresses=maps:put(From,NewF,maps:put(To,NewT,Addresses)),
+		{NewF, GotFee}=withdraw(FBal, Tx, GetFun, RealSettings),
+		{NewT, NewEmit, _GasUsed}=deposit(To, TBal, Tx, GetFun, RealSettings),
+		NewAddresses=maps:put(From, NewF, maps:put(To, NewT, Addresses)),
 
-		CI=tx:get_ext(<<"contract_issued">>,Tx),
+		CI=tx:get_ext(<<"contract_issued">>, Tx),
 		Tx1=if CI=={ok, From} ->
 				   #{extdata:=ED}=Tx,
 				   Tx#{
-					 extdata=> maps:with([<<"contract_issued">>],ED),
+					 extdata=> maps:with([<<"contract_issued">>], ED),
 					 sig => #{}
 					};
 			   true ->
@@ -823,53 +823,53 @@ try_process_local([{TxID,
 			end,
 
 
-        try_process(Rest,SetState,NewAddresses,GetFun,
+        try_process(Rest, SetState, NewAddresses, GetFun,
 					savefee(GotFee,
 							Acc#{
-							  success=>[{TxID,Tx1}|Success],
-							  emit=>Emit++NewEmit
+							  success=>[{TxID, Tx1}|Success],
+							  emit=>Emit ++ NewEmit
 							 }
 						   )
 				   )
     catch throw:X ->
-              try_process(Rest,SetState,Addresses,GetFun,
-                          Acc#{failed=>[{TxID,X}|Failed]})
+              try_process(Rest, SetState, Addresses, GetFun,
+                          Acc#{failed=>[{TxID, X}|Failed]})
     end.
 
 savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
 	Acc#{
-	  fee=>bal:put_cur(Cur,Fee+bal:get_cur(Cur, FeeBal),FeeBal),
-	  tip=>bal:put_cur(Cur,Tip+bal:get_cur(Cur, TipBal),TipBal)
+	  fee=>bal:put_cur(Cur, Fee+bal:get_cur(Cur, FeeBal), FeeBal),
+	  tip=>bal:put_cur(Cur, Tip+bal:get_cur(Cur, TipBal), TipBal)
 	 }.
 
 deposit(Address, TBal,
-		#{cur:=Cur,amount:=Amount}=Tx,
+		#{cur:=Cur, amount:=Amount}=Tx,
 		GetFun, _Settings) ->
-	NewTAmount=bal:get_cur(Cur,TBal) + Amount,
+	NewTAmount=bal:get_cur(Cur, TBal) + Amount,
 	NewT=maps:remove(keep,
 					 bal:put_cur( Cur, NewTAmount, TBal)
 					),
-	case bal:get(vm,NewT) of
+	case bal:get(vm, NewT) of
 		undefined ->
-			{NewT,[],0};
+			{NewT, [], 0};
 		VMType ->
-			lager:info("Smartcontract ~p",[VMType]),
-			{L1,TXs,Gas}=smartcontract:run(VMType, Tx, NewT, 1, GetFun),
-			{L1,lists:map(
+			lager:info("Smartcontract ~p", [VMType]),
+			{L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, 1, GetFun),
+			{L1, lists:map(
 				  fun(#{seq:=Seq}=ETx) ->
-						  H=base64:encode(crypto:hash(sha,bal:get(state,TBal))),
+						  H=base64:encode(crypto:hash(sha, bal:get(state, TBal))),
 						  BSeq=bin2hex:dbin2hex(<<Seq:64/big>>),
 						  EA=(naddress:encode(Address)),
 						  TxID= <<EA/binary, BSeq/binary, H/binary>>,
-						  {TxID, 
+						  {TxID,
 						   tx:set_ext( <<"contract_issued">>, Address, ETx)
 						  }
-				  end,TXs),Gas}
+				  end, TXs), Gas}
 	end.
 
 
 withdraw(FBal,
-		 #{cur:=Cur,seq:=Seq,timestamp:=Timestamp,amount:=Amount,from:=From}=Tx,
+		 #{cur:=Cur, seq:=Seq, timestamp:=Timestamp, amount:=Amount, from:=From}=Tx,
 		 GetFun, Settings) ->
 	if Amount >= 0 ->
 		   ok;
@@ -877,13 +877,13 @@ withdraw(FBal,
 		   throw ('bad_amount')
 	end,
 	Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
-	IsContract=is_binary(bal:get(vm,FBal)) andalso Contract_Issued=={ok,From},
+	IsContract=is_binary(bal:get(vm, FBal)) andalso Contract_Issued=={ok, From},
 
-	lager:info("Withdraw ~p ~p",[IsContract, Tx]),
+	lager:info("Withdraw ~p ~p", [IsContract, Tx]),
 	if Timestamp==0 andalso IsContract ->
-		   ok; 
-	   is_integer(Timestamp) -> 
-		   case GetFun({valid_timestamp,Timestamp}) of
+		   ok;
+	   is_integer(Timestamp) ->
+		   case GetFun({valid_timestamp, Timestamp}) of
 			   true ->
 				   ok;
 			   false ->
@@ -891,18 +891,18 @@ withdraw(FBal,
 		   end;
 	   true -> throw ('non_int_timestamp')
 	end,
-	LD=bal:get(t,FBal) div 86400000,
+	LD=bal:get(t, FBal) div 86400000,
 	CD=Timestamp div 86400000,
 	if IsContract -> ok;
 	   true ->
-		   FSK=bal:get_cur(<<"SK">>,FBal),
+		   FSK=bal:get_cur(<<"SK">>, FBal),
 		   FSKUsed=if CD>LD ->
 						  0;
 					  true ->
-						  bal:get(usk,FBal)
+						  bal:get(usk, FBal)
 				   end,
-		   if FSK < 1 -> 
-				  case GetFun({endless,From,<<"SK">>}) of
+		   if FSK < 1 ->
+				  case GetFun({endless, From, <<"SK">>}) of
 					  true -> ok;
 					  false -> throw('no_sk')
 				  end;
@@ -910,20 +910,20 @@ withdraw(FBal,
 			  true -> ok
 		   end
 	end,
-	CurFSeq=bal:get(seq,FBal),
+	CurFSeq=bal:get(seq, FBal),
 	if CurFSeq < Seq -> ok;
 	   true -> throw ('bad_seq')
 	end,
-	CurFTime=bal:get(t,FBal),
+	CurFTime=bal:get(t, FBal),
 	if CurFTime < Timestamp -> ok;
 	   IsContract andalso Timestamp==0 -> ok;
 	   true -> throw ('bad_timestamp')
 	end,
-	CurFAmount=bal:get_cur(Cur,FBal),
+	CurFAmount=bal:get_cur(Cur, FBal),
 	NewFAmount=if CurFAmount >= Amount ->
 					  CurFAmount - Amount;
 				  true ->
-					  case GetFun({endless,From,Cur}) of
+					  case GetFun({endless, From, Cur}) of
 						  true ->
 							  CurFAmount - Amount;
 						  false ->
@@ -947,34 +947,34 @@ withdraw(FBal,
 				 )
 			   ),
 	GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
-					  settings:get([<<"current">>,<<"fee">>,FeeCur],Settings);
+					  settings:get([<<"current">>, <<"fee">>, FeeCur], Settings);
 				  ({params, Parameter}) ->
-					  settings:get([<<"current">>,<<"fee">>,params,Parameter],Settings)
+					  settings:get([<<"current">>, <<"fee">>, params, Parameter], Settings)
 			  end,
-	{FeeOK,#{cost:=MinCost}=Fee}=if IsContract ->
-										{true,#{cost=>0,tip=>0,cur=>Cur}};
+	{FeeOK, #{cost:=MinCost}=Fee}=if IsContract ->
+										{true, #{cost=>0, tip=>0, cur=>Cur}};
 									true ->
 										Rate=tx:rate(Tx, GetFeeFun),
-										lager:info("Rate ~p",[Rate]),
+										lager:info("Rate ~p", [Rate]),
 										Rate
 								 end,
 	if FeeOK -> ok;
-	   true -> throw ({'insufficient_fee',MinCost})
+	   true -> throw ({'insufficient_fee', MinCost})
 	end,
-	#{cost:=FeeCost,tip:=Tip0,cur:=FeeCur}=Fee,
+	#{cost:=FeeCost, tip:=Tip0, cur:=FeeCur}=Fee,
 	if FeeCost == 0 ->
 		   {NewBal, {Cur, 0, 0}};
 	   true ->
-		   Tip=case GetFeeFun({params,<<"notip">>}) of
+		   Tip=case GetFeeFun({params, <<"notip">>}) of
 				   1 -> 0;
 				   _ -> Tip0
 			   end,
 		   FeeAmount=FeeCost+Tip,
-		   CurFFeeAmount=bal:get_cur(FeeCur,NewBal),
+		   CurFFeeAmount=bal:get_cur(FeeCur, NewBal),
 		   NewFFeeAmount=if CurFFeeAmount >= FeeAmount ->
 							 CurFFeeAmount - FeeAmount;
 						 true ->
-							 case GetFun({endless,From,FeeCur}) of
+							 case GetFun({endless, From, FeeCur}) of
 								 true ->
 									 CurFFeeAmount - FeeAmount;
 								 false ->
@@ -988,14 +988,14 @@ withdraw(FBal,
 		   {NewBal2, {FeeCur, FeeCost, Tip}}
 	end.
 
-sign(Blk,ED) when is_map(Blk) ->
+sign(Blk, ED) when is_map(Blk) ->
     PrivKey=nodekey:get_priv(),
-    block:sign(Blk,ED,PrivKey).
+    block:sign(Blk, ED, PrivKey).
 
 load_settings(State) ->
-    OldSettings=maps:get(settings,State,#{}),
-    MyChain=blockchain:get_settings(chain,0),
-    AE=blockchain:get_settings(<<"allowempty">>,1),
+    OldSettings=maps:get(settings, State, #{}),
+    MyChain=blockchain:get_settings(chain, 0),
+    AE=blockchain:get_settings(<<"allowempty">>, 1),
     State#{
       settings=>maps:merge(
                   OldSettings,
@@ -1003,20 +1003,20 @@ load_settings(State) ->
                  )
      }.
 
-generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData) ->
-	%file:write_file("tmp/tx.txt", io_lib:format("~p.~n",[PreTXL])),
+generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, ExtraData) ->
+	%file:write_file("tmp/tx.txt", io_lib:format("~p.~n", [PreTXL])),
 	_T1=erlang:system_time(),
 	TXL=lists:usort(PreTXL),
 	_T2=erlang:system_time(),
 	XSettings=GetSettings(settings),
 	Addrs0=lists:foldl(
 	  fun(default, Acc) ->
-			  BinAddr=naddress:construct_private(0,0),
+			  BinAddr=naddress:construct_private(0, 0),
 			  maps:put(BinAddr,
 					   bal:fetch(BinAddr, <<"ANY">>, true, #{}, GetAddr),
 					   Acc);
 		 (Type, Acc) ->
-			  case settings:get([<<"current">>,<<"fee">>,params,Type],XSettings) of
+			  case settings:get([<<"current">>, <<"fee">>, params, Type], XSettings) of
 				  BinAddr when is_binary(BinAddr) ->
 					  maps:put(BinAddr,
 							   bal:fetch(BinAddr, <<"ANY">>, true, #{}, GetAddr),
@@ -1026,56 +1026,56 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 			  end
 	  end, #{}, [<<"feeaddr">>, <<"tipaddr">>, default]),
 
-	Load=fun({_,#{hash:=_,header:=#{},txs:=Txs}},{AAcc0,SAcc}) ->
-				 lager:info("TXs ~p",[Txs]),
+	Load=fun({_, #{hash:=_, header:=#{}, txs:=Txs}}, {AAcc0, SAcc}) ->
+				 lager:info("TXs ~p", [Txs]),
 				 {
 				  lists:foldl(
-					fun({_,#{to:=T,cur:=Cur}},AAcc) ->
-							TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
-							maps:put(T,TB,AAcc)
+					fun({_, #{to:=T, cur:=Cur}}, AAcc) ->
+							TB=bal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
+							maps:put(T, TB, AAcc)
 					end, AAcc0, Txs),
 				  SAcc};
-			({_,#{patch:=_}},{AAcc,SAcc}) ->
-				 {AAcc,SAcc};
-			({_,#{register:=_}},{AAcc,SAcc}) ->
-				 {AAcc,SAcc};
-			({_,#{from:=F,portin:=_ToChain}},{AAcc,SAcc}) ->
-				 A1=case maps:get(F,AAcc,undefined) of
+			({_, #{patch:=_}}, {AAcc, SAcc}) ->
+				 {AAcc, SAcc};
+			({_, #{register:=_}}, {AAcc, SAcc}) ->
+				 {AAcc, SAcc};
+			({_, #{from:=F, portin:=_ToChain}}, {AAcc, SAcc}) ->
+				 A1=case maps:get(F, AAcc, undefined) of
 						undefined ->
 							AddrInfo1=GetAddr(F),
-							maps:put(F,AddrInfo1#{keep=>false},AAcc);
+							maps:put(F, AddrInfo1#{keep=>false}, AAcc);
 						_ ->
 							AAcc
 					end,
-				 {A1,SAcc};
-			({_,#{from:=F,portout:=_ToChain}},{AAcc,SAcc}) ->
-				 A1=case maps:get(F,AAcc,undefined) of
+				 {A1, SAcc};
+			({_, #{from:=F, portout:=_ToChain}}, {AAcc, SAcc}) ->
+				 A1=case maps:get(F, AAcc, undefined) of
 						undefined ->
 							AddrInfo1=GetAddr(F),
-							lager:info("Add address for portout ~p",[AddrInfo1]),
-							maps:put(F,AddrInfo1#{keep=>false},AAcc);
+							lager:info("Add address for portout ~p", [AddrInfo1]),
+							maps:put(F, AddrInfo1#{keep=>false}, AAcc);
 						_ ->
 							AAcc
 					end,
-				 {A1,SAcc};
-			({_,#{from:=F,deploy:=_}},{AAcc,SAcc}) ->
-				 A1=case maps:get(F,AAcc,undefined) of
+				 {A1, SAcc};
+			({_, #{from:=F, deploy:=_}}, {AAcc, SAcc}) ->
+				 A1=case maps:get(F, AAcc, undefined) of
 						undefined ->
 							AddrInfo1=GetAddr(F),
-							maps:put(F,AddrInfo1#{keep=>false},AAcc);
+							maps:put(F, AddrInfo1#{keep=>false}, AAcc);
 						_ ->
 							AAcc
 					end,
-				 {A1,SAcc};
-			({_,#{to:=T,from:=F,cur:=Cur}},{AAcc,SAcc}) ->
-				 FB=bal:fetch(F, Cur, true, maps:get(F,AAcc,#{}), GetAddr),
-				 TB=bal:fetch(T, Cur, false, maps:get(T,AAcc,#{}), GetAddr),
-				 {maps:put(F,FB,maps:put(T,TB,AAcc)),SAcc};
-			(_,{AAcc,SAcc}) ->
-				 {AAcc,SAcc}
+				 {A1, SAcc};
+			({_, #{to:=T, from:=F, cur:=Cur}}, {AAcc, SAcc}) ->
+				 FB=bal:fetch(F, Cur, true, maps:get(F, AAcc, #{}), GetAddr),
+				 TB=bal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
+				 {maps:put(F, FB, maps:put(T, TB, AAcc)), SAcc};
+			(_, {AAcc, SAcc}) ->
+				 {AAcc, SAcc}
 		 end,
-	{Addrs,_}=lists:foldl(Load, {Addrs0,undefined}, TXL),
-	lager:info("MB Pre Setting ~p",[XSettings]),
+	{Addrs, _}=lists:foldl(Load, {Addrs0, undefined}, TXL),
+	lager:info("MB Pre Setting ~p", [XSettings]),
 	_T3=erlang:system_time(),
 	#{failed:=Failed,
 	  table:=NewBal0,
@@ -1086,7 +1086,7 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 	  fee:=_FeeCollected,
 	  tip:=_TipCollected,
 	  emit:=EmitTXs0
-	 }=try_process(TXL,XSettings,Addrs,GetSettings,
+	 }=try_process(TXL, XSettings, Addrs, GetSettings,
 				   #{export=>[],
 					 failed=>[],
 					 success=>[],
@@ -1100,40 +1100,40 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 					 height=>Parent_Height+1
 					}
 				  ),
-	lager:info("MB Collected fee ~p tip ~p",[_FeeCollected, _TipCollected]),
+	lager:info("MB Collected fee ~p tip ~p", [_FeeCollected, _TipCollected]),
 	if length(Settings)>0 ->
-		   lager:info("MB Post Setting ~p",[Settings]);
+		   lager:info("MB Post Setting ~p", [Settings]);
 	   true -> ok
 	end,
 	OutChains=lists:foldl(
-				fun({_TxID,ChainID},Acc) ->
-						maps:put(ChainID,maps:get(ChainID,Acc,0)+1,Acc)
+				fun({_TxID, ChainID}, Acc) ->
+						maps:put(ChainID, maps:get(ChainID, Acc, 0)+1, Acc)
 				end, #{}, Outbound),
 	case maps:size(OutChains)>0 of
 		true ->
-			lager:info("MB Outbound to ~p",[OutChains]);
+			lager:info("MB Outbound to ~p", [OutChains]);
 		false -> ok
 	end,
 	if length(Settings)>0 ->
-		   lager:info("MB Must pick blocks ~p",[maps:keys(PickBlocks)]);
+		   lager:info("MB Must pick blocks ~p", [maps:keys(PickBlocks)]);
 	   true -> ok
 	end,
 	_T4=erlang:system_time(),
 	NewBal=maps:fold(
-			 fun(K,V,BA) ->
-					 case maps:get(keep,V,true) of
+			 fun(K, V, BA) ->
+					 case maps:get(keep, V, true) of
 						 false ->
 							 BA;
 						 true ->
-							 case maps:is_key(ublk,V) of
+							 case maps:is_key(ublk, V) of
 								 false ->
-									 maps:put(K,bal:changes(V),BA);
+									 maps:put(K, bal:changes(V), BA);
 								 true ->
 									 C1=bal:changes(V),
 									 case (maps:size(C1)>0) of
 										 true ->
 											 maps:put(K,
-													  maps:put(lastblk, maps:get(ublk,V), C1),
+													  maps:put(lastblk, maps:get(ublk, V), C1),
 													  BA);
 										 false ->
 											 BA
@@ -1142,15 +1142,15 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 					 end
 			 end, #{}, NewBal0),
 	ExtraPatch=maps:fold(
-				 fun(ToChain,_NoOfTxs,AccExtraPatch) ->
+				 fun(ToChain, _NoOfTxs, AccExtraPatch) ->
 						 [ToChain|AccExtraPatch]
 				 end, [], OutChains),
 	if length(ExtraPatch)>0 ->
-		   lager:info("MB Extra out settings ~p",[ExtraPatch]);
+		   lager:info("MB Extra out settings ~p", [ExtraPatch]);
 	   true -> ok
 	end,
 
-	%lager:info("MB NewBal ~p",[NewBal]),
+	%lager:info("MB NewBal ~p", [NewBal]),
 
 	HedgerHash=ledger_hash(NewBal),
 	_T5=erlang:system_time(),
@@ -1162,11 +1162,11 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 		  bals=>NewBal,
 		  ledger_hash=>HedgerHash,
 		  settings=>Settings,
-		  tx_proof=>[ TxID || {TxID,_ToChain} <- Outbound ],
+		  tx_proof=>[ TxID || {TxID, _ToChain} <- Outbound ],
 		  inbound_blocks=>lists:foldl(
-							fun(PickID,Acc) ->
+							fun(PickID, Acc) ->
 									[{PickID,
-									  proplists:get_value(PickID,TXL)
+									  proplists:get_value(PickID, TXL)
 									 }|Acc]
 							end, [], maps:keys(PickBlocks)),
 		  extdata=>ExtraData
@@ -1180,14 +1180,14 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 		{true, _} -> ok;
 		false ->
 			lager:error("Block is not verifiable after repacking!!!!"),
-			file:write_file("tmp/blk_repack_error.txt", 
-							io_lib:format("~p.~n",[Blk])
+			file:write_file("tmp/blk_repack_error.txt",
+							io_lib:format("~p.~n", [Blk])
 						   ),
 
 			case block:verify(Blk) of
 				{true, _} -> ok;
 				false ->
-					lager:error("Block is not verifiable at all!!!!") 
+					lager:error("Block is not verifiable at all!!!!")
 			end
 
 	end,
@@ -1196,17 +1196,17 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 
 	EmitTXs=lists:map(
 			  fun({TxID, ETx}) ->
-					  C={TxID, 
+					  C={TxID,
 					   tx:unpack(
 					   tx:sign(
 							   tx:set_ext( dep_heig,
 										   Parent_Height+1,
-										   tx:set_ext( dep_hash, 
-													   maps:get(hash,Blk),
+										   tx:set_ext( dep_hash,
+													   maps:get(hash, Blk),
 													   ETx)),
 							   nodekey:get_priv())
 						)},
-					  lager:info("Emit ~p",[C]),
+					  lager:info("Emit ~p", [C]),
 					  C
 			  end, EmitTXs0),
 
@@ -1214,19 +1214,19 @@ generate_block(PreTXL,{Parent_Height,Parent_Hash},GetSettings,GetAddr,ExtraData)
 	lager:info("Created block ~w ~s: txs: ~w, bals: ~w, LH: ~s, chain ~p",
 			   [
 				Parent_Height+1,
-				block:blkid(maps:get(hash,Blk)),
+				block:blkid(maps:get(hash, Blk)),
 				length(Success),
 				maps:size(NewBal),
 				bin2hex:dbin2hex(HedgerHash),
 				GetSettings(mychain)
 			   ]),
-	lager:info("BENCHMARK txs       ~w~n",[length(TXL)]),
-	lager:info("BENCHMARK sort tx   ~.6f ~n",[(_T2-_T1)/1000000]),
-	lager:info("BENCHMARK pull addr ~.6f ~n",[(_T3-_T2)/1000000]),
-	lager:info("BENCHMARK process   ~.6f ~n",[(_T4-_T3)/1000000]),
-	lager:info("BENCHMARK filter    ~.6f ~n",[(_T5-_T4)/1000000]),
-	lager:info("BENCHMARK mk block  ~.6f ~n",[(_T6-_T5)/1000000]),
-	lager:info("BENCHMARK total ~.6f ~n",[(_T6-_T1)/1000000]),
+	lager:info("BENCHMARK txs       ~w~n", [length(TXL)]),
+	lager:info("BENCHMARK sort tx   ~.6f ~n", [(_T2-_T1)/1000000]),
+	lager:info("BENCHMARK pull addr ~.6f ~n", [(_T3-_T2)/1000000]),
+	lager:info("BENCHMARK process   ~.6f ~n", [(_T4-_T3)/1000000]),
+	lager:info("BENCHMARK filter    ~.6f ~n", [(_T5-_T4)/1000000]),
+	lager:info("BENCHMARK mk block  ~.6f ~n", [(_T6-_T5)/1000000]),
+	lager:info("BENCHMARK total ~.6f ~n", [(_T6-_T1)/1000000]),
 	#{block=>Blk#{outbound=>Outbound},
 	  failed=>Failed,
 	  emit=>EmitTXs
@@ -1248,15 +1248,15 @@ addrcheck(Addr) ->
     end.
 
 benchmark(N) ->
-    Parent=crypto:hash(sha256,<<"123">>),
-    Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,
-			248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
+    Parent=crypto:hash(sha256, <<"123">>),
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+			248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
     Pub1=tpecdsa:secp256k1_ec_pubkey_create(Pvt1, false),
-    From=address:pub2addr(0,Pub1),
+    From=address:pub2addr(0, Pub1),
     Coin= <<"FTT">>,
     Addresses=lists:map(
                 fun(_) ->
-                        address:pub2addr(0,crypto:strong_rand_bytes(16))
+                        address:pub2addr(0, crypto:strong_rand_bytes(16))
                 end, lists:seq(1, N)),
     GetSettings=fun(mychain) -> 0;
                    (settings) ->
@@ -1265,26 +1265,26 @@ benchmark(N) ->
                       chain =>
                       #{0 => #{blocktime => 5, minsig => 2, <<"allowempty">> => 0} }
                      };
-                   ({endless,Address,_Cur}) when Address==From->
+                   ({endless, Address, _Cur}) when Address==From->
                         true;
-                   ({endless,_Address,_Cur}) ->
+                   ({endless, _Address, _Cur}) ->
                         false;
                    (Other) ->
-                        error({bad_setting,Other})
+                        error({bad_setting, Other})
                 end,
-    GetAddr=fun({_Addr,Cur}) ->
-                    #{amount => 54.0,cur => Cur,
-                      lastblk => crypto:hash(sha256,<<"parent0">>),
-                      seq => 0,t => 0};
+    GetAddr=fun({_Addr, Cur}) ->
+                    #{amount => 54.0, cur => Cur,
+                      lastblk => crypto:hash(sha256, <<"parent0">>),
+                      seq => 0, t => 0};
                (_Addr) ->
                     #{<<"FTT">> =>
-                      #{amount => 54.0,cur => <<"FTT">>,
-                        lastblk => crypto:hash(sha256,<<"parent0">>),
-                        seq => 0,t => 0}
+                      #{amount => 54.0, cur => <<"FTT">>,
+                        lastblk => crypto:hash(sha256, <<"parent0">>),
+                        seq => 0, t => 0}
                      }
             end,
 
-    {_,_Res}=lists:foldl(fun(Address,{Seq,Acc}) ->
+    {_, _Res}=lists:foldl(fun(Address, {Seq, Acc}) ->
                                 Tx=#{
                                   amount=>1,
                                   cur=>Coin,
@@ -1294,14 +1294,14 @@ benchmark(N) ->
                                   seq=>Seq,
                                   timestamp=>os:system_time()
                                  },
-                                NewTx=tx:unpack(tx:sign(Tx,Pvt1)),
+                                NewTx=tx:unpack(tx:sign(Tx, Pvt1)),
                                 {Seq+1,
-                                 [{binary:encode_unsigned(10000+Seq),NewTx}|Acc]
+                                 [{binary:encode_unsigned(10000+Seq), NewTx}|Acc]
                                 }
-                        end,{2,[]},Addresses),
+                        end, {2, []}, Addresses),
     T1=erlang:system_time(),
 	_=generate_block( _Res,
-					  {1,Parent},
+					  {1, Parent},
 					  GetSettings,
 					  GetAddr,
 					[]),
@@ -1311,17 +1311,17 @@ benchmark(N) ->
 
 decode_tpic_txs(TXs) ->
     lists:map(
-      fun({TxID,Tx}) ->
+      fun({TxID, Tx}) ->
               {TxID, tx:unpack(Tx)}
       end, maps:to_list(TXs)).
 
 -ifdef(TEST).
 ledger_hash(NewBal) ->
-    {ok,HedgerHash}=case whereis(ledger) of
+    {ok, HedgerHash}=case whereis(ledger) of
                 undefined ->
                     %there is no ledger. Is it test?
-                    {ok,LedgerS1}=ledger:init([test]),
-                    {reply,LCResp,_LedgerS2}=ledger:handle_call({check,[]},self(),LedgerS1),
+                    {ok, LedgerS1}=ledger:init([test]),
+                    {reply, LCResp, _LedgerS2}=ledger:handle_call({check, []}, self(), LedgerS1),
                     LCResp;
                 X when is_pid(X) ->
                     ledger:check(maps:to_list(NewBal))
@@ -1329,7 +1329,7 @@ ledger_hash(NewBal) ->
     HedgerHash.
 -else.
 ledger_hash(NewBal) ->
-    {ok,HedgerHash}=ledger:check(maps:to_list(NewBal)),
+    {ok, HedgerHash}=ledger:check(maps:to_list(NewBal)),
     HedgerHash.
 -endif.
 
@@ -1344,51 +1344,53 @@ alloc_addr_test() ->
             #{chain => #{0 =>
                          #{blocktime => 10,
                            minsig => 2,
-                           nodes => [<<"node1">>,<<"node2">>,<<"node3">>],
+                           nodes => [<<"node1">>, <<"node2">>, <<"node3">>],
                            <<"allowempty">> => 0}
                         },
               chains => [0],
               globals => #{<<"patchsigs">> => 2},
               keys =>
-              #{ <<"node1">> => crypto:hash(sha256,<<"node1">>),
-                 <<"node2">> => crypto:hash(sha256,<<"node2">>),
-                 <<"node3">> => crypto:hash(sha256,<<"node3">>),
-                 <<"node4">> => crypto:hash(sha256,<<"node4">>)
+              #{ <<"node1">> => crypto:hash(sha256, <<"node1">>),
+                 <<"node2">> => crypto:hash(sha256, <<"node2">>),
+                 <<"node3">> => crypto:hash(sha256, <<"node3">>),
+                 <<"node4">> => crypto:hash(sha256, <<"node4">>)
                },
               nodechain => #{<<"node1">> => 0,
                              <<"node2">> => 0,
                              <<"node3">> => 0},
               <<"current">> => #{
                   <<"allocblock">> =>
-                  #{<<"block">> => 2,<<"group">> => 10,<<"last">> => 0}
+                  #{<<"block">> => 2, <<"group">> => 10, <<"last">> => 0}
                  }
              };
-       ({endless,_Address,_Cur}) ->
+       ({endless, _Address, _Cur}) ->
             false;
        (Other) ->
-            error({bad_setting,Other})
+            error({bad_setting, Other})
     end,
     GetAddr=fun test_getaddr/1,
 
-    Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,
-			248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
-    ParentHash=crypto:hash(sha256,<<"parent">>),
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+			248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+    ParentHash=crypto:hash(sha256, <<"parent">>),
     Pub1=tpecdsa:secp256k1_ec_pubkey_create(Pvt1),
 
     TX0=tx:unpack( tx:pack( #{ type=>register, register=>Pub1 })),
     #{block:=Block,
 	  failed:=Failed}=generate_block(
-						[{<<"alloc_tx1_id">>,TX0},
-						 {<<"alloc_tx2_id">>,TX0}],
-						{1,ParentHash},
+						[{<<"alloc_tx1_id">>, TX0},
+						 {<<"alloc_tx2_id">>, TX0}],
+						{1, ParentHash},
 						GetSettings,
 						GetAddr,
 						[]),
 
-    io:format("~p~n",[Block]),
+    io:format("~p~n", [Block]),
     [
     ?assertEqual([], Failed),
-    ?assertMatch(#{bals:=#{<<128,1,64,0,2,0,0,1>>:=_,<<128,1,64,0,2,0,0,1>>:=_}}, Block)
+    ?assertMatch(#{bals:=#{<<128, 1, 64, 0, 2, 0, 0, 1>>:=_,
+													 <<128, 1, 64, 0, 2, 0, 0, 1>>:=_}
+									}, Block)
     ].
 
 contract_test() ->
@@ -1404,9 +1406,9 @@ contract_test() ->
 					  globals => #{<<"patchsigs">> => 2},
 					  keys =>
 					  #{
-						<<"node1">> => crypto:hash(sha256,<<"node1">>),
-						<<"node2">> => crypto:hash(sha256,<<"node2">>),
-						<<"node3">> => crypto:hash(sha256,<<"node3">>)
+						<<"node1">> => crypto:hash(sha256, <<"node1">>),
+						<<"node2">> => crypto:hash(sha256, <<"node2">>),
+						<<"node3">> => crypto:hash(sha256, <<"node3">>)
 					   },
 					  nodechain =>
 					  #{
@@ -1417,75 +1419,75 @@ contract_test() ->
 					  <<"current">> => #{
 						  <<"fee">> => #{
 							  params=>#{
-								<<"feeaddr">> => <<160,0,0,0,0,0,0,1>>,
-								<<"tipaddr">> => <<160,0,0,0,0,0,0,2>>
+								<<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>,
+								<<"tipaddr">> => <<160, 0, 0, 0, 0, 0, 0, 2>>
 							   },
 							  <<"TST">> => #{
 								  <<"base">> => 2,
-								  <<"baseextra">> => 64, 
+								  <<"baseextra">> => 64,
 								  <<"kb">> => 20
 								 },
 							  <<"FTT">> => #{
 								  <<"base">> => 1,
-								  <<"baseextra">> => 64, 
+								  <<"baseextra">> => 64,
 								  <<"kb">> => 10
 								 }
 							 },
 						  <<"rewards">>=>#{
-							  <<"c1n1">>=><<128,1,64,0,OurChain,0,0,101>>,
-							  <<"c1n2">>=><<128,1,64,0,OurChain,0,0,102>>,
-							  <<"c1n3">>=><<128,1,64,0,OurChain,0,0,103>>,
-							  <<"node1">>=><<128,1,64,0,OurChain,0,0,101>>,
-							  <<"node2">>=><<128,1,64,0,OurChain,0,0,102>>,
-							  <<"node3">>=><<128,1,64,0,OurChain,0,0,103>>
+							  <<"c1n1">>=><<128, 1, 64, 0, OurChain, 0, 0, 101>>,
+							  <<"c1n2">>=><<128, 1, 64, 0, OurChain, 0, 0, 102>>,
+							  <<"c1n3">>=><<128, 1, 64, 0, OurChain, 0, 0, 103>>,
+							  <<"node1">>=><<128, 1, 64, 0, OurChain, 0, 0, 101>>,
+							  <<"node2">>=><<128, 1, 64, 0, OurChain, 0, 0, 102>>,
+							  <<"node3">>=><<128, 1, 64, 0, OurChain, 0, 0, 103>>
 							 }
 						 }
 					 };
-				   ({endless,_Address,_Cur}) ->
+				   ({endless, _Address, _Cur}) ->
 						false;
-				   ({valid_timestamp,TS}) ->
-						abs(os:system_time(millisecond)-TS)<3600000 
+				   ({valid_timestamp, TS}) ->
+						abs(os:system_time(millisecond)-TS)<3600000
 						orelse
-						abs(os:system_time(millisecond)-(TS-86400000))<3600000; 
-				   ({get_block,Back}) when 20>=Back ->
-						FindBlock=fun FB(H,N) ->
-						case gen_server:call(blockchain,{get_block,H}) of
+						abs(os:system_time(millisecond)-(TS-86400000))<3600000;
+				   ({get_block, Back}) when 20>=Back ->
+						FindBlock=fun FB(H, N) ->
+						case gen_server:call(blockchain, {get_block, H}) of
 							undefined ->
 								undefined;
 							#{header:=#{parent:=P}}=Blk ->
-								if N==0 -> 
-									   maps:without([bals,txs],Blk);
+								if N==0 ->
+									   maps:without([bals, txs], Blk);
 								   true ->
-									   FB(P,N-1)
+									   FB(P, N-1)
 								end
 						end
 				end,
-						FindBlock(last,Back);
+						FindBlock(last, Back);
 				   (Other) ->
-						error({bad_setting,Other})
+						error({bad_setting, Other})
 				end,
     GetAddr=fun test_getaddr/1,
 
-    Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,
-			248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
-    ParentHash=crypto:hash(sha256,<<"parent">>),
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+			248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+    ParentHash=crypto:hash(sha256, <<"parent">>),
 	SG=3,
 
-	_TX0=tx:unpack( 
+	_TX0=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,10),
+			from=>naddress:construct_public(SG, OurChain, 10),
 			deploy=><<"badvm">>,
 			code=><<"code">>,
 			state=><<>>,
 			seq=>2,
 			timestamp=>os:system_time(millisecond)
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
-	_TX1=tx:unpack( 
+	_TX1=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,10),
+			from=>naddress:construct_public(SG, OurChain, 10),
 			deploy=><<"chainfee">>,
 			code=>erlang:term_to_binary(#{
 					interval=>10
@@ -1493,83 +1495,83 @@ contract_test() ->
 			state=><<>>,
 			seq=>2,
 			timestamp=>os:system_time(millisecond)
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
-	_TX2=tx:unpack( 
+	_TX2=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,3),
-			to=>naddress:construct_public(SG,OurChain,10),
+			from=>naddress:construct_public(SG, OurChain, 3),
+			to=>naddress:construct_public(SG, OurChain, 10),
 			amount=>10,
 			cur=><<"FTT">>,
 			extradata=>jsx:encode(#{ fee=>2, feecur=><<"FTT">> }),
 			seq=>2,
 			timestamp=>os:system_time(millisecond)
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
-	_TX3=tx:unpack( 
+	_TX3=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,11),
+			from=>naddress:construct_public(SG, OurChain, 11),
 			deploy=><<"test">>,
 			code=><<>>,
 			seq=>2,
 			timestamp=>os:system_time(millisecond)
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
-	_TX4=tx:unpack( 
+	_TX4=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,3),
-			to=>naddress:construct_public(SG,OurChain,11),
+			from=>naddress:construct_public(SG, OurChain, 3),
+			to=>naddress:construct_public(SG, OurChain, 11),
 			amount=>0,
 			cur=><<"FTT">>,
 			extradata=>jsx:encode(#{ fee=>2, feecur=><<"FTT">> }),
 			seq=>2,
 			timestamp=>os:system_time(millisecond)
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
 	#{block:=Block,
 	  emit:=Emit,
 	  failed:=Failed}=generate_block(
 						[
-						 %{<<"0bad">>,_TX0},
-						 %{<<"1feedeploy">>,_TX1},
-						 %{<<"2feeexec">>,_TX2},
-						 {<<"3testdeploy">>,_TX3},
-						 {<<"4testexec">>,_TX4}
+						 %{<<"0bad">>, _TX0},
+						 %{<<"1feedeploy">>, _TX1},
+						 %{<<"2feeexec">>, _TX2},
+						 {<<"3testdeploy">>, _TX3},
+						 {<<"4testexec">>, _TX4}
 						],
-						{1,ParentHash},
+						{1, ParentHash},
 						GetSettings,
 						GetAddr,
 					   []),
 
-	Success=proplists:get_keys(maps:get(txs,Block)),
-	NewLedger=maps:without([<<160,0,0,0,0,0,0,0>>,
-							<<160,0,0,0,0,0,0,1>>,
-							<<160,0,0,0,0,0,0,2>>],maps:get(bals,Block)),
+	Success=proplists:get_keys(maps:get(txs, Block)),
+	NewLedger=maps:without([<<160, 0, 0, 0, 0, 0, 0, 0>>,
+							<<160, 0, 0, 0, 0, 0, 0, 1>>,
+							<<160, 0, 0, 0, 0, 0, 0, 2>>], maps:get(bals, Block)),
 	{ Success, Failed, Emit, NewLedger}.
-	
+
 mkblock_test() ->
     OurChain=5,
 	GetSettings=fun(mychain) ->
 						OurChain;
 				   (settings) ->
 						#{
-					  chains => [0,1],
+					  chains => [0, 1],
 					  chain =>
 					  #{0 =>
 						#{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
 						1 =>
-						#{blocktime => 10,minsig => 1}
+						#{blocktime => 10, minsig => 1}
 					   },
 					  globals => #{<<"patchsigs">> => 2},
 					  keys =>
 					  #{
-						<<"node1">> => crypto:hash(sha256,<<"node1">>),
-						<<"node2">> => crypto:hash(sha256,<<"node2">>),
-						<<"node3">> => crypto:hash(sha256,<<"node3">>),
-						<<"node4">> => crypto:hash(sha256,<<"node4">>)
+						<<"node1">> => crypto:hash(sha256, <<"node1">>),
+						<<"node2">> => crypto:hash(sha256, <<"node2">>),
+						<<"node3">> => crypto:hash(sha256, <<"node3">>),
+						<<"node4">> => crypto:hash(sha256, <<"node4">>)
 					   },
 					  nodechain =>
 					  #{
@@ -1581,131 +1583,131 @@ mkblock_test() ->
 					  <<"current">> => #{
 						  <<"fee">> => #{
 							  params=>#{
-								<<"feeaddr">> => <<160,0,0,0,0,0,0,1>>,
-								<<"tipaddr">> => <<160,0,0,0,0,0,0,2>>
+								<<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>,
+								<<"tipaddr">> => <<160, 0, 0, 0, 0, 0, 0, 2>>
 							   },
 							  <<"TST">> => #{
 								  <<"base">> => 2,
-								  <<"baseextra">> => 64, 
+								  <<"baseextra">> => 64,
 								  <<"kb">> => 20
 								 },
 							  <<"FTT">> => #{
 								  <<"base">> => 1,
-								  <<"baseextra">> => 64, 
+								  <<"baseextra">> => 64,
 								  <<"kb">> => 10
 								 }
 							 }
 						 }
 					 };
-				   ({endless,_Address,_Cur}) ->
+				   ({endless, _Address, _Cur}) ->
 						false;
-				   ({valid_timestamp,TS}) ->
-						abs(os:system_time(millisecond)-TS)<3600000 
+				   ({valid_timestamp, TS}) ->
+						abs(os:system_time(millisecond)-TS)<3600000
 						orelse
-						abs(os:system_time(millisecond)-(TS-86400000))<3600000; 
+						abs(os:system_time(millisecond)-(TS-86400000))<3600000;
 				   (Other) ->
-						error({bad_setting,Other})
+						error({bad_setting, Other})
 				end,
     GetAddr=fun test_getaddr/1,
 
-    Pvt1= <<194,124,65,109,233,236,108,24,50,151,189,216,23,42,215,220,24,240,
-			248,115,150,54,239,58,218,221,145,246,158,15,210,165>>,
-    ParentHash=crypto:hash(sha256,<<"parent">>),
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+			248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+    ParentHash=crypto:hash(sha256, <<"parent">>),
 	SG=3,
 
-	TX0=tx:unpack( 
+	TX0=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,3),
-			to=>naddress:construct_public(1,OurChain,3),
+			from=>naddress:construct_public(SG, OurChain, 3),
+			to=>naddress:construct_public(1, OurChain, 3),
 			amount=>10,
 			cur=><<"FTT">>,
 			extradata=>jsx:encode(#{ fee=>2, feecur=><<"FTT">> }),
 			seq=>2,
 			timestamp=>os:system_time(millisecond)
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
-	TX1=tx:unpack( 
+	TX1=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,3),
-			to=>naddress:construct_public(1,OurChain,8),
+			from=>naddress:construct_public(SG, OurChain, 3),
+			to=>naddress:construct_public(1, OurChain, 8),
 			amount=>9000,
 			cur=><<"BAD">>,
 			extradata=>jsx:encode(#{ fee=>1, feecur=><<"FTT">> }),
 			seq=>3,
 			timestamp=>os:system_time(millisecond)
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
 
-	TX2=tx:unpack( 
+	TX2=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,3),
-			to=>naddress:construct_public(1,OurChain+2,1),
+			from=>naddress:construct_public(SG, OurChain, 3),
+			to=>naddress:construct_public(1, OurChain+2, 1),
 			amount=>9,
 			cur=><<"FTT">>,
 			extradata=>jsx:encode(#{ fee=>1, feecur=><<"FTT">> }),
 			seq=>4,
 			timestamp=>os:system_time(millisecond)
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
-	TX3=tx:unpack( 
+	TX3=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,3),
-			to=>naddress:construct_public(1,OurChain+2,2),
+			from=>naddress:construct_public(SG, OurChain, 3),
+			to=>naddress:construct_public(1, OurChain+2, 2),
 			amount=>2,
 			cur=><<"FTT">>,
 			extradata=>jsx:encode(#{ fee=>1, feecur=><<"FTT">> }),
 			seq=>5,
 			timestamp=>os:system_time(millisecond)
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
-	TX4=tx:unpack( 
+	TX4=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(0,OurChain,3),
-			to=>naddress:construct_public(1,OurChain,3),
+			from=>naddress:construct_public(0, OurChain, 3),
+			to=>naddress:construct_public(1, OurChain, 3),
 			amount=>10,
 			cur=><<"FTT">>,
 			extradata=>jsx:encode(#{ fee=>1, feecur=><<"FTT">> }),
 			seq=>6,
 			timestamp=>os:system_time(millisecond)
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
-	TX5=tx:unpack( 
+	TX5=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,3),
-			to=>naddress:construct_public(1,OurChain,3),
+			from=>naddress:construct_public(SG, OurChain, 3),
+			to=>naddress:construct_public(1, OurChain, 3),
 			amount=>1,
 			cur=><<"FTT">>,
 			extradata=>jsx:encode(#{ fee=>1, feecur=><<"FTT">> }),
 			seq=>7,
 			timestamp=>os:system_time(millisecond)
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
-	TX6=tx:unpack( 
+	TX6=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,3),
-			to=>naddress:construct_public(1,OurChain,3),
+			from=>naddress:construct_public(SG, OurChain, 3),
+			to=>naddress:construct_public(1, OurChain, 3),
 			amount=>1,
 			cur=><<"FTT">>,
 			extradata=>jsx:encode(#{ fee=>3, feecur=><<"TST">> }),
 			seq=>8,
 			timestamp=>os:system_time(millisecond)+86400000
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
-	TX7=tx:unpack( 
+	TX7=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,3),
-			to=>naddress:construct_public(1,OurChain,3),
+			from=>naddress:construct_public(SG, OurChain, 3),
+			to=>naddress:construct_public(1, OurChain, 3),
 			amount=>1,
 			cur=><<"FTT">>,
-			extradata=>jsx:encode(#{ fee=>1, feecur=><<"FTT">>, 
+			extradata=>jsx:encode(#{ fee=>1, feecur=><<"FTT">>,
 									 big=><<"11111111111111111111111111",
 											"11111111111111111111111111",
 											"11111111111111111111111111",
@@ -1715,77 +1717,80 @@ mkblock_test() ->
 								   }),
 			seq=>9,
 			timestamp=>os:system_time(millisecond)+86400000
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
-	TX8=tx:unpack( 
+	TX8=tx:unpack(
 		  tx:sign(
 			#{
-			from=>naddress:construct_public(SG,OurChain,3),
-			to=>naddress:construct_public(1,OurChain,3),
+			from=>naddress:construct_public(SG, OurChain, 3),
+			to=>naddress:construct_public(1, OurChain, 3),
 			amount=>1,
 			cur=><<"FTT">>,
 			extradata=>jsx:encode(#{ fee=>200, feecur=><<"FTT">> }),
 			seq=>9,
 			timestamp=>os:system_time(millisecond)+86400000
-		   },Pvt1)
+		   }, Pvt1)
 		 ),
 	#{block:=Block,
 	  failed:=Failed}=generate_block(
 						[
-						 {<<"1interchain">>,TX0},
-						 {<<"2invalid">>,TX1},
-						 {<<"3crosschain">>,TX2},
-						 {<<"4crosschain">>,TX3},
-						 {<<"5nosk">>,TX4},
-						 {<<"6sklim">>,TX5},
-						 {<<"7nextday">>,TX6},
-						 {<<"8nofee">>,TX7},
-						 {<<"9nofee">>,TX8}
+						 {<<"1interchain">>, TX0},
+						 {<<"2invalid">>, TX1},
+						 {<<"3crosschain">>, TX2},
+						 {<<"4crosschain">>, TX3},
+						 {<<"5nosk">>, TX4},
+						 {<<"6sklim">>, TX5},
+						 {<<"7nextday">>, TX6},
+						 {<<"8nofee">>, TX7},
+						 {<<"9nofee">>, TX8}
 						],
-						{1,ParentHash},
+						{1, ParentHash},
 						GetSettings,
 						GetAddr,
 					   []),
 
-	Success=proplists:get_keys(maps:get(txs,Block)),
-	?assertMatch([{<<"2invalid">>,insufficient_fund},
-				  {<<"5nosk">>,no_sk},
-				  {<<"6sklim">>,sk_limit},
-				  {<<"8nofee">>,{insufficient_fee,2}},
-				  {<<"9nofee">>,insufficient_fund_for_fee}
+	Success=proplists:get_keys(maps:get(txs, Block)),
+	?assertMatch([{<<"2invalid">>, insufficient_fund},
+				  {<<"5nosk">>, no_sk},
+				  {<<"6sklim">>, sk_limit},
+				  {<<"8nofee">>, {insufficient_fee, 2}},
+				  {<<"9nofee">>, insufficient_fund_for_fee}
 				 ], lists:sort(Failed)),
 	?assertEqual([
 				  <<"1interchain">>,
 				  <<"3crosschain">>,
 				  <<"4crosschain">>,
-				  <<"7nextday">>], 
+				  <<"7nextday">>],
 				 lists:sort(Success)),
 	?assertEqual([
 				  <<"3crosschain">>,
 				  <<"4crosschain">>
 				 ],
-				 proplists:get_keys(maps:get(tx_proof,Block))
+				 proplists:get_keys(maps:get(tx_proof, Block))
 				),
 	?assertEqual([
-				  {<<"4crosschain">>,OurChain+2},
-				  {<<"3crosschain">>,OurChain+2}
+				  {<<"4crosschain">>, OurChain+2},
+				  {<<"3crosschain">>, OurChain+2}
 				 ],
-				 maps:get(outbound,Block)
+				 maps:get(outbound, Block)
 				),
-	SignedBlock=block:sign(Block,<<1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1>>),
-	file:write_file("tmp/testblk.txt", io_lib:format("~p.~n",[Block])),
-	?assertMatch({true, {_,_}},block:verify(SignedBlock)),
-	lager:info("FSK B ~p",[proplists:get_keys(maps:get(txs,Block))]),
-	_=maps:get(OurChain+2,block:outward_mk(maps:get(outbound,Block),SignedBlock)),
+	SignedBlock=block:sign(Block, <<1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+																	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>),
+	file:write_file("tmp/testblk.txt", io_lib:format("~p.~n", [Block])),
+	?assertMatch({true, {_, _}}, block:verify(SignedBlock)),
+	lager:info("FSK B ~p", [proplists:get_keys(maps:get(txs, Block))]),
+	_=maps:get(OurChain+2, block:outward_mk(maps:get(outbound, Block), SignedBlock)),
 	#{bals:=NewBals}=Block,
-	?assertMatch(#{<<160,0,0,0,0,0,0,1>>:=#{amount:=#{<<"FTT">>:=103,<<"TST">>:=102}}}, NewBals),
-	?assertMatch(#{<<160,0,0,0,0,0,0,2>>:=#{amount:=#{<<"FTT">>:=101,<<"TST">>:=101}}}, NewBals),
+	?assertMatch(#{<<160, 0, 0, 0, 0, 0, 0, 1>>:=#{
+		 amount:=#{<<"FTT">>:=103, <<"TST">>:=102}}}, NewBals),
+	?assertMatch(#{<<160, 0, 0, 0, 0, 0, 0, 2>>:=#{
+		 amount:=#{<<"FTT">>:=101, <<"TST">>:=101}}}, NewBals),
 	NewBals.
 
-%test_getaddr%({_Addr,_Cur}) -> %suitable for inbound tx
+%test_getaddr%({_Addr, _Cur}) -> %suitable for inbound tx
 test_getaddr(Addr) ->
 	case naddress:parse(Addr) of
-		#{address:=_,block:=_,group:=Grp,type:=public} ->
+		#{address:=_, block:=_, group:=Grp, type:=public} ->
 			#{amount => #{ <<"FTT">> => 110, <<"SK">> => Grp, <<"TST">> => 26 },
 			  seq => 1,
 			  t => 1512047425350,
@@ -1793,9 +1798,9 @@ test_getaddr(Addr) ->
 			  changes=>[amount]
 			 };
 		#{address:=_, block:=_, type := private} ->
-			#{amount => #{ 
-				<<"FTT">> => 100, 
-				<<"TST">> => 100 
+			#{amount => #{
+				<<"FTT">> => 100,
+				<<"TST">> => 100
 			   },
 			  lastblk => <<0:64>>,
 			  changes=>[amount]
@@ -1804,116 +1809,175 @@ test_getaddr(Addr) ->
 
 xchain_inbound_test() ->
 	BlockTx={bin2hex:dbin2hex(
-               <<210,136,133,138,53,233,33,79,75,12,212,35,130,40,68,210,73,37,251,211,
-                 204,69,65,165,76,171,250,21,89,208,120,119>>),
+               <<210, 136, 133, 138, 53, 233, 33, 79,
+								 75, 12, 212, 35, 130, 40, 68, 210,
+								 73, 37, 251, 211, 204, 69, 65, 165,
+								 76, 171, 250, 21, 89, 208, 120, 119>>),
              #{
-               hash => <<210,136,133,138,53,233,33,79,75,12,212,35,130,40,68,210,73,37,251,211,
-                         204,69,65,165,76,171,250,21,89,208,120,119>>,
+               hash => <<210, 136, 133, 138, 53, 233, 33, 79,
+												 75, 12, 212, 35, 130, 40, 68, 210,
+												 73, 37, 251, 211, 204, 69, 65, 165,
+												 76, 171, 250, 21, 89, 208, 120, 119>>,
                header => #{
-                 balroot => <<53,27,182,176,168,205,168,137,118,192,113,80,26,8,168,161,225,
-                              192,179,64,42,131,107,119,228,179,70,213,97,142,22,75>>,
+                 balroot => <<53, 27, 182, 176, 168, 205, 168, 137,
+														 	118, 192, 113, 80, 26, 8, 168, 161,
+														 	225, 192, 179, 64, 42, 131, 107, 119,
+														 	228, 179, 70, 213, 97, 142, 22, 75>>,
                  height => 3,
-                 ledger_hash => <<126,177,211,108,143,33,252,102,28,174,183,241,224,199,53,212,190,
-                                  109,9,102,244,128,148,2,141,113,34,173,88,18,54,167>>,
-                 parent => <<209,98,117,147,242,200,255,92,65,98,40,145,134,56,237,108,111,31,
-                             204,11,199,110,119,85,228,154,171,52,57,169,193,128>>,
-                 txroot => <<160,75,167,93,173,15,76,7,206,105,125,171,71,71,73,183,152,20,1,
-                             204,255,238,56,119,48,182,3,128,120,199,119,132>>},
+                 ledger_hash => <<126, 177, 211, 108, 143, 33, 252, 102,
+																	28, 174, 183, 241, 224, 199, 53, 212,
+																	190, 109, 9, 102, 244, 128, 148, 2,
+																	141, 113, 34, 173, 88, 18, 54, 167>>,
+                 parent => <<209, 98, 117, 147, 242, 200, 255, 92,
+														 65, 98, 40, 145, 134, 56, 237, 108,
+														 111, 31, 204, 11, 199, 110, 119, 85,
+														 228, 154, 171, 52, 57, 169, 193, 128>>,
+                 txroot => <<160, 75, 167, 93, 173, 15, 76, 7,
+														 206, 105, 125, 171, 71, 71, 73, 183,
+														 152, 20, 1, 204, 255, 238, 56, 119,
+														 48, 182, 3, 128, 120, 199, 119, 132>>},
                sign => [
-                        #{binextra => <<2,33,3,20,168,140,163,14,5,254,154,92,115,194,121,240,35,86,153,
-                                        104,127,21,35,19,190,200,202,242,232,101,102,255,67,64,4,1,8,0,
-                                        0,1,97,216,215,132,30,3,8,0,0,0,0,0,54,225,28>>,
+                        #{binextra => <<2, 33, 3, 20, 168, 140, 163, 14,
+																				5, 254, 154, 92, 115, 194, 121, 240,
+																				35, 86, 153, 104, 127, 21, 35, 19,
+																				190, 200, 202, 242, 232, 101, 102, 255,
+																				67, 64, 4, 1, 8, 0, 0, 1,
+																				97, 216, 215, 132, 30, 3, 8, 0,
+																				0, 0, 0, 0, 54, 225, 28>>,
                           extra => [
-                                    {pubkey,<<3,20,168,140,163,14,5,254,154,92,115,194,121,240,35,
-                                              86,153,104,127,21,35,19,190,200,202,242,232,101,102,
-                                              255,67,64,4>>},
-                                    {timestamp,1519761458206},
-                                    {createduration,3596572}],
-                          signature => <<48,69,2,32,46,71,177,112,252,81,176,202,73,216,45,248,150,187,
-                                         65,47,123,172,210,59,107,36,166,151,105,73,39,153,189,162,165,
-                                         12,2,33,0,239,133,205,191,10,54,223,131,75,133,178,226,150,62,
-                                         90,197,191,170,185,190,202,84,234,147,154,200,78,180,196,145,
-                                         135,30>>},
+                                    {pubkey, <<3, 20, 168, 140, 163, 14, 5,
+																							 254, 154, 92, 115, 194, 121, 240, 35,
+																							 86, 153, 104, 127, 21, 35, 19, 190,
+																							 200, 202, 242, 232, 101, 102, 255, 67,
+																							 64, 4>>},
+                                    {timestamp, 1519761458206},
+                                    {createduration, 3596572}],
+													signature => <<48, 69, 2, 32, 46, 71, 177, 112,
+																				 252, 81, 176, 202, 73, 216, 45, 248,
+																				 150, 187, 65, 47, 123, 172, 210, 59,
+																				 107, 36, 166, 151, 105, 73, 39, 153,
+																				 189, 162, 165, 12, 2, 33, 0, 239,
+																				 133, 205, 191, 10, 54, 223, 131, 75,
+																				 133, 178, 226, 150, 62, 90, 197, 191,
+																				 170, 185, 190, 202, 84, 234, 147, 154,
+																				 200, 78, 180, 196, 145, 135, 30>>},
                         #{
-                            binextra => <<2,33,2,242,87,82,248,198,80,15,92,32,167,94,146,112,70,81,54,
-                                          120,236,25,141,129,124,215,7,210,142,51,139,230,86,0,245,1,8,0,
-                                          0,1,97,216,215,132,25,3,8,0,0,0,0,0,72,145,55>>,
+                            binextra => <<2, 33, 2, 242, 87, 82, 248, 198,
+																					80, 15, 92, 32, 167, 94, 146, 112,
+																					70, 81, 54, 120, 236, 25, 141, 129,
+																					124, 215, 7, 210, 142, 51, 139, 230,
+																					86, 0, 245, 1, 8, 0, 0, 1,
+																					97, 216, 215, 132, 25, 3, 8, 0,
+																					0, 0, 0, 0, 72,
+																					145, 55>>,
                             extra => [
-                                      {pubkey,<<2,242,87,82,248,198,80,15,92,32,167,94,146,112,70,81,
-                                                54,120,236,25,141,129,124,215,7,210,142,51,139,230,86,
-                                                0,245>>},
-                                      {timestamp,1519761458201},
-                                      {createduration,4755767}],
-                            signature => <<48,69,2,33,0,181,13,206,186,91,46,248,47,86,203,119,163,182,
-                                           187,224,19,148,186,230,192,77,37,78,34,159,0,129,20,44,94,100,
-                                           222,2,32,17,113,133,105,203,59,196,83,152,48,93,234,94,203,
-                                           198,204,37,71,163,102,116,222,108,244,177,171,121,241,78,236,
-                                           20,49>>}
+                                      {pubkey, <<2, 242, 87, 82, 248, 198, 80,
+																								 15, 92, 32, 167, 94, 146, 112, 70,
+																								 81, 54, 120, 236, 25, 141, 129, 124,
+																								 215, 7, 210, 142, 51, 139, 230, 86,
+																								 0, 245>>},
+                                      {timestamp, 1519761458201},
+                                      {createduration, 4755767}],
+                            signature => <<48, 69, 2, 33, 0, 181, 13, 206,
+																					 186, 91, 46, 248, 47, 86, 203, 119,
+																					 163, 182, 187, 224, 19, 148, 186, 230,
+																					 192, 77, 37, 78, 34, 159, 0, 129,
+																					 20, 44, 94, 100, 222, 2, 32, 17,
+																					 113, 133, 105, 203, 59, 196, 83, 152,
+																					 48, 93, 234, 94, 203, 198, 204, 37,
+																					 71, 163, 102, 116, 222, 108, 244, 177,
+																					 171, 121, 241, 78, 236, 20, 49>>}
                        ],
                tx_proof => [
                             {<<"151746FE691E15EA-34oMyXcpay8pDeuEUGRsdqLp25aC-03">>,
-                             {<<140,165,20,175,211,221,34,143,206,26,228,214,78,239,204,117,248,243,
-                                84,232,154,163,25,31,161,244,123,77,137,49,211,190>>,
-                              <<227,192,87,99,22,171,181,153,82,253,22,226,105,155,190,217,40,
-                                167,35,76,231,83,145,17,235,226,202,176,88,112,164,75>>}}],
+                             {<<140, 165, 20, 175, 211, 221, 34, 143,
+																206, 26, 228, 214, 78, 239, 204, 117,
+																248, 243, 84, 232, 154, 163, 25, 31,
+																161, 244, 123, 77, 137, 49, 211, 190>>,
+                              <<227, 192, 87, 99, 22, 171, 181, 153,
+																82, 253, 22, 226, 105, 155, 190, 217,
+																40, 167, 35, 76, 231, 83, 145, 17,
+																235, 226, 202, 176, 88, 112, 164, 75>>}}],
                txs => [
                        {<<"151746FE691E15EA-34oMyXcpay8pDeuEUGRsdqLp25aC-03">>,
-                        #{amount => 10,cur => <<"FTT">>,
+                        #{amount => 10, cur => <<"FTT">>,
                           extradata =>
-                          <<"{\"message\":\"preved from test_xchain_tx to AA100000001677721780\"}">>,
-                          from => <<128,1,64,0,2,0,0,1>>,
+													<<"{\"message\":\"preved from test_xchain_tx to ",
+														"AA100000001677721780\"}">>,
+                          from => <<128, 1, 64, 0, 2, 0, 0, 1>>,
                           seq => 1,
                           sig =>
-                          #{<<3,106,33,240,104,190,146,105,114,104,182,13,150,196,202,147,
-                              5,46,193,4,228,158,0,58,226,196,4,249,22,134,67,114,244>> =>
-                            <<48,69,2,33,0,137,129,11,184,226,47,248,169,88,87,235,54,
-                              114,41,218,54,208,110,177,156,86,154,57,168,248,135,234,
-                              133,48,122,162,159,2,32,111,74,165,165,165,20,39,231,
-                              137,198,69,97,248,202,129,61,131,85,115,106,71,105,254,
-                              113,106,128,151,224,154,162,163,161>>},
+                          #{<<3, 106, 33, 240, 104, 190, 146, 105,
+															114, 104, 182, 13, 150, 196, 202, 147,
+															5, 46, 193, 4, 228, 158, 0, 58,
+															226, 196, 4, 249, 22, 134, 67, 114, 244>> =>
+                            <<48, 69, 2, 33, 0, 137, 129, 11,
+															184, 226, 47, 248, 169, 88, 87, 235,
+															54, 114, 41, 218, 54, 208, 110, 177,
+															156, 86, 154, 57, 168, 248, 135, 234,
+															133, 48, 122, 162, 159, 2, 32, 111,
+															74, 165, 165, 165, 20, 39, 231, 137,
+															198, 69, 97, 248, 202, 129, 61, 131,
+															85, 115, 106, 71, 105, 254, 113, 106,
+															128, 151, 224, 154, 162, 163, 161>>},
                           timestamp => 1519761457746,
-                          to => <<128,1,64,0,1,0,0,1>>,
+                          to => <<128, 1, 64, 0, 1, 0, 0, 1>>,
                           type => tx}}]}
             },
 
-    ParentHash= <<0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3>>,
+    ParentHash= <<0, 0, 0, 0, 1, 1, 1, 1,
+									2, 2, 2, 2, 3, 3, 3, 3,
+									0, 0, 0, 0, 1, 1, 1, 1,
+									2, 2, 2, 2, 3, 3, 3, 3>>,
     GetSettings=fun(mychain) ->
                         1;
                    (settings) ->
                         #{chain =>
-                          #{1 => #{blocktime => 2,minsig => 2,<<"allowempty">> => 0},
-                            2 => #{blocktime => 2,minsig => 2,<<"allowempty">> => 0}},
-                          chains => [1,2],
+                          #{1 => #{blocktime => 2, minsig => 2, <<"allowempty">> => 0},
+                            2 => #{blocktime => 2, minsig => 2, <<"allowempty">> => 0}},
+                          chains => [1, 2],
                           globals => #{<<"patchsigs">> => 4},
                           keys =>
-                          #{<<"c1n1">> =>
-                            <<2,6,167,57,142,3,113,35,25,211,191,20,246,212,125,250,157,15,147,
-                              0,243,194,122,10,100,125,146,90,94,200,163,213,219>>,
-                            <<"c1n2">> =>
-                            <<3,49,215,116,73,54,27,41,144,13,76,183,209,15,238,61,231,222,154,
-                              116,37,161,113,159,2,37,130,166,140,176,51,183,170>>,
-                            <<"c1n3">> =>
-                            <<2,232,199,219,27,18,156,224,149,39,153,173,87,46,204,64,247,2,
-                              124,209,4,156,168,33,95,67,253,87,225,62,85,250,63>>,
-                            <<"c2n1">> =>
-                            <<3,20,168,140,163,14,5,254,154,92,115,194,121,240,35,86,153,104,
-                              127,21,35,19,190,200,202,242,232,101,102,255,67,64,4>>,
-                            <<"c2n2">> =>
-                            <<3,170,173,144,22,230,53,155,16,61,0,29,207,156,35,78,48,153,163,
-                              136,250,63,111,164,34,28,239,85,113,11,33,238,173>>,
-                            <<"c2n3">> =>
-                            <<2,242,87,82,248,198,80,15,92,32,167,94,146,112,70,81,54,120,236,
-                              25,141,129,124,215,7,210,142,51,139,230,86,0,245>>},
+                          #{<<"c1n1">> => <<2, 6, 167, 57, 142, 3, 113, 35,
+																						25, 211, 191, 20, 246, 212, 125, 250,
+																						157, 15, 147, 0, 243, 194, 122, 10,
+																						100, 125, 146, 90, 94, 200, 163, 213,
+																						219>>,
+                            <<"c1n2">> => <<3, 49, 215, 116, 73, 54, 27, 41,
+																						144, 13, 76, 183, 209, 15, 238, 61,
+																						231, 222, 154, 116, 37, 161, 113, 159,
+																						2, 37, 130, 166, 140, 176, 51, 183,
+																						170>>,
+                            <<"c1n3">> => <<2, 232, 199, 219, 27, 18, 156, 224,
+																						149, 39, 153, 173, 87, 46, 204, 64,
+																						247, 2, 124, 209, 4, 156, 168, 33,
+																						95, 67, 253, 87, 225, 62, 85, 250,
+																						63>>,
+                            <<"c2n1">> => <<3, 20, 168, 140, 163, 14, 5, 254,
+																						154, 92, 115, 194, 121, 240, 35, 86,
+																						153, 104, 127, 21, 35, 19, 190, 200,
+																						202, 242, 232, 101, 102, 255, 67, 64,
+																						4>>,
+                            <<"c2n2">> => <<3, 170, 173, 144, 22, 230, 53, 155,
+																						16, 61, 0, 29, 207, 156, 35, 78,
+																						48, 153, 163, 136, 250, 63, 111, 164,
+																						34, 28, 239, 85, 113, 11, 33, 238,
+																						173>>,
+                            <<"c2n3">> => <<2, 242, 87, 82, 248, 198, 80, 15,
+																						92, 32, 167, 94, 146, 112, 70, 81,
+																						54, 120, 236, 25, 141, 129, 124, 215,
+																						7, 210, 142, 51, 139, 230, 86, 0,
+																						245>>},
                           nodechain =>
-                          #{<<"c1n1">> => 1,<<"c1n2">> => 1,<<"c1n3">> => 1,
-                            <<"c2n1">> => 2,<<"c2n2">> => 2,<<"c2n3">> => 2},
+                          #{<<"c1n1">> => 1, <<"c1n2">> => 1, <<"c1n3">> => 1,
+                            <<"c2n1">> => 2, <<"c2n2">> => 2, <<"c2n3">> => 2},
                           <<"current">> =>
                           #{<<"allocblock">> =>
-                            #{<<"block">> => 1,<<"group">> => 10,<<"last">> => 1}}};
-                   ({endless,_Address,_Cur}) ->
+                            #{<<"block">> => 1, <<"group">> => 10, <<"last">> => 1}}};
+                   ({endless, _Address, _Cur}) ->
                         false;
                    (Other) ->
-                        error({bad_setting,Other})
+                        error({bad_setting, Other})
                 end,
     GetAddr=fun test_getaddr/1,
 
@@ -1921,28 +1985,28 @@ xchain_inbound_test() ->
                header:=#{height:=NewHeight}}=Block,
       failed:=Failed}=generate_block(
                         [BlockTx],
-                        {1,ParentHash},
+                        {1, ParentHash},
                         GetSettings,
                         GetAddr,
 					   []),
 
-%        SS1=settings:patch(AAlloc,SetState),
+%        SS1=settings:patch(AAlloc, SetState),
     GetSettings2=fun(mychain) ->
                         1;
                    (settings) ->
                          lists:foldl(
                            fun(Patch, Acc) ->
-                                   settings:patch(Patch,Acc)
-                           end, GetSettings(settings), maps:get(settings,Block));
-                   ({endless,_Address,_Cur}) ->
+                                   settings:patch(Patch, Acc)
+                           end, GetSettings(settings), maps:get(settings, Block));
+                   ({endless, _Address, _Cur}) ->
                         false;
                    (Other) ->
-                        error({bad_setting,Other})
+                        error({bad_setting, Other})
                 end,
     #{block:=Block2,
       failed:=Failed2}=generate_block(
                          [BlockTx],
-                         {NewHeight,NewHash},
+                         {NewHeight, NewHash},
                          GetSettings2,
                          GetAddr,
 						[]),
@@ -1953,12 +2017,12 @@ xchain_inbound_test() ->
                   {<<"151746FE691E15EA-34oMyXcpay8pDeuEUGRsdqLp25aC-03">>,
                    #{amount:=10}
                   }
-                 ], maps:get(txs,Block)),
+                 ], maps:get(txs, Block)),
     ?assertMatch(#{amount:=#{<<"FTT">>:=120}},
-                 maps:get(<<128,1,64,0,1,0,0,1>>,maps:get(bals,Block))
+                 maps:get(<<128, 1, 64, 0, 1, 0, 0, 1>>, maps:get(bals, Block))
                 ),
-    ?assertMatch([], maps:get(txs,Block2)),
-    ?assertMatch([{_,{overdue,_}}], Failed2)
+    ?assertMatch([], maps:get(txs, Block2)),
+    ?assertMatch([{_, {overdue, _}}], Failed2)
     ].
 
 -endif.

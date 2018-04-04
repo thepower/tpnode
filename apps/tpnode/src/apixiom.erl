@@ -24,7 +24,7 @@ init(Req0, {Target, Opts}) ->
             false ->
                 ResReq
         end,
-    %lager:debug("Res ~p",[Response]),
+    %lager:debug("Res ~p", [Response]),
     {ok, cowboy_req:reply(Status, #{}, Body, Response), Opts}.
 
 bodyjs(Req) ->
@@ -75,7 +75,7 @@ handle_request(Method, Path, Req, Target, Format, _Opts) ->
                     Req
                end,
         Target:h(Method, Path, Req1)
-	catch 
+	catch
 		throw:{return, Code, MSG} when is_list(MSG) ->
 			{Code, #{error=>list_to_binary(MSG)}};
 		throw:{return, Code, MSG} ->
@@ -86,8 +86,8 @@ handle_request(Method, Path, Req, Target, Format, _Opts) ->
 			{500, #{error=>MSG}};
 		error:function_clause ->
 			case erlang:get_stacktrace() of
-%				[{Target,h,_,_}|_] ->
-				[{_,h,_,_}|_] ->
+%				[{Target, h, _, _}|_] ->
+				[{_, h, _, _}|_] ->
 					ReqPath = cowboy_req:path(Req),
 					{404, #{
                         error=><<"not found">>,
@@ -96,9 +96,9 @@ handle_request(Method, Path, Req, Target, Format, _Opts) ->
                         method=>Method,
                         p=>Path}
                     };
-%				[{_,h,[Method,Path,_],_}|_] ->
+%				[{_, h, [Method, Path, _], _}|_] ->
 %					ReqPath = cowboy_req:path(Req),
-%					{404, #{error=><<"not found">>,path=>ReqPath,method=>Method,p=>Path}};
+%					{404, #{error=><<"not found">>, path=>ReqPath, method=>Method, p=>Path}};
 				Stack ->
                     ST = format_stack(Stack),
                     {500, #{
@@ -109,33 +109,33 @@ handle_request(Method, Path, Req, Target, Format, _Opts) ->
                     }
 			end;
 		Ec:Ee ->
-			EcEe=iolist_to_binary(io_lib:format("~p:~p",[Ec,Ee])),
+			EcEe=iolist_to_binary(io_lib:format("~p:~p", [Ec, Ee])),
                         ST=format_stack(erlang:get_stacktrace()),
-			{500, #{error=>unknown,format=>Format,ecee=>EcEe,stack=>ST}}
+			{500, #{error=>unknown, format=>Format, ecee=>EcEe, stack=>ST}}
 	end.
 
 format_stack(Stack) ->
     FormatAt=fun(PL) ->
                      try
-                         File=proplists:get_value(file,PL),
-                         Line=proplists:get_value(line,PL),
-                         iolist_to_binary(io_lib:format("~s:~w",[File,Line]))
+                         File=proplists:get_value(file, PL),
+                         Line=proplists:get_value(line, PL),
+                         iolist_to_binary(io_lib:format("~s:~w", [File, Line]))
                      catch _:_ ->
-                               iolist_to_binary(io_lib:format("~p",[PL]))
+                               iolist_to_binary(io_lib:format("~p", [PL]))
                      end
              end,
     lists:map(
       fun
-          ({M,F,A,FL}) when is_list(A)->
-              #{ mfa=>iolist_to_binary(io_lib:format("~p:~p(~p)",[M,F,A])),
+          ({M, F, A, FL}) when is_list(A)->
+              #{ mfa=>iolist_to_binary(io_lib:format("~p:~p(~p)", [M, F, A])),
                  at=> FormatAt(FL)
                };
-          ({M,F,A,FL}) when is_integer(A)->
-              #{ mf=>iolist_to_binary(io_lib:format("~p:~p/~w",[M,F,A])),
+          ({M, F, A, FL}) when is_integer(A)->
+              #{ mf=>iolist_to_binary(io_lib:format("~p:~p/~w", [M, F, A])),
                  at=> FormatAt(FL)
                };
           (SE) ->
-              iolist_to_binary(io_lib:format("~p",[SE]))
+              iolist_to_binary(io_lib:format("~p", [SE]))
       end, Stack).
 
 
@@ -143,9 +143,9 @@ process_response({Status, [], Body}, Format, Req)
     when is_integer(Status) ->
     process_response({Status, Body}, Format, Req);
 
-process_response({Status, [{Hdr,Val}|Headers], Body}, Format, Req)
+process_response({Status, [{Hdr, Val}|Headers], Body}, Format, Req)
     when is_integer(Status) ->
-    %lager:debug("resp ~p: ~p",[Hdr,Val]),
+    %lager:debug("resp ~p: ~p", [Hdr, Val]),
     process_response(
         {Status, Headers, Body},
         Format,
@@ -178,11 +178,11 @@ process_response({Status, Body}, _Format, Req)
     when is_integer(Status) andalso is_list(Body) ->
     {Status, Body, Req};
 
-process_response({Req, Status, Body}, _Format, _xReq)
+process_response({Req, Status, Body}, _Format, _XReq)
     when is_integer(Status) andalso is_binary(Body) ->
     {Status, Body, Req};
 
-process_response({Req, Status, Body}, _Format, _xReq)
+process_response({Req, Status, Body}, _Format, _XReq)
     when is_integer(Status) andalso is_list(Body) ->
     {Status, Body, Req}.
 
@@ -191,7 +191,7 @@ parse_reqjs(Req) ->
         <<"POST">> ->
             try
                 {ok, ReqBody, NewReq} = cowboy_req:read_body(Req),
-                ReqJSON=jsx:decode(ReqBody,[return_maps]),
+                ReqJSON=jsx:decode(ReqBody, [return_maps]),
                 maps:put(request_data, ReqJSON, NewReq)
             catch _:_ ->
                 lager:error("json parse error: ~p", [Req]),

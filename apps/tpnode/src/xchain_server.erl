@@ -50,7 +50,7 @@ websocket_handle(_Data, State) ->
     {ok, State}.
 
 websocket_info({message, Msg}, State) ->
-    lager:debug("send message ~p",[Msg]),
+    lager:debug("send message ~p", [Msg]),
     {reply, {binary, xchain:pack(Msg)}, State};
 
 websocket_info({timeout, _Ref, Msg}, State) ->

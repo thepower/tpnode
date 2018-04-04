@@ -2,7 +2,7 @@
 -export([max_clique/1]).
 
 -ifndef(TEST).
--define(TEST,1).
+-define(TEST, 1).
 -endif.
 
 -ifdef(TEST).
@@ -10,15 +10,23 @@
 -endif.
 
 
-isConnected(Row, Col, Matrix) ->
-    lists:any(fun(Val) -> {Ind, List} = Val, (Ind =:= Row) andalso lists:member(Col, List) end, Matrix)
+is_connected(Row, Col, Matrix) ->
+    lists:any(fun({Ind, List}) ->
+									(Ind =:= Row)
+									andalso
+									lists:member(Col, List)
+							end, Matrix)
         andalso
-    lists:any(fun(Val) -> {Ind, List} = Val, (Ind =:= Col) andalso lists:member(Row, List) end, Matrix).
+    lists:any(fun({Ind, List}) ->
+									(Ind =:= Col)
+									andalso
+									lists:member(Row, List)
+							end, Matrix).
 
 check(Candidates, Rejected, Matrix) ->
     lists:foldl(fun(R, Acc1) ->
             Acc1 andalso lists:foldl(fun(C, Acc2) ->
-                case isConnected(R, C, Matrix) of
+                case is_connected(R, C, Matrix) of
                     true -> false;
                     false -> Acc2
                 end
@@ -37,17 +45,29 @@ extend(Candidates, Rejected, Compsub, Results, Matrix) ->
 
             NewCompsub = [HCandidates|Compsub],
 
-            NewCandidates = lists:filter(fun(Val) ->
-                isConnected(Val, HCandidates, Matrix) andalso (Val =/= HCandidates)
-                                         end, Candidates),
+						NewCandidates = lists:filter(
+															fun(Val) ->
+																	is_connected(Val, HCandidates, Matrix)
+																	andalso
+																	(Val =/= HCandidates)
+															end, Candidates),
 
-            NewRejected = lists:filter(fun(Val) ->
-                isConnected(Val, HCandidates, Matrix) andalso (Val =/= HCandidates)
-                                       end, Rejected),
+						NewRejected = lists:filter(
+														fun(Val) ->
+																is_connected(Val, HCandidates, Matrix)
+																andalso
+																(Val =/= HCandidates)
+														end, Rejected),
 
-            NewResults = case (NewCandidates == []) andalso (NewRejected == []) of
+            NewResults = case (NewCandidates == [])
+															andalso
+															(NewRejected == []) of
                              true -> [lists:sort(NewCompsub)|Results];
-                             false -> extend(NewCandidates, NewRejected, NewCompsub, Results, Matrix)
+                             false -> extend(NewCandidates,
+																						 NewRejected,
+																						 NewCompsub,
+																						 Results,
+																						 Matrix)
                          end,
             extend(TCandidates, TRejected, Compsub, NewResults, Matrix);
         _ -> Results
@@ -55,7 +75,11 @@ extend(Candidates, Rejected, Compsub, Results, Matrix) ->
 
 
 max_clique(Matrix) ->
-    Candidates = lists:sort(lists:map(fun(Val) -> {Ind, _} = Val, Ind end, Matrix)),
+    Candidates = lists:sort(
+									 lists:map(
+										 fun({Ind, _}) ->
+												 Ind
+										 end, Matrix)),
     Result = lists:sort(extend(Candidates, [], [], [], Matrix)),
     lists:foldl(fun(Val, Acc) ->
         case length(Val) > length(Acc) of
@@ -68,7 +92,7 @@ max_clique(Matrix) ->
 corrupt_matrix_test() ->
     Matrix = [{}],
     [
-        ?assertError({badmatch,{}},
+        ?assertError({badmatch, {}},
             max_clique(Matrix))
     ].
 
@@ -90,7 +114,7 @@ integer_matrix_test() ->
         {6, [1, 3, 4, 5]}
     ],
     [
-        ?assertEqual([1,3,4,5,6],
+        ?assertEqual([1, 3, 4, 5, 6],
             max_clique(Matrix))
     ].
 
@@ -105,7 +129,7 @@ binary_matrix_test() ->
         {<<"F">>, [<<"A">>, <<"C">>, <<"D">>, <<"E">>]}
     ],
     [
-        ?assertEqual([<<"A">>,<<"C">>,<<"D">>,<<"E">>,<<"F">>],
+        ?assertEqual([<<"A">>, <<"C">>, <<"D">>, <<"E">>, <<"F">>],
             max_clique(Matrix))
     ].
 

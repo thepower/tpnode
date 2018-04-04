@@ -18,7 +18,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
     terminate/2, code_change/3]).
 
--export([my_address_v4/0,my_address_v6/0]).
+-export([my_address_v4/0, my_address_v6/0]).
 
 -export([test/0, test1/0, test2/0, test3/0, test4/0]).
 
@@ -33,30 +33,30 @@ start_link(Options) ->
     gen_server:start_link({local, Name}, ?MODULE, Options, []).
 
 my_address_v6() ->
-    {ok,IL}=inet:getifaddrs(),
+    {ok, IL}=inet:getifaddrs(),
     lists:foldl(
-      fun({_NetIf,Flags},Acc0) ->
+      fun({_NetIf, Flags}, Acc0) ->
               lists:foldl(
-                fun({addr,{0,_,_,_,_,_,_,_}},Acc1) ->
+                fun({addr, {0, _, _, _, _, _, _, _}}, Acc1) ->
                         Acc1;
-                   ({addr,{16#fe80,_,_,_,_,_,_,_}},Acc1) ->
+                   ({addr, {16#fe80, _, _, _, _, _, _, _}}, Acc1) ->
                         Acc1;
-                   ({addr,{_,_,_,_,_,_,_,_}=A},Acc1) ->
+                   ({addr, {_, _, _, _, _, _, _, _}=A}, Acc1) ->
                         [inet:ntoa(A)|Acc1];
-                   (_,Acc1) -> Acc1
+                   (_, Acc1) -> Acc1
                 end, Acc0, Flags)
       end, [], IL).
 
 my_address_v4() ->
-    {ok,IL}=inet:getifaddrs(),
+    {ok, IL}=inet:getifaddrs(),
     lists:foldl(
-      fun({_NetIf,Flags},Acc0) ->
+      fun({_NetIf, Flags}, Acc0) ->
               lists:foldl(
-                fun({addr,{127,_,_,_}},Acc1) ->
+                fun({addr, {127, _, _, _}}, Acc1) ->
                         Acc1;
-                   ({addr,{_,_,_,_}=A},Acc1) ->
+                   ({addr, {_, _, _, _}=A}, Acc1) ->
                         [inet:ntoa(A)|Acc1];
-                   (_,Acc1) -> Acc1
+                   (_, Acc1) -> Acc1
                 end, Acc0, Flags)
       end, [], IL).
 
@@ -461,7 +461,7 @@ pack(Message) ->
     Hash = crypto:hash(sha256, Packed),
     Sign = bsig:signhash(
         Hash,
-        [{timestamp,os:system_time(millisecond)}],
+        [{timestamp, os:system_time(millisecond)}],
         PrivKey
     ),
     add_sign_to_bin(Sign, Packed).

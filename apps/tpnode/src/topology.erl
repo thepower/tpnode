@@ -27,7 +27,7 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-%    gen_server:cast(self(),settings),
+%    gen_server:cast(self(), settings),
 	Tickms=10000,
     {ok, #{
        ticktimer=>erlang:send_after(Tickms, self(), timer),
@@ -41,33 +41,33 @@ handle_call(state, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({tpic, _PeerID, <<16#be,_/binary>>=Payload}, State) ->
+handle_cast({tpic, _PeerID, <<16#be, _/binary>>=Payload}, State) ->
 	try
 		Beacon=beacon:check(Payload),
-		lager:info("TOPO ~p beacon ~p",[_PeerID,Beacon]),
+		lager:info("TOPO ~p beacon ~p", [_PeerID, Beacon]),
 		{noreply, State}
 	catch _:_ ->
 			  {noreply, State}
 	end;
 
 handle_cast({tpic, _PeerID, _Payload}, State) ->
-	lager:info("Bad TPIC received",[]),
+	lager:info("Bad TPIC received", []),
 	{noreply, State};
-    
+
 
 handle_cast(_Msg, State) ->
-    lager:info("Unknown cast ~p",[_Msg]),
+    lager:info("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(timer, 
-            #{ticktimer:=Tmr,tickms:=Delay}=State) ->
+handle_info(timer,
+            #{ticktimer:=Tmr, tickms:=Delay}=State) ->
     T=erlang:system_time(microsecond),
 	catch erlang:cancel_timer(Tmr),
-	Peers=tpic:cast_prepare(tpic,<<"mkblock">>),
-	lists:foreach(fun({N,#{authdata:=AD}}) -> 
-						  PK=proplists:get_value(pubkey,AD,<<>>),
-						  lager:info("TOPO ~p: ~p",[N,PK]),
-						  tpic:cast(tpic,N,
+	Peers=tpic:cast_prepare(tpic, <<"mkblock">>),
+	lists:foreach(fun({N, #{authdata:=AD}}) ->
+						  PK=proplists:get_value(pubkey, AD, <<>>),
+						  lager:info("TOPO ~p: ~p", [N, PK]),
+						  tpic:cast(tpic, N,
 									{<<"beacon">>,
 									 beacon:create(PK)
 									}
@@ -76,14 +76,14 @@ handle_info(timer,
 				  end,
 				  Peers),
 
-    {noreply,State#{
+    {noreply, State#{
                ticktimer=>erlang:send_after(Delay, self(), ticktimer),
                prevtick=>T
               }
     };
 
 handle_info(_Info, State) ->
-    lager:info("Unknown info ~p",[_Info]),
+    lager:info("Unknown info ~p", [_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
