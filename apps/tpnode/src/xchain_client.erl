@@ -405,7 +405,7 @@ relay_discovery(_Announce, AnnounceBin, Subs) ->
             gun:ws_send(Conn, {binary, Cmd}),
             Sub;
         (_Key, Sub) ->
-            lager:info("Skip relaying to connection: ~p", [Sub])
+            lager:info("Skip relaying to unfinished connection: ~p", [Sub])
         end,
     maps:map(Sender, Subs),
     ok.
