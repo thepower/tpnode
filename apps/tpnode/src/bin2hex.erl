@@ -2,22 +2,22 @@
 
 %-compile([native, {hipe, [o3]}]).
 
--export([bin2hex/1,dbin2hex/1]).
+-export([bin2hex/1, dbin2hex/1]).
 
-dbin2hex({ok,Bin}) when is_binary(Bin) ->
+dbin2hex({ok, Bin}) when is_binary(Bin) ->
     dbin2hex(Bin);
 dbin2hex(B) when is_binary(B) ->
   dbin2hex(B, <<>>);
 dbin2hex(Any) ->
-    io_lib:format("~p",[Any]).
+    io_lib:format("~p", [Any]).
 
 
-bin2hex({ok,Bin}) when is_binary(Bin) ->
+bin2hex({ok, Bin}) when is_binary(Bin) ->
     bin2hex(Bin);
 bin2hex(B) when is_binary(B) ->
   bin2hex(B, <<>>, 0);
 bin2hex(Any) ->
-    io_lib:format("~p",[Any]).
+    io_lib:format("~p", [Any]).
 
 -define(H(X), (hex(X)):16).
 
@@ -28,10 +28,10 @@ bin2hex(<<X:8, Rest/binary>>, Acc, N) ->
     NL=case N rem 16 == 15 of
            true ->
                <<"\n">>;
-           false -> 
+           false ->
                <<" ">>
        end,
-  bin2hex(Rest, <<Acc/binary, "", ?H(X),NL/binary>>,N+1).
+  bin2hex(Rest, <<Acc/binary, "", ?H(X), NL/binary>>, N+1).
 
 %bin2hex_(<<>>, Acc, _) -> Acc;
 %bin2hex_(<<A:8, Rest/binary>>, Acc, N) ->

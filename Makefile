@@ -15,5 +15,8 @@ run2:
 run3:
 	erl -config app3.config -sname rocksnode3 -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager -s sync -s tpnode
 
+lint: ; ./rebar3 elvis
+
+
 node1shell:
 	rebar3 as node1 shell

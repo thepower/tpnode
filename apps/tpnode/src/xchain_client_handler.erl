@@ -13,22 +13,22 @@ handle_xchain({iam, NodeId}, ConnPid, #{subs:=Subs} = State) ->
     };
 
 handle_xchain(pong, _ConnPid, State) ->
-%%    lager:info("Got pong for ~p",[_ConnPid]),
+%%    lager:info("Got pong for ~p", [_ConnPid]),
     State;
 
 handle_xchain({outward_block, FromChain, ToChain, BinBlock}, _ConnPid, State) ->
-    lager:info("Got outward block from ~p to ~p",[FromChain,ToChain]),
+    lager:info("Got outward block from ~p to ~p", [FromChain, ToChain]),
     Block=block:unpack(BinBlock),
     try
-        Filename="tmp/inward_block."++integer_to_list(FromChain)++".txt",
-        file:write_file(Filename, io_lib:format("~p.~n",[Block]))
+        Filename="tmp/inward_block." ++ integer_to_list(FromChain) ++ ".txt",
+        file:write_file(Filename, io_lib:format("~p.~n", [Block]))
     catch Ec:Ee ->
         S=erlang:get_stacktrace(),
         lager:error("Can't dump inward block ~p:~p at ~p",
-            [Ec,Ee,hd(S)])
+            [Ec, Ee, hd(S)])
     end,
-    lager:debug("Here it is ~p",[Block]),
-    gen_server:cast(txpool,{inbound_block,Block}),
+    lager:debug("Here it is ~p", [Block]),
+    gen_server:cast(txpool, {inbound_block, Block}),
     State;
 
 handle_xchain(Cmd, _ConnPid, State) ->
