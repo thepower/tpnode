@@ -403,7 +403,9 @@ relay_discovery(_Announce, AnnounceBin, Subs) ->
         fun(_Key, #{connection:=Conn, ws_mode:=true}=Sub) ->
             Cmd = pack({xdiscovery, AnnounceBin}),
             gun:ws_send(Conn, {binary, Cmd}),
-            Sub
+            Sub;
+        (_Key, Sub) ->
+            lager:info("Skip relaying to connection: ~p", [Sub])
         end,
     maps:map(Sender, Subs),
     ok.
