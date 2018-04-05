@@ -213,21 +213,21 @@ verify(#{
 											throw(verify_error)
 							end;
 											{new, {true, _IAddr}} ->
-												VerFun=fun(Pub, Sig, {AValid, AInvalid}) ->
-																	 case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
-																		 correct when PK==Pub ->
-																			 {AValid+1, AInvalid};
-																		 _ ->
-																			 {AValid, AInvalid+1}
-																	 end
-															 end,
-												case ledger:get(From) of
-													#{pubkey:=PK} when is_binary(PK) ->
-														maps:fold(
-															VerFun,
-															{0, 0}, HSigs);
-													_ ->
-														throw({ledger_err, From})
+											 case ledger:get(From) of
+												 #{pubkey:=PK} when is_binary(PK) ->
+													 VerFun=fun(Pub, Sig, {AValid, AInvalid}) ->
+																			case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
+																				correct when PK==Pub ->
+																					{AValid+1, AInvalid};
+																				_ ->
+																					{AValid, AInvalid+1}
+																			end
+																	end,
+													 maps:fold(
+														 VerFun,
+														 {0, 0}, HSigs);
+												 _ ->
+													 throw({ledger_err, From})
 												end;
 											{old, {true, Fat}} ->
 												maps:fold(
