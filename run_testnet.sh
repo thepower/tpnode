@@ -1,14 +1,13 @@
 #! /bin/sh
 
-killall beam.smp >/dev/null 2>&1
+# killall beam.smp >/dev/null 2>&1
+
 erl -config c1n1.config -sname c1n1 -detached -noshell -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager -s sync -s tpnode
 erl -config c1n2.config -sname c1n2 -detached -noshell -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager -s sync -s tpnode
 erl -config c1n3.config -sname c1n3 -detached -noshell -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager -s sync -s tpnode
 erl -config c2n1.config -sname c2n1 -detached -noshell -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager -s sync -s tpnode
 erl -config c2n2.config -sname c2n2 -detached -noshell -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager -s sync -s tpnode
 erl -config c2n3.config -sname c2n3 -detached -noshell -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager -s sync -s tpnode
-
-# tmux new -s testnet erl -sname odmin -remsh c1n1@pwr
 
 sleep 2
 
