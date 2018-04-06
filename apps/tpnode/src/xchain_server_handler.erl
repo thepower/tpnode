@@ -39,5 +39,10 @@ handle_xchain({subscribe, Channel}) ->
     gen_server:cast(xchain_dispatcher, {subscribe, Channel, self()}),
     {subscribed, Channel};
 
+handle_xchain({xdiscovery, AnnounceBin}) ->
+    gen_server:cast(discovery, {got_xchain_announce, AnnounceBin}),
+    ok;
+
 handle_xchain(Cmd) ->
+    lager:info("xchain server got unhandled message from client: ~p", [Cmd]),
     {unhandled, Cmd}.
