@@ -5,6 +5,10 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 -define(DEFAULT_SCOPE, [tpic, xchain, api]).
+-define(DEFAULT_SCOPE_CONFIG, #{
+    tpic => [tpic],
+    api => [tpic, xchain, api]
+}).
 -define(KNOWN_ATOMS,
     [address, name, valid_until, port, proto, tpic,
         nodeid, scopes, xchain, api, chain, created, ttl]).
@@ -322,6 +326,19 @@ get_scopes(ServiceName, AllScopesCfg) ->
     maps:get(ServiceName, AllScopesCfg, ?DEFAULT_SCOPE).
 
 
+get_default_addresses() ->
+    TpicConfig = application:get_env(tpnode, tpic, #{}),
+    TpicPort = maps:get(port, TpicConfig, unknown),
+    if
+        TpicPort =:= unknown ->
+            lager:info("Default tpic config isn't found");
+        true ->
+            [
+                #{address => local4, port => TpicPort, proto => tpic},
+                #{address => local6, port => TpicPort, proto => tpic}
+            ]
+    end.
+
 % --------------------------------------------------------
 
 is_right_proto(ServiceName, Proto0)  ->
@@ -335,8 +352,8 @@ make_announce(#{names:=Names} = _Dict, State) ->
     lager:debug("Announcing our local services"),
     Ttl = get_config(intrachain_ttl, 120, State),
 %%    ValidUntil = get_unixtime() + get_config(intrachain_ttl, 120, State),
-    Addresses = get_config(addresses, [], State),
-    AllScopesCfg = get_config(scope, #{}, State),
+    Addresses = get_config(addresses, get_default_addresses(), State),
+    AllScopesCfg = get_config(scope, ?DEFAULT_SCOPE_CONFIG, State),
 
     Announcer = fun(Name, _ServiceSettings, Counter) ->
         Counter + lists:foldl(
