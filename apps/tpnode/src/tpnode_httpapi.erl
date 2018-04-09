@@ -81,73 +81,159 @@ h(<<"GET">>, [<<"miner">>, TAddr], _Req) ->
       }
     };
 
+h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
+	try
+		Addr=case TAddr of
+					 <<"0x", Hex/binary>> ->
+						 hex:parse(Hex);
+					 _ ->
+						 naddress:decode(TAddr)
+				 end,
+		Ledger=ledger:get([Addr]),
+		case maps:is_key(Addr, Ledger) of
+			false ->
+				{404,
+				 #{ result => <<"not_found">>,
+						address=>Addr
+					}
+				};
+			true ->
+				Info=maps:get(Addr, Ledger),
+				VMName=maps:get(vm, Info),
+				{ok,List}=smartcontract:get(VMName,Method,Args,Info),
+
+				{200,
+				 #{ address=>bin2hex:dbin2hex(Addr),
+						result=>List
+					}
+				}
+		end
+	catch throw:{error, address_crc} ->
+					{200,
+					 #{ result => <<"error">>,
+							error=> <<"bad address">>
+						}
+					}
+	end;
+
+h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
+	try
+		Addr=case TAddr of
+					 <<"0x", Hex/binary>> ->
+						 hex:parse(Hex);
+					 _ ->
+						 naddress:decode(TAddr)
+				 end,
+		Ledger=ledger:get([Addr]),
+		case maps:is_key(Addr, Ledger) of
+			false ->
+				{404,
+				 #{ result => <<"not_found">>,
+						address=>Addr
+					}
+				};
+			true ->
+				Info=maps:get(Addr, Ledger),
+				VMName=maps:get(vm, Info),
+				{ok,CN,CD}=smartcontract:info(VMName),
+				{ok,List}=smartcontract:getters(VMName),
+
+				{200,
+				 #{ result => <<"ok">>,
+						txtaddress=>naddress:encode(Addr),
+						address=>bin2hex:dbin2hex(Addr),
+						contract=>CN,
+						descr=>CD,
+						getters=>List
+					}
+				}
+		end
+	catch throw:{error, address_crc} ->
+					{200,
+					 #{ result => <<"error">>,
+							error=> <<"bad address">>
+						}
+					}
+	end;
+
 h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
-    try
-    Addr=case TAddr of
-             <<"0x", Hex/binary>> ->
-                 hex:parse(Hex);
-             _ ->
-                 naddress:decode(TAddr)
-         end,
-    Ledger=ledger:get([Addr]),
-    case maps:is_key(Addr, Ledger) of
-        false ->
-            {404,
-             #{ result => <<"not_found">>,
-                address=>Addr
-              }
-            };
-        true ->
-            Info=maps:get(Addr, Ledger),
-            InfoL=case maps:is_key(lastblk, Info) of
-                      false ->
-                          #{};
-                      true ->
-                          LastBlk=maps:get(lastblk, Info),
-                          #{preblk=>LastBlk}
-                  end,
-            InfoU=case maps:is_key(ublk, Info) of
-                      false ->
-                          InfoL;
-                      true ->
-                          UBlk=maps:get(ublk, Info),
-                          InfoL#{lastblk=>UBlk}
-                  end,
-            Info1=maps:merge(maps:remove(ublk, Info), InfoU),
-            Info2=maps:map(
-                    fun
-                        (lastblk, V) -> bin2hex:dbin2hex(V);
-                        (ublk, V) -> bin2hex:dbin2hex(V);
-                        (pubkey, V) -> bin2hex:dbin2hex(V);
-                        (preblk, V) -> bin2hex:dbin2hex(V);
-                        (code, V) -> base64:encode(V);
-                        (state, V) ->
-							try
-								iolist_to_binary(
-								io_lib:format("~p",
-											  [
-											   erlang:binary_to_term(V, [safe])])
-								 )
+	try
+		Addr=case TAddr of
+					 <<"0x", Hex/binary>> ->
+						 hex:parse(Hex);
+					 _ ->
+						 naddress:decode(TAddr)
+				 end,
+		Ledger=ledger:get([Addr]),
+		case maps:is_key(Addr, Ledger) of
+			false ->
+				{404,
+				 #{ result => <<"not_found">>,
+						address=>Addr
+					}
+				};
+			true ->
+				Info=maps:get(Addr, Ledger),
+				InfoL=case maps:is_key(lastblk, Info) of
+								false ->
+									#{};
+								true ->
+									LastBlk=maps:get(lastblk, Info),
+									#{preblk=>LastBlk}
+							end,
+				InfoU=case maps:is_key(ublk, Info) of
+								false ->
+									InfoL;
+								true ->
+									UBlk=maps:get(ublk, Info),
+									InfoL#{lastblk=>UBlk}
+							end,
+				Info1=maps:merge(maps:remove(ublk, Info), InfoU),
+				Info2=maps:map(
+								fun
+									(lastblk, V) -> bin2hex:dbin2hex(V);
+			(ublk, V) -> bin2hex:dbin2hex(V);
+			(pubkey, V) -> bin2hex:dbin2hex(V);
+			(preblk, V) -> bin2hex:dbin2hex(V);
+			(code, V) -> base64:encode(V);
+			(state, V) ->
+				try
+					iolist_to_binary(
+						io_lib:format("~p",
+													[
+													 erlang:binary_to_term(V, [safe])])
+					 )
+				catch _:_ ->
+								base64:encode(V)
+				end;
+			(_, V) -> V
+								end, Info1),
+				Info3=try
+								Contract=maps:get(vm, Info2),
+								lager:error("C1 ~p",[Contract]),
+								CV=smartcontract:info(Contract),
+								lager:error("C2 ~p",[CV]),
+								{ok, VN, VD} = CV,
+								maps:put(contract, [VN,VD], Info2)
 							catch _:_ ->
-									  base64:encode(V)
-							end;
-                        (_, V) -> V
-                    end, Info1),
-            {200,
-             #{ result => <<"ok">>,
-                txtaddress=>naddress:encode(Addr),
-                address=>bin2hex:dbin2hex(Addr),
-                info=>Info2
-              }
-            }
-    end
-    catch throw:{error, address_crc} ->
-              {200,
-               #{ result => <<"error">>,
-                  error=> <<"bad address">>
-                }
-              }
-    end;
+											lager:error("NC"),
+											Info2
+							end,
+				{200,
+				 #{ result => <<"ok">>,
+						txtaddress=>naddress:encode(Addr),
+						address=>bin2hex:dbin2hex(Addr),
+						info=>Info3
+					}
+				}
+		end
+	catch throw:{error, address_crc} ->
+					{200,
+					 #{ result => <<"error">>,
+							error=> <<"bad address">>
+						}
+					}
+	end;
 
 h(<<"POST">>, [<<"test">>, <<"tx">>], Req) ->
     {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),

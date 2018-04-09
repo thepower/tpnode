@@ -1,21 +1,18 @@
--module(contract_chainfee).
+-module(contract_nft).
 -behaviour(smartcontract).
 
 -export([deploy/6, handle_tx/4, getters/0, get/3, info/0]).
 
 info() ->
-	{<<"chainfee">>, <<"distibute collected fee over nodes">>}.
+	{<<"nft">>, <<"non-fungible tokens">>}.
 
-deploy(_Address, _Ledger, Code, _State, _GasLimit, GetFun) ->
-	Settings=#{interval:=Interval}=erlang:binary_to_term(Code, [safe]),
-	#{header:=#{height:=Height}}=GetFun({get_block, 0}),
-	%lager:info("B0 ~p", [Height]),
-	lager:info("Deploying chainfee contract ~p",
-			  [Settings]),
+deploy(_Address, _Ledger, Code, _State, _GasLimit, _GetFun) ->
+	#{owner:=Owner,
+		name:=TokenName}=erlang:binary_to_term(Code, [safe]),
 	{ok, term_to_binary(#{
-						  last_h=>Height-12,
-						  interval=>Interval
-						 })}.
+				 owner=>Owner,
+				 token=>TokenName
+				})}.
 
 handle_tx(#{to:=MyAddr}=_Tx, Ledger, _GasLimit, GetFun) ->
 	MyState=bal:get(state, Ledger),
