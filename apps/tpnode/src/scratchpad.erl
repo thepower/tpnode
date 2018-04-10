@@ -87,6 +87,53 @@ reapply_settings() ->
     {Patch,
      gen_server:call(txpool, {patch, Patch})}.
 
+debug_gentx() ->
+	From= <<128, 1, 64, 0, 1, 0, 0, 5>>,
+	To= <<128, 1, 64, 0, 1, 0, 0, 6>>,
+	Amount=1,
+	TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
+	lager:info("From ~p to ~p", [From, To]),
+	Cur= <<"FTT">>,
+	inets:start(),
+	C=try
+			{ok, {{_HTTP11, 200, _OK}, _Headers, Body}}=
+			httpc:request(get,
+										{"http://127.0.0.1:43382/api/address/" ++ From, []},
+										[],
+										[{body_format, binary}]),
+			#{<<"info">>:=C1}=jsx:decode(Body, [return_maps]),
+			C1
+		catch _:_ ->
+						#{
+						<<"amount">> => #{},
+						<<"seq">> => 0
+					 }
+		end,
+	#{<<"seq">>:=Seq}=maps:get(Cur, C, #{<<"amount">> => 0, <<"seq">> => 0}),
+
+	Tx=#{
+		amount=>Amount,
+		cur=>Cur,
+		extradata=>jsx:encode(#{
+								 message=><<"preved from gentx">>
+								}),
+		from=>From,
+		to=>To,
+		seq=>Seq+1,
+		timestamp=>os:system_time(millisecond)
+	 },
+	NewTx=tx:sign(Tx, TestPriv),
+	BinTX=bin2hex:dbin2hex(NewTx),
+	{
+	 tx:unpack(NewTx),
+	 httpc:request(post,
+								 {"http://127.0.0.1:43382/api/tx/debug",
+									[],
+									"application/json",
+									<<"{\"tx\":\"0x", BinTX/binary, "\"}">>
+								 },
+								 [], [{body_format, binary}])
+	}.
 
 test_alloc_addr() ->
     TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
@@ -180,6 +227,53 @@ test_alloc_block() ->
     {Patch,
     gen_server:call(txpool, {patch, Patch})
     }.
+
+take_nft_contract(Address) ->
+	TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
+	From= <<128, 1, 64, 0, 1, 0, 0, 5>>,
+	Seq=bal:get(seq, ledger:get(From)),
+	DeployTX=tx:unpack(
+			   tx:sign(
+				 #{
+				 from=>From,
+				 to=>From,
+				 amount=>0,
+				 cur=><<"FTT">>,
+				 extradata=>jsx:encode(#{
+											fee=>100000000,
+											feecur=><<"FTT">>,
+											nft_to=>naddress:encode(Address),
+											nft_val=><<1:64/big>>
+										 }),
+				 seq=>Seq+1,
+				 timestamp=>os:system_time(millisecond)
+				}, TestPriv)
+			  ),
+	{DeployTX,
+	 txpool:new_tx(DeployTX)
+	}.
+
+
+deploy_nft_contract() ->
+	TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
+	DeployTX=tx:unpack(
+			   tx:sign(
+				 #{
+				 from=><<128, 1, 64, 0, 1, 0, 0, 5>>,
+				 deploy=><<"nft">>,
+				 code=>erlang:term_to_binary(#{
+								 owner=> <<128, 1, 64, 0, 1, 0, 0, 5>>,
+								 token=> <<"NFTEST">>
+								}),
+				 seq=>1,
+				 timestamp=>os:system_time(millisecond)
+				}, TestPriv)
+			  ),
+	{DeployTX,
+	 txpool:new_tx(DeployTX)
+	}.
+
+
 
 deploy_fee_contract() ->
 	TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
