@@ -53,6 +53,7 @@ init([]) ->
             { synchronizer, {synchronizer, start_link, []}, permanent, 5000, worker, []},
             { mkblock, {mkblock, start_link, []}, permanent, 5000, worker, []},
             { txpool, {txpool, start_link, []}, permanent, 5000, worker, []},
+            { txstatus, {txstatus, start_link, [txstatus]}, permanent, 5000, worker, []},
             { tpic_sctp, {tpic_sctp, start_link, [TPIC]}, permanent, 5000, worker, []},
             { ledger, {ledger, start_link, []}, permanent, 5000, worker, []},
             { discovery, {discovery, start_link, [Discovery]}, permanent, 5000, worker, []},

@@ -433,22 +433,47 @@ h(<<"POST">>, [<<"address">>], Req) ->
       }
     };
 
-
+h(<<"GET">>, [<<"tx">>, <<"status">>, TxID], _Req) ->
+  R=txstatus:get_json(TxID),
+  {200, #{res=>R}};
 
 h(<<"POST">>, [<<"tx">>, <<"debug">>], Req) ->
     {RemoteIP, _Port}=cowboy_req:peer(Req),
     Body=apixiom:bodyjs(Req),
-    lager:debug("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
-    BinTx=case maps:get(<<"tx">>, Body, undefined) of
+    lager:info("New DEBUG from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
+		BinTx=case maps:get(<<"tx">>, Body, undefined) of
               <<"0x", BArr/binary>> ->
                   hex:parse(BArr);
               Any ->
                   base64:decode(Any)
           end,
-    X=tx:unpack(BinTx),
+    Dbg=case maps:get(<<"debug">>, Body, undefined) of
+              <<"0x", BArr1/binary>> ->
+                  hex:parse(BArr1);
+              Any1 ->
+                  base64:decode(Any1)
+          end,
+		U=tx:unpack(BinTx),
+		lager:info("Debug TX ~p",[U]),
+		Dbg2=tx:mkmsg(U),
+		lager:info("Debug1 ~p",[bin2hex:dbin2hex(Dbg)]),
+		lager:info("Debug2 ~p",[bin2hex:dbin2hex(Dbg2)]),
+		XBin=io_lib:format("~p",[U]),
+		XTx=case tx:verify1(U) of
+					{ok, Tx} ->
+						io_lib:format("~p.~n",[Tx]);
+					Err ->
+						io_lib:format("~p.~n",[{error,Err}])
+				end,
+
+		lager:info("Res ~p",[#{ 
+					xtx=>iolist_to_binary(XTx),
+					dbg=>iolist_to_binary(XBin)
+      }]),
     {200,
-     #{ result => <<"ok">>,
-        tx => iolist_to_binary(io_lib:format("~p", [X]))
+     #{ 
+					xtx=>iolist_to_binary(XTx),
+					dbg=>iolist_to_binary(XBin)
       }
     };
 
