@@ -66,13 +66,14 @@ handle_cast({done, Result, Txs}, #{q:=Q}=State) when is_list(Txs)->
   Timeout=erlang:system_time(seconds)+3600,
   Q1=lists:foldl(
        fun({TxID,Res},QAcc) ->
-           hashqueue:add(TxID, Timeout, Res, QAcc);
+           hashqueue:add(TxID, Timeout, {Result, Res}, QAcc);
           (TxID,QAcc) ->
            hashqueue:add(TxID, Timeout, 
+                         {Result, 
                          if Result -> 
                               ok;
                             true -> error 
-                         end, QAcc)
+                         end}, QAcc)
        end, Q, Txs),
   {noreply, 
    State#{q=>Q1}
@@ -104,13 +105,20 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-jsonfy({contract_error,[Ec,Ee]}) ->
+jsonfy({false,{error,{contract_error,[Ec,Ee]}}}) ->
   #{ error=><<"smartcontract">>,
      type=>Ec,
-     reason=>iolist_to_binary(io_lib:format("~p",[Ee]))};
+     res=>iolist_to_binary(io_lib:format("~p",[Ee]))};
 
-jsonfy(Status) ->
-  iolist_to_binary(io_lib:format("~p",[Status])).
+jsonfy({true,Status}) ->
+  #{ok=>true,
+    res=> iolist_to_binary(io_lib:format("~p",[Status]))
+   };
+
+jsonfy({false,Status}) ->
+  #{error=>true,
+    res=>iolist_to_binary(io_lib:format("~p",[Status]))
+   }.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
