@@ -34,12 +34,12 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-    {ok, #{
-       queue=>queue:new(),
-       nodeid=>nodekey:node_id(),
-	   pubkey=>nodekey:get_pub(),
-       inprocess=>hashqueue:new()
-      }}.
+  {ok, #{
+     queue=>queue:new(),
+     nodeid=>nodekey:node_id(),
+     pubkey=>nodekey:get_pub(),
+     inprocess=>hashqueue:new()
+    }}.
 
 handle_call(state, _Form, State) ->
     {reply, State, State};
@@ -103,10 +103,10 @@ handle_call({patch, #{
     end;
 
 handle_call({push_etx, [{_, _}|_]=Lst}, _From, #{queue:=Queue}=State) ->
-	{reply, ok,
-	 State#{
-	   queue=>lists:foldl( fun queue:in_r/2, Queue, Lst)
-	  }};
+  {reply, ok,
+   State#{
+     queue=>lists:foldl( fun queue:in_r/2, Queue, Lst)
+    }};
 
 handle_call({new_tx, BinTx}, _From, #{nodeid:=Node, queue:=Queue}=State) ->
     try
@@ -129,7 +129,7 @@ handle_call({new_tx, BinTx}, _From, #{nodeid:=Node, queue:=Queue}=State) ->
     end;
 
 handle_call(status, _From, #{nodeid:=Node, queue:=Queue}=State) ->
-	{reply, {Node, queue:len(Queue)}, State};
+  {reply, {Node, queue:len(Queue)}, State};
 
 handle_call(_Request, _From, State) ->
     {reply, unknown_request, State}.
@@ -146,58 +146,58 @@ handle_cast({inbound_block, #{hash:=Hash}=Block}, #{queue:=Queue}=State) ->
     };
 
 handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue}=State) ->
-	{Queue1, Res}=pullx(2048, Queue, []),
-	PK=case maps:get(pubkey, State, undefined) of
-		   undefined -> nodekey:get_pub();
-		   FoundKey -> FoundKey
-	   end,
+  {Queue1, Res}=pullx(2048, Queue, []),
+  PK=case maps:get(pubkey, State, undefined) of
+       undefined -> nodekey:get_pub();
+       FoundKey -> FoundKey
+     end,
 
-	try
-		PreSig=maps:merge(
-				 gen_server:call(blockchain, lastsig),
-				 #{null=><<"mkblock">>,
-				   chain=>MyChain
-				  }),
-		MResX=msgpack:pack(PreSig),
-		gen_server:cast(mkblock, {tpic, PK, MResX}),
-		tpic:cast(tpic, <<"mkblock">>, MResX)
-	catch _:_ ->
-			  Stack1=erlang:get_stacktrace(),
-			  lager:error("Can't send xsig ~p", [Stack1])
-	end,
+  try
+    PreSig=maps:merge(
+         gen_server:call(blockchain, lastsig),
+         #{null=><<"mkblock">>,
+           chain=>MyChain
+          }),
+    MResX=msgpack:pack(PreSig),
+    gen_server:cast(mkblock, {tpic, PK, MResX}),
+    tpic:cast(tpic, <<"mkblock">>, MResX)
+  catch _:_ ->
+        Stack1=erlang:get_stacktrace(),
+        lager:error("Can't send xsig ~p", [Stack1])
+  end,
 
-	try
-		MRes=msgpack:pack(#{null=><<"mkblock">>,
-							chain=>MyChain,
-							txs=>maps:from_list(
-								   lists:map(
-									 fun({TxID, T}) ->
-											 {TxID, tx:pack(T)}
-									 end, Res)
-								  )
-						   }),
-		gen_server:cast(mkblock, {tpic, PK, MRes}),
-		tpic:cast(tpic, <<"mkblock">>, MRes)
-	catch _:_ ->
-			  Stack2=erlang:get_stacktrace(),
-			  lager:error("Can't encode at ~p", [Stack2])
-	end,
+  try
+    MRes=msgpack:pack(#{null=><<"mkblock">>,
+              chain=>MyChain,
+              txs=>maps:from_list(
+                   lists:map(
+                   fun({TxID, T}) ->
+                       {TxID, tx:pack(T)}
+                   end, Res)
+                  )
+               }),
+    gen_server:cast(mkblock, {tpic, PK, MRes}),
+    tpic:cast(tpic, <<"mkblock">>, MRes)
+  catch _:_ ->
+        Stack2=erlang:get_stacktrace(),
+        lager:error("Can't encode at ~p", [Stack2])
+  end,
 
-	%gen_server:cast(mkblock, {prepare, PK, Res}),
-	Time=erlang:system_time(seconds),
-	{InProc1, Queue2}=recovery_lost(InProc0, Queue1, Time),
-	ETime=Time+20,
-	{noreply, State#{
-				queue=>Queue2,
-				inprocess=>lists:foldl(
-							 fun({TxId, TxBody}, Acc) ->
-									 hashqueue:add(TxId, ETime, TxBody, Acc)
-							 end,
-							 InProc1,
-							 Res
-							)
-			   }
-	};
+  %gen_server:cast(mkblock, {prepare, PK, Res}),
+  Time=erlang:system_time(seconds),
+  {InProc1, Queue2}=recovery_lost(InProc0, Queue1, Time),
+  ETime=Time+20,
+  {noreply, State#{
+        queue=>Queue2,
+        inprocess=>lists:foldl(
+               fun({TxId, TxBody}, Acc) ->
+                   hashqueue:add(TxId, ETime, TxBody, Acc)
+               end,
+               InProc1,
+               Res
+              )
+         }
+  };
 
 handle_cast(prepare, State) ->
     lager:notice("TXPOOL Blocktime, but I not ready"),
@@ -208,34 +208,36 @@ handle_cast({done, Txs}, #{inprocess:=InProc0}=State) ->
       fun({Tx, _}, Acc) ->
               lager:info("TX pool ext tx done ~p", [Tx]),
               hashqueue:remove(Tx, Acc);
-		 (Tx, Acc) ->
-			  lager:debug("TX pool tx done ~p", [Tx]),
+     (Tx, Acc) ->
+        lager:debug("TX pool tx done ~p", [Tx]),
               hashqueue:remove(Tx, Acc)
       end,
       InProc0,
       Txs),
-	gen_server:cast(tpnode_ws_dispatcher, {done, true, Txs}),
+  gen_server:cast(txstatus, {done, true, Txs}),
+  gen_server:cast(tpnode_ws_dispatcher, {done, true, Txs}),
     {noreply, State#{
                 inprocess=>InProc1
                }
     };
 
 handle_cast({failed, Txs}, #{inprocess:=InProc0}=State) ->
-	InProc1=lists:foldl(
-			  fun({_, {overdue, Parent}}, Acc) ->
-					  lager:info("TX pool inbound block overdue ~p", [Parent]),
-					  hashqueue:remove(Parent, Acc);
-				 ({TxID, Reason}, Acc) ->
-					  lager:info("TX pool tx failed ~s ~p", [TxID, Reason]),
-					  hashqueue:remove(TxID, Acc)
-			  end,
-			  InProc0,
-			  Txs),
-	gen_server:cast(tpnode_ws_dispatcher, {done, false, Txs}),
-	{noreply, State#{
-				inprocess=>InProc1
-			   }
-	};
+  InProc1=lists:foldl(
+        fun({_, {overdue, Parent}}, Acc) ->
+            lager:info("TX pool inbound block overdue ~p", [Parent]),
+            hashqueue:remove(Parent, Acc);
+         ({TxID, Reason}, Acc) ->
+            lager:info("TX pool tx failed ~s ~p", [TxID, Reason]),
+            hashqueue:remove(TxID, Acc)
+        end,
+        InProc0,
+        Txs),
+  gen_server:cast(txstatus, {done, false, Txs}),
+  gen_server:cast(tpnode_ws_dispatcher, {done, false, Txs}),
+  {noreply, State#{
+        inprocess=>InProc1
+         }
+  };
 
 
 handle_cast(_Msg, State) ->
@@ -267,8 +269,8 @@ pullx(N, Q, Acc) ->
     {Element, Q1}=queue:out(Q),
     case Element of
         {value, E1} ->
-			%lager:debug("Pull tx ~p", [E1]),
-			pullx(N-1, Q1, [E1|Acc]);
+      %lager:debug("Pull tx ~p", [E1]),
+      pullx(N-1, Q1, [E1|Acc]);
         empty ->
             {Q, Acc}
     end.
@@ -290,7 +292,7 @@ recovery_lost(InProc, Queue, Now) ->
 
 load_settings(State) ->
     MyChain=blockchain:get_settings(chain, 0),
-		State#{
+    State#{
       mychain=>MyChain
      }.
 
