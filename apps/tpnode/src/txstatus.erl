@@ -2,6 +2,7 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 -define(CLEANUP, 30000).
+-define(TIMEOUT, 300).
 
 -ifndef(TEST).
 -define(TEST, 1).
@@ -63,7 +64,7 @@ handle_call(_Request, _From, State) ->
 handle_cast({done, Result, Txs}, #{q:=Q}=State) when is_list(Txs)->
   %{done,false,[{<<"1524179A464B33A2-3NBx74EdmT2PyYexBSrg7xcht998-03A2">>,{contract_error, [error,{badmatch,#{<<"fee">> => 30000000,<<"feecur">> => <<"FTT">>,<<"message">> => <<"To AA100000001677722185 with love">>}}]}}]}
   %{done,true,[<<"AA1000000016777220390000000000000009xQzCH+qGbhzKlrFxoZOLWN5DhVE=">>]}
-  Timeout=erlang:system_time(seconds)+3600,
+  Timeout=erlang:system_time(seconds)+?TIMEOUT,
   Q1=lists:foldl(
        fun({TxID,Res},QAcc) ->
            hashqueue:add(TxID, Timeout, {Result, Res}, QAcc);
@@ -156,21 +157,21 @@ txstatus_test() ->
     timer:sleep(2000),
     gen_server:cast(Pid,{done, false, [<<"1236">>,<<"1237">>]}),
     S1=[
-        ?assertMatch(ok, gen_server:call(Pid,{get, <<"1234">>})),
-        ?assertMatch(ok, gen_server:call(Pid,{get, <<"1235">>})),
-        ?assertMatch("err1", gen_server:call(Pid,{get, <<"1334">>})),
-        ?assertMatch("err2", gen_server:call(Pid,{get, <<"1335">>})),
-        ?assertMatch(error, gen_server:call(Pid,{get, <<"1236">>})),
-        ?assertMatch(error, gen_server:call(Pid,{get, <<"1237">>}))
+        ?assertMatch({true,ok}, gen_server:call(Pid,{get, <<"1234">>})),
+        ?assertMatch({true,ok}, gen_server:call(Pid,{get, <<"1235">>})),
+        ?assertMatch({false,"err1"}, gen_server:call(Pid,{get, <<"1334">>})),
+        ?assertMatch({false,"err2"}, gen_server:call(Pid,{get, <<"1335">>})),
+        ?assertMatch({false,error}, gen_server:call(Pid,{get, <<"1236">>})),
+        ?assertMatch({false,error}, gen_server:call(Pid,{get, <<"1237">>}))
        ],
-    Pid ! {cleanup, erlang:system_time(seconds)+119},
+    Pid ! {cleanup, erlang:system_time(seconds)+?TIMEOUT-1},
     S2=[
         ?assertMatch(undefined, gen_server:call(Pid,{get, <<"1234">>})),
         ?assertMatch(undefined, gen_server:call(Pid,{get, <<"1235">>})),
-        ?assertMatch(error, gen_server:call(Pid,{get, <<"1236">>})),
-        ?assertMatch(error, gen_server:call(Pid,{get, <<"1237">>}))
+        ?assertMatch({false,error}, gen_server:call(Pid,{get, <<"1236">>})),
+        ?assertMatch({false,error}, gen_server:call(Pid,{get, <<"1237">>}))
        ],
-    Pid ! {cleanup, erlang:system_time(seconds)+150},
+    Pid ! {cleanup, erlang:system_time(seconds)+?TIMEOUT+1},
     S3=[
         ?assertMatch(undefined, gen_server:call(Pid,{get, <<"1234">>})),
         ?assertMatch(undefined, gen_server:call(Pid,{get, <<"1235">>})),
