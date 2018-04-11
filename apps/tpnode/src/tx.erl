@@ -1,7 +1,7 @@
 -module(tx).
 
 -export([get_ext/2, set_ext/3, sign/2, verify/1, pack/1, unpack/1]).
--export([txlist_hash/1, rate/2, mergesig/2]).
+-export([txlist_hash/1, rate/2, mergesig/2, verify1/1, mkmsg/1]).
 
 -ifndef(TEST).
 -define(TEST, 1).
@@ -171,6 +171,43 @@ sign(#{
        },
         maps:with([extdata], Tx))
      ).
+
+verify1(#{
+	from := _From,
+	sig := HSigs,
+	timestamp := T
+ }=Tx) ->
+	Message=mkmsg(Tx),
+	if is_integer(T) ->
+			 ok;
+		 true ->
+			 throw({bad_timestamp, T})
+	end,
+	VerFun=fun(Pub, Sig, {AValid, AInvalid}) ->
+						 case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
+							 correct ->
+								 {AValid+1, AInvalid};
+							 _ ->
+								 {AValid, AInvalid+1}
+						 end
+				 end,
+	{Valid, Invalid}=maps:fold(
+										 VerFun,
+										 {0, 0}, HSigs),
+
+		case Valid of
+			0 ->
+				bad_sig;
+			N when N>0 ->
+				{ok, Tx#{
+							 sigverify=>#{
+								 valid=>Valid,
+								 invalid=>Invalid
+								}
+							}
+				}
+		end.
+
 
 verify(#{register:=_, type:=register}=Tx) ->
     {ok, Tx};

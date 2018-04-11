@@ -5,6 +5,17 @@
 node_id() ->
     nodekey:node_id().
 
+i2g(I) when I<65536 ->
+    L2=I rem 26,
+    L3=I div 26,
+    <<($A+L3), ($A+L2)>>.
+
+geninvite(N,Secret) ->
+  P= <<"Power_",(i2g(N))/binary>>,
+  iolist_to_binary(
+    [P,io_lib:format("~6..0B",[erlang:crc32(<<Secret/binary,P/binary>>) rem 1000000])]
+   ).
+
 sign(Message) ->
     PKey=nodekey:get_priv(),
     Msg32 = crypto:hash(sha256, Message),
@@ -208,6 +219,69 @@ test_fee_settings() ->
 	{Patch,
 	 gen_server:call(txpool, {patch, Patch})
 	}.
+
+test_gen_invites_patch(PowDiff,From,To,Secret) ->
+  settings:dmp(
+    settings:mp(
+      [
+       #{t=>set, p=>[<<"current">>, <<"register">>, <<"diff">>], v=>PowDiff},
+       #{t=>set, p=>[<<"current">>, <<"register">>, <<"invite">>], v=>1},
+       #{t=>set, p=>[<<"current">>, <<"register">>, <<"cleanpow">>], v=>1}
+      ]++lists:map(
+           fun(N) ->
+               Code=geninvite(N,Secret),
+               io:format("~s~n",[Code]),
+               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>], 
+                 v=>crypto:hash(md5,Code)
+                }
+           end, lists:seq(From,To)))).
+
+get_all_nodes_keys(Wildcard) ->
+  lists:filtermap(
+    fun(Filename) ->
+        try
+          {ok,E}=file:consult(Filename),
+          case proplists:get_value(privkey,E) of
+            undefined -> false;
+            Val -> {true, hex:decode(Val)}
+          end
+        catch _:_ ->
+                false
+        end
+    end, filelib:wildcard(Wildcard)).
+
+sign_patch(Patch) ->
+  sign_patch(Patch, "c1*.config").
+
+sign_patch(Patch, Wildcard) ->
+  PrivKeys=lists:usort([nodekey:get_priv()|get_all_nodes_keys(Wildcard)]),
+  lists:foldl(
+    fun(Key,Acc) ->
+        settings:sign(Acc,Key)
+    end, Patch, PrivKeys).
+
+test_reg_invites() ->
+  Patch=sign_patch(
+          settings:dmp(
+            settings:mp(
+              [
+               #{t=>set, p=>[<<"current">>, <<"register">>, <<"diff">>], v=>16},
+               #{t=>set, p=>[<<"current">>, <<"register">>, <<"invite">>], v=>1},
+               #{t=>set, p=>[<<"current">>, <<"register">>, <<"cleanpow">>], v=>1},
+               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>], 
+                 v=>crypto:hash(md5,<<"TEST1">>)
+                },
+               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>], 
+                 v=>crypto:hash(md5,<<"TEST2">>)
+                },
+               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>], 
+                 v=>crypto:hash(md5,<<"TEST3">>)
+                }
+              ]))),
+  %    io:format("PK ~p~n", [settings:verify(Patch)]),
+  { 
+   Patch,
+   gen_server:call(txpool, {patch, Patch})}.
 
 test_alloc_block() ->
     PrivKey=nodekey:get_priv(),

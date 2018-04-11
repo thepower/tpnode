@@ -291,7 +291,7 @@ recovery_lost(InProc, Queue, Now) ->
     end.
 
 load_settings(State) ->
-    MyChain=blockchain:get_settings(chain, 0),
+    MyChain=blockchain:chain(),
     State#{
       mychain=>MyChain
      }.

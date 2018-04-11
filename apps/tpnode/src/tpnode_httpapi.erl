@@ -398,7 +398,11 @@ h(<<"POST">>, [<<"register">>], Req) ->
                   base64:decode(Any)
           end,
 
-    BinTx=tx:pack( #{ type=>register, register=>PKey }),
+    BinTx=tx:pack( #{ type=>register, 
+                      register=>PKey, 
+                      pow=>maps:get(<<"pow">>,Body,<<>>),
+                      timestamp=>maps:get(<<"timestamp">>,Body,0)
+                    }),
     %{TX0,
     %gen_server:call(txpool, {register, TX0})
     %}.

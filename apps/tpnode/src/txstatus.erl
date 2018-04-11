@@ -110,6 +110,11 @@ jsonfy({false,{error,{contract_error,[Ec,Ee]}}}) ->
      type=>Ec,
      res=>iolist_to_binary(io_lib:format("~p",[Ee]))};
 
+jsonfy({true,#{address:=Addr}}) ->
+  #{ok=>true,
+    res=>naddress:encode(Addr)
+   };
+
 jsonfy({true,Status}) ->
   #{ok=>true,
     res=> iolist_to_binary(io_lib:format("~p",[Status]))
