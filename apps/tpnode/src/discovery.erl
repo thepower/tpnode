@@ -172,6 +172,8 @@ handle_cast({got_announce, AnnounceBin}, State) ->
             remote_services => parse_and_process_announce(MaxTtl, AnnounceBin, State)
         }}
     catch
+        skip ->
+            {noreply, State};
         Err:Reason ->
             lager:info("can't process announce ~p ~p", [Err, Reason]),
             {noreply, State}
@@ -186,6 +188,8 @@ handle_cast({got_xchain_announce, AnnounceBin}, State) ->
             remote_services => parse_and_process_announce(MaxTtl, AnnounceBin, State)
         }}
     catch
+        skip ->
+            {noreply, State};
         Err:Reason ->
             lager:info("can't process announce ~p ~p", [Err, Reason]),
             {noreply, State}
@@ -625,7 +629,7 @@ parse_and_process_announce(MaxTtl, AnnounceBin, #{remote_services:=Dict} = State
     case is_local_service(Announce) of
         true ->
             lager:debug("skip copy of local service: ~p", [Announce]),
-            throw("skip copy of local service");
+            throw(skip);
         _ -> ok
     end,
 
