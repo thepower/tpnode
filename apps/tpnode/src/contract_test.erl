@@ -1,5 +1,5 @@
 -module(contract_test).
--behaviour(smartcontract).
+%-behaviour(smartcontract).
 
 -export([deploy/6, handle_tx/4]).
 
