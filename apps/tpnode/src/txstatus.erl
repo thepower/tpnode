@@ -107,9 +107,10 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 jsonfy({false,{error,{contract_error,[Ec,Ee]}}}) ->
-  #{ error=><<"smartcontract">>,
+  #{ error=>true,
+     res=><<"smartcontract">>,
      type=>Ec,
-     res=>iolist_to_binary(io_lib:format("~p",[Ee]))};
+     details=>iolist_to_binary(io_lib:format("~p",[Ee]))};
 
 jsonfy({true,#{address:=Addr}}) ->
   #{ok=>true,
