@@ -618,17 +618,19 @@ try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
     lager:info("Expected diff ~p ~p",[Diff,Inv]),
     lager:info("tx ~p",[Tx]),
 
-    if Inv==1 ->
+    Tx1=if Inv==1 ->
          [Invite|_]=binary:split(Pow,<<" ">>,[global]),
          Invites=maps:get(<<"invites">>,RegSettings,[]),
-         InvFound=lists:member(crypto:hash(md5,Invite),Invites),
+         HI=crypto:hash(md5,Invite),
+         InvFound=lists:member(HI,Invites),
          lager:info("Inv ~p ~p",[Invite,InvFound]),
-         if InvFound -> ok;
+         if InvFound -> 
+              Tx#{invite=>HI};
             true -> 
               throw(bad_invite_code)
          end;
        true ->
-         ok
+             Tx
     end,
 
     if Diff=/=0 ->
@@ -666,9 +668,9 @@ try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
     NewAddresses=maps:put(NewBAddr, NewF, Addresses),
     FixTx=case maps:get(<<"cleanpow">>, RegSettings, 0) of
             1 ->
-              Tx#{pow=>crypto:hash(sha512,Pow),address=>NewBAddr};
+              Tx1#{pow=>crypto:hash(sha512,Pow),address=>NewBAddr};
             true ->
-              Tx#{address=>NewBAddr}
+              Tx1#{address=>NewBAddr}
           end,
     try_process(Rest, SS1, NewAddresses, GetFun,
                 Acc#{success=> [{TxID, FixTx}|Success],

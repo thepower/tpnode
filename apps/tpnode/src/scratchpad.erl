@@ -149,7 +149,13 @@ debug_gentx() ->
 test_alloc_addr() ->
     TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
     PubKey=tpecdsa:calc_pub(TestPriv, true),
-    TX0=tx:unpack( tx:pack( #{ type=>register, register=>PubKey })),
+    T=os:system_time(second),
+    TX0=tx:unpack( tx:pack( #{
+                     type=>register,
+                     register=>PubKey,
+                     timestamp=>T,
+                     pow=>scratchpad:mine_sha512(<<"TEST5 ",(integer_to_binary(T))/binary," ">>,0,16)
+                    })),
     {TX0,
     gen_server:call(txpool, {register, TX0})
     }.
@@ -552,5 +558,26 @@ gen_pvt_addrs() ->
 		   file:delete("pkeys.tmp");
 	   true -> error
 	end.
+
+mine_sha512(Str, Nonce, Diff) ->
+  DS= <<Str/binary,(integer_to_binary(Nonce))/binary>>,
+  if Nonce rem 1000000 == 0 ->
+       io:format("nonce ~w~n",[Nonce]);
+     true -> ok
+  end,
+  Act=if Diff rem 8 == 0 ->
+           <<Act1:Diff/big,_/binary>>=crypto:hash(sha512,DS),
+           Act1;
+         true ->
+           Pad=8-(Diff rem 8),
+           <<Act1:Diff/big,_:Pad/big,_/binary>>=crypto:hash(sha512,DS),
+           Act1
+      end,
+  if Act==0 ->
+       DS;
+     true ->
+       mine_sha512(Str,Nonce+1,Diff)
+  end.
+
 
 
