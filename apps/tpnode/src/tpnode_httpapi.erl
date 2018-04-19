@@ -621,6 +621,10 @@ prettify_block(#{}=Block0, BinPacker) ->
                                    BinPacker(Val);
                               (address, Val) ->
                                    BinPacker(Val);
+                              (invite, Val) ->
+                                   BinPacker(Val);
+                              (pow, Val) ->
+                                   BinPacker(Val);
                               (sig, #{}=V1) ->
                                  [
                                   {BinPacker(SPub),
