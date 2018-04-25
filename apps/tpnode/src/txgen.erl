@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0, process/1, bals/0]).
+-export([start_link/0, process/1, bals/0, is_running/0, restart/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -22,15 +22,32 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+is_running() ->
+	gen_server:call(?MODULE, status).
+
+restart() ->
+	gen_server:call(?MODULE, restart).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
 init(_Args) ->
 	{ok, #{
-	   ticktimer=>erlang:send_after(6000, self(), ticktimer)
-	  }
+		ticktimer=>erlang:send_after(2000, self(), ticktimer),
+		counter => 1,
+		running => true}
 	}.
+
+handle_call(restart, _From, State) ->
+	{reply, restarted, State#{
+		ticktimer=>erlang:send_after(2000, self(), ticktimer),
+		counter => 1,
+		running => true
+	}};
+
+handle_call(status, _From, #{ticktimer:=_Tmr, running := Running}=State) ->
+	{reply, Running, State};
 
 handle_call(_Request, _From, State) ->
     {reply, unknown, State}.
@@ -40,13 +57,17 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(ticktimer,
-			#{ticktimer:=Tmr}=State) ->
+			#{ticktimer:=Tmr, counter := Counter}=State) ->
 	catch erlang:cancel_timer(Tmr),
-	process(25),
-	{noreply, State#{
-			   ticktimer=>erlang:send_after(5000, self(), ticktimer)
-			  }
-    };
+	process(3000),
+	case Counter < 10 of
+	    true -> {noreply, State#{
+	    		   ticktimer=>erlang:send_after(2000, self(), ticktimer),
+	    	       counter => Counter + 1
+	    		  }
+        };
+		false -> {noreply, State#{running => false}}
+	end;
 
 handle_info(_Info, State) ->
     lager:info("Unknown info ~p", [_Info]),
