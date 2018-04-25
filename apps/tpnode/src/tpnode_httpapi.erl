@@ -62,11 +62,11 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
          },
         xchain_inbound => try
                             gen_server:call(xchain_dispatcher, peers)
-                          catch _:_ -> #{}
+                          catch _:_ -> #{ error => true }
                           end,
         xchain_outbound => try
-                             gen_server:call(crosschain, peers)
-                           catch _:_ -> #{}
+                             gen_server:call(xchain_client, peers)
+                           catch _:_ -> #{ error => true }
                            end,
         tpic_peers=>Peers,
         sync_peers=>SynPeers,
@@ -398,8 +398,8 @@ h(<<"POST">>, [<<"register">>], Req) ->
            base64:decode(Any)
        end,
 
-  BinTx=tx:pack( #{ type=>register, 
-                    register=>PKey, 
+  BinTx=tx:pack( #{ type=>register,
+                    register=>PKey,
                     pow=>maps:get(<<"pow">>,Body,<<>>),
                     timestamp=>maps:get(<<"timestamp">>,Body,0)
                   }),
@@ -484,12 +484,12 @@ h(<<"POST">>, [<<"tx">>, <<"debug">>], Req) ->
           io_lib:format("~p.~n",[{error,Err}])
       end,
 
-  lager:info("Res ~p",[#{ 
+  lager:info("Res ~p",[#{
                xtx=>iolist_to_binary(XTx),
                dbg=>iolist_to_binary(XBin)
               }]),
   {200,
-   #{ 
+   #{
                                        xtx=>iolist_to_binary(XTx),
                                        dbg=>iolist_to_binary(XBin)
                                       }
