@@ -437,6 +437,19 @@ h(<<"POST">>, [<<"address">>], Req) ->
       }
     };
 
+h(<<"GET">>, [<<"emulation">>, <<"start">>], _Req) ->
+    R = try {ok, _} = txgen:start_link() of
+        _ -> #{ok => true, res=> <<"Started">>}
+    catch
+        _:_ -> case txgen:is_running() of
+                   true -> #{ok => false, res=> <<"Already running">>};
+                   false->
+                       txgen:restart(),
+                       #{ok => true, res=> <<"Started">>}
+               end
+    end,
+    {200, #{res => R}};
+
 h(<<"GET">>, [<<"tx">>, <<"status">>, TxID], _Req) ->
   R=txstatus:get_json(TxID),
   {200, #{res=>R}};
