@@ -438,7 +438,7 @@ h(<<"POST">>, [<<"address">>], Req) ->
   };
 
 h(<<"GET">>, [<<"emulation">>, <<"start">>], _Req) ->
-  R = case {ok, _} = txgen:start_link() of
+  R = case txgen:start_link() of
         {ok, _} -> #{ok => true, res=> <<"Started">>};
         {error, {already_started, _}} ->
           case txgen:is_running() of
