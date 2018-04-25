@@ -147,18 +147,20 @@ debug_gentx() ->
 	}.
 
 test_alloc_addr() ->
-    TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
-    PubKey=tpecdsa:calc_pub(TestPriv, true),
+  TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
+  test_alloc_addr(<<"TEST5">>,TestPriv).
+
+test_alloc_addr(Promo,PrivKey) ->
+    PubKey=tpecdsa:calc_pub(PrivKey, true),
     T=os:system_time(second),
     TX0=tx:unpack( tx:pack( #{
                      type=>register,
                      register=>PubKey,
                      timestamp=>T,
-                     pow=>scratchpad:mine_sha512(<<"TEST5 ",(integer_to_binary(T))/binary," ">>,0,16)
+                     pow=>scratchpad:mine_sha512(<<Promo/binary," ",(integer_to_binary(T))/binary," ">>,0,24)
                     })),
-    {TX0,
-    gen_server:call(txpool, {register, TX0})
-    }.
+    TX0.
+    %gen_server:call(txpool, {register, TX0})
 
 test_xchain_tx(ToChain) ->
     TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
