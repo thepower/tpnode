@@ -113,10 +113,15 @@ handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
                                     is_binary(NodeID)
                                 end,
                          {ok, Tx1} = settings:verify(TxB, VerFun),
-                         Tx1;
+                         tx:set_ext(origin, Origin, Tx1);
+                       #{ hash:=_,
+                          header:=_,
+                          sign:=_} ->
+                         %do nothing with inbound block
+                         TxB;
                        _ ->
                          {ok, Tx1} = tx:verify(TxB),
-                         Tx1
+                         tx:set_ext(origin, Origin, Tx1)
                      end
                  catch _Ec:_Ee ->
                      S=erlang:get_stacktrace(),
@@ -129,9 +134,7 @@ handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
 
                      TxB
                  end,
-              {TxID,
-               tx:set_ext(origin, Origin, TxB1)
-              }
+              {TxID,TxB1}
           end,
        {noreply,
       case maps:get(parent, State, undefined) of

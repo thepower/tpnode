@@ -82,11 +82,18 @@ prepack(Block) ->
 						throw({dont_know_how_to_pack, Any})
 				end, Txp
 			   );
-		 (extdata, ED) ->
+		 (extdata, ED) when is_list(ED) ->
 			  lists:map(
 				fun({Key, Val}) ->
 						[Key, Val]
 				end, ED
+			   );
+		 (extdata, ED) ->
+        lager:notice("TODO: there is maps here sometimes. Find out problem in unpacker ~p",[ED]),
+			  lists:map(
+				fun({Key, Val}) ->
+						[Key, Val]
+				end, maps:to_list(ED)
 			   );
 		 (txs, Txs) ->
 			  lists:map(
