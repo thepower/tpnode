@@ -35,8 +35,8 @@ signhash1(MsgHash, ExtraData, PrivKey) ->
     <<255, (size(Signature)):8/integer, Signature/binary, BinExtra/binary>>.
 
 signhash(MsgHash, ExtraData, PrivKey) ->
-	PubKey=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
-	signhash1(MsgHash, [{pubkey, PubKey}|ExtraData], PrivKey).
+  PubKey=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
+  signhash1(MsgHash, [{pubkey, PubKey}|ExtraData], PrivKey).
 
 unpack_sign_ed(Bin) -> unpack_sign_ed(Bin, []).
 unpack_sign_ed(<<>>, Acc) -> lists:reverse(Acc);
@@ -56,12 +56,12 @@ decode_edval(2, Bin) -> {pubkey, Bin};
 decode_edval(3, <<TimeDiff:64/big>>) -> {createduration, TimeDiff};
 decode_edval(4, <<TimeDiff:64/big>>) -> {createduration, TimeDiff};
 decode_edval(240, <<KL:8/integer, Rest/binary>>=Raw) ->
-	try
-		<<Key:KL/binary, Val/binary>>=Rest,
-		{Key, Val}
-	catch _:_ ->
-			  {240, Raw}
-	end;
+  try
+    <<Key:KL/binary, Val/binary>>=Rest,
+    {Key, Val}
+  catch _:_ ->
+        {240, Raw}
+  end;
 
 decode_edval(254, Bin) -> {purpose, Bin};
 decode_edval(255, Bin) -> {signature, Bin};
@@ -73,12 +73,12 @@ encode_edval(createduration, Integer) -> <<3, 8, Integer:64/big>>;
 encode_edval(signature, PK) -> <<255, (size(PK)):8/integer, PK/binary>>;
 encode_edval(purpose, PK) -> <<254, (size(PK)):8/integer, PK/binary>>;
 encode_edval(N, PK) when is_binary(N) andalso is_binary(PK) ->
-	TS=size(N)+size(PK)+1,
-	if TS>=64 ->
-		   throw('binkey_too_big');
-	   true ->
-		   <<240, TS:8/integer, (size(N)):8/integer, N/binary, PK/binary>>
-	end;
+  TS=size(N)+size(PK)+1,
+  if TS>=64 ->
+       throw('binkey_too_big');
+     true ->
+       <<240, TS:8/integer, (size(N)):8/integer, N/binary, PK/binary>>
+  end;
 encode_edval(_, _) -> <<>>.
 
 splitsig(<<255, SLen:8/integer, Rest/binary>>) ->
@@ -101,17 +101,17 @@ packsig(#{signature:=Signature, binextra:=BinExtra}) ->
     <<255, (size(Signature)):8/integer, Signature/binary, BinExtra/binary>>.
 
 add_sig(OldSigs, NewSigs) ->
-	Apply=fun(#{extra:=EPL}=Sig, Acc) ->
-				   PK=proplists:get_value(pubkey, EPL),
-				   if PK == undefined -> Acc;
-					  is_binary(PK) ->
-						  case maps:is_key(PK, Acc) of
-							  true -> Acc;
-							  false -> maps:put(PK, Sig, Acc)
-						  end
-				   end
-		  end,
-	Map1=lists:foldl(Apply, #{}, OldSigs),
-	Map2=lists:foldl(Apply, Map1, NewSigs),
-	maps:values(Map2).
+  Apply=fun(#{extra:=EPL}=Sig, Acc) ->
+           PK=proplists:get_value(pubkey, EPL),
+           if PK == undefined -> Acc;
+            is_binary(PK) ->
+              case maps:is_key(PK, Acc) of
+                true -> Acc;
+                false -> maps:put(PK, Sig, Acc)
+              end
+           end
+      end,
+  Map1=lists:foldl(Apply, #{}, OldSigs),
+  Map2=lists:foldl(Apply, Map1, NewSigs),
+  maps:values(Map2).
 

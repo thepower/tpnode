@@ -17,6 +17,10 @@
 -export([start_link/0]).
 -export([generate_block/5, benchmark/1, decode_tpic_txs/1]).
 
+-type mkblock_acc() :: #{'emit':=[{_,_}], 'export':=list(),
+'failed':=[{_,_}], 'fee':=bal:bal(), 'tip':=bal:bal(),
+'height':=number(), 'outbound':=[{_,_}], 'parent':=binary(), 
+'pick_block':=#{_=>1}, 'settings':=[{_,_}], 'success':=[{_,_}]}.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -279,7 +283,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
         gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
 
     case application:get_env(tpnode, dumpblocks) of
-      true ->
+      {ok, true} ->
         file:write_file("tmp/mkblk_" ++
                 integer_to_list(NewH) ++ "_" ++
                 binary_to_list(nodekey:node_id()),
@@ -363,7 +367,7 @@ deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings) ->
            Addresses), TXL2}
   end.
 
-
+-spec try_process([{_,_}], map(), map(), fun(), mkblock_acc()) -> mkblock_acc().
 try_process([], Settings, Addresses, GetFun,
       #{fee:=FeeBal, tip:=TipBal, emit:=Emit}=Acc) ->
   try
@@ -734,11 +738,6 @@ try_process_inbound([{TxID,
                ],
         PatchTxID= <<"sync", (xchain:pack_chid(ChID))/binary>>,
         SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
-%        SS1=settings:patch(AAlloc, SetState),
-%        try_process(Rest, SS1, NewAddresses, GetFun,
-%                    Acc#{success=> [{TxID, Tx#{address=>NewBAddr}}|Success],
-%                         settings=>[AAlloc|lists:keydelete(<<"aalloc">>, 1, Settings)]
-%                        })
 
         if Amount >= 0 -> ok;
            true -> throw ('bad_amount')
@@ -889,6 +888,9 @@ try_process_local([{TxID,
               try_process(Rest, SetState, Addresses, GetFun,
                           Acc#{failed=>[{TxID, X}|Failed]})
     end.
+
+-spec savefee(GotFee :: {binary(),non_neg_integer(),non_neg_integer()}, 
+              mkblock_acc()) -> mkblock_acc().
 
 savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
   Acc#{
@@ -1067,13 +1069,13 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     fun(default, Acc) ->
         BinAddr=naddress:construct_private(0, 0),
         maps:put(BinAddr,
-             bal:fetch(BinAddr, <<"ANY">>, true, #{}, GetAddr),
+             bal:fetch(BinAddr, <<"ANY">>, true, bals:new(), GetAddr),
              Acc);
      (Type, Acc) ->
         case settings:get([<<"current">>, <<"fee">>, params, Type], XSettings) of
           BinAddr when is_binary(BinAddr) ->
             maps:put(BinAddr,
-                 bal:fetch(BinAddr, <<"ANY">>, true, #{}, GetAddr),
+                 bal:fetch(BinAddr, <<"ANY">>, true, bals:new(), GetAddr),
                  Acc);
           _ ->
             Acc

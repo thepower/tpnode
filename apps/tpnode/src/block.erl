@@ -236,7 +236,7 @@ outward_verify(#{ header:=#{parent:=Parent, height:=H}=Header,
     end.
 
 sigverify(#{hash:=Hash}, Sigs) ->
-	bsig:checksig(Hash, Sigs).
+  bsig:checksig(Hash, Sigs).
 
 verify(#{ header:=#{parent:=Parent,
                     height:=H

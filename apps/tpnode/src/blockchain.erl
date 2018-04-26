@@ -150,7 +150,7 @@ handle_call(fix_tables, _From, #{ldb:=LDB, lastblock:=LB}=State) ->
 
 handle_call({runsync, NewChain}, _From, State) ->
   self() ! runsync,
-    {reply, sync, State#{mychain:=NewChain}};
+  {reply, sync, State#{mychain:=NewChain}};
 
 handle_call({get_addr, Addr, _RCur}, _From, State) ->
     case ledger:get([Addr]) of
@@ -393,30 +393,21 @@ handle_cast({signature, BlockHash, Sigs},
         sign:=OldSigs
          }=LastBlk
        }=State) when BlockHash==LastBlockHash ->
-  case block:sigverify(LastBlk, Sigs) of
-    {[21], _} ->
-      lager:info("Fake signature for block ~s ignored",
-             [blkid(BlockHash)]),
-      {noreply, State};
-    {Success, _} ->
-      %NewSigs=lists:usort(OldSigs ++ Success),
-      NewSigs=bsig:add_sig(OldSigs, Success),
-      if(OldSigs=/=NewSigs) ->
-          lager:info("Extra confirmation of prev. block ~s +~w=~w",
-             [blkid(BlockHash),
-            length(Success),
-            length(NewSigs)
-             ]),
-          NewLastBlk=LastBlk#{sign=>NewSigs},
-          save_block(LDB, NewLastBlk, false),
-          {noreply, State#{lastblock=>NewLastBlk}};
-        true ->
-          lager:info("Extra confirm not changed ~w/~w",
-               [length(OldSigs), length(NewSigs)]),
-          {noreply, State}
-      end;
-    Any ->
-      lager:error("Can't confirm block: ~p", [Any]),
+  {Success, _} = block:sigverify(LastBlk, Sigs),
+  %NewSigs=lists:usort(OldSigs ++ Success),
+  NewSigs=bsig:add_sig(OldSigs, Success),
+  if(OldSigs=/=NewSigs) ->
+      lager:info("Extra confirmation of prev. block ~s +~w=~w",
+                 [blkid(BlockHash),
+                  length(Success),
+                  length(NewSigs)
+                 ]),
+      NewLastBlk=LastBlk#{sign=>NewSigs},
+      save_block(LDB, NewLastBlk, false),
+      {noreply, State#{lastblock=>NewLastBlk}};
+    true ->
+      lager:info("Extra confirm not changed ~w/~w",
+                 [length(OldSigs), length(NewSigs)]),
       {noreply, State}
   end;
 

@@ -22,7 +22,7 @@ put_key(_DB, Key, _Value) ->
     throw({non_binary_key, Key}).
 
 del_key(DB, Key) ->
-    rocksdb:delete(DB, Key).
+    rocksdb:delete(DB, Key, []).
 
 %multiput(DB, Elements) ->
 %    Batch=lists:foldl(
