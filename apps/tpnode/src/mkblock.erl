@@ -672,7 +672,7 @@ try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
     FixTx=case maps:get(<<"cleanpow">>, RegSettings, 0) of
             1 ->
               Tx1#{pow=>crypto:hash(sha512,Pow),address=>NewBAddr};
-            true ->
+            _ ->
               Tx1#{address=>NewBAddr}
           end,
     try_process(Rest, SS1, NewAddresses, GetFun,
