@@ -8,12 +8,14 @@ after_filter(Req) ->
                                   Origin, Req),
   Req2=cowboy_req:set_resp_header(<<"access-control-allow-methods">>,
                                   <<"GET, POST, OPTIONS">>, Req1),
-  Req3=cowboy_req:set_resp_header(<<"access-control-allow-credentials">>,
-                                  <<"true">>, Req2),
+%  Req3=cowboy_req:set_resp_header(<<"access-control-allow-credentials">>,
+%                                  <<"true">>, Req2),
   Req4=cowboy_req:set_resp_header(<<"access-control-max-age">>,
-                                  <<"86400">>, Req3),
+                                  <<"86400">>, Req2),
+  Req5=cowboy_req:set_resp_header(<<"tpnode-name">>, nodekey:node_name(), Req4),
+  Req6=cowboy_req:set_resp_header(<<"tpnode-id">>, nodekey:node_id(), Req5),
   cowboy_req:set_resp_header(<<"access-control-allow-headers">>,
-                             <<"content-type">>, Req4).
+                             <<"content-type">>, Req6).
 
 h(Method, [<<"api">>|Path], Req) ->
   lager:info("Path ~p", [Path]),
