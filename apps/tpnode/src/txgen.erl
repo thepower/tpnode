@@ -33,16 +33,18 @@ restart() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
+  Times=application:get_env(tpnode,txgen_times,2),
 	{ok, #{
 		ticktimer=>erlang:send_after(2000, self(), ticktimer),
-		counter => 1,
+		counter => Times,
 		running => true}
 	}.
 
 handle_call(restart, _From, State) ->
+  Times=application:get_env(tpnode,txgen_times,2),
 	{reply, restarted, State#{
-		ticktimer=>erlang:send_after(2000, self(), ticktimer),
-		counter => 1,
+		ticktimer=>erlang:send_after(100, self(), ticktimer),
+		counter => Times,
 		running => true
 	}};
 
@@ -59,15 +61,20 @@ handle_cast(_Msg, State) ->
 handle_info(ticktimer,
 			#{ticktimer:=Tmr, counter := Counter}=State) ->
 	catch erlang:cancel_timer(Tmr),
-	process(3000),
-	case Counter < 10 of
-	    true -> {noreply, State#{
-	    		   ticktimer=>erlang:send_after(2000, self(), ticktimer),
-	    	       counter => Counter + 1
-	    		  }
-        };
-		false -> {noreply, State#{running => false}}
-	end;
+  TxsCnt=application:get_env(tpnode,txgen_txs,100),
+  Delay=application:get_env(tpnode,txgen_int,6),
+  lager:info("Starting TX generator ~w txs with ~w delay ~w more run(s)",
+             [TxsCnt,Delay,Counter]),
+	process(TxsCnt),
+  if Counter > 0 ->
+       {noreply, State#{
+                   ticktimer=>erlang:send_after(Delay*1000, self(), ticktimer),
+                   counter => Counter - 1
+                  }
+       };
+     true ->
+       {noreply, State#{running => false}}
+  end;
 
 handle_info(_Info, State) ->
     lager:info("Unknown info ~p", [_Info]),
