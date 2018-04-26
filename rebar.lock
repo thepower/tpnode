@@ -49,7 +49,7 @@
   0},
  {<<"tpic">>,
   {git,"ssh://git@git.wtf-rg.com:15616/thepower/tpic.git",
-       {ref,"fe529994a67c009279d5778b8be752405510038b"}},
+       {ref,"82ae0f01956ead83398465db409e02f331e80ed2"}},
   0}]}.
 [
 {pkg_hash,[
