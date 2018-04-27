@@ -29,7 +29,7 @@ Vagrant.configure("2") do |config|
 
   config.vm.provision "shell", inline: <<-SHELL
     sudo apt-get update
-    sudo apt-get install -y build-essential clang libsctp-dev libncurses5-dev mc
+    sudo apt-get install -y build-essential clang libsctp-dev libncurses5-dev mc curl libssl-dev automake autoconf
 
     # install erlang
     wget https://raw.githubusercontent.com/kerl/kerl/master/kerl -O kerl -o /dev/null
