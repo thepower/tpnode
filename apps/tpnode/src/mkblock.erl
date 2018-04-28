@@ -1069,13 +1069,13 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     fun(default, Acc) ->
         BinAddr=naddress:construct_private(0, 0),
         maps:put(BinAddr,
-             bal:fetch(BinAddr, <<"ANY">>, true, bals:new(), GetAddr),
+             bal:fetch(BinAddr, <<"ANY">>, true, bal:new(), GetAddr),
              Acc);
      (Type, Acc) ->
         case settings:get([<<"current">>, <<"fee">>, params, Type], XSettings) of
           BinAddr when is_binary(BinAddr) ->
             maps:put(BinAddr,
-                 bal:fetch(BinAddr, <<"ANY">>, true, bals:new(), GetAddr),
+                 bal:fetch(BinAddr, <<"ANY">>, true, bal:new(), GetAddr),
                  Acc);
           _ ->
             Acc
