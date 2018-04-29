@@ -10,7 +10,7 @@
 -export([get_settings/1, get_settings/2, get_settings/0,
      get_mysettings/1,
      apply_block_conf/2,
-     last/0, chain/0,
+     last/0, last/1, chain/0,
     chainstate/0]).
 
 %% ------------------------------------------------------------------
@@ -31,25 +31,37 @@ chain() ->
     {Chain, _Height}=gen_server:call(blockchain, last_block_height),
     Chain.
 
+last(N) ->
+    gen_server:call(blockchain, {last_block, N}).
+
 last() ->
     gen_server:call(blockchain, last_block).
 
 chainstate() ->
   Candidates=lists:reverse(
-         tpiccall(<<"blockchain">>,
-              #{null=><<"sync_request">>},
-              [last_hash, last_height, chain]
-             )),
-  lists:foldl( %first suitable will be the quickest
-    fun({_, #{chain:=_HisChain,
-         last_hash:=Hash,
-         last_height:=Heig,
-         null:=<<"sync_available">>}
-      }, Acc) ->
-        maps:put({Heig, Hash}, maps:get({Heig, Hash}, Acc, 0)+1, Acc);
-     ({_, _}, Acc) ->
-        Acc
-    end, #{}, Candidates).
+               tpiccall(<<"blockchain">>,
+                        #{null=><<"sync_request">>},
+                        [last_hash, last_height, chain, prev_hash]
+                       ))++[{self,gen_server:call(?MODULE,sync_req)}],
+  io:format("Cand ~p~n",[Candidates]),
+  ChainState=lists:foldl( %first suitable will be the quickest
+               fun({_, #{chain:=_HisChain,
+                         %          null:=<<"sync_available">>,
+                         last_hash:=Hash,
+                         prev_hash:=PHash,
+                         last_height:=Heig
+                        }
+                   }, Acc) ->
+                   maps:put({Heig, Hash, PHash}, maps:get({Heig, Hash, PHash}, Acc, 0)+1, Acc);
+                  ({_, _}, Acc) ->
+                   Acc
+               end, #{}, Candidates),
+  maps:fold(
+    fun({Heig,Has,PHas},V,Acc) ->
+        maps:put(<<(integer_to_binary(Heig))/binary,
+                   ":",(blkid(Has))/binary,
+                   "/",(blkid(PHas))/binary>>,V,Acc)
+    end, #{}, ChainState).
 
 
 %% ------------------------------------------------------------------
@@ -148,6 +160,9 @@ handle_call(fix_tables, _From, #{ldb:=LDB, lastblock:=LB}=State) ->
               {reply, {error, Ec, Ee, S}, State}
     end;
 
+handle_call(sync_req, _From, State) ->
+  {reply, sync_req(State), State};
+
 handle_call({runsync, NewChain}, _From, State) ->
   self() ! runsync,
   {reply, sync, State#{mychain:=NewChain}};
@@ -219,6 +234,9 @@ handle_call({is_our_node, PubKey}, _From,
             #{chainnodes:=CN}=State) ->
   Res=maps:get(PubKey, CN, false),
   {reply, Res, State};
+
+handle_call({last_block, N}, _From, #{ldb:=LDB}=State) ->
+    {reply, rewind(LDB,N), State};
 
 handle_call(last_block, _From, #{lastblock:=LB}=State) ->
     {reply, LB, State};
@@ -295,19 +313,18 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
                             }},
     #{ldb:=LDB} = State) ->
     MyRel = case Rel of
-                <<"self">> -> self;
                 <<"pre", _/binary>> -> prev;
                 <<"child">> -> child;
+                %<<"self">> -> self;
                 _ -> self
             end,
-
     R = case ldb:read_key(LDB, <<"block:", Hash/binary>>, undefined) of
             undefined -> #{error=>noblock};
             #{header:=#{}} = Block when MyRel == self ->
                 #{block => block:pack(Block)};
             #{header:=#{}, child:=Child} = _Block when MyRel == child ->
                 case ldb:read_key(LDB, <<"block:", Child/binary>>, undefined) of
-                    undefined -> #{error=>noblock};
+                    undefined -> #{error=>havenochild};
                     #{header:=#{}} = SBlock ->
                         #{block=>block:pack(SBlock)}
                 end;
@@ -315,7 +332,7 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
                 #{error=>nochild};
             #{header:=#{parent:=Parent}} = _Block when MyRel == prev ->
                 case ldb:read_key(LDB, <<"block:", Parent/binary>>, undefined) of
-                    undefined -> #{error=>noblock};
+                    undefined -> #{error=>havenoprev};
                     #{header:=#{}} = SBlock ->
                         #{block=>block:pack(SBlock)}
                 end;
@@ -324,6 +341,7 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
             _ ->
                 #{error => unknown}
         end,
+    lager:info("Asked for ~s for blk ~s: ~p",[MyRel,blkid(Hash),R]),
 
     case maps:is_key(block, R) of
         false ->
@@ -353,31 +371,10 @@ handle_cast({tpic, Origin, #{null:=<<"instant_sync_run">>}},
     {noreply, State};
 
 
-handle_cast({tpic, Origin, #{null:=<<"sync_request">>}},
-            #{lastblock:=#{hash:=Hash, header:=#{height:=Height}},
-              mychain:=MyChain
-             }=State) ->
-    case maps:is_key(sync, State) of
-        true -> %I syncing and can't be source
-            tpic:cast(tpic, Origin, msgpack:pack(#{
-                                    null=><<"sync_unavailable">>,
-                                    last_height=>Height,
-                                    last_hash=>Hash,
-                                    chain=>MyChain,
-                                    byblock=>false,
-                                    instant=>false
-                                   }));
-        false -> %I working and can be source
-            tpic:cast(tpic, Origin, msgpack:pack(#{
-                                    null=><<"sync_available">>,
-                                    last_height=>Height,
-                                    last_hash=>Hash,
-                                    chain=>MyChain,
-                                    byblock=>true,
-                                    instant=>true
-                                   }))
-    end,
-    {noreply, State};
+handle_cast({tpic, Origin, #{null:=<<"sync_request">>}}, State) ->
+  MaySync=sync_req(State),
+  tpic:cast(tpic, Origin, msgpack:pack(MaySync)),
+  {noreply, State};
 
 handle_cast({tpic, Origin, #{null := <<"sync_block">>,
                              <<"block">> := BinBlock}},
@@ -782,7 +779,7 @@ handle_info({b2b_sync, Hash}, #{
                          syncpeer:=Handler
                         }=State) ->
     case tpiccall(Handler,
-                  #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>next},
+                  #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
                   [block]
                  ) of
         [{_, R}] ->
@@ -902,7 +899,7 @@ handle_info(runsync, #{
                              }};
               true ->
                   %try block by block
-                  lager:error("RUN sync me please"),
+                  lager:error("RUN b2b sync since ~s",[blkid(MyLastHash)]),
                   self() ! {b2b_sync, MyLastHash},
                   {noreply, State#{
                               sync=>b2b,
@@ -1028,6 +1025,34 @@ apply_block_conf(Block, Conf0) ->
 
 blkid(<<X:8/binary, _/binary>>) ->
     bin2hex:dbin2hex(X).
+
+rewind(LDB, BlkNo) ->
+  CurBlk=ldb:read_key(LDB, <<"lastblock">>, <<0, 0, 0, 0, 0, 0, 0, 0>>),
+  if(BlkNo<0) ->
+      rewind(LDB, BlkNo-1, CurBlk);
+    true ->
+      rewind(LDB, BlkNo, CurBlk)
+  end.
+
+rewind(LDB, BlkNo, CurBlk) ->
+    case ldb:read_key(LDB,
+                      <<"block:", CurBlk/binary>>,
+                      undefined
+                     ) of
+        undefined ->
+            noblock;
+      #{header:=#{}}=B when BlkNo == -1 ->
+        B;
+      #{header:=#{height:=H}}=B when BlkNo == H ->
+        B;
+      #{header:=#{parent:=Parent}} ->
+        if BlkNo<0 ->
+             rewind(LDB, BlkNo+1, Parent);
+           BlkNo>=0 -> 
+             rewind(LDB, BlkNo, Parent)
+        end
+    end.
+
 
 first_block(LDB, Next, Child) ->
     case ldb:read_key(LDB,
@@ -1188,4 +1213,29 @@ tpiccall(Handler, Object, Atoms) ->
 getset(Name,#{settings:=Sets, mychain:=MyChain}=_State) ->
   chainsettings:get(Name, Sets, fun()->MyChain end).
 
+sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}},
+              mychain:=MyChain
+             }=State) ->
+  case maps:is_key(sync, State) of
+    true -> %I am syncing and can't be source for sync
+      #{
+      null=><<"sync_unavailable">>,
+      last_height=>Height,
+      last_hash=>Hash,
+      prev_hash=>Parent,
+      chain=>MyChain,
+      byblock=>false,
+      instant=>false
+     };
+    false -> %I am working and I can be source for sync
+      #{
+      null=><<"sync_available">>,
+      last_height=>Height,
+      last_hash=>Hash,
+      prev_hash=>Parent,
+      chain=>MyChain,
+      byblock=>true,
+      instant=>true
+     }
+  end.
 
