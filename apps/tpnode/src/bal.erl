@@ -48,11 +48,11 @@
                   'ublk'=>binary() %external attr
                  }.
 
--spec new () -> sparsebal().
+-spec new () -> bal().
 new() ->
   #{amount=>#{}, changes=>[]}.
 
--spec changes (bal()) -> bal().
+-spec changes (bal()) -> sparsebal().
 changes(Bal) ->
   Changes=maps:get(changes, Bal, []),
   maps:with([amount|Changes], maps:remove(changes, Bal)).
