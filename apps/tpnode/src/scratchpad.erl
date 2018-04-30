@@ -215,7 +215,7 @@ test_fee_settings() ->
 							 #{t=>set, p=>[current, fee, params, <<"feeaddr">>], v=><<128, 1, 64, 0, 1, 0, 0, 4>>},
 							 #{t=>set, p=>[current, fee, params, <<"tipaddr">>], v=><<128, 1, 64, 0, 1, 0, 0, 4>>},
 							 #{t=>set, p=>[current, fee, params, <<"notip">>], v=>0},
-							 #{t=>set, p=>[current, fee, <<"FTT">>, <<"base">>], v=>trunc(1.0e7)},
+							 #{t=>set, p=>[current, fee, <<"FTT">>, <<"base">>], v=>trunc(1.0e3)},
 							 #{t=>set, p=>[current, fee, <<"FTT">>, <<"baseextra">>], v=>64},
 							 #{t=>set, p=>[current, fee, <<"FTT">>, <<"kb">>], v=>trunc(1.0e9)},
 							 #{t=>set, p=>[<<"current">>, <<"rewards">>, <<"c1n1">>], v=><<160, 0, 0, 0, 0, 0, 1, 1>>},
@@ -290,6 +290,17 @@ test_reg_invites() ->
   { 
    Patch,
    gen_server:call(txpool, {patch, Patch})}.
+
+set_nosk() ->
+    PrivKey=nodekey:get_priv(),
+    Patch=settings:sign(
+            [ #{t=><<"set">>, p=>[<<"current">>, <<"nosk">>], v=>1} ],
+            PrivKey),
+    io:format("PK ~p~n", [settings:verify(Patch)]),
+    {Patch,
+    gen_server:call(txpool, {patch, Patch})
+    }.
+
 
 test_alloc_block() ->
     PrivKey=nodekey:get_priv(),

@@ -223,9 +223,7 @@ verify(#{
                            fun(Pub, Sig, {AValid, AInvalid}) ->
                                case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
                                  correct ->
-                                   V=gen_server:call(
-                                       blockchain,
-                                       {is_our_node, Pub}) =/= false,
+                                   V=chainsettings:is_our_node(Pub) =/= false,
                                    if V ->
                                         {AValid+1, AInvalid};
                                       true ->

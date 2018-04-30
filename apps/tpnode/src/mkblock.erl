@@ -68,7 +68,7 @@ handle_cast({tpic, FromKey, #{
            <<"hash">> := ParentHash,
            <<"signed">> := SignedBy
                     }}, State)  ->
-  Origin=gen_server:call(blockchain, {is_our_node, FromKey}),
+  Origin=chainsettings:is_our_node(FromKey),
   lager:debug("MB presig got ~s ~p", [Origin, SignedBy]),
   if Origin==false ->
        {noreply, State};
@@ -90,14 +90,14 @@ handle_cast({tpic, Origin, #{
      true ->
        lager:info("Got txs from ~s: ~p",
             [
-             gen_server:call(blockchain, {is_our_node, Origin}),
+             chainsettings:is_our_node(Origin),
              TXs
             ])
   end,
   handle_cast({prepare, Origin, TXs}, State);
 
 handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
-  Origin=gen_server:call(blockchain, {is_our_node, Node}),
+  Origin=chainsettings:is_our_node(Node),
   if Origin==false ->
        lager:error("Got txs from bad node ~s",
              [bin2hex:dbin2hex(Node)]),
@@ -113,7 +113,7 @@ handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
                      case TxB of
                        #{patch:=_} ->
                          VerFun=fun(PubKey) ->
-                                    NodeID=gen_server:call(blockchain,{is_our_node,PubKey}),
+                                    NodeID=chainsettings:is_our_node(PubKey),
                                     is_binary(NodeID)
                                 end,
                          {ok, Tx1} = settings:verify(TxB, VerFun),
@@ -949,7 +949,14 @@ withdraw(FBal,
   end,
   LD=bal:get(t, FBal) div 86400000,
   CD=Timestamp div 86400000,
-  if IsContract -> ok;
+  NoSK=if IsContract -> true;
+          true ->
+            case settings:get([<<"current">>, <<"nosk">>], Settings) of
+              1 -> true;
+              _ -> false
+            end
+       end,
+  if NoSK -> ok;
      true ->
        FSK=bal:get_cur(<<"SK">>, FBal),
        FSKUsed=if CD>LD ->
@@ -1013,6 +1020,7 @@ withdraw(FBal,
                     Rate=tx:rate(Tx, GetFeeFun),
                     lager:info("Rate ~p", [Rate]),
                     Rate
+                    %{true, #{cost=>0, tip=>0, cur=><<>>}}
                  end,
   if FeeOK -> ok;
      true -> throw ({'insufficient_fee', MinCost})

@@ -1,6 +1,64 @@
 -module(chainsettings).
 
 -export([get/2,get/3]).
+-export([get_setting/1,
+         is_our_node/1,
+         settings_to_ets/1,
+         get_settings_by_path/1]).
+
+is_our_node(PubKey) ->
+  {ok, NMap} = chainsettings:get_setting(chainnodes),
+  maps:get(PubKey, NMap, false).
+
+get_setting(Named) ->
+  case ets:lookup(blockchain,Named) of
+    [{Named, Value}] ->
+      {ok, Value};
+    [] ->
+      error
+  end.
+
+get_settings_by_path(GetPath) ->
+  lists:foldl(
+    fun([Path,Val,Act],Acc) ->
+        settings:patch([#{<<"t">>=>Act, <<"p">>=>Path, <<"v">>=>Val}], Acc)
+    end,
+    #{},
+    ets:match(blockchain,{GetPath++'$1','_','$3','$2'})
+   ).
+
+settings_to_ets(NewSettings) ->
+  Patches=settings:get_patches(NewSettings),
+  Ver=erlang:system_time(),
+  SetApply=lists:map(fun(#{<<"p">>:=Path,<<"t">>:=Action,<<"v">>:=Value}) ->
+                  lager:info("Path ~p:~p",[Path,Action]),
+                  {Path, Ver, Action, Value}
+              end,  Patches),
+  %ets:match(blockchain,{[<<"current">>,<<"fee">>|'$1'],'_','$2'})
+  %-- ets:fun2ms( fun({_,T,_}=M) when T < Ver -> M end)
+  ets:insert(blockchain,SetApply),
+  ets:select_delete(blockchain,
+                    [{{'_','$1','_','_'},[{'<','$1',Ver}],[true]}]
+                   ),
+
+  KeyDB=maps:get(keys, NewSettings, #{}),
+  NodeChain=maps:get(nodechain, NewSettings, #{}),
+  PubKey=nodekey:get_pub(),
+  lager:info("My key ~s", [bin2hex:dbin2hex(PubKey)]),
+  ChainNodes0=maps:fold(
+                fun(Name, XPubKey, Acc) ->
+                    maps:put(XPubKey, Name, Acc)
+                end, #{}, KeyDB),
+  MyName=maps:get(PubKey, ChainNodes0, undefined),
+  MyChain=maps:get(MyName, NodeChain, 0),
+  ChainNodes=maps:filter(
+               fun(_PubKey, Name) ->
+                   maps:get(Name, NodeChain, 0) == MyChain
+               end, ChainNodes0),
+  lager:info("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
+  ets:insert(blockchain,[{myname,MyName},{chainnodes,ChainNodes},{mychain,MyChain}]),
+  NewSettings.
+
 
 get(Key, Settings) ->
   get(Key, Settings, fun() ->

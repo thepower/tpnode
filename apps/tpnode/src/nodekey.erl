@@ -30,7 +30,7 @@ node_id(PubKey) ->
 node_name() ->
     case application:get_env(tpnode, nodename) of
       undefined -> 
-        case gen_server:call(blockchain,{is_our_node,get_pub()}) of
+        case chainsettings:is_our_node(get_pub()) of
           Name when is_binary(Name) ->
             application:set_env(tpnode, nodename, Name),
             Name;

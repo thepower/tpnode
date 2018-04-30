@@ -11,7 +11,7 @@
      get_mysettings/1,
      apply_block_conf/2,
      last/0, last/1, chain/0,
-    chainstate/0]).
+     chainstate/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -28,8 +28,8 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 chain() ->
-    {Chain, _Height}=gen_server:call(blockchain, last_block_height),
-    Chain.
+  {ok, Chain} = chainsettings:get_setting(mychain),
+  Chain.
 
 last(N) ->
     gen_server:call(blockchain, {last_block, N}).
@@ -46,7 +46,7 @@ chainstate() ->
   io:format("Cand ~p~n",[Candidates]),
   ChainState=lists:foldl( %first suitable will be the quickest
                fun({_, #{chain:=_HisChain,
-                         %          null:=<<"sync_available">>,
+                         %null:=<<"sync_available">>,
                          last_hash:=Hash,
                          prev_hash:=PHash,
                          last_height:=Heig
@@ -69,8 +69,8 @@ chainstate() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-    pg2:create(blockchain),
-    pg2:join(blockchain, self()),
+    Table=ets:new(?MODULE,[named_table,protected,bag,{read_concurrency,true}]),
+    lager:info("Table created: ~p",[Table]),
     NodeID=nodekey:node_id(),
     filelib:ensure_dir("db/"),
     {ok, LDB}=ldb:open("db/db_" ++ atom_to_list(node())),
@@ -87,15 +87,13 @@ init(_Args) ->
     Conf=load_sets(LDB, LastBlock),
     lager:info("My last block hash ~s",
                [bin2hex:dbin2hex(LastBlockHash)]),
-    #{mychain:=MyChain}=Res=mychain(#{
+    Res=mychain(#{
           nodeid=>NodeID,
           ldb=>LDB,
           candidates=>#{},
-          settings=>Conf,
+          settings=>chainsettings:settings_to_ets(Conf),
           lastblock=>LastBlock
          }),
-    pg2:create({blockchain, MyChain}),
-    pg2:join({blockchain, MyChain}, self()),
     erlang:send_after(6000, self(), runsync),
     {ok, Res}.
 
@@ -232,6 +230,7 @@ handle_call(lastsig, _From, #{myname:=MyName,
 
 handle_call({is_our_node, PubKey}, _From,
             #{chainnodes:=CN}=State) ->
+  lager:notice("Old blocking is_our_node called"),
   Res=maps:get(PubKey, CN, false),
   {reply, Res, State};
 
@@ -258,20 +257,25 @@ handle_call(chainnodes, _From, State) ->
     {reply, CN, S1};
 
 handle_call({mysettings, chain}, _From, State) ->
+  lager:notice("Old blocking version mysettings was called"),
     #{mychain:=MyChain}=S1=mychain(State),
     {reply, MyChain, S1};
 
 handle_call({mysettings, Attr}, _From, State) ->
+  lager:notice("Old blocking version mysettings was called"),
   {reply, getset(Attr, State), State};
 
 handle_call(settings, _From, #{settings:=S}=State) ->
+  lager:notice("Old blocking version settings was called"),
     {reply, S, State};
 
 handle_call({settings, minsig}, _From, State) ->
+  lager:notice("Old blocking version settings was called"),
     Res=getset(minsig,State),
     {reply, Res, State};
 
 handle_call({settings, Path}, _From, #{settings:=Settings}=State) when is_list(Path) ->
+  lager:notice("Old blocking version settings was called"),
     Res=settings:get(Path, Settings),
     {reply, Res, State};
 
@@ -281,6 +285,7 @@ handle_call({settings, chain, ChainID}, _From, #{settings:=Settings}=State) ->
   {reply, Res, State};
 
 handle_call({settings, signature}, _From, #{settings:=Settings}=State) ->
+  lager:notice("Old blocking version settings was called"),
     Res=settings:get([keys], Settings),
     {reply, Res, State};
 
@@ -297,7 +302,7 @@ handle_call(restoreset, _From, #{ldb:=LDB}=State) ->
   true=is_map(S1),
   save_sets(LDB, S1),
   notify_settings(),
-    {reply, S1, State#{settings=>S1}};
+    {reply, S1, State#{settings=>chainsettings:settings_to_ets(S1)}};
 
 handle_call(_Request, _From, State) ->
     {reply, unhandled_call, State}.
@@ -575,7 +580,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                   {noreply, State#{
                               prevblock=> NewLastBlock,
                               lastblock=> MBlk,
-                              settings=>Sets1,
+                              settings=>chainsettings:settings_to_ets(Sets1),
                               candidates=>#{}
                              }
                   }
@@ -764,7 +769,7 @@ handle_info({inst_sync, done, Log}, #{ldb:=LDB}=State) ->
            save_block(LDB, Block, true),
        save_sets(LDB, SS),
            {noreply, CleanState#{
-                       settings=>SS,
+                       settings=>chainsettings:settings_to_ets(SS),
                        lastblock=>Block,
                        candidates=>#{}
                       }
@@ -1074,21 +1079,7 @@ first_block(LDB, Next, Child) ->
                                     }, false);
                true -> ok
             end,
-            %if Parent == <<0, 0, 0, 0, 0, 0, 0, 0>> ->
-            %       First=ldb:read_key(LDB,
-            %                          <<"block:", 0, 0, 0, 0, 0, 0, 0, 0>>,
-            %                          undefined
-            %                         ),
-            %       save_block(LDB, First#{
-            %                        child=>Next
-            %                       }, false),
-            %       lager:info("First ~p", [ Next ]),
-            %       {fix, Next};
-            %   true ->
-            %       first_block(LDB, Parent, Next)
-            %end
-            {ok, Parent}
-                   ;
+            {ok, Parent};
         Block ->
             lager:info("Unknown block ~p", [Block])
     end.
@@ -1181,7 +1172,7 @@ mychain(#{settings:=S}=State) ->
   KeyDB=maps:get(keys, S, #{}),
   NodeChain=maps:get(nodechain, S, #{}),
   PubKey=nodekey:get_pub(),
-  lager:info("My key ~s", [bin2hex:dbin2hex(PubKey)]),
+  %lager:info("My key ~s", [bin2hex:dbin2hex(PubKey)]),
   ChainNodes0=maps:fold(
                 fun(Name, XPubKey, Acc) ->
                     maps:put(XPubKey, Name, Acc)
@@ -1193,6 +1184,7 @@ mychain(#{settings:=S}=State) ->
                    maps:get(Name, NodeChain, 0) == MyChain
                end, ChainNodes0),
   lager:info("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
+  ets:insert(?MODULE,[{myname,MyName},{chainnodes,ChainNodes},{mychain,MyChain}]),
   maps:merge(State,
              #{myname=>MyName,
                chainnodes=>ChainNodes,
