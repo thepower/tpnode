@@ -245,6 +245,40 @@ h(<<"POST">>, [<<"test">>, <<"tx">>], Req) ->
     }
   };
 
+h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
+  QS=cowboy_req:parse_qs(_Req),
+  BinPacker=case proplists:get_value(<<"bin">>, QS) of
+              <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
+              <<"hex">> -> fun(Bin) -> bin2hex:dbin2hex(Bin) end;
+              <<"raw">> -> fun(Bin) -> Bin end;
+              _ -> fun(Bin) -> bin2hex:dbin2hex(Bin) end
+            end,
+  BlockHash0=if(BlockId == <<"last">>) -> last;
+               true ->
+                 hex:parse(BlockId)
+             end,
+  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+    undefined ->
+      {404,
+       #{ result=><<"error">>,
+          error=><<"not found">>
+        }
+      };
+    #{txs:=Txl}=GoodBlock ->
+      ReadyBlock=maps:put(
+                   txs_count,
+                   length(Txl),
+                   maps:without([txs,bals],GoodBlock)
+                  ),
+      Block=prettify_block(ReadyBlock, BinPacker),
+      {200,
+       #{ result => <<"ok">>,
+          block => Block
+        }
+      }
+  end;
+
+
 h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
   BinPacker=case proplists:get_value(<<"bin">>, QS) of
@@ -674,10 +708,11 @@ show_signs(Signs, BinPacker) ->
                  end, Extra
                 ),
         NodeID=proplists:get_value(pubkey, Extra, <<>>),
-        #{ binextra => BinPacker(Hdr),
-           signature => BinPacker(Signature),
+        #{ %binextra => BinPacker(Hdr),
+           %signature => BinPacker(Signature),
            extra =>UExtra,
-           nodeid => nodekey:node_id(NodeID)
+           '_nodeid' => nodekey:node_id(NodeID),
+           '_nodename' => chainsettings:is_our_node(NodeID)
          }
     end, Signs).
 
