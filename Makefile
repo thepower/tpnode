@@ -8,6 +8,12 @@ all:
 build:
 	./rebar3 compile
 
+compile: build
+
+deps:
+	./rebar3 get-deps
+
+
 run1:
 	erl -config app1.config -sname rocksnode1 -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager -s sync -s tpnode
 run2:
@@ -15,8 +21,20 @@ run2:
 run3:
 	erl -config app3.config -sname rocksnode3 -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager -s sync -s tpnode
 
-lint: ; ./rebar3 elvis
+runtestnet:
+	./run_testnet.sh
 
+lint:
+	./rebar3 elvis
+
+dialyzer:
+	./rebar3 dialyzer
+
+eunit:
+	./rebar3 eunit
+
+test:
+	./rebar3 xref ct skip_deps=true
 
 node1shell:
 	rebar3 as node1 shell
