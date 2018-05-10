@@ -36,5 +36,10 @@ eunit:
 test:
 	./rebar3 xref ct skip_deps=true
 
+cover:
+	./rebar3 ct --cover
+
+
+
 node1shell:
 	rebar3 as node1 shell
