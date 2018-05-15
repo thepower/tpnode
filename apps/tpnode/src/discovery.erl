@@ -14,6 +14,11 @@
         nodeid, scopes, xchain, api, chain, created, ttl]).
 
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -827,9 +832,29 @@ convert_to_binary(Data) when is_integer(Data) ->
     integer_to_binary(Data, 10).
 
 
+
 % --------------------------------------------------------
 
+-ifdef(TEST).
+convert_to_binary_test() ->
+    ?assertEqual(<<"wazzzup">>, convert_to_binary(<<"wazzzup">>)),
+    ?assertEqual(<<"wazzzup">>, convert_to_binary(wazzzup)),
+    ?assertEqual(<<"wazzzup">>, convert_to_binary("wazzzup")),
+    ?assertEqual(<<"42">>, convert_to_binary(42)).
 
+
+pack_unpack_test() ->
+    Original = <<"Answer to the Ultimate Question of Life, the Universe, and Everything">>,
+    meck:new(nodekey),
+    meck:expect(nodekey, get_priv, fun() -> hex:parse("1E919CD3897241D78B420255F66426CC9A31163653AD7685DBBF0C34FFFFFFFF") end),
+    Packed = pack(Original),
+    Unpacked = unpack(Packed),
+    meck:unload(nodekey),
+    ?assertEqual({ok, Original}, Unpacked).
+-endif.
+
+
+% --------------------------------------------------------
 
 test() ->
     gen_server:call(discovery, {register, <<"test_service">>, self()}),
