@@ -33,11 +33,16 @@ dialyzer:
 eunit:
 	./rebar3 eunit
 
-test:
-	./rebar3 xref ct skip_deps=true
+xref:
+	./rebar3 xref skip_deps=true
+
+tests:
+	./testnet.sh start
+	./rebar3 as test ct skip_deps=true
+	./testnet.sh stop
 
 cover:
-	./rebar3 ct --cover
+	./rebar3 as test ct --cover
 
 
 
