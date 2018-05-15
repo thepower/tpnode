@@ -38,6 +38,10 @@ Vagrant.configure("2") do |config|
     sudo apt-get update
     sudo apt-get install -y build-essential clang libsctp-dev libncurses5-dev mc curl libssl-dev automake autoconf
 
+    # setup timezone
+    echo 'Etc/UTC' > /etc/timezone
+    dpkg-reconfigure --frontend noninteractive tzdata
+
     # install erlang
     wget https://raw.githubusercontent.com/kerl/kerl/master/kerl -O kerl -o /dev/null
     chmod +x kerl
