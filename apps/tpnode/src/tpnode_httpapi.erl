@@ -31,7 +31,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
   BinPacker=case proplists:get_value(<<"bin">>, QS) of
               <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
-              <<"hex">> -> fun(Bin) -> bin2hex:dbin2hex(Bin) end;
+              <<"hex">> -> fun(Bin) -> hex:encode(Bin) end;
               <<"raw">> -> fun(Bin) -> Bin end;
               _ -> fun(Bin) -> base64:encode(Bin) end
             end,
@@ -105,7 +105,7 @@ h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
         {ok,List}=smartcontract:get(VMName,Method,Args,Info),
 
         {200,
-         #{ address=>bin2hex:dbin2hex(Addr),
+         #{ address=><<"0x",(hex:encode(Addr))/binary>>,
             result=>List
           }
         }
@@ -113,7 +113,7 @@ h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
   catch throw:{error, address_crc} ->
           {200,
            #{ result => <<"error">>,
-              error=> <<"bad address">>
+              error=> <<"invalid address">>
             }
           }
   end;
@@ -143,7 +143,7 @@ h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
         {200,
          #{ result => <<"ok">>,
             txtaddress=>naddress:encode(Addr),
-            address=>bin2hex:dbin2hex(Addr),
+            address=><<"0x",(hex:encode(Addr))/binary>>,
             contract=>CN,
             descr=>CD,
             getters=>List
@@ -153,10 +153,62 @@ h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
   catch throw:{error, address_crc} ->
           {200,
            #{ result => <<"error">>,
-              error=> <<"bad address">>
+              error=> <<"invalid address">>
             }
           }
   end;
+
+h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
+  try
+    Addr=case TAddr of
+           <<"0x", Hex/binary>> ->
+             hex:parse(Hex);
+           _ ->
+             naddress:decode(TAddr)
+         end,
+    #{block:=Blk}=naddress:parse(Addr),
+    MyChain=blockchain:chain(),
+    if(MyChain==Blk) ->
+        case ledger:get(Addr) of
+          not_found ->
+            {404, 
+             #{result=><<"not_found">>,
+               address=><<"0x",(hex:encode(Addr))/binary>>,
+               txtaddress=>naddress:encode(Addr)
+              }
+            };
+          #{} ->
+            {200,
+             #{ result => <<"found">>,
+                chain=>Blk,
+                address=><<"0x",(hex:encode(Addr))/binary>>,
+                txtaddress=>naddress:encode(Addr)
+              }
+            }
+        end;
+      true ->
+        {200,
+         #{ result => <<"other_chain">>,
+            chain=>Blk,
+            address=><<"0x",(hex:encode(Addr))/binary>>,
+            txtaddress=>naddress:encode(Addr)
+          }
+        }
+    end
+  catch throw:{error, address_crc} ->
+          {400,
+           #{ result => <<"error">>,
+              error=> <<"invalid address">>
+            }
+          };
+          throw:bad_addr ->
+          {400,
+           #{ result => <<"error">>,
+              error=> <<"invalid address">>
+            }
+          }
+  end;
+
 
 h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
   try
@@ -224,15 +276,21 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
         {200,
          #{ result => <<"ok">>,
             txtaddress=>naddress:encode(Addr),
-            address=>bin2hex:dbin2hex(Addr),
+            address=><<"0x",(hex:encode(Addr))/binary>>,
             info=>Info3
           }
         }
     end
   catch throw:{error, address_crc} ->
-          {200,
+          {400,
            #{ result => <<"error">>,
-              error=> <<"bad address">>
+              error=> <<"invalid address">>
+            }
+          };
+          throw:bad_addr ->
+          {400,
+           #{ result => <<"error">>,
+              error=> <<"invalid address">>
             }
           }
   end;
@@ -244,6 +302,40 @@ h(<<"POST">>, [<<"test">>, <<"tx">>], Req) ->
       address=>ReqBody
     }
   };
+
+h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
+  QS=cowboy_req:parse_qs(_Req),
+  BinPacker=case proplists:get_value(<<"bin">>, QS) of
+              <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
+              <<"hex">> -> fun(Bin) -> bin2hex:dbin2hex(Bin) end;
+              <<"raw">> -> fun(Bin) -> Bin end;
+              _ -> fun(Bin) -> bin2hex:dbin2hex(Bin) end
+            end,
+  BlockHash0=if(BlockId == <<"last">>) -> last;
+               true ->
+                 hex:parse(BlockId)
+             end,
+  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+    undefined ->
+      {404,
+       #{ result=><<"error">>,
+          error=><<"not found">>
+        }
+      };
+    #{txs:=Txl}=GoodBlock ->
+      ReadyBlock=maps:put(
+                   txs_count,
+                   length(Txl),
+                   maps:without([txs,bals],GoodBlock)
+                  ),
+      Block=prettify_block(ReadyBlock, BinPacker),
+      {200,
+       #{ result => <<"ok">>,
+          block => Block
+        }
+      }
+  end;
+
 
 h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
@@ -285,7 +377,6 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
       }
   end;
 
-
 h(<<"GET">>, [<<"settings">>], _Req) ->
   Block=blockchain:get_settings(),
   {200,
@@ -293,102 +384,6 @@ h(<<"GET">>, [<<"settings">>], _Req) ->
       settings => Block
     }
   };
-
-h(<<"GET">>, [<<"give">>, <<"me">>, <<"money">>, <<"to">>, Address], Req) ->
-  {RemoteIP, _Port}=cowboy_req:peer(Req),
-  {ok, Config}=application:get_env(tpnode, tpfaucet),
-  Faucet=proplists:get_value(register, Config),
-  Tokens=proplists:get_value(tokens, Config),
-  Res=lists:foldl(fun({Coin, Amount}, Acc) ->
-                      case proplists:get_value(Coin, Tokens, undefined) of
-                        undefined -> Acc;
-                        #{key:=Key,
-                          addr:=Adr} ->
-                          lager:info("Faucet ~p", [Adr]),
-                          AddrState=case gen_server:call(blockchain, {get_addr, Adr, Coin}) of
-                                      not_found -> bal:new();
-                                      Found -> Found
-                                    end,
-                          Tx=#{
-                            amount=>Amount*1000000000,
-                            cur=>Coin,
-                            extradata=>jsx:encode(#{
-                                         message=> <<"Welcome, ", Address/binary>>,
-                                         ipaddress => list_to_binary(inet:ntoa(RemoteIP))
-                                        }),
-                            from=>Adr,
-                            to=>naddress:decode(Address),
-                            seq=>bal:get(seq, AddrState)+1,
-                            timestamp=>os:system_time(millisecond)
-                           },
-                          lager:info("Sign tx ~p", [Tx]),
-                          NewTx=tx:sign(Tx, address:parsekey(Key)),
-                          case txpool:new_tx(NewTx) of
-                            {ok, TxID} ->
-                              [#{c=>Coin, s=>Amount, tx=>TxID}|Acc];
-                            {error, Error} ->
-                              lager:error("Can't make tx: ~p", [Error]),
-                              Acc
-                          end
-                      end
-                  end, [], Faucet),
-  {200,
-   #{ result => <<"ok">>,
-      address=>Address,
-      addressb=>bin2hex:dbin2hex(naddress:decode(Address)),
-      info=>Res
-    }
-  };
-
-
-
-
-h(<<"POST">>, [<<"test">>, <<"request_fund">>], Req) ->
-  Body=apixiom:bodyjs(Req),
-  lager:info("B ~p", [Body]),
-  Address=maps:get(<<"address">>, Body),
-  ReqAmount=maps:get(<<"amount">>, Body, 10),
-  {ok, Config}=application:get_env(tpnode, tpfaucet),
-  Faucet=proplists:get_value(register, Config),
-  Tokens=proplists:get_value(tokens, Config),
-  Res=lists:foldl(fun({Coin, CAmount}, Acc) ->
-                      case proplists:get_value(Coin, Tokens, undefined) of
-                        undefined -> Acc;
-                        #{key:=Key,
-                          addr:=Adr} ->
-                          Amount=min(CAmount, ReqAmount),
-                          #{seq:=Seq}=gen_server:call(blockchain, {get_addr, Adr, Coin}),
-                          Tx=#{
-                            amount=>Amount*1000000000,
-                            cur=>Coin,
-                            extradata=>jsx:encode(#{
-                                         message=> <<"Test fund">>
-                                        }),
-                            from=>Adr,
-                            to=>Address,
-                            seq=>Seq+1,
-                            timestamp=>os:system_time(millisecond)
-                           },
-                          lager:info("Sign tx ~p", [Tx]),
-                          NewTx=tx:sign(Tx, address:parsekey(Key)),
-                          case txpool:new_tx(NewTx) of
-                            {ok, TxID} ->
-                              [#{c=>Coin, s=>Amount, tx=>TxID}|Acc];
-                            {error, Error} ->
-                              lager:error("Can't make tx: ~p", [Error]),
-                              Acc
-                          end
-                      end
-                  end, [], Faucet),
-  {200,
-   #{ result => <<"ok">>,
-      address=>Address,
-      info=>Res
-    }
-  };
-
-
-
 
 h(<<"POST">>, [<<"register">>], Req) ->
   {_RemoteIP, _Port}=cowboy_req:peer(Req),
@@ -677,7 +672,10 @@ show_signs(Signs, BinPacker) ->
         #{ binextra => BinPacker(Hdr),
            signature => BinPacker(Signature),
            extra =>UExtra,
-           nodeid => nodekey:node_id(NodeID)
+           '_nodeid' => nodekey:node_id(NodeID),
+           '_nodename' => try chainsettings:is_our_node(NodeID)
+                          catch _:_ -> null
+                          end
          }
     end, Signs).
 
