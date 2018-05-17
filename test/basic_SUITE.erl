@@ -17,7 +17,7 @@
 
 all() ->
     [
-        call_test
+        discovery_test
     ].
 
 init_per_suite(Config) ->
@@ -66,13 +66,23 @@ end_per_suite(Config) ->
 %%    {ok, Pids}.
 
 
-wait_for_testnet(Trys) ->
+get_node(Name) when is_atom(Name) ->
+    get_node(atom_to_list(Name));
+
+get_node(Name) when is_list(Name) ->
+    get_node(list_to_binary(Name));
+
+get_node(Name) when is_binary(Name) ->
     [_,NodeHost]=binary:split(atom_to_binary(erlang:node(),utf8),<<"@">>),
+    binary_to_atom(<<Name/binary, "@", NodeHost/binary>>, utf8).
+
+
+wait_for_testnet(Trys) ->
     NodesCount = length(?TESTNET_NODES),
     Alive = lists:foldl(
         fun(Name, ReadyNodes) ->
-            NodeName = <<(list_to_binary(Name))/binary, "@", NodeHost/binary>>,
-            case net_adm:ping(binary_to_atom(NodeName, utf8)) of
+            NodeName = get_node(Name),
+            case net_adm:ping(NodeName) of
                 pong ->
                     ReadyNodes + 1;
                 _Answer ->
@@ -92,7 +102,13 @@ wait_for_testnet(Trys) ->
     end.
 
 
-call_test(_Config) ->
+discovery_test(_Config) ->
 %%    io:fwrite("call test config ~p~n", [_Config]),
-    ?assertEqual(3, 3).
-
+    DiscoveryPid = rpc:call(get_node(<<"c1n1">>), erlang, whereis, [discovery]),
+    gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
+    gen_server:call(DiscoveryPid, {register, <<"test_service2">>, self()}),
+    Result1 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
+    ?assertMatch({ok, _, <<"test_service">>}, Result1),
+    Result2 = gen_server:call(DiscoveryPid, {lookup, <<"nonexist">>}),
+%%    ?assertMatch({error, not_found, <<"nonexist">>}, Result2),
+    ?assertEqual([], Result2).
