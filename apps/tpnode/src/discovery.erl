@@ -394,10 +394,9 @@ make_announce(#{names:=Names} = _Dict, State) ->
 
 % --------------------------------------------------------
 
-
-find_service(Pid, #{pids:=PidDict}) when is_pid(Pid) ->
+find_service(Pid, #{pids:=PidsDict}) when is_pid(Pid) ->
     lager:debug("find service by pid ~p", [Pid]),
-    maps:find(Pid, PidDict);
+    maps:find(Pid, PidsDict);
 
 find_service(Name, #{names:=NamesDict}) when is_binary(Name) ->
     lager:debug("find service by name ~p", [Name]),
@@ -452,6 +451,40 @@ register_service(Name0, Pid, #{names:=NameDict, pids:=PidDict} = _Dict, Options)
 delete_service(nopid, Dict) ->
     Dict;
 
+delete_service(Pid, #{pids:=PidsDict, names:=NamesDict} = Dict) when is_pid(Pid) ->
+%%    lager:debug("deleting service by pid ~p", [Pid]),
+    NewNames = maps:filter(
+        fun(_Name, #{pid := Pid1}=Record) when Pid==Pid1 ->
+%%            lager:debug("found service ~p with pid ~p", [_Name, Pid]),
+            case maps:get(monitor, Record, not_found) of
+                not_found ->
+%%                    lager:debug("no monitor ref for pid ~p", [Pid]),
+                    skip;
+                MonitorRef ->
+                    lager:debug("demonitor for pid ~p (service ~p)", [Pid, _Name]),
+                    demonitor(MonitorRef)
+            end,
+            false;
+        (_Name, _Record) ->
+            true
+        end,
+        NamesDict),
+    NewPids = maps:remove(Pid, PidsDict),
+    Dict#{
+        pids => NewPids,
+        names => NewNames
+    };
+
+
+%%    case find_service(Pid, Dict) of
+%%        {ok, Name} ->
+%%            lager:debug("we found name ~p for pid ~p", [Name, Pid]),
+%%            delete_service(Name, Dict);
+%%        error ->
+%%            lager:debug("try to delete service with unexisting pid ~p", [Pid]),
+%%            Dict
+%%    end;
+
 delete_service(Name, #{pids:=PidsDict, names:=NamesDict} = Dict) when is_binary(Name) ->
     case find_service(Name, Dict) of
         {ok, #{pid := nopid}} ->
@@ -466,19 +499,6 @@ delete_service(Name, #{pids:=PidsDict, names:=NamesDict} = Dict) when is_binary(
             };
         Invalid ->
             lager:debug("try to delete service with unexisting name ~p, result ~p", [Name, Invalid]),
-            Dict
-    end;
-
-
-delete_service(nopid, Dict) ->
-    Dict;
-
-delete_service(Pid, Dict) when is_pid(Pid) ->
-    case find_service(Pid, Dict) of
-        {ok, Name} ->
-            delete_service(Name, Dict);
-        error ->
-            lager:debug("try to delete service with unexisting pid ~p", [Pid]),
             Dict
     end;
 

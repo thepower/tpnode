@@ -17,7 +17,10 @@
 
 all() ->
     [
-        discovery_test
+        discovery_register_test,
+        discovery_lookup_test,
+        discovery_unregister_by_name_test,
+        discovery_unregister_by_pid_test
     ].
 
 init_per_suite(Config) ->
@@ -102,13 +105,45 @@ wait_for_testnet(Trys) ->
     end.
 
 
-discovery_test(_Config) ->
-%%    io:fwrite("call test config ~p~n", [_Config]),
+discovery_register_test(_Config) ->
+    DiscoveryPid = rpc:call(get_node(<<"c1n1">>), erlang, whereis, [discovery]),
+    Answer = gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
+    ?assertEqual(ok, Answer).
+
+
+discovery_lookup_test(_Config) ->
+    DiscoveryPid = rpc:call(get_node(<<"c1n1">>), erlang, whereis, [discovery]),
+    gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
+    Result1 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
+    ?assertMatch({ok, _, <<"test_service">>}, Result1),
+    Result2 = gen_server:call(DiscoveryPid, {lookup, <<"nonexist">>}),
+    ?assertEqual([], Result2).
+
+discovery_unregister_by_name_test(_Config) ->
     DiscoveryPid = rpc:call(get_node(<<"c1n1">>), erlang, whereis, [discovery]),
     gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
     gen_server:call(DiscoveryPid, {register, <<"test_service2">>, self()}),
     Result1 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
-    ?assertMatch({ok, _, <<"test_service">>}, Result1),
-    Result2 = gen_server:call(DiscoveryPid, {lookup, <<"nonexist">>}),
-%%    ?assertMatch({error, not_found, <<"nonexist">>}, Result2),
-    ?assertEqual([], Result2).
+    ?assertEqual({ok, self(), <<"test_service">>}, Result1),
+    gen_server:call(DiscoveryPid, {unregister, <<"test_service">>}),
+    Result2 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
+    ?assertEqual({error,not_found,<<"test_service">>}, Result2),
+    Result3 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service2">>}),
+    ?assertEqual({ok, self(), <<"test_service2">>}, Result3).
+
+
+discovery_unregister_by_pid_test(_Config) ->
+    DiscoveryPid = rpc:call(get_node(<<"c1n1">>), erlang, whereis, [discovery]),
+    MyPid = self(),
+    gen_server:call(DiscoveryPid, {register, <<"test_service">>, MyPid}),
+    gen_server:call(DiscoveryPid, {register, <<"test_service2">>, MyPid}),
+    Result1 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
+    ?assertEqual({ok, MyPid, <<"test_service">>}, Result1),
+    Result2 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service2">>}),
+    ?assertEqual({ok, MyPid, <<"test_service2">>}, Result2),
+    gen_server:call(DiscoveryPid, {unregister, MyPid}),
+    Result3 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
+    ?assertEqual({error, not_found, <<"test_service">>}, Result3),
+    Result4 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service2">>}),
+    ?assertEqual({error, not_found, <<"test_service2">>}, Result4).
+
