@@ -2,7 +2,7 @@
 -export([genesis/0, new/1, settings/0]).
 
 genesis() ->
-    {ok, [Genesis]}=file:consult("genesis.txt"),
+    {ok, [Genesis]}=file:consult(application:get_env(tpnode,genesis,"genesis.txt")),
     Genesis.
 
 new(HPrivKey) ->
