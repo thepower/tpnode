@@ -9,6 +9,13 @@ Vagrant.configure("2") do |config|
   config.vm.network "public_network", type: "dhcp", use_dhcp_assigned_default_route: true
   config.vm.hostname = "pwr"
 
+  # parallels specific stuff
+  config.vm.provider "parallels" do |prl|
+    prl.update_guest_tools = true
+    prl.memory = 1024
+    prl.cpus = 2
+  end
+
   # hosts settings (host machine)
   config.vm.provision :hostmanager
   config.hostmanager.enabled            = true
@@ -31,6 +38,10 @@ Vagrant.configure("2") do |config|
     sudo apt-get update
     sudo apt-get install -y build-essential clang libsctp-dev libncurses5-dev mc curl libssl-dev automake autoconf
 
+    # setup timezone
+    echo 'Etc/UTC' > /etc/timezone
+    dpkg-reconfigure --frontend noninteractive tzdata
+
     # install erlang
     wget https://raw.githubusercontent.com/kerl/kerl/master/kerl -O kerl -o /dev/null
     chmod +x kerl
@@ -39,7 +50,7 @@ Vagrant.configure("2") do |config|
     sudo ./kerl install r20.2 /opt/erl
     ./kerl cleanup all
     . /opt/erl/activate
-    echo ". /opt/erl/activate" >> /home/vagrant/.bashrc
+    echo ". /opt/erl/activate" >> /home/vagrant/.bash_profile
 
     wget https://github.com/erlang/rebar3/releases/download/3.5.0/rebar3 -O rebar3 -o /dev/null
     sudo mv rebar3 /usr/local/bin
