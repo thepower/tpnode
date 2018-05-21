@@ -117,6 +117,7 @@ handle_call({get_config, Key, Default}, _From, State) ->
 handle_call({set_config, Key, Value}, _From, State) ->
     {reply, ok, set_config(Key, Value, State)};
 
+%% register Pid as new local service with name ServiceName
 handle_call({register, ServiceName, Pid}, _From, #{local_services:=Dict} = State) ->
     {reply, ok, State#{
         local_services => register_service(ServiceName, Pid, Dict)
@@ -127,18 +128,21 @@ handle_call({register, ServiceName, Pid, Options}, _From, #{local_services:=Dict
         local_services => register_service(ServiceName, Pid, Dict, Options)
     }};
 
-handle_call({unregister, Pid}, _From, #{local_services:=Dict} = State) when is_pid(Pid) ->
+%% remove registration for all local services with pid Pid
+handle_call({unregister, Pid}, _From, #{local_services:=LocalDict} = State) when is_pid(Pid) ->
     lager:debug("Unregister local service with pid ~p", [Pid]),
     {reply, ok, State#{
-        local_services => delete_service(Pid, Dict)
+        local_services => delete_service(Pid, LocalDict)
     }};
 
+%% remove registration for local serivce with name Name
 handle_call({unregister, Name}, _From, #{local_services:=Dict} = State) when is_binary(Name) ->
     lager:debug("Unregister local service with name ~p", [Name]),
     {reply, ok, State#{
         local_services => delete_service(Name, Dict)
     }};
 
+%% get pid for local service with name Name
 handle_call({get_pid, Name}, _From, #{local_services:=Dict} = State) when is_binary(Name) ->
     lager:debug("Get pid for local service with name ~p", [Name]),
     Reply = case find_service(Name, Dict) of
@@ -150,6 +154,7 @@ handle_call({get_pid, Name}, _From, #{local_services:=Dict} = State) when is_bin
 handle_call({lookup, Pred}, _From, State) when is_function(Pred) ->
     {reply, query(Pred, State), State};
 
+%% get list of ip and port for service with name Name (local and remote)
 handle_call({lookup, Name}, _From, State) ->
     {reply, query(Name, State), State};
 
@@ -169,7 +174,7 @@ handle_cast(make_announce, #{local_services:=Dict} = State) ->
 
 
 handle_cast({got_announce, AnnounceBin}, State) ->
-%%    lager:debug("Got service announce ~p", [AnnounceBin]),
+    lager:debug("Got service announce ~p", [AnnounceBin]),
     try
         MaxTtl = get_config(intrachain_ttl, 120, State),
 
@@ -228,8 +233,14 @@ handle_info(make_announce, #{announcetimer:=Timer} = State) ->
         local_services:=Dict,
         announce_interval:=AnnounceInterval} = State,
 
-    lager:debug("Make local services announce (timer)"),
-    make_announce(Dict, State),
+    OurChain = blockchain:chain(),
+    if
+        OurChain =:= 0 ->
+            lager:debug("Skip local services announce because of our chain is 0");
+        true ->
+            lager:debug("Make local services announce (timer)"),
+            make_announce(Dict, State)
+    end,
 
     {noreply, State#{
         announcetimer => erlang:send_after(AnnounceInterval * 1000, self(), make_announce)
@@ -314,9 +325,8 @@ is_local_service(#{nodeid:=RemoteNodeId} = _Announce) ->
     MyNodeId = nodekey:node_id(),
     MyNodeId =:= RemoteNodeId;
 
-is_local_service(#{<<"nodeid">>:=RemoteNodeId} = _Announce) ->
-    MyNodeId = nodekey:node_id(),
-    MyNodeId =:= RemoteNodeId;
+is_local_service(#{<<"nodeid">>:=RemoteNodeId} = Announce) ->
+    is_local_service(Announce#{nodeid => RemoteNodeId});
 
 is_local_service(_Announce) ->
     false.
@@ -788,7 +798,7 @@ split_bin_to_sign_and_data(Bin) ->
 % --------------------------------------------------------
 
 pack(Message) ->
-    PrivKey=nodekey:get_priv(),
+    PrivKey = nodekey:get_priv(),
     Packed = msgpack:pack(Message),
     Hash = crypto:hash(sha256, Packed),
     Sign = bsig:signhash(
