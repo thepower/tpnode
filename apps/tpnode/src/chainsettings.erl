@@ -62,8 +62,9 @@ settings_to_ets(NewSettings) ->
 
 get(Key, Settings) ->
   get(Key, Settings, fun() ->
-               {Chain, _}=gen_server:call(blockchain, last_block_height, 500),
-               true=is_integer(Chain)
+               {Chain, _}=gen_server:call(blockchain, last_block_height, -1),
+               true=is_integer(Chain),
+               Chain
            end).
 
 
@@ -71,7 +72,7 @@ get(allowempty, Settings, GetChain) ->
   get(<<"allowempty">>, Settings, GetChain);
 
 get(patchsig, Settings, GetChain) ->
-  case settings:get([<<"current">>,chain,<<"patchsig">>],Settings) of
+  case settings:get([<<"current">>,chain,patchsig],Settings) of
     I when is_integer(I) ->
       I;
     _ ->
