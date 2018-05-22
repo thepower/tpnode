@@ -12,6 +12,7 @@
      apply_block_conf/2,
      apply_ledger/2,
      last/0, last/1, chain/0,
+     backup/1, restore/1,
      chainstate/0]).
 
 %% ------------------------------------------------------------------
@@ -76,12 +77,34 @@ init(_Args) ->
     filelib:ensure_dir("db/"),
     {ok, LDB}=ldb:open("db/db_" ++ atom_to_list(node())),
     LastBlockHash=ldb:read_key(LDB, <<"lastblock">>, <<0, 0, 0, 0, 0, 0, 0, 0>>),
+    Restore=case os:getenv("TPNODE_RESTORE") of
+              false ->
+                case os:getenv("TPNODE_GENESIS") of
+                  false ->
+                    default;
+                  Genesis_Path ->
+                    {genesis, Genesis_Path}
+                end;
+              RestoreDir ->
+                {backup, RestoreDir}
+            end,
     LastBlock=case ldb:read_key(LDB,
                            <<"block:", LastBlockHash/binary>>,
                undefined
                            ) of
           undefined ->
-            genesis:genesis();
+                  case Restore of
+                    default -> genesis:genesis();
+                    {genesis, Path} ->
+                      lager:notice("Genesis from ~s",[Path]),
+                      {ok, [Genesis]}=file:consult(Path),
+                      Genesis;
+                    {backup, Path} ->
+                      P=Path++"/0.txt",
+                      lager:notice("Restoring from ~s",[P]),
+                      {ok, [Genesis]}=file:consult(P),
+                      Genesis
+                  end;
           Block ->
             Block
         end,
@@ -95,8 +118,20 @@ init(_Args) ->
           settings=>chainsettings:settings_to_ets(Conf),
           lastblock=>LastBlock
          }),
-    erlang:send_after(6000, self(), runsync),
+    case Restore of
+      {backup, Path1} ->
+        spawn(blockchain, restore, [Path1]);
+      _ ->
+        erlang:send_after(6000, self(), runsync)
+    end,
     {ok, Res}.
+
+handle_call(get_dbh, _From, #{ldb:=LDB}=State) ->
+  {reply, {ok, LDB}, State};
+
+handle_call({backup, Path}, From, #{lastblock:=#{hash:=LH}}=State) ->
+  erlang:send(self(), {backup, Path, From, LH, 0}),
+  {noreply, State};
 
 handle_call(first_block, _From, #{ldb:=LDB, lastblock:=LB}=State) ->
     {reply, get_first_block(LDB, maps:get(hash, LB)), State};
@@ -473,7 +508,7 @@ handle_call({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                   {reply, ok, State#{
                               prevblock=> NewLastBlock,
                               lastblock=> MBlk,
-                              settings=>if Sets==Sets1 -> 
+                              settings=>if Sets==Sets1 ->
                                              Sets;
                                            true ->
                                              chainsettings:settings_to_ets(Sets1)
@@ -515,7 +550,7 @@ handle_cast({new_block, _BlockPayload,  PID},
     {noreply, State};
 
 handle_cast({new_block, #{hash:=_}, _PID}=Message, State) ->
-  {reply, _, NewState} = handle_call(Message, self(), State), 
+  {reply, _, NewState} = handle_call(Message, self(), State),
   {noreply, NewState};
 
 handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
@@ -748,6 +783,25 @@ handle_cast(_Msg, State) ->
     file:write_file("tmp/unknown_cast_msg.txt", io_lib:format("~p.~n", [_Msg])),
     file:write_file("tmp/unknown_cast_state.txt", io_lib:format("~p.~n", [State])),
     {noreply, State}.
+
+handle_info({backup, Path, From, LH, Cnt}, #{ldb:=LDB}=State) ->
+  case ldb:read_key(LDB,
+                    <<"block:", LH/binary>>,
+                    undefined
+                   ) of
+    undefined ->
+      gen_server:reply(From,{noblock, LH, Cnt});
+    #{header:=#{parent:=Parent,height:=Hei}} ->
+      lager:info("B ~p",[Hei]),
+      if(Cnt rem 10 == 0) ->
+          erlang:send(self(), {backup, Path, From, Parent, Cnt+1});
+        true ->
+          handle_info({backup, Path, From, Parent, Cnt+1}, State)
+      end;
+    #{header:=#{}} ->
+      gen_server:reply(From,{done, Cnt})
+  end,
+  {noreply, State};
 
 handle_info({inst_sync, settings, Patches}, State) ->
     %sync almost done - got settings
@@ -1064,7 +1118,7 @@ rewind(LDB, BlkNo, CurBlk) ->
       #{header:=#{parent:=Parent}} ->
         if BlkNo<0 ->
              rewind(LDB, BlkNo+1, Parent);
-           BlkNo>=0 -> 
+           BlkNo>=0 ->
              rewind(LDB, BlkNo, Parent)
         end
     end.
@@ -1240,5 +1294,46 @@ sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}},
       byblock=>true,
       instant=>true
      }
+  end.
+
+backup(Dir) ->
+  {ok,DBH}=gen_server:call(blockchain,get_dbh),
+  backup(DBH, Dir, ldb:read_key(DBH,<<"lastblock">>,undefined), 0).
+
+
+backup(_DBH, _Path, <<0,0,0,0,0,0,0,0>>, Cnt) ->
+  {done, Cnt};
+
+backup(DBH, Path, LH, Cnt) ->
+  case ldb:read_key(DBH,
+                    <<"block:", LH/binary>>,
+                    undefined
+                   ) of
+    undefined ->
+      {noblock, LH, Cnt};
+    #{header:=#{parent:=Parent,height:=Hei}}=Blk ->
+      ok=file:write_file(Path++"/"++integer_to_list(Hei)++".txt",
+                         [io_lib_pretty:print(Blk,[{strings,true}]),".\n"],
+                         [{encoding, utf8}]),
+      lager:info("B ~p",[Hei]),
+      backup(DBH, Path, Parent, Cnt+1);
+    #{header:=#{}} ->
+      {done, Cnt}
+  end.
+
+restore(Path) ->
+  timer:sleep(500),
+  #{hash:=LH,header:=#{height:=Hei}}=blockchain:last(),
+  restore(Path, Hei+1, LH, 0).
+
+restore(Dir, N, Prev, C) ->
+  P=Dir++"/"++integer_to_list(N)++".txt",
+  case file:consult(P) of
+    {error, enoent} -> {done,N-1,C};
+    {ok, [#{header:=#{height:=Hei,parent:=Parent},hash:=Hash}=Blk]} when Hei==N,
+                                                                         Prev==Parent ->
+
+      ok=gen_server:call(blockchain,{new_block, Blk, self()}),
+      restore(Dir, N+1, Hash, C+1)
   end.
 
