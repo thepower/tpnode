@@ -159,8 +159,8 @@ test_alloc_addr(Promo,PrivKey) ->
                      timestamp=>T,
                      pow=>scratchpad:mine_sha512(<<Promo/binary," ",(integer_to_binary(T))/binary," ">>,0,24)
                     })),
+    gen_server:call(txpool, {register, TX0}),
     TX0.
-    %gen_server:call(txpool, {register, TX0})
 
 test_xchain_tx(ToChain) ->
     TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
@@ -423,6 +423,20 @@ test_deploy_contract_test() ->
 	{DeployTX,
 	 txpool:new_tx(DeployTX)
     }.
+
+test_sign_patch1() ->
+    PrivKey=nodekey:get_priv(),
+    Patch=settings:sign(
+            settings:sign(
+            [
+             #{t=>set, p=>[<<"current">>, chain, patchsig ], v=>1}
+            ],
+            PrivKey),
+            hex:parse("2ACC7ACDBFFA92C252ADC21D8469CC08013EBE74924AB9FEA8627AE512B0A1E0")
+           ),
+    io:format("PK ~p~n", [settings:verify(Patch)]),
+    {Patch,
+    gen_server:call(txpool, {patch, Patch})}.
 
 
 test_sign_patch() ->
