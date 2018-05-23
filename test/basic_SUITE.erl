@@ -7,16 +7,17 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(TESTNET_NODES, [
-    "c1n1",
-    "c1n2",
-    "c1n3",
-    "c2n1",
-    "c2n2",
-    "c2n3"
+    "test_c1n1",
+    "test_c1n2",
+    "test_c1n3",
+    "test_c2n1",
+    "test_c2n2",
+    "test_c2n3"
 ]).
 
 all() ->
     [
+%%        register_wallet_test
         discovery_got_announce_test,
         discovery_register_test,
         discovery_lookup_test,
@@ -99,7 +100,7 @@ wait_for_testnet(Trys) ->
         Trys<1 ->
             timeout;
         Alive =/= NodesCount ->
-            io:fwrite("testnet haven't started yet, alive ~p, need ~p", [Alive, NodesCount]),
+            io:fwrite("testnet hasn't started yet, alive ~p, need ~p", [Alive, NodesCount]),
             timer:sleep(1000),
             wait_for_testnet(Trys-1);
         true -> ok
@@ -107,13 +108,13 @@ wait_for_testnet(Trys) ->
 
 
 discovery_register_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"c1n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid = rpc:call(get_node(<<"test_c1n1">>), erlang, whereis, [discovery]),
     Answer = gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
     ?assertEqual(ok, Answer).
 
 
 discovery_lookup_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"c1n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid = rpc:call(get_node(<<"test_c1n1">>), erlang, whereis, [discovery]),
     gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
     Result1 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
     ?assertMatch({ok, _, <<"test_service">>}, Result1),
@@ -124,7 +125,7 @@ discovery_lookup_test(_Config) ->
 
 
 discovery_unregister_by_name_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"c1n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid = rpc:call(get_node(<<"test_c1n1">>), erlang, whereis, [discovery]),
     gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
     gen_server:call(DiscoveryPid, {register, <<"test_service2">>, self()}),
     Result1 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
@@ -137,7 +138,7 @@ discovery_unregister_by_name_test(_Config) ->
 
 
 discovery_unregister_by_pid_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"c1n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid = rpc:call(get_node(<<"test_c1n1">>), erlang, whereis, [discovery]),
     MyPid = self(),
     gen_server:call(DiscoveryPid, {register, <<"test_service">>, MyPid}),
     gen_server:call(DiscoveryPid, {register, <<"test_service2">>, MyPid}),
@@ -174,15 +175,15 @@ build_announce(Name) ->
 
 
 discovery_got_announce_test(_Config) ->
-    DiscoveryC1N1 = rpc:call(get_node(<<"c1n1">>), erlang, whereis, [discovery]),
-    DiscoveryC1N2 = rpc:call(get_node(<<"c1n2">>), erlang, whereis, [discovery]),
-    DiscoveryC1N3 = rpc:call(get_node(<<"c1n3">>), erlang, whereis, [discovery]),
-    DiscoveryC2N2 = rpc:call(get_node(<<"c2n2">>), erlang, whereis, [discovery]),
+    DiscoveryC1N1 = rpc:call(get_node(<<"test_c1n1">>), erlang, whereis, [discovery]),
+    DiscoveryC1N2 = rpc:call(get_node(<<"test_c1n2">>), erlang, whereis, [discovery]),
+    DiscoveryC1N3 = rpc:call(get_node(<<"test_c1n3">>), erlang, whereis, [discovery]),
+    DiscoveryC2N2 = rpc:call(get_node(<<"test_c2n2">>), erlang, whereis, [discovery]),
     Rnd = integer_to_binary(rand:uniform(10000)),
     ServiceName = <<"looking_glass_", Rnd/binary>>,
     {_Announce, AnnounceBin} = build_announce(ServiceName),
     gen_server:cast(DiscoveryC1N1, {got_announce, AnnounceBin}),
-    timer:sleep(1000),  % wait for announce propagation
+    timer:sleep(2000),  % wait for announce propagation
     Result = gen_server:call(DiscoveryC1N1, {lookup, ServiceName, 1}),
     Experted = [#{address => <<"127.0.0.1">>,port => 1234, proto => api}],
     ?assertEqual(Experted, Result),
@@ -201,7 +202,62 @@ discovery_got_announce_test(_Config) ->
     ?assertEqual([], Result5).
 
 
+get_tx_status(TxId) when is_binary(TxId)  ->
+    get_tx_status(TxId, 60);
 
+get_tx_status(_TxId) ->
+    badarg.
+
+get_tx_status(_TxId, 0 = _Try) ->
+    {ok, timeout, 0};
+
+get_tx_status(TxId, Try)->
+    Url = "http://pwr.local:49811",
+    Query = {Url ++ "/api/tx/status/" ++ binary_to_list(TxId), []},
+    {ok, {{_, 200, _}, _, ResBody}} = httpc:request(get, Query, [], [{body_format, binary}]),
+    Res = jsx:decode(ResBody, [return_maps]),
+    Status = maps:get(<<"res">>, Res, null),
+    io:format("got tx status: ~p ~n * raw: ~p", [Status, Res]),
+    case Status of
+        null ->
+            timer:sleep(1000),
+            get_tx_status(TxId, Try-1);
+        AnyValidStatus ->
+            {ok, AnyValidStatus, Try}
+    end.
+
+register_wallet_test(_Config) ->
+    PrivKey = address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
+    Promo = <<"TEST5">>,
+    PubKey = tpecdsa:calc_pub(PrivKey, true),
+    Now = os:system_time(second),
+    TX0 = tx:pack(#{
+        type=>register,
+        register=>PubKey,
+        timestamp=>Now,
+        pow=>scratchpad:mine_sha512(<<Promo/binary, " ", (integer_to_binary(Now))/binary, " ">>, 0, 24)
+    }),
+    B64TX = base64:encode(TX0),
+    Body = jsx:encode(#{
+        tx=>B64TX
+    }),
+    % TODO: to get real http address from discovery
+    Url = "http://pwr.local:49811",
+    Query = {Url ++ "/api/tx/new", [], "application/json", Body},
+    {ok, {{_, 200, _}, _, ResBody}} = httpc:request(post, Query, [], [{body_format, binary}]),
+    Res = jsx:decode(ResBody, [return_maps]),
+    TxId = maps:get(<<"result">>, Res, unknown),
+    ?assertNotEqual(unknown, TxId),
+    ?assertMatch(#{<<"result">> := <<"ok">>}, Res),
+    {ok, Status, _Trys} = get_tx_status(TxId),
+    ?assertNotEqual(timeout, Status).
+
+
+
+%%    {
+%%    "result": "ok",
+%%    "txid": "1530F92815B5C0E3-3a6Lgm5KCLDRAAeG27DnEMWEmNHs-23"
+%%}
 
 
 

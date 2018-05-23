@@ -1,6 +1,6 @@
 #! /bin/sh
 
-NODES="c1n1 c1n2 c1n3 c2n1 c2n2 c2n3"
+NODES="test_c1n1 test_c1n2 test_c1n3 test_c2n1 test_c2n2 test_c2n3"
 # SYNC = 0 — no sync, SYNC = 1 — add -s sync to command line
 SYNC=0
 
@@ -63,27 +63,44 @@ stop_testnet() {
 }
 
 
+reset_testnet() {
+    echo "reseting testnet"
+    stop_testnet
+    host=`hostname`
+    for node in ${NODES}
+    do
+        node_host="${node}@${host}"
+        db_dir="db/db_${node_host}"
+        ledger_dir="db/ledger_${node_host}"
+
+        echo "removing ${db_dir}"
+        rm -rf "${db_dir}"
+        echo "removing ${ledger_dir}"
+        rm -rf "${ledger_dir}"
+    done
+}
+
 attach_testnet() {
-    echo "attach to testnet"
+    echo "attaching to testnet"
 
     sessions_cnt=`tmux ls |grep testnet |wc -l`
     if [ "${sessions_cnt}0" -eq 0 ]
     then
 #        echo "start new session"
         host=`hostname`
-        tmux new-session -d -s testnet -n chain1 "erl -sname cons_c1n1 -hidden -remsh c1n1\@${host}"
-        tmux split-window -v -p 67    "erl -sname cons_c1n2 -hidden -remsh c1n2\@${host}"
-        tmux split-window -v          "erl -sname cons_c1n3 -hidden -remsh c1n3\@${host}"
-        tmux new-window -n chain2     "erl -sname cons_c2n1 -hidden -remsh c2n1\@${host}"
-        tmux split-window -v -p 67    "erl -sname cons_c2n2 -hidden -remsh c2n2\@${host}"
-        tmux split-window -v          "erl -sname cons_c2n3 -hidden -remsh c2n3\@${host}"
+        tmux new-session -d -s testnet -n chain1 "erl -sname cons_c1n1 -hidden -remsh test_c1n1\@${host}"
+        tmux split-window -v -p 67    "erl -sname cons_c1n2 -hidden -remsh test_c1n2\@${host}"
+        tmux split-window -v          "erl -sname cons_c1n3 -hidden -remsh test_c1n3\@${host}"
+        tmux new-window -n chain2     "erl -sname cons_c2n1 -hidden -remsh test_c2n1\@${host}"
+        tmux split-window -v -p 67    "erl -sname cons_c2n2 -hidden -remsh test_c2n2\@${host}"
+        tmux split-window -v          "erl -sname cons_c2n3 -hidden -remsh test_c2n3\@${host}"
     fi
 
     tmux a -t testnet:chain1
 }
 
 usage() {
-    echo "usage: $0 start|stop|attach"
+    echo "usage: $0 start|stop|attach|reset"
 }
 
 if [ $# -ne 1 ]
@@ -102,6 +119,9 @@ case $1 in
         ;;
     attach)
         attach_testnet
+        ;;
+    reset)
+        reset_testnet
         ;;
     *)
         usage
