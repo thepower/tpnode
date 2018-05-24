@@ -1,18 +1,25 @@
 #! /bin/sh
 
-NODES="test_c1n1 test_c1n2 test_c1n3 test_c2n1 test_c2n2 test_c2n3"
+#NODES="test_c4n1 test_c4n2 test_c4n3 test_c2n1 test_c2n2 test_c2n3"
+CHAIN4="test_c4n1 test_c4n2 test_c4n3"
+CHAIN5="test_c5n1 test_c5n2 test_c5n3"
 # SYNC = 0 — no sync, SYNC = 1 — add -s sync to command line
 SYNC=0
+
+HOST=`hostname -s`
 
 
 is_alive() {
     node=$1
-    proc_cnt=`ps axuw | grep erl | grep " ${node}.config" | wc -l`
+    proc_cnt=`ps axuw | grep erl | grep "${node}.config" | wc -l`
     result=`[ ${proc_cnt} -ge 1 ]`
     return $result
 }
 
-start_testnet() {
+start_node() {
+    dir=$1
+    node=$2
+
     sync_str=""
 
     if [ $SYNC -eq 1 ]
@@ -20,22 +27,27 @@ start_testnet() {
         sync_str="-s sync"
     fi
 
-    for node in $NODES
-    do
-        if is_alive ${node}
-        then
-            echo skipping alive node ${node}
-        else
-            echo starting node $node
-            erl -config ${node}.config -sname ${node} -detached -noshell -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager ${sync_str} -s tpnode
-        fi
-    done
+    if is_alive ${node}
+    then
+        echo skipping alive node ${node}
+    else
+        echo starting node $node
+        export TPNODE_RESTORE=${dir}
+        erl -config "${dir}/${node}.config" -sname ${node} -detached -noshell -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager ${sync_str} -s tpnode
+    fi
+
+}
+
+
+start_testnet() {
+    for node in $CHAIN4; do start_node ./examples/test_chain4 ${node}; done
+#    for node in $CHAIN5; do start_node ./examples/test_chain5 ${node}; done
 }
 
 node_pid() {
     node=$1
 
-    pids=`ps axuw | grep erl | grep " ${node}.config" | awk '{print \$2;}'`
+    pids=`ps axuw | grep erl | grep "${node}.config" | awk '{print \$2;}'`
     pids_cnt=`echo ${pids}|wc -l`
 
     if [ $pids_cnt -ne 1 ]
@@ -46,38 +58,44 @@ node_pid() {
     echo $pids
 }
 
-stop_testnet() {
-    for node in ${NODES}
-    do
-        echo stopping node ${node}
-        pid=$(node_pid ${node})
-#        echo "pid is '${pid}'"
-        if [ "${pid}0" -eq 0 ]
-        then
-            echo unknown pid for node ${node}, skiping it
-        else
-            echo "sending kill signal to '${node}', pid '${pid}'"
-            kill ${pid}
-        fi
-    done
+stop_node() {
+    node=$1
+    echo stopping node ${node}
+    pid=$(node_pid ${node})
+#    echo "pid is '${pid}'"
+    if [ "${pid}0" -eq 0 ]
+    then
+        echo unknown pid for node ${node}, skiping it
+    else
+        echo "sending kill signal to '${node}', pid '${pid}'"
+        kill ${pid}
+    fi
 }
 
+stop_testnet() {
+    for node in ${CHAIN4}; do stop_node ${node}; done
+#    for node in ${CHAIN5}; do stop_node ${node}; done
+}
+
+
+reset_node() {
+    node=$1
+
+    node_host="${node}@${HOST}"
+    db_dir="db/db_${node_host}"
+    ledger_dir="db/ledger_${node_host}"
+
+    echo "removing ${db_dir}"
+    rm -rf "${db_dir}"
+    echo "removing ${ledger_dir}"
+    rm -rf "${ledger_dir}"
+}
 
 reset_testnet() {
     echo "reseting testnet"
     stop_testnet
-    host=`hostname`
-    for node in ${NODES}
-    do
-        node_host="${node}@${host}"
-        db_dir="db/db_${node_host}"
-        ledger_dir="db/ledger_${node_host}"
-
-        echo "removing ${db_dir}"
-        rm -rf "${db_dir}"
-        echo "removing ${ledger_dir}"
-        rm -rf "${ledger_dir}"
-    done
+    for node in ${CHAIN4}; do reset_node ${node}; done
+#    for node in ${CHAIN5}; do reset_node ${node}; done
 }
 
 attach_testnet() {
@@ -87,13 +105,12 @@ attach_testnet() {
     if [ "${sessions_cnt}0" -eq 0 ]
     then
 #        echo "start new session"
-        host=`hostname`
-        tmux new-session -d -s testnet -n chain1 "erl -sname cons_c1n1 -hidden -remsh test_c1n1\@${host}"
-        tmux split-window -v -p 67    "erl -sname cons_c1n2 -hidden -remsh test_c1n2\@${host}"
-        tmux split-window -v          "erl -sname cons_c1n3 -hidden -remsh test_c1n3\@${host}"
-        tmux new-window -n chain2     "erl -sname cons_c2n1 -hidden -remsh test_c2n1\@${host}"
-        tmux split-window -v -p 67    "erl -sname cons_c2n2 -hidden -remsh test_c2n2\@${host}"
-        tmux split-window -v          "erl -sname cons_c2n3 -hidden -remsh test_c2n3\@${host}"
+        tmux new-session -d -s testnet -n chain1 "erl -sname cons_c4n1 -hidden -remsh test_c4n1\@${HOST}"
+        tmux split-window -v -p 67    "erl -sname cons_c4n2 -hidden -remsh test_c4n2\@${HOST}"
+        tmux split-window -v          "erl -sname cons_c4n3 -hidden -remsh test_c4n3\@${HOST}"
+        tmux new-window -n chain2     "erl -sname cons_c2n1 -hidden -remsh test_c2n1\@${HOST}"
+        tmux split-window -v -p 67    "erl -sname cons_c2n2 -hidden -remsh test_c2n2\@${HOST}"
+        tmux split-window -v          "erl -sname cons_c2n3 -hidden -remsh test_c2n3\@${HOST}"
     fi
 
     tmux a -t testnet:chain1
