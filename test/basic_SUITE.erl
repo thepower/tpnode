@@ -6,14 +6,21 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+%%-define(TESTNET_NODES, [
+%%    "test_c4n1",
+%%    "test_c4n2",
+%%    "test_c4n3",
+%%    "test_c5n1",
+%%    "test_c5n2",
+%%    "test_c5n3"
+%%]).
+
 -define(TESTNET_NODES, [
-    "test_c1n1",
-    "test_c1n2",
-    "test_c1n3",
-    "test_c2n1",
-    "test_c2n2",
-    "test_c2n3"
+    "test_c4n1",
+    "test_c4n2",
+    "test_c4n3"
 ]).
+
 
 all() ->
     [
@@ -108,13 +115,13 @@ wait_for_testnet(Trys) ->
 
 
 discovery_register_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"test_c1n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
     Answer = gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
     ?assertEqual(ok, Answer).
 
 
 discovery_lookup_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"test_c1n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
     gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
     Result1 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
     ?assertMatch({ok, _, <<"test_service">>}, Result1),
@@ -125,7 +132,7 @@ discovery_lookup_test(_Config) ->
 
 
 discovery_unregister_by_name_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"test_c1n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
     gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
     gen_server:call(DiscoveryPid, {register, <<"test_service2">>, self()}),
     Result1 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
@@ -138,7 +145,7 @@ discovery_unregister_by_name_test(_Config) ->
 
 
 discovery_unregister_by_pid_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"test_c1n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
     MyPid = self(),
     gen_server:call(DiscoveryPid, {register, <<"test_service">>, MyPid}),
     gen_server:call(DiscoveryPid, {register, <<"test_service2">>, MyPid}),
@@ -175,30 +182,30 @@ build_announce(Name) ->
 
 
 discovery_got_announce_test(_Config) ->
-    DiscoveryC1N1 = rpc:call(get_node(<<"test_c1n1">>), erlang, whereis, [discovery]),
-    DiscoveryC1N2 = rpc:call(get_node(<<"test_c1n2">>), erlang, whereis, [discovery]),
-    DiscoveryC1N3 = rpc:call(get_node(<<"test_c1n3">>), erlang, whereis, [discovery]),
-    DiscoveryC2N2 = rpc:call(get_node(<<"test_c2n2">>), erlang, whereis, [discovery]),
+    DiscoveryC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
+    DiscoveryC4N2 = rpc:call(get_node(<<"test_c4n2">>), erlang, whereis, [discovery]),
+    DiscoveryC4N3 = rpc:call(get_node(<<"test_c4n3">>), erlang, whereis, [discovery]),
+    DiscoveryC5N2 = rpc:call(get_node(<<"test_c5n2">>), erlang, whereis, [discovery]),
     Rnd = integer_to_binary(rand:uniform(10000)),
     ServiceName = <<"looking_glass_", Rnd/binary>>,
     {_Announce, AnnounceBin} = build_announce(ServiceName),
-    gen_server:cast(DiscoveryC1N1, {got_announce, AnnounceBin}),
+    gen_server:cast(DiscoveryC4N1, {got_announce, AnnounceBin}),
     timer:sleep(2000),  % wait for announce propagation
-    Result = gen_server:call(DiscoveryC1N1, {lookup, ServiceName, 1}),
+    Result = gen_server:call(DiscoveryC4N1, {lookup, ServiceName, 1}),
     Experted = [#{address => <<"127.0.0.1">>,port => 1234, proto => api}],
     ?assertEqual(Experted, Result),
     % c1n1 should forward the announce to c1n2
-    Result1 = gen_server:call(DiscoveryC1N2, {lookup, ServiceName, 1}),
+    Result1 = gen_server:call(DiscoveryC4N2, {lookup, ServiceName, 1}),
     ?assertEqual(Experted, Result1),
-    Result2 = gen_server:call(DiscoveryC1N2, {lookup, ServiceName, 2}),
+    Result2 = gen_server:call(DiscoveryC4N2, {lookup, ServiceName, 2}),
     ?assertEqual([], Result2),
     % c1n3 should discard self announce
-    Result3 = gen_server:call(DiscoveryC1N3, {lookup, ServiceName, 1}),
+    Result3 = gen_server:call(DiscoveryC4N3, {lookup, ServiceName, 1}),
     ?assertEqual([], Result3),
     % c2n2 should get info from xchain announce
-    Result4 = gen_server:call(DiscoveryC2N2, {lookup, ServiceName, 1}),
+    Result4 = gen_server:call(DiscoveryC5N2, {lookup, ServiceName, 1}),
     ?assertEqual(Experted, Result4),
-    Result5 = gen_server:call(DiscoveryC2N2, {lookup, ServiceName, 2}),
+    Result5 = gen_server:call(DiscoveryC5N2, {lookup, ServiceName, 2}),
     ?assertEqual([], Result5).
 
 
