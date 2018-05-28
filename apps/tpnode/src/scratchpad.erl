@@ -204,6 +204,30 @@ test_add_endless(Address, Cur) ->
     gen_server:call(txpool, {patch, Patch})
     }.
 
+test_add_ch5() ->
+  Keys=[
+        {<<"c5n1">>,tpecdsa:calc_pub(base64:decode(<<"oWSw+OhPwTvJWysnR96NSngMIfbjOzQ1vCJ3xFaqAHw=">>),true)},
+        {<<"c5n2">>,tpecdsa:calc_pub(base64:decode(<<"s8jPAxfZIoAYxkf1TjiKEzcIh1wA54cmb2gvvCXIoBo=">>),true)},
+        {<<"c5n3">>,tpecdsa:calc_pub(base64:decode(<<"FYcpeIuVK96Ac96m6u46gz+YqOuMvSOoPMdxZW184ls=">>),true)}
+       ],
+  Patches=lists:foldl(
+            fun({Name,Key},Acc) ->
+                [ #{t=>set, p=>[keys,Name], v=>Key} | Acc]
+            end, 
+            lists:foldl(fun({NN,_},Acc) ->
+                            [ #{t=>set, p=>[nodechain,NN], v=>5} | Acc ]
+                        end, 
+                        [
+                         #{t=><<"list_add">>, p=>[chains], v=>5}
+                        ], Keys),
+            Keys),
+    PrivKey=nodekey:get_priv(),
+    Patch=settings:sign(Patches, PrivKey),
+    io:format("PK ~p~n", [settings:verify(Patch)]),
+    {Patch,
+    gen_server:call(txpool, {patch, Patch})
+    }.
+
 test_fee_settings() ->
 	PrivKey=nodekey:get_priv(),
 	MyChain=blockchain:chain(),
@@ -606,5 +630,15 @@ mine_sha512(Str, Nonce, Diff) ->
        mine_sha512(Str,Nonce+1,Diff)
   end.
 
+
+
+export_pvt_to_der() ->
+  file:write_file("/tmp/addr1pvt.der",<<(hex:parse("302e0201010420"))/binary,(address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>))/binary,(hex:parse("a00706052b8104000a"))/binary>>).
+
+export_pvt_pub_to_der() ->
+  file:write_file("/tmp/addr1pvt.der",<<(hex:parse("30740201010420"))/binary,(address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>))/binary,(hex:parse("a00706052b8104000aa144034200"))/binary,(tpecdsa:calc_pub(address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),false))/binary>>).
+
+export_pub_der() ->
+  file:write_file("/tmp/addr1pub.der",[hex:parse("3036301006072a8648ce3d020106052b8104000a032200"),tpecdsa:calc_pub(address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),true)]).
 
 
