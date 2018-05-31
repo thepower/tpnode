@@ -397,7 +397,7 @@ deploy_fee_contract() ->
 	DeployTX=tx:unpack(
 			   tx:sign(
 				 #{
-				 from=><<128, 1, 64, 0, 1, 0, 0, 4>>,
+				 from=><<128, 1, 64, 0, 4, 0, 0, 2>>,
 				 deploy=><<"chainfee">>,
 				 code=>erlang:term_to_binary(#{
 					interval=>10
@@ -406,20 +406,19 @@ deploy_fee_contract() ->
 				 timestamp=>os:system_time(millisecond)
 				}, TestPriv)
 			  ),
-	{DeployTX,
-	 txpool:new_tx(DeployTX)
+	{DeployTX %,txpool:new_tx(DeployTX)
 	}.
 
 
 test_contract_test() ->
     TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
-	From= <<128, 1, 64, 0, 1, 0, 0, 1>>,
+	From= <<128, 1, 64, 0, 4, 0, 0, 3>>,
 	Seq=bal:get(seq, ledger:get(From)),
 	DeployTX=tx:unpack(
 			   tx:sign(
 				 #{
 				 from=>From,
-				 to=><<128, 1, 64, 0, 1, 0, 0, 3>>,
+				 to=><<128, 1, 64, 0, 4, 0, 0, 3>>,
 				 amount=>1000000000,
 				 cur=><<"FTT">>,
 				 extradata=>jsx:encode(#{ fee=>10000000, feecur=><<"FTT">> }),
@@ -427,8 +426,7 @@ test_contract_test() ->
 				 timestamp=>os:system_time(millisecond)
 				}, TestPriv)
 			  ),
-	{DeployTX,
-	 txpool:new_tx(DeployTX)
+	{DeployTX %, txpool:new_tx(DeployTX)
     }.
 
 
@@ -641,4 +639,9 @@ export_pvt_pub_to_der() ->
 export_pub_der() ->
   file:write_file("/tmp/addr1pub.der",[hex:parse("3036301006072a8648ce3d020106052b8104000a032200"),tpecdsa:calc_pub(address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),true)]).
 
+%openssl ec -in /tmp/addr1pvt.der -inform der -pubout -outform pem -conv_form uncompressed
+%openssl ec -in /tmp/addr1pvt.der -inform der -text -noout
+%openssl asn1parse -inform der -in /tmp/addr1pvt.der -dump
+%openssl ec -inform der -text < /tmp/addr1pvt.der > /tmp/addr1pvt.pem
+%
 
