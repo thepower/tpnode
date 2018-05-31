@@ -1,61 +1,73 @@
 -module(genesis).
--export([genesis/0, new/1, settings/0]).
+-export([genesis/0, new/2, new/1, settings/0]).
 
 genesis() ->
     {ok, [Genesis]}=file:consult(application:get_env(tpnode,genesis,"genesis.txt")),
     Genesis.
 
 new(HPrivKey) ->
-    PrivKeys=case HPrivKey of
-               [E|_] when is_list(E) ->
-                 [ hex:parse(E1) || E1 <- HPrivKey];
-               [E|_] when is_binary(E) ->
-                 [ hex:parse(E1) || E1 <- HPrivKey];
-               E1 when is_list(E1) ->
-                 [hex:parse(E1)];
-               E1 when is_binary(E1) ->
-                 [hex:parse(E1)]
-             end,
-    Set0=case PrivKeys of 
-           [_] ->
-             settings();
-           [_,_|_] ->
-             settings(
-               lists:map(
-                 fun(Priv) ->
-                     Pub=tpecdsa:calc_pub(Priv,true),
-                     <<Ni:8/binary,_/binary>>=nodekey:node_id(Pub),
-                     {<<"node_",Ni/binary>>,Pub}
-                 end, PrivKeys)
-              )
-         end,
-    Patch=lists:foldl(
+  PrivKeys=case HPrivKey of
+             [E|_] when is_list(E) ->
+               [ hex:parse(E1) || E1 <- HPrivKey];
+             [<<_:32/binary>> |_] ->
+               HPrivKey;
+             [E|_] when is_binary(E) ->
+               [ hex:parse(E1) || E1 <- HPrivKey];
+             E1 when is_list(E1) ->
+               [hex:parse(E1)];
+             E1 when is_binary(E1) ->
+               [hex:parse(E1)]
+           end,
+  Set0=case PrivKeys of 
+         [_] ->
+           settings();
+         [_,_|_] ->
+           settings(
+             lists:map(
+               fun(Priv) ->
+                   Pub=tpecdsa:calc_pub(Priv,true),
+                   <<Ni:8/binary,_/binary>>=nodekey:node_id(Pub),
+                   {<<"node_",Ni/binary>>,Pub}
+               end, PrivKeys)
+            )
+       end,
+    new(HPrivKey, Set0).
+
+new(HPrivKey, Set0) ->
+  PrivKeys=case HPrivKey of
+             [E|_] when is_list(E) ->
+               [ hex:parse(E1) || E1 <- HPrivKey];
+             [<<_:32/binary>> |_] ->
+               HPrivKey;
+             [E|_] when is_binary(E) ->
+               [ hex:parse(E1) || E1 <- HPrivKey];
+             E1 when is_list(E1) ->
+               [hex:parse(E1)];
+             E1 when is_binary(E1) ->
+               [hex:parse(E1)]
+           end,
+  Patch=lists:foldl(
+          fun(PrivKey, Acc) ->
+              settings:sign(Acc, PrivKey)
+          end, Set0, PrivKeys),
+  Settings=[ { bin2hex:dbin2hex(crypto:hash(md5,settings:mp(Set0))), Patch } ],
+  Blk0=block:mkblock(
+         #{ parent=><<0, 0, 0, 0, 0, 0, 0, 0>>,
+            height=>0,
+            txs=>[],
+            bals=>#{},
+            settings=>Settings,
+            sign=>[]
+          }),
+  Genesis=lists:foldl(
             fun(PrivKey, Acc) ->
-                settings:sign(Acc, PrivKey)
-            end, Set0, PrivKeys),
-    
-    Blk0=block:mkblock(
-           #{ parent=><<0, 0, 0, 0, 0, 0, 0, 0>>,
-              height=>0,
-              txs=>[],
-              bals=>#{},
-              settings=>[
-                         {
-                          bin2hex:dbin2hex(crypto:hash(md5,settings:mp(Set0))),
-                          Patch
-                         }
-                        ],
-              sign=>[]
-            }),
-    Genesis=lists:foldl(
-              fun(PrivKey, Acc) ->
-                  block:sign(
-                    Acc,
-                    [{timestamp, os:system_time(millisecond)}],
-                    PrivKey)
-              end, Blk0, PrivKeys),
-    file:write_file("genesis.txt", io_lib:format("~p.~n", [Genesis])),
-    {ok, Genesis}.
+                block:sign(
+                  Acc,
+                  [{timestamp, os:system_time(millisecond)}],
+                  PrivKey)
+            end, Blk0, PrivKeys),
+  file:write_file("genesis.txt", io_lib:format("~p.~n", [Genesis])),
+  {ok, Genesis}.
 
 settings() ->
   settings(
