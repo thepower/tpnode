@@ -15,7 +15,7 @@ handle_xchain(ping) ->
 handle_xchain({node_id, RemoteNodeId, RemoteChannels}) ->
     try
         gen_server:cast(xchain_dispatcher, {register_peer, self(), RemoteNodeId, RemoteChannels}),
-        {iam, nodekey:node_id()}
+        {<<"iam">>, nodekey:node_id()}
     catch _:_ ->
         error
     end;

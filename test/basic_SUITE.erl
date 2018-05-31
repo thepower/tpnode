@@ -160,7 +160,7 @@ discovery_unregister_by_pid_test(_Config) ->
     ?assertEqual({error, not_found, <<"test_service2">>}, Result4).
 
 
-% build announce as c1n3
+% build announce as c4n3
 build_announce(Name) ->
     {Mega, Sec, _Micro} = os:timestamp(),
     Now = (Mega * 1000000 + Sec),
@@ -170,12 +170,12 @@ build_announce(Name) ->
         created => Now,
         ttl => 600,
         scopes => [api, xchain],
-        nodeid => <<"3BkkuVijuBkic5RDE9ZxSYgwhwqH">>, % id from c1n3
-        chain => 1
+        nodeid => <<"28AFpshz4W4YD7tbLj1iu4ytpPzQ">>, % id from c4n3
+        chain => 4
     },
     meck:new(nodekey),
-    % priv key from c1n3 node
-    meck:expect(nodekey, get_priv, fun() -> hex:parse("7CE9C3858363DB2C684C716A3A66A03866416947600A7CFF6EFF2EC3433815E7") end),
+    % priv key from c4n3 node
+    meck:expect(nodekey, get_priv, fun() -> hex:parse("2ACC7ACDBFFA92C252ADC21D8469CC08013EBE74924AB9FEA8627AE512B0A1E0") end),
     AnnounceBin = discovery:pack(Announce),
     meck:unload(nodekey),
     {Announce, AnnounceBin}.
@@ -191,21 +191,21 @@ discovery_got_announce_test(_Config) ->
     {_Announce, AnnounceBin} = build_announce(ServiceName),
     gen_server:cast(DiscoveryC4N1, {got_announce, AnnounceBin}),
     timer:sleep(2000),  % wait for announce propagation
-    Result = gen_server:call(DiscoveryC4N1, {lookup, ServiceName, 1}),
+    Result = gen_server:call(DiscoveryC4N1, {lookup, ServiceName, 4}),
     Experted = [#{address => <<"127.0.0.1">>,port => 1234, proto => api}],
     ?assertEqual(Experted, Result),
-    % c1n1 should forward the announce to c1n2
-    Result1 = gen_server:call(DiscoveryC4N2, {lookup, ServiceName, 1}),
+    % c4n1 should forward the announce to c4n2
+    Result1 = gen_server:call(DiscoveryC4N2, {lookup, ServiceName, 4}),
     ?assertEqual(Experted, Result1),
-    Result2 = gen_server:call(DiscoveryC4N2, {lookup, ServiceName, 2}),
+    Result2 = gen_server:call(DiscoveryC4N2, {lookup, ServiceName, 5}),
     ?assertEqual([], Result2),
-    % c1n3 should discard self announce
-    Result3 = gen_server:call(DiscoveryC4N3, {lookup, ServiceName, 1}),
+    % c4n3 should discard self announce
+    Result3 = gen_server:call(DiscoveryC4N3, {lookup, ServiceName, 4}),
     ?assertEqual([], Result3),
-    % c2n2 should get info from xchain announce
-    Result4 = gen_server:call(DiscoveryC5N2, {lookup, ServiceName, 1}),
+    % c5n2 should get info from xchain announce
+    Result4 = gen_server:call(DiscoveryC5N2, {lookup, ServiceName, 4}),
     ?assertEqual(Experted, Result4),
-    Result5 = gen_server:call(DiscoveryC5N2, {lookup, ServiceName, 2}),
+    Result5 = gen_server:call(DiscoveryC5N2, {lookup, ServiceName, 5}),
     ?assertEqual([], Result5).
 
 
