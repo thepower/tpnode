@@ -645,3 +645,19 @@ export_pub_der() ->
 %openssl ec -inform der -text < /tmp/addr1pvt.der > /tmp/addr1pvt.pem
 %
 
+cover_start() ->
+  cover:start(nodes()),
+  {true,{appl,tpnode,{appl_data,tpnode,_,_,_,Modules,_,_,_},_,_,_,_,_,_}}=application_controller:get_loaded(tpnode),
+  cover:compile_beam(Modules),
+  lists:map(
+    fun(NodeName) ->
+        rpc:call(NodeName,cover,compile_beam,[Modules])
+    end, nodes()),
+  cover:start(nodes()).
+%  cover:compile([ proplists:get_value(source,proplists:get_value(compile,M:module_info())) || M <- Modules ]).
+
+cover_finish() ->
+  cover:flush(nodes()),
+  timer:sleep(1000),
+  cover:analyse_to_file([{outdir,"cover"},html]).
+
