@@ -4,12 +4,14 @@
   secp256k1_ecdsa_verify/3,
   secp256k1_ec_pubkey_create/2,
   secp256k1_ec_pubkey_create/1,
-  export/2
+  export/2,
+  import/1
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+-include_lib("public_key/include/public_key.hrl").
 
 generate_priv() ->
   generate_priv(10).
@@ -114,6 +116,22 @@ export(<<PubKey:65/binary>>,der) ->
 
 export(<<PubKey:65/binary>>,raw) ->
   PubKey.
+
+import(<<"---",_/binary>>=PEM) ->
+  [{KeyType, DerKey, not_encrypted}] = public_key:pem_decode(PEM),
+  case public_key:der_decode(KeyType, DerKey) of
+    #'ECPrivateKey'{
+      version = 1,
+      privateKey = PrivKey,
+      parameters = {namedCurve,{1,3,132,0,10}}
+     } ->
+      {priv, PrivKey};
+    #'SubjectPublicKeyInfo'{
+%       algorithm = #'AlgorithmIdentifier'{ algorithm={1,2,840,10045,2,1}},
+       subjectPublicKey = PubKey
+      } ->
+      {pub, PubKey}
+  end.
 
 -ifdef(TEST).
 sign_test() ->

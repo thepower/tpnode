@@ -171,7 +171,7 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
     if(MyChain==Blk) ->
         case ledger:get(Addr) of
           not_found ->
-            {404, 
+            {404,
              #{result=><<"not_found">>,
                address=><<"0x",(hex:encode(Addr))/binary>>,
                txtaddress=>naddress:encode(Addr)
@@ -211,6 +211,7 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
 
 
 h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
+  QS=cowboy_req:parse_qs(_Req),
   try
     Addr=case TAddr of
            <<"0x", Hex/binary>> ->
@@ -247,7 +248,13 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
                 fun
                   (lastblk, V) -> bin2hex:dbin2hex(V);
       (ublk, V) -> bin2hex:dbin2hex(V);
-      (pubkey, V) -> bin2hex:dbin2hex(V);
+      (pubkey, V) ->
+                    case proplists:get_value(<<"pubkey">>, QS) of
+                      <<"b64">> -> base64:encode(V);
+                      <<"pem">> -> tpecdsa:export(V,pem);
+                      <<"raw">> -> V;
+                      _ -> hex:encode(V)
+                    end;
       (preblk, V) -> bin2hex:dbin2hex(V);
       (code, V) -> base64:encode(V);
       (state, V) ->
