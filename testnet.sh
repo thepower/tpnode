@@ -41,7 +41,7 @@ start_node() {
 
 start_testnet() {
     for node in $CHAIN4; do start_node ./examples/test_chain4 ${node}; done
-#    for node in $CHAIN5; do start_node ./examples/test_chain5 ${node}; done
+    for node in $CHAIN5; do start_node ./examples/test_chain5 ${node}; done
 }
 
 node_pid() {
@@ -74,7 +74,7 @@ stop_node() {
 
 stop_testnet() {
     for node in ${CHAIN4}; do stop_node ${node}; done
-#    for node in ${CHAIN5}; do stop_node ${node}; done
+    for node in ${CHAIN5}; do stop_node ${node}; done
 }
 
 
@@ -95,7 +95,7 @@ reset_testnet() {
     echo "reseting testnet"
     stop_testnet
     for node in ${CHAIN4}; do reset_node ${node}; done
-#    for node in ${CHAIN5}; do reset_node ${node}; done
+    for node in ${CHAIN5}; do reset_node ${node}; done
 }
 
 attach_testnet() {
@@ -105,15 +105,15 @@ attach_testnet() {
     if [ "${sessions_cnt}0" -eq 0 ]
     then
 #        echo "start new session"
-        tmux new-session -d -s testnet -n chain1 "erl -sname cons_c4n1 -hidden -remsh test_c4n1\@${HOST}"
+        tmux new-session -d -s testnet -n chain4 "erl -sname cons_c4n1 -hidden -remsh test_c4n1\@${HOST}"
         tmux split-window -v -p 67    "erl -sname cons_c4n2 -hidden -remsh test_c4n2\@${HOST}"
         tmux split-window -v          "erl -sname cons_c4n3 -hidden -remsh test_c4n3\@${HOST}"
-        tmux new-window -n chain2     "erl -sname cons_c2n1 -hidden -remsh test_c2n1\@${HOST}"
-        tmux split-window -v -p 67    "erl -sname cons_c2n2 -hidden -remsh test_c2n2\@${HOST}"
-        tmux split-window -v          "erl -sname cons_c2n3 -hidden -remsh test_c2n3\@${HOST}"
+        tmux new-window -n chain5     "erl -sname cons_c5n1 -hidden -remsh test_c5n1\@${HOST}"
+        tmux split-window -v -p 67    "erl -sname cons_c5n2 -hidden -remsh test_c5n2\@${HOST}"
+        tmux split-window -v          "erl -sname cons_c5n3 -hidden -remsh test_c5n3\@${HOST}"
     fi
 
-    tmux a -t testnet:chain1
+    tmux a -t testnet:chain4
 }
 
 usage() {
