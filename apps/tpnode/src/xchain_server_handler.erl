@@ -37,7 +37,7 @@ handle_xchain(height) ->
 
 handle_xchain({subscribe, Channel}) ->
     gen_server:cast(xchain_dispatcher, {subscribe, Channel, self()}),
-    {subscribed, Channel};
+    {<<"subscribed">>, Channel};
 
 handle_xchain({xdiscovery, AnnounceBin}) ->
     gen_server:cast(discovery, {got_xchain_announce, AnnounceBin}),
