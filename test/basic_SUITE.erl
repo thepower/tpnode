@@ -24,7 +24,7 @@
 
 all() ->
     [
-%%        register_wallet_test
+        register_wallet_test,
         discovery_got_announce_test,
         discovery_register_test,
         discovery_lookup_test,
@@ -162,8 +162,7 @@ discovery_unregister_by_pid_test(_Config) ->
 
 % build announce as c4n3
 build_announce(Name) ->
-    {Mega, Sec, _Micro} = os:timestamp(),
-    Now = (Mega * 1000000 + Sec),
+    Now = os:system_time(second),
     Announce = #{
         name => Name,
         address => #{address => <<"127.0.0.1">>, port => 1234, proto => api},
@@ -186,7 +185,7 @@ discovery_got_announce_test(_Config) ->
     DiscoveryC4N2 = rpc:call(get_node(<<"test_c4n2">>), erlang, whereis, [discovery]),
     DiscoveryC4N3 = rpc:call(get_node(<<"test_c4n3">>), erlang, whereis, [discovery]),
     DiscoveryC5N2 = rpc:call(get_node(<<"test_c5n2">>), erlang, whereis, [discovery]),
-    Rnd = integer_to_binary(rand:uniform(10000)),
+    Rnd = integer_to_binary(rand:uniform(100000)),
     ServiceName = <<"looking_glass_", Rnd/binary>>,
     {_Announce, AnnounceBin} = build_announce(ServiceName),
     gen_server:cast(DiscoveryC4N1, {got_announce, AnnounceBin}),
@@ -209,18 +208,17 @@ discovery_got_announce_test(_Config) ->
     ?assertEqual([], Result5).
 
 
-get_tx_status(TxId) when is_binary(TxId)  ->
-    get_tx_status(TxId, 60);
+get_tx_status(TxId, BaseUrl) when is_binary(TxId) andalso is_list(BaseUrl) ->
+    get_tx_status(TxId, BaseUrl, 60);
 
-get_tx_status(_TxId) ->
+get_tx_status(_TxId, _BaseUrl) ->
     badarg.
 
-get_tx_status(_TxId, 0 = _Try) ->
+get_tx_status(_TxId, _BaseUrl, 0 = _Try) ->
     {ok, timeout, 0};
 
-get_tx_status(TxId, Try)->
-    Url = "http://pwr.local:49811",
-    Query = {Url ++ "/api/tx/status/" ++ binary_to_list(TxId), []},
+get_tx_status(TxId, BaseUrl, Try)->
+    Query = {BaseUrl ++ "/api/tx/status/" ++ binary_to_list(TxId), []},
     {ok, {{_, 200, _}, _, ResBody}} = httpc:request(get, Query, [], [{body_format, binary}]),
     Res = jsx:decode(ResBody, [return_maps]),
     Status = maps:get(<<"res">>, Res, null),
@@ -228,7 +226,7 @@ get_tx_status(TxId, Try)->
     case Status of
         null ->
             timer:sleep(1000),
-            get_tx_status(TxId, Try-1);
+            get_tx_status(TxId, BaseUrl, Try-1);
         AnyValidStatus ->
             {ok, AnyValidStatus, Try}
     end.
@@ -242,7 +240,7 @@ register_wallet_test(_Config) ->
         type=>register,
         register=>PubKey,
         timestamp=>Now,
-        pow=>scratchpad:mine_sha512(<<Promo/binary, " ", (integer_to_binary(Now))/binary, " ">>, 0, 24)
+        pow=>scratchpad:mine_sha512(<<Promo/binary, " ", (integer_to_binary(Now))/binary, " ">>, 0, 8)
     }),
     B64TX = base64:encode(TX0),
     Body = jsx:encode(#{
@@ -253,22 +251,25 @@ register_wallet_test(_Config) ->
     Query = {Url ++ "/api/tx/new", [], "application/json", Body},
     {ok, {{_, 200, _}, _, ResBody}} = httpc:request(post, Query, [], [{body_format, binary}]),
     Res = jsx:decode(ResBody, [return_maps]),
-    TxId = maps:get(<<"result">>, Res, unknown),
+    ?assertEqual(<<"ok">>, maps:get(<<"result">>, Res, unknown)),
+    TxId = maps:get(<<"txid">>, Res, unknown),
     ?assertNotEqual(unknown, TxId),
+    io:format("got txid: ~p~n~p~n", [TxId, ResBody]),
     ?assertMatch(#{<<"result">> := <<"ok">>}, Res),
-    {ok, Status, _Trys} = get_tx_status(TxId),
-    ?assertNotEqual(timeout, Status).
-
-
-
-%%    {
-%%    "result": "ok",
-%%    "txid": "1530F92815B5C0E3-3a6Lgm5KCLDRAAeG27DnEMWEmNHs-23"
-%%}
-
-
-
-
-
-
+    {ok, Status, _TrysLeft} = get_tx_status(TxId, Url),
+    io:format("transaction status: ~p ~n trys left: ~p", [Status, _TrysLeft]),
+    ?assertNotEqual(timeout, Status),
+    ?assertMatch(#{<<"ok">> := true}, Status),
+    Wallet = maps:get(<<"res">>, Status, unknown),
+    ?assertNotEqual(unknown, Wallet),
+    % проверяем статус кошелька через API
+    Query2 = {Url ++ "/api/address/" ++ binary_to_list(Wallet), []},
+    {ok, {{_, 200, _}, _, ResBody2}} = httpc:request(get, Query2, [], [{body_format, binary}]),
+    Res2 = jsx:decode(ResBody2, [return_maps]),
+    io:format("Info for wallet ~p: ~p", [Wallet, Res2]),
+    ?assertMatch(#{<<"result">> := <<"ok">>, <<"txtaddress">> := Wallet}, Res2),
+    WalletInfo = maps:get(<<"info">>, Res2, unknown),
+    ?assertNotEqual(unknown, WalletInfo),
+    PubKeyFromAPI = maps:get(<<"pubkey">>, WalletInfo, unknown),
+    ?assertNotEqual(unknown, PubKeyFromAPI).
 
