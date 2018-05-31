@@ -7,7 +7,7 @@
 -export([handle_xchain/3]).
 
 
-handle_xchain({iam, NodeId}, ConnPid, #{subs:=Subs} = State) ->
+handle_xchain({<<"iam">>, NodeId}, ConnPid, #{subs:=Subs} = State) ->
     State#{
         subs => set_node_id(ConnPid, NodeId, Subs)
     };
