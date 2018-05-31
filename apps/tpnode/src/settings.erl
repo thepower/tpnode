@@ -217,7 +217,10 @@ patch({_TxID, #{patch:=Patch,
 patch(#{patch:=Patch}, M) ->
     patch(Patch, M);
 
-patch(MP, M) ->
+patch(Changes, M) when is_list(Changes) ->
+  patch1(Changes, M);
+
+patch(MP, M) when is_binary(MP) ->
     DMP=dmp(MP),
     patch1(DMP, M).
 
