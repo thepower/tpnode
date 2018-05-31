@@ -9,7 +9,7 @@
 				 GetFun :: fun()) ->
 	{'ok', NewLedger :: map()}.
 
--callback handle_tx(Tx :: binary(),
+-callback handle_tx(Tx :: map(),
 					Ledger :: map(),
 					GasLimit :: integer(),
 					GetFun :: fun()) ->
