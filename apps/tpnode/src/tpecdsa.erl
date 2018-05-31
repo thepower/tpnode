@@ -3,7 +3,8 @@
 -export([secp256k1_ecdsa_sign/4,
   secp256k1_ecdsa_verify/3,
   secp256k1_ec_pubkey_create/2,
-  secp256k1_ec_pubkey_create/1
+  secp256k1_ec_pubkey_create/1,
+  export/2
 ]).
 
 -ifdef(TEST).
@@ -74,6 +75,45 @@ secp256k1_ec_pubkey_create(SecKey) -> %use mini keys by default
 secp256k1_ec_pubkey_create(SecKey, Compressed) ->
   calc_pub(SecKey, Compressed).
 
+
+export(<<PrivKey:32/binary>>,pem) ->
+  BDer=base64:encode(export(PrivKey,der)),
+  <<"-----BEGIN EC PRIVATE KEY-----\n",
+    BDer/binary,
+  "\n-----END EC PRIVATE KEY-----">>;
+
+export(<<PrivKey:32/binary>>,der) ->
+  <<16#30,16#2e,16#02,16#01,16#01,16#04,16#20,PrivKey/binary,
+    16#a0,16#07,16#06,16#05,16#2b,16#81,16#04,16#00,16#0a>>;
+
+export(<<PrivKey:32/binary>>,raw) ->
+  PrivKey;
+
+export(<<PubKey:33/binary>>,pem) ->
+  BDer=base64:encode(export(PubKey,der)),
+  <<"-----BEGIN PUBLIC KEY-----\n",
+    BDer/binary,
+  "\n-----END PUBLIC KEY-----">>;
+
+export(<<PubKey:33/binary>>,der) ->
+  <<48,54,48,16,6,7,42,134,72,206,61,2,1,6,5,43,129,4,0,10,3,34,0,
+    PubKey/binary>>;
+
+export(<<PubKey:33/binary>>,raw) ->
+  PubKey;
+
+export(<<PubKey:65/binary>>,pem) ->
+  BDer=base64:encode(export(PubKey,der)),
+  <<"-----BEGIN PUBLIC KEY-----\n",
+    BDer/binary,
+  "\n-----END PUBLIC KEY-----">>;
+
+export(<<PubKey:65/binary>>,der) ->
+  <<48,(54+32),48,16,6,7,42,134,72,206,61,2,1,6,5,43,129,4,0,10,3,(34+32),0,
+    PubKey/binary>>;
+
+export(<<PubKey:65/binary>>,raw) ->
+  PubKey.
 
 -ifdef(TEST).
 sign_test() ->
