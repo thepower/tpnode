@@ -28,7 +28,7 @@ get_settings_by_path(GetPath) ->
    ).
 
 settings_to_ets(NewSettings) ->
-  Patches=settings:get_patches(NewSettings),
+  Patches=settings:get_patches(NewSettings,ets),
   Ver=erlang:system_time(),
   SetApply=lists:map(fun(#{<<"p">>:=Path,<<"t">>:=Action,<<"v">>:=Value}) ->
                   lager:info("Path ~p:~p",[Path,Action]),

@@ -1,7 +1,7 @@
 -module(settings).
 
 -export([new/0, set/3, patch/2, mp/1, dmp/1, get/2]).
--export([sign/2, verify/1, verify/2, get_patches/1]).
+-export([sign/2, verify/1, verify/2, get_patches/1, get_patches/2]).
 
 -ifndef(TEST).
 -define(TEST, 1).
@@ -91,7 +91,6 @@ get([], M) -> M;
 get([Hd|Path], M) when is_list(Path) ->
     H1=maps:get(Hd, M, #{}),
     get(Path, H1).
-
 
 change(Action, [Element|Path], Value, M, FPath) when
       Element==<<"chain">> orelse
@@ -251,24 +250,33 @@ action(<<"member">>) -> {member, true};
 action(<<"nonmember">>) -> {member, false};
 action(Action) -> throw({action, Action}).
 
-get_patches(Settings)
-  when is_map(Settings) ->
-    dmp(mp(lists:reverse(parse_settings(maps:keys(Settings), Settings, [], [])))).
+get_patches(Settings) ->
+  get_patches(Settings, export).
 
-parse_settings([], _, _, Patches) -> Patches;
-parse_settings([H|T], Settings, Path, Patches) ->
+get_patches(Settings, Mode = export) when is_map(Settings) ->
+    dmp(mp(lists:reverse(parse_settings(maps:keys(Settings), Settings, [], [], Mode))));
+
+get_patches(Settings, Mode = ets) when is_map(Settings) ->
+    lists:reverse(parse_settings(maps:keys(Settings), Settings, [], [], Mode)).
+
+parse_settings([], _, _, Patches, _Mode) -> Patches;
+parse_settings([H|T], Settings, Path, Patches, Mode) ->
   NewPath = [H|Path],
   Item = maps:get(H, Settings),
-  if is_map(Item) ->
-       NewPatches = parse_settings(maps:keys(Item), Item, NewPath, Patches);
+  NewPatches = if is_map(Item) ->
+       parse_settings(maps:keys(Item), Item, NewPath, Patches, Mode);
      is_list(Item) ->
-       NewPatches = (lists:foldl(fun(Elem, Acc) ->
-                                   [#{t => list_add, p => lists:reverse(NewPath), v => Elem}|Acc]
+       (lists:foldl(fun(Elem, Acc) ->
+                                   [#{<<"t">> => <<"list_add">>, 
+                                      <<"p">> => lists:reverse(NewPath), 
+                                      <<"v">> => Elem}|Acc]
                                  end, Patches, Item));
      not is_map(Item) and not is_list(Item) ->
-       NewPatches = [#{t => set, p => lists:reverse(NewPath), v => Item}|Patches]
+       [#{<<"t">> => <<"set">>, 
+          <<"p">> => lists:reverse(NewPath), 
+          <<"v">> => Item}|Patches]
   end,
-  parse_settings(T, Settings, Path, NewPatches).
+  parse_settings(T, Settings, Path, NewPatches, Mode).
 
 
 -ifdef(TEST).
