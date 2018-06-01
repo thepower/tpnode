@@ -24,6 +24,7 @@
 
 all() ->
     [
+        transaction_test,
         register_wallet_test,
         discovery_got_announce_test,
         discovery_register_test,
@@ -214,8 +215,8 @@ get_tx_status(TxId, BaseUrl) when is_binary(TxId) andalso is_list(BaseUrl) ->
 get_tx_status(_TxId, _BaseUrl) ->
     badarg.
 
-get_tx_status(_TxId, _BaseUrl, 0 = _Try) ->
-    {ok, timeout, 0};
+get_tx_status(_TxId, _BaseUrl, 0 = _Trys) ->
+    {ok, timeout, _Trys};
 
 get_tx_status(TxId, BaseUrl, Try)->
     Query = {BaseUrl ++ "/api/tx/status/" ++ binary_to_list(TxId), []},
@@ -231,8 +232,32 @@ get_tx_status(TxId, BaseUrl, Try)->
             {ok, AnyValidStatus, Try}
     end.
 
-register_wallet_test(_Config) ->
-    PrivKey = address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
+
+wait_for_tx(TxId, NodeName) ->
+    wait_for_tx(TxId, NodeName, 10).
+
+wait_for_tx(_TxId, _NodeName, 0 = _TrysLeft) ->
+    {timeout, _TrysLeft};
+
+wait_for_tx(TxId, NodeName, TrysLeft) ->
+    Status = rpc:call(NodeName, txstatus, get, [TxId]),
+    io:format("got tx status: ~p ~n", [Status]),
+    case Status of
+        undefined ->
+            timer:sleep(1000),
+            wait_for_tx(TxId, NodeName, TrysLeft - 1);
+        {true, ok} ->
+            {ok, TrysLeft};
+        {false, Error} ->
+            {error, Error}
+    end.
+
+
+get_wallet_priv_key() ->
+    address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>).
+
+get_register_wallet_transaction() ->
+    PrivKey = get_wallet_priv_key(),
     Promo = <<"TEST5">>,
     PubKey = tpecdsa:calc_pub(PrivKey, true),
     Now = os:system_time(second),
@@ -246,6 +271,11 @@ register_wallet_test(_Config) ->
     Body = jsx:encode(#{
         tx=>B64TX
     }),
+    Body.
+
+
+register_wallet_test(_Config) ->
+    Body = get_register_wallet_transaction(),
     % TODO: to get real http address from discovery
     Url = "http://pwr.local:49811",
     Query = {Url ++ "/api/tx/new", [], "application/json", Body},
@@ -272,4 +302,95 @@ register_wallet_test(_Config) ->
     ?assertNotEqual(unknown, WalletInfo),
     PubKeyFromAPI = maps:get(<<"pubkey">>, WalletInfo, unknown),
     ?assertNotEqual(unknown, PubKeyFromAPI).
+
+
+get_base_url() ->
+    "http://pwr.local:49811".
+
+
+get_wallet(Wallet) when is_binary(Wallet)->
+    get_wallet(binary_to_list(Wallet));
+
+get_wallet(Wallet) ->
+    Url = get_base_url(),
+    Query = {Url ++ "/api/address/" ++ Wallet, []},
+    {ok, {{_, 200, _}, _, ResBody}} =
+        httpc:request(get, Query, [], [{body_format, binary}]),
+    jsx:decode(ResBody, [return_maps]).
+
+
+transaction_test(_Config) ->
+    % регистрируем кошелек
+    Body = get_register_wallet_transaction(),
+    % TODO: to get real http address from discovery
+    Url = get_base_url(),
+    Query = {Url ++ "/api/tx/new", [], "application/json", Body},
+    {ok, {{_, 200, _}, _, ResBody}} = httpc:request(post, Query, [], [{body_format, binary}]),
+    Res = jsx:decode(ResBody, [return_maps]),
+    {ok, {{_, 200, _}, _, ResBody2}} = httpc:request(post, Query, [], [{body_format, binary}]),
+    Res2 = jsx:decode(ResBody2, [return_maps]),
+    ?assertEqual(<<"ok">>, maps:get(<<"result">>, Res, unknown)),
+    ?assertEqual(<<"ok">>, maps:get(<<"result">>, Res2, unknown)),
+    TxId = maps:get(<<"txid">>, Res, unknown),
+    TxId2 = maps:get(<<"txid">>, Res2, unknown),
+    ?assertMatch(#{<<"result">> := <<"ok">>}, Res),
+    ?assertMatch(#{<<"result">> := <<"ok">>}, Res2),
+    {ok, Status, _} = get_tx_status(TxId, Url),
+    {ok, Status2, _} = get_tx_status(TxId2, Url),
+    io:format("transaction status1: ~p ~n", [Status]),
+    io:format("transaction status2: ~p ~n", [Status2]),
+    ?assertMatch(#{<<"ok">> := true}, Status),
+    ?assertMatch(#{<<"ok">> := true}, Status2),
+    Wallet = maps:get(<<"res">>, Status, unknown),
+    Wallet2 = maps:get(<<"res">>, Status2, unknown),
+    ?assertNotEqual(unknown, Wallet),
+    ?assertNotEqual(unknown, Wallet2),
+    io:format("wallet: ~p, wallet2: ~p ~n", [Wallet, Wallet2]),
+    %%%%%%%%%%%%%%%% делаем endless %%%%%%%%%%%%%%
+    Cur = <<"FTT">>,
+    SrcAddress = naddress:decode(Wallet),
+    TxpoolPidC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [txpool]),
+    C4N1NodePrivKey = rpc:call(get_node(<<"test_c4n1">>), nodekey, get_priv, []),
+    Patch = settings:sign(
+        [#{<<"t">>=><<"set">>,
+            <<"p">>=>[<<"current">>, <<"endless">>, SrcAddress, Cur],
+            <<"v">>=>true},
+        #{<<"t">>=><<"set">>,
+            <<"p">>=>[<<"current">>, <<"endless">>, SrcAddress, <<"SK">>],
+            <<"v">>=>true}],
+        C4N1NodePrivKey),
+    {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {patch, Patch}),
+    io:format("PatchTxId: ~p~n", [PatchTxId]),
+    {ok, _} = wait_for_tx(PatchTxId, get_node(<<"test_c4n1">>)),
+    ChainSettngs = rpc:call(get_node(<<"test_c4n1">>), blockchain, get_settings, []),
+    io:format("ChainSettngs: ~p~n", [ChainSettngs]),
+
+    Tx=#{
+        amount=>10,
+        cur=>Cur,
+        extradata=>jsx:encode(#{ message=><<"preved from common test">> }),
+        from=>SrcAddress,
+        to=>naddress:decode(Wallet2),
+        seq=>1, % свежереганный кошелек     Seq=bal:get(seq, ledger:get(From)),
+        timestamp=>os:system_time(millisecond)
+    },
+    io:format("TX1 ~p.~n", [Tx]),
+    NewTx=tx:sign(Tx, get_wallet_priv_key()),
+    io:format("TX2 ~p.~n", [NewTx]),
+%%    txpool:new_tx(NewTx),
+    B64TX = base64:encode(NewTx),
+    Body3 = jsx:encode(#{
+        tx=>B64TX
+    }),
+    Query3 = {Url ++ "/api/tx/new", [], "application/json", Body3},
+    {ok, {{_, 200, _}, _, ResBody3}} =
+        httpc:request(post, Query3, [], [{body_format, binary}]),
+    Res3 = jsx:decode(ResBody3, [return_maps]),
+    TxId3 = maps:get(<<"txid">>, Res3, unknown),
+    {ok, Status3, _} = get_tx_status(TxId3, Url),
+    ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
+    io:format("transaction status3: ~p ~n", [Status3]),
+    Wallet2Data = get_wallet(Wallet2),
+    ?assertMatch(#{<<"info">> := #{<<"amount">> := #{<<"FTT">> := 10}}}, Wallet2Data).
+
 
