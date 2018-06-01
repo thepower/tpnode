@@ -208,19 +208,19 @@ discovery_got_announce_test(_Config) ->
     Result5 = gen_server:call(DiscoveryC5N2, {lookup, ServiceName, 5}),
     ?assertEqual([], Result5).
 
-get_tx_status(TxId) ->
-    get_tx_status(TxId, get_base_url()).
+api_get_tx_status(TxId) ->
+    api_get_tx_status(TxId, get_base_url()).
 
-get_tx_status(TxId, BaseUrl) when is_binary(TxId) andalso is_list(BaseUrl) ->
-    get_tx_status(TxId, BaseUrl, 20);
+api_get_tx_status(TxId, BaseUrl) when is_binary(TxId) andalso is_list(BaseUrl) ->
+    api_get_tx_status(TxId, BaseUrl, 20);
 
-get_tx_status(_TxId, _BaseUrl) ->
+api_get_tx_status(_TxId, _BaseUrl) ->
     badarg.
 
-get_tx_status(_TxId, _BaseUrl, 0 = _Trys) ->
+api_get_tx_status(_TxId, _BaseUrl, 0 = _Trys) ->
     {ok, timeout, _Trys};
 
-get_tx_status(TxId, BaseUrl, Try)->
+api_get_tx_status(TxId, BaseUrl, Try)->
     Query = {BaseUrl ++ "/api/tx/status/" ++ binary_to_list(TxId), []},
     {ok, {{_, 200, _}, _, ResBody}} = httpc:request(get, Query, [], [{body_format, binary}]),
     Res = jsx:decode(ResBody, [return_maps]),
@@ -229,7 +229,7 @@ get_tx_status(TxId, BaseUrl, Try)->
     case Status of
         null ->
             timer:sleep(1000),
-            get_tx_status(TxId, BaseUrl, Try-1);
+            api_get_tx_status(TxId, BaseUrl, Try-1);
         AnyValidStatus ->
             {ok, AnyValidStatus, Try}
     end.
@@ -273,20 +273,20 @@ get_register_wallet_transaction() ->
 
 register_wallet_test(_Config) ->
     RegisterTx = get_register_wallet_transaction(),
-    Res = post_transaction(RegisterTx),
+    Res = api_post_transaction(RegisterTx),
     ?assertEqual(<<"ok">>, maps:get(<<"result">>, Res, unknown)),
     TxId = maps:get(<<"txid">>, Res, unknown),
     ?assertNotEqual(unknown, TxId),
     io:format("got txid: ~p~n", [TxId]),
     ?assertMatch(#{<<"result">> := <<"ok">>}, Res),
-    {ok, Status, _TrysLeft} = get_tx_status(TxId),
+    {ok, Status, _TrysLeft} = api_get_tx_status(TxId),
     io:format("transaction status: ~p ~n trys left: ~p", [Status, _TrysLeft]),
     ?assertNotEqual(timeout, Status),
     ?assertMatch(#{<<"ok">> := true}, Status),
     Wallet = maps:get(<<"res">>, Status, unknown),
     ?assertNotEqual(unknown, Wallet),
     % проверяем статус кошелька через API
-    Res2 = get_wallet(Wallet),
+    Res2 = api_get_wallet(Wallet),
     io:format("Info for wallet ~p: ~p", [Wallet, Res2]),
     ?assertMatch(#{<<"result">> := <<"ok">>, <<"txtaddress">> := Wallet}, Res2),
     WalletInfo = maps:get(<<"info">>, Res2, unknown),
@@ -299,10 +299,10 @@ get_base_url() ->
     "http://pwr.local:49811".
 
 % get info for wallet
-get_wallet(Wallet) when is_binary(Wallet)->
-    get_wallet(binary_to_list(Wallet));
+api_get_wallet(Wallet) when is_binary(Wallet)->
+    api_get_wallet(binary_to_list(Wallet));
 
-get_wallet(Wallet) ->
+api_get_wallet(Wallet) ->
     Url = get_base_url(),
     Query = {Url ++ "/api/address/" ++ Wallet, []},
     {ok, {{_, 200, _}, _, ResBody}} =
@@ -310,10 +310,10 @@ get_wallet(Wallet) ->
     jsx:decode(ResBody, [return_maps]).
 
 % post encoded and signed transaction
-post_transaction(Transaction) ->
-    post_transaction(Transaction, get_base_url()).
+api_post_transaction(Transaction) ->
+    api_post_transaction(Transaction, get_base_url()).
 
-post_transaction(Transaction, Url) ->
+api_post_transaction(Transaction, Url) ->
     Body = jsx:encode(#{
         tx=>base64:encode(Transaction)
     }),
@@ -322,14 +322,14 @@ post_transaction(Transaction, Url) ->
     jsx:decode(ResBody, [return_maps]).
 
 
-register_wallet_through_api() ->
+api_register_wallet() ->
     % регистрируем кошелек
     RegisterTx = get_register_wallet_transaction(),
-    Res = post_transaction(RegisterTx),
+    Res = api_post_transaction(RegisterTx),
     ?assertEqual(<<"ok">>, maps:get(<<"result">>, Res, unknown)),
     TxId = maps:get(<<"txid">>, Res, unknown),
     ?assertMatch(#{<<"result">> := <<"ok">>}, Res),
-    {ok, Status, _} = get_tx_status(TxId),
+    {ok, Status, _} = api_get_tx_status(TxId),
     io:format("register wallet transaction status: ~p ~n", [Status]),
     ?assertMatch(#{<<"ok">> := true}, Status),
     Wallet = maps:get(<<"res">>, Status, unknown),
@@ -340,8 +340,8 @@ register_wallet_through_api() ->
 
 transaction_test(_Config) ->
     % регистрируем кошелек
-    Wallet = register_wallet_through_api(),
-    Wallet2 = register_wallet_through_api(),
+    Wallet = api_register_wallet(),
+    Wallet2 = api_register_wallet(),
     io:format("wallet: ~p, wallet2: ~p ~n", [Wallet, Wallet2]),
     %%%%%%%%%%%%%%%% делаем endless %%%%%%%%%%%%%%
     Cur = <<"FTT">>,
@@ -376,12 +376,12 @@ transaction_test(_Config) ->
     NewTx=tx:sign(Tx, get_wallet_priv_key()),
 %%    io:format("TX2 ~p.~n", [NewTx]),
 %%    txpool:new_tx(NewTx),
-    Res3 = post_transaction(NewTx),
+    Res3 = api_post_transaction(NewTx),
     TxId3 = maps:get(<<"txid">>, Res3, unknown),
-    {ok, Status3, _} = get_tx_status(TxId3),
+    {ok, Status3, _} = api_get_tx_status(TxId3),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
     io:format("transaction status3: ~p ~n", [Status3]),
-    Wallet2Data = get_wallet(Wallet2),
+    Wallet2Data = api_get_wallet(Wallet2),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{<<"FTT">> := Amount}}}, Wallet2Data).
 
 
