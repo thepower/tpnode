@@ -309,7 +309,7 @@ api_get_wallet(Wallet) ->
         httpc:request(get, Query, [], [{body_format, binary}]),
     jsx:decode(ResBody, [return_maps]).
 
-% post encoded and signed transaction
+% post encoded and signed transaction using API
 api_post_transaction(Transaction) ->
     api_post_transaction(Transaction, get_base_url()).
 
@@ -321,7 +321,11 @@ api_post_transaction(Transaction, Url) ->
     {ok, {{_, 200, _}, _, ResBody}} = httpc:request(post, Query, [], [{body_format, binary}]),
     jsx:decode(ResBody, [return_maps]).
 
+% post transaction using distribution
+dist_post_transaction(Node, Transaction) ->
+    rpc:call(Node, txpool, new_tx, [Transaction]).
 
+% register new wallet using API
 api_register_wallet() ->
     % регистрируем кошелек
     RegisterTx = get_register_wallet_transaction(),
@@ -338,6 +342,34 @@ api_register_wallet() ->
     Wallet.
 
 
+% get current sequence for wallet
+get_sequence(Node, Wallet) ->
+    Ledger = rpc:call(Node, ledger, get, [naddress:decode(Wallet)]),
+    case bal:get(seq, Ledger) of
+        Seq when is_integer(Seq) -> Seq;
+        _ -> 0
+    end.
+
+
+make_transaction(From, To, Currency, Amount, Message) ->
+    Node = get_node(<<"test_c4n1">>),
+    make_transaction(Node, From, To, Currency, Amount, Message).
+
+make_transaction(Node, From, To, Currency, Amount, Message) ->
+    Seq = get_sequence(Node, From),
+    Tx = #{
+        amount => Amount,
+        cur => Currency,
+        extradata =>jsx:encode(#{message=>Message}),
+        from => naddress:decode(From),
+        to => naddress:decode(To),
+        seq=> Seq + 1,
+        timestamp => os:system_time(millisecond)
+    },
+    SignedTx = tx:sign(Tx, get_wallet_priv_key()),
+    Res4 = api_post_transaction(SignedTx),
+    maps:get(<<"txid">>, Res4, unknown).
+
 transaction_test(_Config) ->
     % регистрируем кошелек
     Wallet = api_register_wallet(),
@@ -345,15 +377,15 @@ transaction_test(_Config) ->
     io:format("wallet: ~p, wallet2: ~p ~n", [Wallet, Wallet2]),
     %%%%%%%%%%%%%%%% делаем endless %%%%%%%%%%%%%%
     Cur = <<"FTT">>,
-    SrcAddress = naddress:decode(Wallet),
+    EndlessAddress = naddress:decode(Wallet),
     TxpoolPidC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [txpool]),
     C4N1NodePrivKey = rpc:call(get_node(<<"test_c4n1">>), nodekey, get_priv, []),
     Patch = settings:sign(
         [#{<<"t">>=><<"set">>,
-            <<"p">>=>[<<"current">>, <<"endless">>, SrcAddress, Cur],
+            <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, Cur],
             <<"v">>=>true},
         #{<<"t">>=><<"set">>,
-            <<"p">>=>[<<"current">>, <<"endless">>, SrcAddress, <<"SK">>],
+            <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, <<"SK">>],
             <<"v">>=>true}],
         C4N1NodePrivKey),
     {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {patch, Patch}),
@@ -361,27 +393,57 @@ transaction_test(_Config) ->
     {ok, _} = wait_for_tx(PatchTxId, get_node(<<"test_c4n1">>)),
     ChainSettngs = rpc:call(get_node(<<"test_c4n1">>), blockchain, get_settings, []),
     io:format("ChainSettngs: ~p~n", [ChainSettngs]),
-    Amount = rand:uniform(100000),
+    Amount = max(1000, rand:uniform(100000)),
 
-    Tx=#{
-        amount=>Amount,
-        cur=>Cur,
-        extradata=>jsx:encode(#{ message=><<"preved from common test">> }),
-        from=>SrcAddress,
-        to=>naddress:decode(Wallet2),
-        seq=>1, % свежереганный кошелек     Seq=bal:get(seq, ledger:get(From)),
-        timestamp=>os:system_time(millisecond)
-    },
-%%    io:format("TX1 ~p.~n", [Tx]),
-    NewTx=tx:sign(Tx, get_wallet_priv_key()),
-%%    io:format("TX2 ~p.~n", [NewTx]),
-%%    txpool:new_tx(NewTx),
-    Res3 = api_post_transaction(NewTx),
-    TxId3 = maps:get(<<"txid">>, Res3, unknown),
+    % send money from endless to Wallet2
+    Message = <<"preved from common test">>,
+    TxId3 = make_transaction(Wallet, Wallet2, Cur, Amount, Message),
     {ok, Status3, _} = api_get_tx_status(TxId3),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
     io:format("transaction status3: ~p ~n", [Status3]),
     Wallet2Data = api_get_wallet(Wallet2),
-    ?assertMatch(#{<<"info">> := #{<<"amount">> := #{<<"FTT">> := Amount}}}, Wallet2Data).
+    io:format("destination wallet: ~p ~n", [Wallet2Data]),
+    ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := Amount}}}, Wallet2Data),
 
+    % make transactions from Wallet2 where we haven't SK
+    Message4 = <<"without sk">>,
+    TxId4 = make_transaction(Wallet2, Wallet, Cur, 1, Message4),
+    io:format("TxId4: ~p", [TxId4]),
+    {ok, Status4, _} = api_get_tx_status(TxId4),
+    io:format("Status4: ~p", [Status4]),
+    ?assertMatch(#{<<"res">> := <<"no_sk">>}, Status4),
+    Wallet2Data4 = api_get_wallet(Wallet2),
+    io:format("wallet without SK: ~p ~n", [Wallet2Data4]),
+    ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := Amount}}}, Wallet2Data4),
+
+    % send SK from endless to Wallet2
+    Message5 = <<"sk">>,
+    TxId5 = make_transaction(Wallet, Wallet2, <<"SK">>, 1, Message5),
+    io:format("TxId5: ~p", [TxId5]),
+    {ok, Status5, _} = api_get_tx_status(TxId5),
+    io:format("Status5: ~p", [Status5]),
+    ?assertMatch(#{<<"res">> := <<"ok">>}, Status5),
+    Wallet2Data5 = api_get_wallet(Wallet2),
+    ?assertMatch(#{<<"info">> := #{<<"amount">> := #{<<"SK">> := 1}}}, Wallet2Data5),
+
+    % transaction from Wallet2 should be successful, because Wallet2 got 1 SK
+    Message6 = <<"send money back">>,
+    TxId6 = make_transaction(Wallet2, Wallet, Cur, 1, Message6),
+    io:format("TxId6: ~p", [TxId6]),
+    {ok, Status6, _} = api_get_tx_status(TxId6),
+    io:format("Status6: ~p", [Status6]),
+    ?assertMatch(#{<<"res">> := <<"ok">>}, Status6),
+    Wallet2Data6 = api_get_wallet(Wallet2),
+    NewAmount6 = Amount - 1,
+    ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount6}}}, Wallet2Data6),
+
+    % second transaction from Wallet2 should be failed, because Wallet2 we spent all SK for today
+    Message7 = <<"sk test">>,
+    TxId7 = make_transaction(Wallet2, Wallet, Cur, 1, Message7),
+    io:format("TxId7: ~p", [TxId7]),
+    {ok, Status7, _} = api_get_tx_status(TxId7),
+    io:format("Status7: ~p", [Status7]),
+    ?assertMatch(#{<<"res">> := <<"sk_limit">>}, Status7),
+    Wallet2Data7 = api_get_wallet(Wallet2),
+    ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount6}}}, Wallet2Data7).
 
