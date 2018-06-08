@@ -1,3 +1,18 @@
+# =============================================================================
+# verify that the programs we need to run are installed on this system
+# =============================================================================
+ERL = $(shell which erl)
+
+ifeq ($(ERL),)
+$(error "Erlang not available on this system")
+endif
+
+
+# If there is a rebar in the current directory, use it
+ifeq ($(wildcard rebar3),rebar3)
+REBAR = $(CURDIR)/rebar3
+endif
+
 all:
 	@echo What you wanna to make?
 	@echo make build - compile
@@ -38,8 +53,16 @@ xref:
 
 tests:
 	./testnet.sh start
-	./rebar3 as test ct skip_deps=true
-	./testnet.sh stop
+#	./rebar3 as test ct skip_deps=true --cover --verbose
+#	./rebar3 as test ct --cover --verbose
+#	mkdir -p _build/test/logs
+#	cd _build/test/logs
+#	./rebar3 as test compile
+#	ct_run  -logdir _build/test/logs --cover true --verbose -pa `./rebar3 path`
+	@REBAR_PROFILE=test $(REBAR) do ct -c, cover --verbose
+	@REBAR_PROFILE=test $(REBAR) do ct, cover --verbose
+#	./rebar3 as test cover --verbose
+#	./testnet.sh stop
 
 cover:
 	./rebar3 as test ct --cover

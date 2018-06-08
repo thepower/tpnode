@@ -1,0 +1,9 @@
+{nodes, ['test_c4n1@pwr', 'test_c4n2@pwr', 'test_c4n3@pwr',
+         'test_c5n1@pwr', 'test_c5n2@pwr', 'test_c5n3@pwr']}.
+{export, "../_build/test/cover/ct.coverdata"}.
+{incl_app, tpnode, details}.
+%%{incl_mods, [block]}.
+{level, details}.
+{incl_dirs_r, ["../apps/tpnode/src"]}.
+{src_dirs, tpnode, ["../apps/tpnode/src"]}.
+{excl_dirs_r, ["../test"]}.

@@ -33,7 +33,7 @@ start_node() {
     else
         echo starting node $node
         export TPNODE_RESTORE=${dir}
-        erl -config "${dir}/${node}.config" -sname ${node} -detached -noshell -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager ${sync_str} -s tpnode
+        erl -config "${dir}/${node}.config" -sname ${node} -detached -noshell -pa _build/test/lib/*/ebin +SDcpu 2:2: -s lager ${sync_str} -s tpnode
     fi
 
 }
