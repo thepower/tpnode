@@ -41,7 +41,7 @@ init_per_suite(Config) ->
 %%    io:fwrite("w ~p", [os:cmd("which erl")]),
     application:ensure_all_started(inets),
     ok = wait_for_testnet(60),
-    cover_start(),
+    %cover_start(),
 %%    Config ++ [{processes, Pids}].
     Config.
 
@@ -58,7 +58,7 @@ end_per_suite(Config) ->
 %%            io:fwrite("Killing ~p~n", [Pid]),
 %%            exec:kill(Pid, 15)
 %%        end, Pids),
-    cover_finish(),
+    %cover_finish(),
     Config.
 
 

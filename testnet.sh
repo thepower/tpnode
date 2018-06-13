@@ -1,4 +1,4 @@
-#! /bin/sh
+#!/bin/sh
 
 #NODES="test_c4n1 test_c4n2 test_c4n3 test_c2n1 test_c2n2 test_c2n3"
 CHAIN4="test_c4n1 test_c4n2 test_c4n3"
@@ -11,7 +11,7 @@ HOST=`hostname -s`
 
 is_alive() {
     node=$1
-    proc_cnt=`ps axuw | grep erl | grep "${node}.config" | wc -l`
+    proc_cnt=`ps axuwww | grep erl | grep "${node}.config" | wc -l`
     result=`[ ${proc_cnt} -ge 1 ]`
     return $result
 }
@@ -47,7 +47,7 @@ start_testnet() {
 node_pid() {
     node=$1
 
-    pids=`ps axuw | grep erl | grep "${node}.config" | awk '{print \$2;}'`
+    pids=`ps axuwww | grep erl | grep "${node}.config" | awk '{print \$2;}'`
     pids_cnt=`echo ${pids}|wc -l`
 
     if [ $pids_cnt -ne 1 ]

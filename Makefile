@@ -59,13 +59,15 @@ tests:
 #	cd _build/test/logs
 #	./rebar3 as test compile
 #	ct_run  -logdir _build/test/logs --cover true --verbose -pa `./rebar3 path`
-	@REBAR_PROFILE=test $(REBAR) do ct -c, cover --verbose
-	@REBAR_PROFILE=test $(REBAR) do ct, cover --verbose
+	@REBAR_PROFILE=test $(REBAR) do ct --verbose
+#	@REBAR_PROFILE=test $(REBAR) do ct -c, cover --verbose
+#	@REBAR_PROFILE=test $(REBAR) do ct, cover --verbose
 #	./rebar3 as test cover --verbose
 #	./testnet.sh stop
 
 cover:
-	./rebar3 as test ct --cover
+	ct_run -pa _build/test/lib/*/ebin -cover test/tpnode.coverspec
+	#%./rebar3 as test ct --cover
 
 
 
