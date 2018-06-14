@@ -60,6 +60,18 @@ test_reg_invites() ->
           "configs/tnc10/tn101/c101*.config" ),
   Patch.
 
+test_rucoin() ->
+  Patches=[
+           #{t=>set, p=>[<<"current">>, <<"endless">>, 
+                         <<128,1,64,0,1,0,0,95>>,
+                         <<"RCL">>], v=>true}
+          ],
+  Patch=scratchpad:sign_patch(
+          settings:dmp(
+            settings:mp(lists:flatten(Patches))),
+          "configs/c1n*.config" ),
+  Patch.
+
 test_el() ->
   Patches=[
 %           #{t=>set, p=>[<<"current">>, <<"endless">>, 
