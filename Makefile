@@ -1,3 +1,26 @@
+# =============================================================================
+# verify that the programs we need to run are installed on this system
+# =============================================================================
+ERL = $(shell which erl)
+SED = $(shell which sed)
+CT_RUN = $(shell which ct_run)
+RM = $(shell which rm)
+MKDIR = $(shell which mkdir)
+
+
+LOG_DIR=_build/test/logs
+
+
+ifeq ($(ERL),)
+$(error "Erlang not available on this system")
+endif
+
+
+# If there is a rebar in the current directory, use it
+ifeq ($(wildcard rebar3),rebar3)
+REBAR = $(CURDIR)/rebar3
+endif
+
 all:
 	@echo What you wanna to make?
 	@echo make build - compile
@@ -6,12 +29,19 @@ all:
 	@echo make run3 - rin node3
 
 build:
-	./rebar3 compile
+	$(REBAR) compile
 
 compile: build
 
+
 deps:
-	./rebar3 get-deps
+	$(REBAR) get-deps
+
+
+rebar:
+ifeq ($(REBAR),)
+$(error "rebar3 not available on this system")
+endif
 
 
 run1:
@@ -24,27 +54,60 @@ run3:
 runtestnet:
 	./run_testnet.sh
 
-lint:
-	./rebar3 elvis
+lint: rebar
+	$(REBAR) elvis
 
-dialyzer:
-	./rebar3 dialyzer
+dialyzer: rebar
+	$(REBAR) dialyzer
 
-eunit:
-	./rebar3 eunit
+eunit: rebar
+	$(REBAR) eunit
 
-xref:
-	./rebar3 xref skip_deps=true
+xref: rebar
+	$(REBAR) xref skip_deps=true
 
-tests:
+tests: rebar
 	./testnet.sh start
-	./rebar3 as test ct skip_deps=true
-	./testnet.sh stop
+#	$(REBAR) as test ct skip_deps=true --cover --verbose
+#	$(REBAR) as test ct --cover --verbose
+#	mkdir -p _build/test/logs
+#	cd _build/test/logs
+#	$(REBAR) as test compile
+#	ct_run  -logdir _build/test/logs --cover true --verbose -pa `$(REBAR) path`
+	@REBAR_PROFILE=test $(REBAR) do ct --verbose
+#	@REBAR_PROFILE=test $(REBAR) do ct -c, cover --verbose
+#	@REBAR_PROFILE=test $(REBAR) do ct, cover --verbose
+#	$(REBAR) as test cover --verbose
+#	./testnet.sh stop
 
-cover:
-	./rebar3 as test ct --cover
+cleantest:
+	$(RM) -rf _build/test
+
+buildtest: rebar
+	@REBAR_PROFILE=test $(REBAR) do compile
+
+cover: sedcheck ctruncheck cleantest buildtest
+	@$(SED) -re "s/@[^']+/@`hostname -s`/gi" <test/tpnode.coverspec.tpl >test/tpnode.coverspec
+	@$(MKDIR) -p $(LOG_DIR)
+	@./testnet.sh start
+	@$(CT_RUN) -pa _build/test/lib/*/ebin \
+	 		  -noshell -cover test/tpnode.coverspec \
+	 		  -logdir $(LOG_DIR) \
+	 		  -cover_stop false \
+	 		  -verbose
+	@./testnet.sh stop
 
 
+sedcheck:
+ifeq ($(SED),)
+$(error "'sed' not available on this system")
+endif
 
-node1shell:
-	rebar3 as node1 shell
+ctruncheck:
+ifeq ($(CT_RUN),)
+$(error "'ct_run' not available on this system")
+endif
+
+
+node1shell: rebar
+	$(REBAR) as node1 shell

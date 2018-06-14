@@ -6,20 +6,21 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
-%%-define(TESTNET_NODES, [
-%%    "test_c4n1",
-%%    "test_c4n2",
-%%    "test_c4n3",
-%%    "test_c5n1",
-%%    "test_c5n2",
-%%    "test_c5n3"
-%%]).
 
 -define(TESTNET_NODES, [
     "test_c4n1",
     "test_c4n2",
-    "test_c4n3"
+    "test_c4n3",
+    "test_c5n1",
+    "test_c5n2",
+    "test_c5n3"
 ]).
+
+%%-define(TESTNET_NODES, [
+%%    "test_c4n1",
+%%    "test_c4n2",
+%%    "test_c4n3"
+%%]).
 
 
 all() ->
@@ -37,7 +38,9 @@ init_per_suite(Config) ->
 %%    Env = os:getenv(),
 %%    io:fwrite("env ~p", [Env]),
 %%    io:fwrite("w ~p", [os:cmd("which erl")]),
+    application:ensure_all_started(inets),
     ok = wait_for_testnet(60),
+    %cover_start(),
 %%    Config ++ [{processes, Pids}].
     Config.
 
@@ -54,6 +57,7 @@ end_per_suite(Config) ->
 %%            io:fwrite("Killing ~p~n", [Pid]),
 %%            exec:kill(Pid, 15)
 %%        end, Pids),
+    %cover_finish(),
     Config.
 
 
@@ -77,6 +81,31 @@ end_per_suite(Config) ->
 %%    ),
 %%    ok = wait_for_testnet(Pids),
 %%    {ok, Pids}.
+
+cover_start() ->
+    application:load(tpnode),
+    {true,{appl,tpnode,{appl_data,tpnode,_,_,_,Modules,_,_,_},_,_,_,_,_,_}}=application_controller:get_loaded(tpnode),
+    cover:compile_beam(Modules),
+    lists:map(
+        fun(NodeName) ->
+            rpc:call(NodeName,cover,compile_beam,[Modules])
+        end, nodes()),
+    ct_cover:add_nodes(nodes()),
+    cover:start(nodes()).
+
+
+cover_finish() ->
+    io:format("going to flush coverage data~n"),
+    io:format("nodes: ~p~n", [nodes()]),
+    erlang:register(ctester, self()),
+    ct_cover:remove_nodes(nodes()),
+%%    cover:stop(nodes()),
+%%    cover:stop(),
+    cover:flush(nodes()),
+    cover:analyse_to_file([{outdir,"cover1"}]).
+%%    timer:sleep(1000).
+%%    cover:analyse_to_file([{outdir,"cover"},html]).
+
 
 
 get_node(Name) when is_atom(Name) ->
@@ -296,7 +325,7 @@ register_wallet_test(_Config) ->
 
 % base url for c4n1 rpc
 get_base_url() ->
-    "http://pwr.local:49811".
+    "http://pwr.local:49841".
 
 % get info for wallet
 api_get_wallet(Wallet) when is_binary(Wallet)->
@@ -357,6 +386,7 @@ make_transaction(From, To, Currency, Amount, Message) ->
 
 make_transaction(Node, From, To, Currency, Amount, Message) ->
     Seq = get_sequence(Node, From),
+    io:format("seq for wallet ~p is ~p ~n", [From, Seq]),
     Tx = #{
         amount => Amount,
         cur => Currency,

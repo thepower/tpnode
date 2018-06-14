@@ -31,3 +31,5 @@ rebar3.crashdump
 tags
 testrel
 tmp/
+test/tpnode.coverspec
+
