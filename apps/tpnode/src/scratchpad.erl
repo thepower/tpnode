@@ -193,11 +193,9 @@ test_add_endless(Address, Cur) ->
     MyChain=blockchain:chain(),
     true=is_integer(MyChain),
     Patch=settings:sign(
-            settings:dmp(
-              settings:mp(
                 [
-                 #{t=>set, p=>[current, endless, Address, Cur], v=>true}
-                ])),
+                 #{<<"t">>=><<"set">>, <<"p">>=>[<<"current">>, <<"endless">>, Address, Cur], <<"v">>=>true}
+                ],
       PrivKey),
     io:format("PK ~p~n", [settings:verify(Patch)]),
     {Patch,
