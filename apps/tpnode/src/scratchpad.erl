@@ -286,7 +286,7 @@ sign_patch(Patch) ->
   sign_patch(Patch, "c1*.config").
 
 sign_patch(Patch, Wildcard) ->
-  PrivKeys=lists:usort([nodekey:get_priv()|get_all_nodes_keys(Wildcard)]),
+  PrivKeys=lists:usort(get_all_nodes_keys(Wildcard)),
   lists:foldl(
     fun(Key,Acc) ->
         settings:sign(Acc,Key)
