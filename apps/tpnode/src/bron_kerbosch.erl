@@ -74,7 +74,7 @@ extend(Candidates, Rejected, Compsub, Results, Matrix) ->
     end.
 
 
-max_clique(Matrix) ->
+max_clique(Matrix) when is_list(Matrix) ->
     Candidates = lists:sort(
 									 lists:map(
 										 fun({Ind, _}) ->
@@ -89,13 +89,6 @@ max_clique(Matrix) ->
     end, [], Result).
 
 -ifdef(TEST).
-corrupt_matrix_test() ->
-    Matrix = [{}],
-    [
-        ?assertError({badmatch, {}},
-            max_clique(Matrix))
-    ].
-
 empty_matrix_test() ->
     Matrix = [],
     [

@@ -408,7 +408,7 @@ deploy_fee_contract() ->
 	}.
 
 
-test_contract_test() ->
+test_contract() ->
     TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
 	From= <<128, 1, 64, 0, 4, 0, 0, 3>>,
 	Seq=bal:get(seq, ledger:get(From)),
@@ -428,7 +428,7 @@ test_contract_test() ->
     }.
 
 
-test_deploy_contract_test() ->
+test_deploy_contract() ->
     TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
 	DeployTX=tx:unpack(
 			   tx:sign(

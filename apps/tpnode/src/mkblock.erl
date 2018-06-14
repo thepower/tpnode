@@ -840,25 +840,26 @@ try_process_local([{TxID,
           #{success:=Success,
           failed:=Failed,
           emit:=Emit}=Acc) ->
-  Verify=try
-         %TODO: If it contract issued tx check for minsig
-         #{sigverify:=#{valid:=SigValid}}=Tx,
-         SigValid>0
-       catch _:_ ->
-           false
-       end,
-  if Verify -> ok;
-     true ->
-       throw('unverified')
-  end,
+  try
+    Verify=try
+             %TODO: If it contract issued tx check for minsig
+             #{sigverify:=#{valid:=SigValid}}=Tx,
+             SigValid>0
+           catch _:_ ->
+                   false
+           end,
+    if Verify -> ok;
+       true ->
+         error_logger:error_msg("Unverified ~p",[Tx]),
+         throw('unverified')
+    end,
 
     FBal=maps:get(From, Addresses),
     TBal=maps:get(To, Addresses),
-  EnsureSettings=fun(undefined) -> GetFun(settings);
-            (SettingsReady) -> SettingsReady
-           end,
+    EnsureSettings=fun(undefined) -> GetFun(settings);
+                      (SettingsReady) -> SettingsReady
+                   end,
 
-    try
     RealSettings=EnsureSettings(SetState),
     {NewF, GotFee}=withdraw(FBal, Tx, GetFun, RealSettings),
     {NewT, NewEmit, _GasUsed}=deposit(To, TBal, Tx, GetFun, RealSettings),
@@ -866,28 +867,28 @@ try_process_local([{TxID,
 
     CI=tx:get_ext(<<"contract_issued">>, Tx),
     Tx1=if CI=={ok, From} ->
-           #{extdata:=ED}=Tx,
-           Tx#{
-           extdata=> maps:with([<<"contract_issued">>], ED),
-           sig => #{}
-          };
-         true ->
-           Tx
-      end,
+             #{extdata:=ED}=Tx,
+             Tx#{
+               extdata=> maps:with([<<"contract_issued">>], ED),
+               sig => #{}
+              };
+           true ->
+             Tx
+        end,
 
 
-        try_process(Rest, SetState, NewAddresses, GetFun,
-          savefee(GotFee,
-              Acc#{
-                success=>[{TxID, Tx1}|Success],
-                emit=>Emit ++ NewEmit
-               }
+    try_process(Rest, SetState, NewAddresses, GetFun,
+                savefee(GotFee,
+                        Acc#{
+                          success=>[{TxID, Tx1}|Success],
+                          emit=>Emit ++ NewEmit
+                         }
+                       )
                )
-           )
-    catch throw:X ->
-              try_process(Rest, SetState, Addresses, GetFun,
-                          Acc#{failed=>[{TxID, X}|Failed]})
-    end.
+  catch throw:X ->
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{failed=>[{TxID, X}|Failed]})
+  end.
 
 -spec savefee(GotFee :: {binary(),non_neg_integer(),non_neg_integer()}, 
               mkblock_acc()) -> mkblock_acc().
@@ -1785,7 +1786,7 @@ mkblock_test() ->
      ),
   TX8=tx:unpack(
       tx:sign(
-      #{
+        #{
       from=>naddress:construct_public(SG, OurChain, 3),
       to=>naddress:construct_public(1, OurChain, 3),
       amount=>1,
@@ -1798,15 +1799,15 @@ mkblock_test() ->
   #{block:=Block,
     failed:=Failed}=generate_block(
             [
-             {<<"1interchain">>, TX0},
-             {<<"2invalid">>, TX1},
-             {<<"3crosschain">>, TX2},
-             {<<"4crosschain">>, TX3},
-             {<<"5nosk">>, TX4},
-             {<<"6sklim">>, TX5},
-             {<<"7nextday">>, TX6},
-             {<<"8nofee">>, TX7},
-             {<<"9nofee">>, TX8}
+             {<<"1interchain">>, maps:put(sigverify,#{valid=>1},TX0)},
+             {<<"2invalid">>, maps:put(sigverify,#{valid=>1},TX1)},
+             {<<"3crosschain">>, maps:put(sigverify,#{valid=>1},TX2)},
+             {<<"4crosschain">>, maps:put(sigverify,#{valid=>1},TX3)},
+             {<<"5nosk">>, maps:put(sigverify,#{valid=>1},TX4)},
+             {<<"6sklim">>, maps:put(sigverify,#{valid=>1},TX5)},
+             {<<"7nextday">>, maps:put(sigverify,#{valid=>1},TX6)},
+             {<<"8nofee">>, maps:put(sigverify,#{valid=>1},TX7)},
+             {<<"9nofee">>, maps:put(sigverify,#{valid=>1},TX8)}
             ],
             {1, ParentHash},
             GetSettings,

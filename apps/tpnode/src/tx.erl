@@ -713,36 +713,6 @@ deploy_test() ->
   Ledger=[ {From, bal:put(pubkey, PubKey, bal:new()) } ],
   ledger:deploy4test(Ledger, Test).
 
-
-new_tx_test() ->
-  Priv=tpecdsa:generate_priv(),
-  From=address:pub2addr(255, tpecdsa:calc_pub(Priv, true)),
-  To=address:pub2addr(255, tpecdsa:calc_pub(tpecdsa:generate_priv(), true)),
-  TestTx1=#{signature=>#{<<"a">>=><<"123">>},
-            extdata=>#{<<"aaa">>=>111, 222=><<"bbb">>},
-            from=>From,
-            to=>To,
-            cur=>"CUR1",
-            amount=>1, timestamp => os:system_time(millisecond), seq=>1},
-  BinTx1=tx:sign(TestTx1, Priv),
-  {ok, CheckTx1}=tx:verify(BinTx1),
-
-  TestTx2=#{ from=>From,
-             to=>To,
-             cur=>"XCUR",
-             amount=>12344327463428479872,
-             timestamp => os:system_time(millisecond),
-             seq=>1
-           },
-  BinTx2=tx:sign(TestTx2, Priv),
-  BinTx2r=tx:pack(tx:unpack(BinTx2)),
-  {ok, CheckTx2}=tx:verify(BinTx2),
-  {ok, CheckTx2r}=tx:verify(BinTx2r),
-  ?assertEqual(#{invalid => 1, valid => 1}, maps:get(sigverify, CheckTx1)),
-  ?assertEqual(#{invalid => 0, valid => 1}, maps:get(sigverify, CheckTx2)),
-  ?assertEqual(#{invalid => 0, valid => 1}, maps:get(sigverify, CheckTx2r)),
-  BinTx2r.
-
 txs_sig_test() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
@@ -775,45 +745,6 @@ txs_sig_test() ->
   [
    ?assertEqual(H1, H2),
    ?assertNotEqual(H1, H3)
-  ].
-
-
-tx_test() ->
-  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
-          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
-  Pvt2= <<200, 200, 100, 11, 222, 33, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
-          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
-  Pub1Min=tpecdsa:secp256k1_ec_pubkey_create(Pvt1, true),
-  Pub2Min=tpecdsa:secp256k1_ec_pubkey_create(Pvt2, true),
-  Dst=address:pub2addr({ver, 1}, Pub2Min),
-  BinTx1=try
-           sign(#{
-             from => <<"src">>,
-             to => Dst,
-             cur => <<"test">>,
-             timestamp => 1512450000,
-             seq => 1,
-             amount => 10
-            }, Pvt1)
-         catch throw:Ee1 ->
-                 {throw, Ee1}
-         end,
-  ?assertEqual({throw, {invalid_address, from}}, BinTx1),
-  From=address:pub2addr({ver, 1}, Pub1Min),
-  BinTx2=sign(#{
-           from => From,
-           to => Dst,
-           cur => <<"test">>,
-           timestamp => 1512450000,
-           seq => 1,
-           amount => 10
-          }, Pvt1),
-  {ok, ExTx}=verify(BinTx2),
-  {ok, ExTx1}=verify(tx:pack(tx:unpack(BinTx2))),
-  [
-   ?assertMatch([{Pub1Min, _}], maps:to_list(maps:get(sig, ExTx))),
-   ?assertMatch([{Pub1Min, _}], maps:to_list(maps:get(sig, ExTx))),
-   ?assertEqual(ExTx, ExTx1)
   ].
 
 -endif.
