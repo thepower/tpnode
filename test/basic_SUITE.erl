@@ -25,14 +25,13 @@
 
 all() ->
     [
-        register_wallet_test
-%%        transaction_test,
-%%        register_wallet_test,
-%%        discovery_got_announce_test,
-%%        discovery_register_test,
-%%        discovery_lookup_test,
-%%        discovery_unregister_by_name_test,
-%%        discovery_unregister_by_pid_test
+        transaction_test,
+        register_wallet_test,
+        discovery_got_announce_test,
+        discovery_register_test,
+        discovery_lookup_test,
+        discovery_unregister_by_name_test,
+        discovery_unregister_by_pid_test
     ].
 
 init_per_suite(Config) ->
