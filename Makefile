@@ -82,13 +82,15 @@ tests: rebar
 
 cleantest:
 	$(RM) -rf _build/test
+	@$(MKDIR) -p _build/test/cover
+	@$(MKDIR) -p $(LOG_DIR)
 
 buildtest: rebar
 	@REBAR_PROFILE=test $(REBAR) do compile
 
 cover: sedcheck ctruncheck cleantest buildtest
 	@$(SED) -re "s/@[^']+/@`hostname -s`/gi" <test/tpnode.coverspec.tpl >test/tpnode.coverspec
-	@$(MKDIR) -p $(LOG_DIR)
+	@REBAR_PROFILE=test $(REBAR) do eunit --cover
 	@./testnet.sh start
 	@$(CT_RUN) -pa _build/test/lib/*/ebin \
 	 		  -noshell -cover test/tpnode.coverspec \

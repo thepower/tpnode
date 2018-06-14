@@ -1,6 +1,7 @@
 {nodes, ['test_c4n1@knuth', 'test_c4n2@knuth', 'test_c4n3@knuth',
  'test_c5n1@knuth', 'test_c5n2@knuth', 'test_c5n3@knuth']}.
-{export, "_build/test/cover/ct.coverdata"}.
+%{export, "../_build/test/cover/ct.coverdata"}.
+{import, "../_build/test/cover/eunit.coverdata"}.
 %{incl_app, [tpnode]}.
 {incl_mods, [address,address_db,apixiom,bal,base58,beacon,bin2hex,block,blockchain,
  blockvote,bron_kerbosch,bsig,chainsettings,contract_chainfee,contract_nft,
