@@ -6,7 +6,7 @@ SED = $(shell which sed)
 CT_RUN = $(shell which ct_run)
 RM = $(shell which rm)
 MKDIR = $(shell which mkdir)
-
+TESTNET=./bin/testnet.sh
 
 LOG_DIR=_build/test/logs
 
@@ -52,7 +52,7 @@ run3:
 	erl -config app3.config -sname rocksnode3 -pa _build/default/lib/*/ebin +SDcpu 2:2: -s lager -s sync -s tpnode
 
 runtestnet:
-	./run_testnet.sh
+	$(TESTNET) start
 
 lint: rebar
 	$(REBAR) elvis
@@ -67,7 +67,7 @@ xref: rebar
 	$(REBAR) xref skip_deps=true
 
 tests: rebar
-	./testnet.sh start
+	$(TESTNET) start
 #	$(REBAR) as test ct skip_deps=true --cover --verbose
 #	$(REBAR) as test ct --cover --verbose
 #	mkdir -p _build/test/logs
@@ -78,7 +78,7 @@ tests: rebar
 #	@REBAR_PROFILE=test $(REBAR) do ct -c, cover --verbose
 #	@REBAR_PROFILE=test $(REBAR) do ct, cover --verbose
 #	$(REBAR) as test cover --verbose
-#	./testnet.sh stop
+#	$(TESTNET) stop
 
 cleantest:
 	$(RM) -rf _build/test
@@ -91,12 +91,12 @@ buildtest: rebar
 cover: sedcheck ctruncheck cleantest buildtest
 	@$(SED) -re "s/@[^']+/@`hostname -s`/gi" <test/tpnode.coverspec.tpl >test/tpnode.coverspec
 	@REBAR_PROFILE=test $(REBAR) do eunit --cover
-	@./testnet.sh start
+	@$(TESTNET) start
 	@$(CT_RUN) -pa _build/test/lib/*/ebin \
-	 		  -noshell -cover test/tpnode.coverspec \
+	 		  -cover test/tpnode.coverspec \
 	 		  -logdir $(LOG_DIR) \
 	 		  -cover_stop false \
-	 		  -verbose
+	 		  -noshell
 	@./testnet.sh stop
 
 
