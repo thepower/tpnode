@@ -97,7 +97,7 @@ cover: sedcheck ctruncheck cleantest buildtest
 	 		  -logdir $(LOG_DIR) \
 	 		  -cover_stop false \
 	 		  -noshell
-	@./testnet.sh stop
+	@$(TESTNET) stop
 
 
 sedcheck:
