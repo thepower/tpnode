@@ -240,30 +240,11 @@ discovery_got_announce_test(_Config) ->
 api_get_tx_status(TxId) ->
     api_get_tx_status(TxId, get_base_url()).
 
-api_get_tx_status(TxId, BaseUrl) when is_binary(TxId) andalso is_list(BaseUrl) ->
-    api_get_tx_status(TxId, BaseUrl, 20);
-
-api_get_tx_status(_TxId, _BaseUrl) ->
-    badarg.
-
-api_get_tx_status(_TxId, _BaseUrl, 0 = _Trys) ->
-    {ok, timeout, _Trys};
-
-api_get_tx_status(TxId, BaseUrl, Try)->
-    Query = {BaseUrl ++ "/api/tx/status/" ++ binary_to_list(TxId), []},
-    {ok, {{_, 200, _}, _, ResBody}} = httpc:request(get, Query, [], [{body_format, binary}]),
-    Res = jsx:decode(ResBody, [return_maps]),
-    Status = maps:get(<<"res">>, Res, null),
-    io:format("got tx status: ~p ~n * raw: ~p", [Status, Res]),
-    case Status of
-        null ->
-            timer:sleep(1000),
-            api_get_tx_status(TxId, BaseUrl, Try-1);
-        AnyValidStatus ->
-            {ok, AnyValidStatus, Try}
-    end.
+api_get_tx_status(TxId, BaseUrl) ->
+    tpapi:get_tx_status(TxId, BaseUrl).
 
 
+%% wait for transaction commit using distribution
 wait_for_tx(TxId, NodeName) ->
     wait_for_tx(TxId, NodeName, 10).
 
@@ -291,14 +272,7 @@ get_register_wallet_transaction() ->
     PrivKey = get_wallet_priv_key(),
     Promo = <<"TEST5">>,
     PubKey = tpecdsa:calc_pub(PrivKey, true),
-    Now = os:system_time(second),
-    tx:pack(#{
-        type=>register,
-        register=>PubKey,
-        timestamp=>Now,
-        pow=>scratchpad:mine_sha512(<<Promo/binary, " ", (integer_to_binary(Now))/binary, " ">>, 0, 8)
-    }).
-
+    tpapi:get_register_wallet_transaction(PubKey, Promo).
 
 register_wallet_test(_Config) ->
     RegisterTx = get_register_wallet_transaction(),
@@ -328,27 +302,15 @@ get_base_url() ->
     "http://pwr.local:49841".
 
 % get info for wallet
-api_get_wallet(Wallet) when is_binary(Wallet)->
-    api_get_wallet(binary_to_list(Wallet));
-
 api_get_wallet(Wallet) ->
-    Url = get_base_url(),
-    Query = {Url ++ "/api/address/" ++ Wallet, []},
-    {ok, {{_, 200, _}, _, ResBody}} =
-        httpc:request(get, Query, [], [{body_format, binary}]),
-    jsx:decode(ResBody, [return_maps]).
+    tpapi:get_wallet_info(Wallet, get_base_url()).
 
 % post encoded and signed transaction using API
 api_post_transaction(Transaction) ->
     api_post_transaction(Transaction, get_base_url()).
 
 api_post_transaction(Transaction, Url) ->
-    Body = jsx:encode(#{
-        tx=>base64:encode(Transaction)
-    }),
-    Query = {Url ++ "/api/tx/new", [], "application/json", Body},
-    {ok, {{_, 200, _}, _, ResBody}} = httpc:request(post, Query, [], [{body_format, binary}]),
-    jsx:decode(ResBody, [return_maps]).
+    tpapi:commit_transaction(Transaction, Url).
 
 % post transaction using distribution
 dist_post_transaction(Node, Transaction) ->
@@ -400,12 +362,18 @@ make_transaction(Node, From, To, Currency, Amount, Message) ->
     Res4 = api_post_transaction(SignedTx),
     maps:get(<<"txid">>, Res4, unknown).
 
+new_wallet() ->
+    PubKey = tpecdsa:calc_pub(get_wallet_priv_key(), true),
+    {ok, Wallet, _TxId} = tpapi:register_wallet(PubKey, get_base_url()),
+    Wallet.
+
+
 transaction_test(_Config) ->
     % регистрируем кошелек
-    Wallet = api_register_wallet(),
-    Wallet2 = api_register_wallet(),
+    Wallet = new_wallet(),
+    Wallet2 = new_wallet(),
     io:format("wallet: ~p, wallet2: ~p ~n", [Wallet, Wallet2]),
-    %%%%%%%%%%%%%%%% делаем endless %%%%%%%%%%%%%%
+    %%%%%%%%%%%%%%%% make endless for Wallet %%%%%%%%%%%%%%
     Cur = <<"FTT">>,
     EndlessAddress = naddress:decode(Wallet),
     TxpoolPidC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [txpool]),
