@@ -90,6 +90,9 @@ transaction_ping_pong_test(_Config) ->
     Cur = <<"TEST">>,
     Amount = 10,
 
+    % get height
+    Height = txapi:get_height(get_base_url()),
+
     % get balance of destination wallet
     #{<<"info">> := #{<<"amount">> := AmountWallet2}} = api_get_wallet(Wallet2),
     AmountPrev = maps:get(Cur, AmountWallet2, 0),
@@ -101,7 +104,11 @@ transaction_ping_pong_test(_Config) ->
     {ok, Status, _} = api_get_tx_status(TxId),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status),
     io:format("money send transaction status: ~p ~n", [Status]),
+
     timer:sleep(5000), % wait 5 sec for wallet data update across all network
+    Height2 = txapi:get_height(get_base_url()),
+    ?assertMatch(true, Height2>Height),
+
     Wallet2Data = api_get_wallet(Wallet2),
     io:format("destination wallet after money sent: ~p ~n", [Wallet2Data]),
     NewAmount = AmountPrev + Amount,
@@ -114,6 +121,11 @@ transaction_ping_pong_test(_Config) ->
     {ok, Status2, _} = api_get_tx_status(TxId2),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
     io:format("money send back transaction status: ~p ~n", [Status2]),
+
+    timer:sleep(5000), % wait 5 sec for wallet data update across all network
+    Height3 = txapi:get_height(get_base_url()),
+    ?assertMatch(true, Height3>Height2),
+
     Wallet2Data2 = api_get_wallet(Wallet2),
     io:format("destination wallet after money sent back: ~p ~n", [Wallet2Data2]),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := AmountPrev}}}, Wallet2Data2).
