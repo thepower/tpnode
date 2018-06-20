@@ -7,15 +7,15 @@ mkdir -p _build/test/log_chain1
 #      -noshell
 
 ./rebar3 ct --suite=chain1_SUITE \
-         --logdir _build/test/log_chain1 \
-   || exit $?
+         --logdir _build/test/log_chain1
+export rc=$?
 
 
 # don't save the logs if everything is OK
-rm -rf _build/test/log_chain1/
-mkdir -p _build/test/log_chain1
+if [ $rc -eq 0 ]
+then
+    rm -rf _build/test/log_chain1/
+    mkdir -p _build/test/log_chain1
+fi
 
-
-
-
-
+exit $rc
