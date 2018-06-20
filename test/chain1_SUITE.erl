@@ -59,6 +59,10 @@ api_post_transaction(Transaction) ->
 api_get_wallet_seq(Wallet) ->
     tpapi:get_wallet_seq(Wallet, get_base_url()).
 
+% get network height
+api_get_height() ->
+    tpapi:get_height(get_base_url()).
+
 % --------------------------------------------------------------------------------
 
 get_wallet_priv_key() ->
@@ -91,7 +95,7 @@ transaction_ping_pong_test(_Config) ->
     Amount = 10,
 
     % get height
-    Height = txapi:get_height(get_base_url()),
+    Height = api_get_height(),
 
     % get balance of destination wallet
     #{<<"info">> := #{<<"amount">> := AmountWallet2}} = api_get_wallet(Wallet2),
@@ -106,7 +110,7 @@ transaction_ping_pong_test(_Config) ->
     io:format("money send transaction status: ~p ~n", [Status]),
 
     timer:sleep(5000), % wait 5 sec for wallet data update across all network
-    Height2 = txapi:get_height(get_base_url()),
+    Height2 = api_get_height(),
     ?assertMatch(true, Height2>Height),
 
     Wallet2Data = api_get_wallet(Wallet2),
@@ -123,7 +127,7 @@ transaction_ping_pong_test(_Config) ->
     io:format("money send back transaction status: ~p ~n", [Status2]),
 
     timer:sleep(5000), % wait 5 sec for wallet data update across all network
-    Height3 = txapi:get_height(get_base_url()),
+    Height3 = api_get_height(),
     ?assertMatch(true, Height3>Height2),
 
     Wallet2Data2 = api_get_wallet(Wallet2),
