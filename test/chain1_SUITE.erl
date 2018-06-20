@@ -101,9 +101,11 @@ transaction_ping_pong_test(_Config) ->
     {ok, Status, _} = api_get_tx_status(TxId),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status),
     io:format("money send transaction status: ~p ~n", [Status]),
+    timer:sleep(5000), % wait 5 sec for wallet data update across all network
     Wallet2Data = api_get_wallet(Wallet2),
     io:format("destination wallet after money sent: ~p ~n", [Wallet2Data]),
     NewAmount = AmountPrev + Amount,
+    io:format("expected new amount: ~p ~n", [NewAmount]),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount}}}, Wallet2Data),
 
     % send money back
