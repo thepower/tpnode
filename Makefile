@@ -96,6 +96,7 @@ cover: sedcheck ctruncheck cleantest buildtest
 	 		  -cover test/tpnode.coverspec \
 	 		  -logdir $(LOG_DIR) \
 	 		  -cover_stop false \
+	 		  -suite basic_SUITE \
 	 		  -noshell
 	@$(TESTNET) stop
 
