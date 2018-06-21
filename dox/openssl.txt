@@ -1,0 +1,56 @@
+Конвертация raw key в openssl
+
+export(<<PubKey:33/binary>>,der) ->
+  <<48,54,48,16,6,7,42,134,72,206,61,2,1,6,5,43,129,4,0,10,3,34,0,
+    PubKey/binary>>;
+export(<<PrivKey:32/binary>>,der) ->
+  <<16#30,16#2e,16#02,16#01,16#01,16#04,16#20,PrivKey/binary,
+    16#a0,16#07,16#06,16#05,16#2b,16#81,16#04,16#00,16#0a>>;
+
+
+Импорт ключа
+
+import(<<"---",_/binary>>=PEM) ->
+  [{KeyType, DerKey, not_encrypted}] = public_key:pem_decode(PEM),
+  case public_key:der_decode(KeyType, DerKey) of
+    #'ECPrivateKey'{
+      version = 1,
+      privateKey = PrivKey,
+      parameters = {namedCurve,{1,3,132,0,10}}
+     } ->
+      {priv, PrivKey};
+    #'SubjectPublicKeyInfo'{
+%       algorithm = #'AlgorithmIdentifier'{ algorithm={1,2,840,10045,2,1}},
+       subjectPublicKey = PubKey
+      } ->
+      {pub, PubKey}
+  end.
+
+Генерация ключа tpecdsa, подпись, проверка openssl
+K=tpecdsa:generate_priv(). 
+%Подпись
+file:write_file("/tmp/k1.sig",tpecdsa:sign(<<"test1">>,K)).
+%Эксрорт ключа
+file:write_file("/tmp/k1.pub.pem",tpecdsa:export(tpecdsa:calc_pub(K,true),pem)).
+
+% echo -n 'test1' | openssl dgst -sha256 -verify /tmp/k1.pub.pem -signature /tmp/k1.sig 
+Verified OK
+
+
+Генерация ключа OpenSSL, подпись, проверка tpecdsa
+% openssl ecparam -name secp256k1 -genkey -text -out /tmp/k2.priv.pem   
+Get pub
+% openssl ec -in /tmp/k2.priv.pem -pubout -out /tmp/k2.pub.pem
+Sign
+% echo -n 'test2' | openssl dgst -sha256 -sign /tmp/k2.priv.pem > /tmp/k2.sig
+
+> {ok,SignatureK2}=file:read_file("/tmp/k2.sig").
+{ok,<<48,70,2,33,0,238,181,227,214,129,212,154,62,112,
+      149,131,61,43,217,100,191,86,71,62,53,126,112,...>>}
+> {ok,K2PubPem}=file:read_file("/tmp/k2.pub.pem").
+{ok,<<"-----BEGIN PUBLIC KEY-----\nMFYwEAYHKoZIzj0CAQYFK4EEA"...>>}
+> {pub,K2Pub}=tpecdsa:import(K2PubPem).
+{pub,<<4,216,61,240,247,25,164,222,77,21,79,218,68,...>>}
+> tpecdsa:verify(<<"test2">>,K2Pub,SignatureK2).
+correct
+
