@@ -8,15 +8,15 @@
 -export([mine/1]).
 
 % Numbering plan
-% Whole address is 64 bit yet of which 61 bits are usable
-% address must begin with bits 100 which is means public address
-% or 101 for private addresses (in chain address)
+% Whole address is 64 bits width. 61 bits are usable in this addr 
+% version. Address must begin with bits 100 which is means public 
+% address or 101 for private addresses (in chain address)
 %
-% all addresses divided by block on 24 bit boundary (2^24 addresses
-% in each block).
-% Public address additionally divided into group (top level).
+% All address range divided by blocks at 24 bit boundary 
+% (2^24 addresses in each block).
+% Public addresses additionally divided into 65536 groups (top level).
 % Each group contains 2^21 blocks.
-% Private addresses have no division on groups.
+% Private addresses have no group division.
 %
 %
 % binary representation
