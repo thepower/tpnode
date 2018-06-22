@@ -224,7 +224,7 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
       false ->
         {404,
          #{ result => <<"not_found">>,
-            address=>Addr
+            address=> <<"0x",(hex:encode(Addr))/binary>>
           }
         };
       true ->
