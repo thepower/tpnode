@@ -126,7 +126,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
           end, tpic:peers()),
   SynPeers=gen_server:call(synchronizer, peers),
   {Ver, _BuildTime}=tpnode:ver(),
-  Data =
+  answer(
     #{ result => <<"ok">>,
       status => #{
         nodeid=>nodekey:node_id(),
@@ -148,15 +148,15 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
         sync_peers=>SynPeers,
         ver=>list_to_binary(Ver)
        }
-    },
-  answer(Data);
+    });
 
 h(<<"GET">>, [<<"miner">>, TAddr], _Req) ->
-    Data = #{
-        result => <<"ok">>,
-        mined => naddress:mine(binary_to_integer(TAddr))
-    },
-    answer(Data);
+    answer(
+        #{
+            result => <<"ok">>,
+            mined => naddress:mine(binary_to_integer(TAddr))
+        }
+    );
 
 h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
   try
@@ -190,7 +190,7 @@ h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
           <<"Invalid address">>,
           #{
               result => <<"error">>,
-              error=> <<"invalid address">>
+              error => <<"invalid address">>
           }
       )
   end;
@@ -218,15 +218,13 @@ h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
         {ok,CN,CD}=smartcontract:info(VMName),
         {ok,List}=smartcontract:getters(VMName),
 
-        Data=
-         #{ result => <<"ok">>,
-            txtaddress=>naddress:encode(Addr),
-            address=><<"0x",(hex:encode(Addr))/binary>>,
+        answer(
+         #{
             contract=>CN,
             descr=>CD,
             getters=>List
           },
-        answer(Data)
+          #{ address => Addr })
     end
   catch throw:{error, address_crc} ->
       err(
@@ -259,18 +257,19 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
                   #{ address => Addr, http_code => 404 }
               );
           #{} ->
-            Data =
+            answer(
              #{ result => <<"found">>,
                 chain=>Blk
               },
-            answer(Data, #{address => Addr})
+             #{address => Addr}
+            )
         end;
       true ->
-        Data =
+        answer(
          #{ result => <<"other_chain">>,
             chain=>Blk
           },
-        answer(Data, #{address => Addr})
+        #{address => Addr})
     end
   catch throw:{error, address_crc} ->
           err(
@@ -361,11 +360,12 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
                       Info2
               end,
 
-        Data =
+        answer(
          #{ result => <<"ok">>,
             info=>Info3
           },
-        answer(Data, #{address => Addr})
+         #{address => Addr}
+        )
     end
   catch throw:{error, address_crc} ->
               err(
@@ -385,11 +385,10 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
 
 h(<<"POST">>, [<<"test">>, <<"tx">>], Req) ->
   {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
-  Data =
+  answer(
    #{ result => <<"ok">>,
       address=>ReqBody
-    },
-  answer(Data);
+    });
 
 h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
@@ -418,11 +417,10 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
                    maps:without([txs,bals],GoodBlock)
                   ),
       Block=prettify_block(ReadyBlock, BinPacker),
-      Data =
+      answer(
        #{ result => <<"ok">>,
           block => Block
-        },
-      answer(Data)
+        })
   end;
 
 
@@ -608,15 +606,10 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
       );
     {error, Err} ->
       lager:info("error ~p", [Err]),
-      ErrMsg = iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
-      Data =
-       #{ result => <<"error">>,
-          error => ErrMsg
-        },
       err(
           1,
-          ErrMsg,
-          Data,
+          iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
+          #{},
           #{http_code=>500}
       )
   end;
