@@ -2,6 +2,80 @@
 
 -export([h/3, after_filter/1, prettify_block/2, prettify_block/1]).
 
+-export([answer/0, answer/1, err/1, err/2, err/3, err/4]).
+
+
+add_address(Address, Map1) ->
+    HexAddress = <<"0x",(hex:encode(Address))/binary>>,
+    TxtAddress = naddress:encode(Address),
+
+    maps:merge(Map1, #{
+        <<"address">> => HexAddress,
+        <<"txtaddress">> => TxtAddress
+    }).
+
+
+err(ErrorCode) ->
+    err(ErrorCode, <<"">>, #{}, #{}).
+
+err(ErrorCode, ErrorMessage) ->
+    err(ErrorCode, ErrorMessage, #{}, #{}).
+
+err(ErrorCode, ErrorMessage, Data) ->
+    err(ErrorCode, ErrorMessage, Data, #{}).
+
+err(ErrorCode, ErrorMessage, Data, Options) ->
+    Required0 =
+        #{
+            <<"ok">> => false,
+            <<"code">> => ErrorCode,
+            <<"msg">> => ErrorMessage
+        },
+
+    % add address if it exists
+    Required1 = case maps:is_key(address, Options) of
+        true ->
+            add_address(
+                maps:get(address, Options),
+                Required0
+            );
+        _ ->
+            Required0
+    end,
+
+    answer_formater(
+        maps:get(http_code, Options, 200),
+        maps:merge(Data, Required1)
+    ).
+
+answer() ->
+    answer(#{}).
+
+answer(Data) ->
+    answer(Data, #{}).
+
+answer(Data, Options) when is_map(Data) ->
+    Data1 =
+        case maps:is_key(address, Options) of
+            true ->
+                add_address(
+                    maps:get(address, Options),
+                    Data
+                );
+            _ ->
+                Data
+        end,
+    answer_formater(
+        200,
+        maps:put(<<"ok">>, true, Data1)
+    ).
+
+answer_formater(HttpStatus, Data)
+    when is_integer(HttpStatus) andalso is_map(Data) ->
+    {HttpStatus, Data}.
+
+
+
 after_filter(Req) ->
   Origin=cowboy_req:header(<<"origin">>, Req, <<"*">>),
   Req1=cowboy_req:set_resp_header(<<"access-control-allow-origin">>,
@@ -52,8 +126,8 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
           end, tpic:peers()),
   SynPeers=gen_server:call(synchronizer, peers),
   {Ver, _BuildTime}=tpnode:ver(),
-  {200,
-   #{ result => <<"ok">>,
+  Data =
+    #{ result => <<"ok">>,
       status => #{
         nodeid=>nodekey:node_id(),
         public_key=>BinPacker(nodekey:get_pub()),
@@ -74,14 +148,15 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
         sync_peers=>SynPeers,
         ver=>list_to_binary(Ver)
        }
-    }};
+    },
+  answer(Data);
 
 h(<<"GET">>, [<<"miner">>, TAddr], _Req) ->
-  {200,
-   #{ result => <<"ok">>,
-      mined=>naddress:mine(binary_to_integer(TAddr))
-    }
-  };
+    Data = #{
+        result => <<"ok">>,
+        mined => naddress:mine(binary_to_integer(TAddr))
+    },
+    answer(Data);
 
 h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
   try
@@ -94,28 +169,30 @@ h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
     Ledger=ledger:get([Addr]),
     case maps:is_key(Addr, Ledger) of
       false ->
-        {404,
-         #{ result => <<"not_found">>,
-            address=>Addr
-          }
-        };
+          err(
+              1,
+              <<"Not found">>,
+              #{ result => <<"not_found">> }
+              #{ address => Addr, http_code => 404 }
+          );
       true ->
         Info=maps:get(Addr, Ledger),
         VMName=maps:get(vm, Info),
         {ok,List}=smartcontract:get(VMName,Method,Args,Info),
-
-        {200,
-         #{ address=><<"0x",(hex:encode(Addr))/binary>>,
-            result=>List
-          }
-        }
+        answer(
+           #{result => List},
+           #{address => Addr}
+        )
     end
   catch throw:{error, address_crc} ->
-          {200,
-           #{ result => <<"error">>,
+      err(
+          1,
+          <<"Invalid address">>,
+          #{
+              result => <<"error">>,
               error=> <<"invalid address">>
-            }
           }
+      )
   end;
 
 h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
@@ -129,33 +206,37 @@ h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
     Ledger=ledger:get([Addr]),
     case maps:is_key(Addr, Ledger) of
       false ->
-        {404,
-         #{ result => <<"not_found">>,
-            address=>Addr
-          }
-        };
+          err(
+              1,
+              <<"Not found">>,
+              #{ result => <<"not_found">> }
+              #{ address => Addr, http_code => 404 }
+          );
       true ->
         Info=maps:get(Addr, Ledger),
         VMName=maps:get(vm, Info),
         {ok,CN,CD}=smartcontract:info(VMName),
         {ok,List}=smartcontract:getters(VMName),
 
-        {200,
+        Data=
          #{ result => <<"ok">>,
             txtaddress=>naddress:encode(Addr),
             address=><<"0x",(hex:encode(Addr))/binary>>,
             contract=>CN,
             descr=>CD,
             getters=>List
-          }
-        }
+          },
+        answer(Data)
     end
   catch throw:{error, address_crc} ->
-          {200,
-           #{ result => <<"error">>,
-              error=> <<"invalid address">>
-            }
+      err(
+          1,
+          <<"Invalid address">>,
+          #{
+              result => <<"error">>,
+              error => <<"invalid address">>
           }
+      )
   end;
 
 h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
@@ -171,42 +252,40 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
     if(MyChain==Blk) ->
         case ledger:get(Addr) of
           not_found ->
-            {404,
-             #{result=><<"not_found">>,
-               address=><<"0x",(hex:encode(Addr))/binary>>,
-               txtaddress=>naddress:encode(Addr)
-              }
-            };
+              err(
+                  1,
+                  <<"Not found">>,
+                  #{ result=><<"not_found">> },
+                  #{ address => Addr, http_code => 404 }
+              );
           #{} ->
-            {200,
+            Data =
              #{ result => <<"found">>,
-                chain=>Blk,
-                address=><<"0x",(hex:encode(Addr))/binary>>,
-                txtaddress=>naddress:encode(Addr)
-              }
-            }
+                chain=>Blk
+              },
+            answer(Data, #{address => Addr})
         end;
       true ->
-        {200,
+        Data =
          #{ result => <<"other_chain">>,
-            chain=>Blk,
-            address=><<"0x",(hex:encode(Addr))/binary>>,
-            txtaddress=>naddress:encode(Addr)
-          }
-        }
+            chain=>Blk
+          },
+        answer(Data, #{address => Addr})
     end
   catch throw:{error, address_crc} ->
-          {400,
-           #{ result => <<"error">>,
-              error=> <<"invalid address">>
-            }
-          };
-          throw:bad_addr ->
-          {400,
-           #{ result => <<"error">>,
-              error=> <<"invalid address">>
-            }
-          }
+          err(
+              1,
+              <<"Invalid address">>,
+              #{ result => <<"error">>, error=> <<"invalid address">>},
+              #{http_code => 400}
+          );
+        throw:bad_addr ->
+            err(
+                1,
+                <<"Invalid address (2)">>,
+                #{result => <<"error">>, error=> <<"invalid address">>},
+                #{http_code => 400}
+            )
   end;
 
 
@@ -222,11 +301,12 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
     Ledger=ledger:get([Addr]),
     case maps:is_key(Addr, Ledger) of
       false ->
-        {404,
-         #{ result => <<"not_found">>,
-            address=> <<"0x",(hex:encode(Addr))/binary>>
-          }
-        };
+          err(
+              1,
+              <<"Not found">>,
+              #{result => <<"not_found">>},
+              #{http_code => 404}
+          );
       true ->
         Info=maps:get(Addr, Ledger),
         InfoL=case maps:is_key(lastblk, Info) of
@@ -280,35 +360,36 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
                       lager:error("NC"),
                       Info2
               end,
-        {200,
+
+        Data =
          #{ result => <<"ok">>,
-            txtaddress=>naddress:encode(Addr),
-            address=><<"0x",(hex:encode(Addr))/binary>>,
             info=>Info3
-          }
-        }
+          },
+        answer(Data, #{address => Addr})
     end
   catch throw:{error, address_crc} ->
-          {400,
-           #{ result => <<"error">>,
-              error=> <<"invalid address">>
-            }
-          };
+              err(
+                  1,
+                  <<"Invalid address">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              );
           throw:bad_addr ->
-          {400,
-           #{ result => <<"error">>,
-              error=> <<"invalid address">>
-            }
-          }
+              err(
+                  1,
+                  <<"Invalid address (2)">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              )
   end;
 
 h(<<"POST">>, [<<"test">>, <<"tx">>], Req) ->
   {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
-  {200,
+  Data =
    #{ result => <<"ok">>,
       address=>ReqBody
-    }
-  };
+    },
+  answer(Data);
 
 h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
@@ -324,11 +405,12 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
              end,
   case gen_server:call(blockchain, {get_block, BlockHash0}) of
     undefined ->
-      {404,
-       #{ result=><<"error">>,
-          error=><<"not found">>
-        }
-      };
+        err(
+            1,
+            <<"Not found">>,
+            #{result => <<"not_found">>},
+            #{http_code => 404}
+        );
     #{txs:=Txl}=GoodBlock ->
       ReadyBlock=maps:put(
                    txs_count,
@@ -336,11 +418,11 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
                    maps:without([txs,bals],GoodBlock)
                   ),
       Block=prettify_block(ReadyBlock, BinPacker),
-      {200,
+      Data =
        #{ result => <<"ok">>,
           block => Block
-        }
-      }
+        },
+      answer(Data)
   end;
 
 
@@ -363,11 +445,12 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
              end,
   case gen_server:call(blockchain, {get_block, BlockHash0}) of
     undefined ->
-      {404,
-       #{ result=><<"error">>,
-          error=><<"not found">>
-        }
-      };
+        err(
+            1,
+            <<"Not found">>,
+            #{result => <<"not_found">>},
+            #{http_code => 404}
+        );
     GoodBlock ->
       ReadyBlock=if Address == undefined ->
                       GoodBlock;
@@ -377,20 +460,20 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
                         Address)
                  end,
       Block=prettify_block(ReadyBlock, BinPacker),
-      {200,
+      answer(
        #{ result => <<"ok">>,
           block => Block
         }
-      }
+      )
   end;
 
 h(<<"GET">>, [<<"settings">>], _Req) ->
   Block=blockchain:get_settings(),
-  {200,
+  answer(
    #{ result => <<"ok">>,
       settings => Block
     }
-  };
+  );
 
 h(<<"POST">>, [<<"register">>], Req) ->
   {_RemoteIP, _Port}=cowboy_req:peer(Req),
@@ -413,21 +496,27 @@ h(<<"POST">>, [<<"register">>], Req) ->
 
   case txpool:new_tx(BinTx) of
     {ok, Tx} ->
-      {200,
+      answer(
        #{ result => <<"ok">>,
           pkey=>bin2hex:dbin2hex(PKey),
           txid => Tx
         }
-      };
+      );
     {error, Err} ->
       lager:info("error ~p", [Err]),
-      {500,
+      ErrorMsg = iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
+      Data =
        #{ result => <<"error">>,
           pkey=>bin2hex:dbin2hex(PKey),
           tx=>base64:encode(BinTx),
-          error => iolist_to_binary(io_lib:format("bad_tx:~p", [Err]))
-        }
-      }
+          error => ErrorMsg
+        },
+      err(
+          1,
+          ErrorMsg,
+          Data,
+          #{http_code=>500}
+      )
   end;
 
 h(<<"POST">>, [<<"address">>], Req) ->
@@ -435,11 +524,11 @@ h(<<"POST">>, [<<"address">>], Req) ->
   lager:debug("New tx from ~s: ~p", [Body]),
   A=hd(Body),
   R=naddress:encode(A),
-  {200,
+  answer(
    #{ result => <<"ok">>,
       r=> R
     }
-  };
+  );
 
 h(<<"GET">>, [<<"emulation">>, <<"start">>], _Req) ->
   R = case txgen:start_link() of
@@ -453,11 +542,11 @@ h(<<"GET">>, [<<"emulation">>, <<"start">>], _Req) ->
           end;
         _ -> #{ok => false, res=> <<"Error">>}
       end,
-  {200, #{res => R}};
+  answer(#{res => R});
 
 h(<<"GET">>, [<<"tx">>, <<"status">>, TxID], _Req) ->
   R=txstatus:get_json(TxID),
-  {200, #{res=>R}};
+    answer(#{res=>R});
 
 h(<<"POST">>, [<<"tx">>, <<"debug">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
@@ -492,12 +581,12 @@ h(<<"POST">>, [<<"tx">>, <<"debug">>], Req) ->
                xtx=>iolist_to_binary(XTx),
                dbg=>iolist_to_binary(XBin)
               }]),
-  {200,
+  answer(
    #{
-                                       xtx=>iolist_to_binary(XTx),
-                                       dbg=>iolist_to_binary(XBin)
-                                      }
-  };
+       xtx=>iolist_to_binary(XTx),
+       dbg=>iolist_to_binary(XBin)
+   }
+  );
 
 h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
@@ -512,18 +601,24 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
   %lager:info_unsafe("New tx ~p", [BinTx]),
   case txpool:new_tx(BinTx) of
     {ok, Tx} ->
-      {200,
+      answer(
        #{ result => <<"ok">>,
           txid => Tx
         }
-      };
+      );
     {error, Err} ->
       lager:info("error ~p", [Err]),
-      {500,
+      ErrMsg = iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
+      Data =
        #{ result => <<"error">>,
-          error => iolist_to_binary(io_lib:format("bad_tx:~p", [Err]))
-        }
-      }
+          error => ErrMsg
+        },
+      err(
+          1,
+          ErrMsg,
+          Data,
+          #{http_code=>500}
+      )
   end;
 
 h(<<"OPTIONS">>, _, _Req) ->
@@ -534,11 +629,11 @@ h(_Method, [<<"status">>], Req) ->
   lager:info("Join from ~p", [inet:ntoa(RemoteIP)]),
   %Body=apixiom:bodyjs(Req),
 
-  {200,
+  answer(
    #{ result => <<"ok">>,
       client => list_to_binary(inet:ntoa(RemoteIP))
     }
-  }.
+  ).
 
 %PRIVATE API
 
