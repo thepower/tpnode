@@ -241,7 +241,7 @@ handle_cast({failed, Txs}, #{inprocess:=InProc0}=State) ->
 
 
 handle_cast(_Msg, State) ->
-    lager:info("Unkown cast ~p", [_Msg]),
+    lager:info("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(_Info, State) ->
