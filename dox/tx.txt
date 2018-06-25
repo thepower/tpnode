@@ -2,14 +2,14 @@
 
 ## Обычная транзакция
 
-type => tx fixstr
-from => Адрес 8 
-to => Адрес 8 байт binary
-amount => Amount int64
-cur => тикер fixstr
-timestamp => таймштамп в мс. int64
-seq => Int fixint/uintXX
-extradata => text (JSON) fixstr/strXX
+type => tx fixstr (0xa0 ... 0xbf)
+from => Адрес 8 (0xc4)
+to => Адрес 8 байт binary (0xc4)
+amount => Amount fixint/uintXX (0x00..0x7f или 0xcc .. 0xcf)
+cur => тикер fixstr (0xa0 .. 0xbf)
+timestamp => таймштамп в мс. int64 (0xcf)
+seq => Int fixint/uintXX (0x00..0x7f или 0xcc..0xcf)
+extradata => text (JSON) fixstr/strXX (0xa0..0xbf или 0xd9..0xdb)
 
 
 
