@@ -950,7 +950,9 @@ handle_info(runsync, #{
                      last_height:=Height,
                      null:=<<"sync_available">>}=Info} ->
             ByBlock=maps:get(<<"byblock">>, Info, false),
-            Inst=maps:get(<<"instant">>, Info, false),
+            %Inst=maps:get(<<"instant">>, Info, false),
+            lager:notice("Disabled instant sync. FIX ME"),
+            Inst=false,
             lager:info("Found candidate h=~w my ~w, bb ~s inst ~s",
                        [Height, MyHeight, ByBlock, Inst ]),
             if(Height==MyHeight) ->

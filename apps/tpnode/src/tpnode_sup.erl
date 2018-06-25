@@ -25,8 +25,9 @@ start_link() ->
 init([]) ->
     application:ensure_all_started(cowboy),
     application:ensure_all_started(tinymq),
-	code:ensure_loaded(tpic_checkauth),
+    code:ensure_loaded(tpic_checkauth),
     tpnode:reload(),
+    lager:trace_file("log/tpic.log",[{module,tpic_sctp}],debug),
 
     % we'll register this services-without-pid on discovery starting up
     MandatoryServices = [ api ],
