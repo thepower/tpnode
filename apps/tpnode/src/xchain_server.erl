@@ -7,6 +7,8 @@
 -export([init/2, websocket_init/1, websocket_handle/2, websocket_info/2]).
 
 init(Req, Opts) ->
+    code:ensure_loaded(xchain_server_handler),
+    xchain_server_handler:known_atoms(),
     {cowboy_websocket, Req, Opts, #{
         idle_timeout => 600000
     }}.

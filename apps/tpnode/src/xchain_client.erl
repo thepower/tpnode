@@ -43,6 +43,7 @@ init(_Args) ->
         connect_timer => erlang:send_after(10 * 1000, self(), make_connections),
         pinger_timer => erlang:send_after(10 * 1000, self(), make_pings)
     },
+    code:ensure_loaded(xchain_client_handler),
     {ok, State}.
 
 handle_call(state, _From, State) ->

@@ -6,6 +6,8 @@
 %% API
 -export([handle_xchain/3]).
 
+handle_xchain({iam, NodeId}, ConnPid, State) ->
+    handle_xchain({<<"iam">>, NodeId}, ConnPid, State);
 
 handle_xchain({<<"iam">>, NodeId}, ConnPid, #{subs:=Subs} = State) ->
     State#{

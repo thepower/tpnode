@@ -4,13 +4,15 @@
 -module(xchain_server_handler).
 
 %% API
--export([handle_xchain/1]).
+-export([handle_xchain/1, known_atoms/0]).
+
+known_atoms() ->
+    [iam, subscribed].
 
 
 handle_xchain(ping) ->
 %%    lager:notice("got ping"),
     ok;
-
 
 handle_xchain({node_id, RemoteNodeId, RemoteChannels}) ->
     try

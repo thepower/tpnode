@@ -105,6 +105,7 @@ transaction_ping_pong_test(_Config) ->
     % send money from endless to Wallet2
     Message = <<"ping">>,
     TxId = make_transaction(Wallet, Wallet2, Cur, Amount, Message),
+    io:format("txid: ~p ~n", [TxId]),
     {ok, Status, _} = api_get_tx_status(TxId),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status),
     io:format("money send transaction status: ~p ~n", [Status]),
