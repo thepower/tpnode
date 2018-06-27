@@ -170,7 +170,7 @@ h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
     case maps:is_key(Addr, Ledger) of
       false ->
           err(
-              1,
+              10011,
               <<"Not found">>,
               #{ result => <<"not_found">> }
               #{ address => Addr, http_code => 404 }
@@ -186,7 +186,7 @@ h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
     end
   catch throw:{error, address_crc} ->
       err(
-          1,
+          10012,
           <<"Invalid address">>,
           #{
               result => <<"error">>,
@@ -207,7 +207,7 @@ h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
     case maps:is_key(Addr, Ledger) of
       false ->
           err(
-              1,
+              10009,
               <<"Not found">>,
               #{ result => <<"not_found">> }
               #{ address => Addr, http_code => 404 }
@@ -228,7 +228,7 @@ h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
     end
   catch throw:{error, address_crc} ->
       err(
-          1,
+          10010,
           <<"Invalid address">>,
           #{
               result => <<"error">>,
@@ -247,40 +247,38 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
          end,
     #{block:=Blk}=naddress:parse(Addr),
     MyChain=blockchain:chain(),
-    if(MyChain==Blk) ->
-        case ledger:get(Addr) of
-          not_found ->
-              err(
-                  1,
-                  <<"Not found">>,
-                  #{ result=><<"not_found">> },
-                  #{ address => Addr, http_code => 404 }
-              );
-          #{} ->
+    if
+        (MyChain == Blk) ->
+            case ledger:get(Addr) of
+                not_found ->
+                    err(
+                        10000,
+                        <<"Not found">>,
+                        #{result=><<"not_found">>},
+                        #{address => Addr, http_code => 404}
+                    );
+                #{} ->
+                    answer(
+                        #{result => <<"found">>, chain => Blk},
+                        #{address => Addr}
+                    )
+            end;
+        true ->
             answer(
-             #{ result => <<"found">>,
-                chain=>Blk
-              },
-             #{address => Addr}
+                #{ result => <<"other_chain">>, chain => Blk },
+                #{ address => Addr }
             )
-        end;
-      true ->
-        answer(
-         #{ result => <<"other_chain">>,
-            chain=>Blk
-          },
-        #{address => Addr})
     end
   catch throw:{error, address_crc} ->
           err(
-              1,
+              10001,
               <<"Invalid address">>,
               #{ result => <<"error">>, error=> <<"invalid address">>},
               #{http_code => 400}
           );
         throw:bad_addr ->
             err(
-                1,
+                10002,
                 <<"Invalid address (2)">>,
                 #{result => <<"error">>, error=> <<"invalid address">>},
                 #{http_code => 400}
@@ -301,7 +299,7 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
     case maps:is_key(Addr, Ledger) of
       false ->
           err(
-              1,
+              10003,
               <<"Not found">>,
               #{result => <<"not_found">>},
               #{http_code => 404}
@@ -369,14 +367,14 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
     end
   catch throw:{error, address_crc} ->
               err(
-                  1,
+                  10004,
                   <<"Invalid address">>,
                   #{result => <<"error">>},
                   #{http_code => 400}
               );
           throw:bad_addr ->
               err(
-                  1,
+                  10005,
                   <<"Invalid address (2)">>,
                   #{result => <<"error">>},
                   #{http_code => 400}
@@ -444,7 +442,7 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   case gen_server:call(blockchain, {get_block, BlockHash0}) of
     undefined ->
         err(
-            1,
+            10006,
             <<"Not found">>,
             #{result => <<"not_found">>},
             #{http_code => 404}
@@ -510,7 +508,7 @@ h(<<"POST">>, [<<"register">>], Req) ->
           error => ErrorMsg
         },
       err(
-          1,
+          10007,
           ErrorMsg,
           Data,
           #{http_code=>500}
@@ -607,7 +605,7 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
     {error, Err} ->
       lager:info("error ~p", [Err]),
       err(
-          1,
+          10008,
           iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
           #{},
           #{http_code=>500}
@@ -622,11 +620,7 @@ h(_Method, [<<"status">>], Req) ->
   lager:info("Join from ~p", [inet:ntoa(RemoteIP)]),
   %Body=apixiom:bodyjs(Req),
 
-  answer(
-   #{ result => <<"ok">>,
-      client => list_to_binary(inet:ntoa(RemoteIP))
-    }
-  ).
+  answer( #{ client => list_to_binary(inet:ntoa(RemoteIP)) }).
 
 %PRIVATE API
 
