@@ -2,6 +2,7 @@
 
 -export([get_ext/2, set_ext/3, sign/2, verify/1, pack/1, unpack/1]).
 -export([txlist_hash/1, rate/2, mergesig/2, verify1/1, mkmsg/1]).
+-export([purpose/1, construct_tx/1]).
 
 -ifndef(TEST).
 -define(TEST, 1).
@@ -135,6 +136,105 @@ mkmsg(#{ from:=From, amount:=Amount,
 mkmsg(Unknown) ->
   throw({unknown_tx_type, Unknown}).
 
+to_list(Bin) when is_binary(Bin) ->
+  binary_to_list(Bin);
+to_list(Lst) when is_list(Lst) ->
+  Lst.
+
+to_binary(Bin) when is_binary(Bin) ->
+  Bin;
+to_binary(Lst) when is_list(Lst) ->
+  list_to_binary(Lst).
+
+purpose(transfer) -> 0;
+purpose(srcfee) -> 1;
+purpose(dstfee) -> 2;
+purpose(gas) -> 3;
+purpose(N) when is_integer(N) -> N;
+purpose(Any) -> throw({unknown_purpose, Any}).
+
+decode_purpose(0) -> transfer;
+decode_purpose(1) -> srcfee;
+decode_purpose(2) -> dstfee;
+decode_purpose(3) -> gas;
+decode_purpose(N) when is_integer(N) -> N.
+
+construct_tx(#{
+  ver:=2,
+  from:=F,
+  to:=To,
+  t:=Timestamp,
+  seq:=Seq,
+  payload:=Amounts
+ }=Tx0) ->
+  Tx=maps:with([ver,from,to,t,seq,payload,call,extradata],Tx0),
+  A1=lists:map(
+       fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
+             is_integer(Amount), is_binary(Cur) ->
+           [purpose(Purpose), to_list(Cur), Amount]
+       end, Amounts),
+  E0=#{
+    "v"=>2,
+    "f"=>F,
+    "to"=>To,
+    "t"=>Timestamp,
+    "s"=>Seq,
+    "p"=>A1,
+    "e"=>to_binary(maps:get(extradata, Tx, ""))
+   },
+  {E1,Tx1}=case maps:find(call,Tx) of
+             {ok, #{function:=Fun,args:=Args}} when is_binary(Fun),
+                                                    is_list(Args) ->
+               {E0#{"c"=>[Fun,Args]},Tx};
+             _ ->
+               {E0, maps:remove(call, Tx)}
+           end,
+  Tx1#{
+    body=>msgpack:pack(E1,[{spec,new},{pack_str, from_list}]),
+    sign=>#{}
+   }.
+
+unpack_body(#{body:=Body}=Tx) ->
+  {ok,#{
+     "v":=2,
+     "f":=From,
+     "to":=To,
+     "t":=Timestamp,
+     "s":=Seq,
+     "p":=Payload,
+     "e":=Extradata
+    }=B}=msgpack:unpack(Body,[{spec,new},{unpack_str, as_list}]),
+  Amounts=lists:map(
+       fun([Purpose, Cur, Amount]) ->
+         #{amount=>Amount,
+           cur=>to_binary(Cur),
+           purpose=>decode_purpose(Purpose)
+          }
+       end, Payload),
+  Decoded=Tx#{
+    ver=>2,
+    from=>From,
+    to=>To,
+    t=>Timestamp,
+    seq=>Seq,
+    payload=>Amounts,
+    extdata=>Extradata
+   },
+  case maps:is_key("c",B) of
+    false -> Decoded;
+    true ->
+      [Function, Args]=maps:get("c",B),
+      Decoded#{
+        call=>#{function=>Function, args=>Args}
+       }
+  end.
+
+sign(#{ver:=2,
+       body:=Bin,
+       sign:=PS}=Tx, PrivKey) ->
+  Pub=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
+  Sig = tpecdsa:secp256k1_ecdsa_sign(Bin, PrivKey, default, <<>>),
+  Tx#{sign=>maps:put(Pub,Sig,PS)};
 
 sign(#{
   from:=From
@@ -187,7 +287,7 @@ verify1(#{
 
   case Valid of
     0 ->
-      bad_sig;
+      {bad_sig, hex:encode(Message)};
     N when N>0 ->
       {ok, Tx#{
              sigverify=>#{
@@ -278,6 +378,15 @@ verify(Bin) when is_binary(Bin) ->
   Tx=unpack(Bin),
   verify(Tx).
 
+pack(#{ ver:=2,
+        body:=Bin,
+        sign:=PS}) ->
+  msgpack:pack(
+    #{"ver"=>2,
+      "body"=>Bin,
+      "sign"=>PS
+     },[{spec,new},{pack_str, from_list}]);
+
 pack(#{
   hash:=_,
   header:=_,
@@ -347,191 +456,199 @@ unpack_mp(BinTx) when is_binary(BinTx) ->
                                       [type, sig, tx, patch, register,
                                        register, address, block] },
                                      {unpack_str, as_binary}] ),
-  Tx=maps:fold(
-       fun
-         ("tx", Val, Acc) ->
-           maps:put(tx,
-                    lists:map(
-                      fun(LI) when is_list(LI) ->
-                          list_to_binary(LI);
-                         (OI) -> OI
-                      end, Val), Acc);
-         ("type", Val, Acc) ->
-           maps:put(type,
-                    try
-                      erlang:list_to_existing_atom(Val)
-                    catch error:badarg ->
-                            Val
-                    end, Acc);
-         ("address", Val, Acc) ->
-           maps:put(address,
-                    list_to_binary(Val),
-                    Acc);
-         ("register", Val, Acc) ->
-           maps:put(register,
-                    list_to_binary(Val),
-                    Acc);
-         ("sig", Val, Acc) ->
-           maps:put(sig,
-                    if is_map(Val) ->
-                         maps:fold(
-                           fun(PubK, PrivK, KAcc) ->
-                               maps:put(
-                                 iolist_to_binary(PubK),
-                                 iolist_to_binary(PrivK),
-                                 KAcc)
-                           end, #{}, Val);
-                       is_list(Val) ->
-                         lists:foldl(
-                           fun([PubK, PrivK], KAcc) ->
-                               maps:put(PubK, PrivK, KAcc)
-                           end, #{}, Val)
-                    end,
-                    Acc);
-         (sig, Val, Acc) ->
-           maps:put(sig,
-                    if is_map(Val) ->
-                         maps:fold(
-                           fun(PubK, PrivK, KAcc) ->
-                               maps:put(
-                                 iolist_to_binary(PubK),
-                                 iolist_to_binary(PrivK),
-                                 KAcc)
-                           end, #{}, Val);
-                       is_list(Val) ->
-                         case Val of
-                           [X|_] when is_binary(X) ->
-                             Val;
-                           [[_, _]|_] ->
+  case Tx0 of
+    #{<<"ver">>:=2, <<"sign">>:=Sign, <<"body">>:=TxBody} ->
+      unpack_body(#{ver=>2,
+                    sign=>Sign,
+                    body=>TxBody
+                   });
+    _ ->
+      Tx=maps:fold(
+           fun
+             ("tx", Val, Acc) ->
+               maps:put(tx,
+                        lists:map(
+                          fun(LI) when is_list(LI) ->
+                              list_to_binary(LI);
+                             (OI) -> OI
+                          end, Val), Acc);
+             ("type", Val, Acc) ->
+               maps:put(type,
+                        try
+                          erlang:list_to_existing_atom(Val)
+                        catch error:badarg ->
+                                Val
+                        end, Acc);
+             ("address", Val, Acc) ->
+               maps:put(address,
+                        list_to_binary(Val),
+                        Acc);
+             ("register", Val, Acc) ->
+               maps:put(register,
+                        list_to_binary(Val),
+                        Acc);
+             ("sig", Val, Acc) ->
+               maps:put(sig,
+                        if is_map(Val) ->
+                             maps:fold(
+                               fun(PubK, PrivK, KAcc) ->
+                                   maps:put(
+                                     iolist_to_binary(PubK),
+                                     iolist_to_binary(PrivK),
+                                     KAcc)
+                               end, #{}, Val);
+                           is_list(Val) ->
                              lists:foldl(
                                fun([PubK, PrivK], KAcc) ->
                                    maps:put(PubK, PrivK, KAcc)
                                end, #{}, Val)
-                         end;
-                       Val==<<>> ->
-                         lager:notice("Temporary workaround. Fix me"),
-                         []
-                    end,
-                    Acc);
-         (K, Val, Acc) ->
-           maps:put(K, Val, Acc)
-       end, #{}, Tx0),
-  #{type:=Type}=Tx,
-  R=case Type of
+                        end,
+                        Acc);
+             (sig, Val, Acc) ->
+               maps:put(sig,
+                        if is_map(Val) ->
+                             maps:fold(
+                               fun(PubK, PrivK, KAcc) ->
+                                   maps:put(
+                                     iolist_to_binary(PubK),
+                                     iolist_to_binary(PrivK),
+                                     KAcc)
+                               end, #{}, Val);
+                           is_list(Val) ->
+                             case Val of
+                               [X|_] when is_binary(X) ->
+                                 Val;
+                               [[_, _]|_] ->
+                                 lists:foldl(
+                                   fun([PubK, PrivK], KAcc) ->
+                                       maps:put(PubK, PrivK, KAcc)
+                                   end, #{}, Val)
+                             end;
+                           Val==<<>> ->
+                             lager:notice("Temporary workaround. Fix me"),
+                             []
+                        end,
+                        Acc);
+             (K, Val, Acc) ->
+               maps:put(K, Val, Acc)
+           end, #{}, Tx0),
+      #{type:=Type}=Tx,
+      R=case Type of
 
-      <<"deploy">> ->
-        #{sig:=Sig}=Tx,
-        lager:debug("tx ~p", [Tx]),
-        [From, Timestamp, Seq, VMType, NewCode| State] = maps:get(tx, Tx),
-        if is_integer(Timestamp) -> ok;
-           true -> throw({bad_timestamp, Timestamp})
-        end,
-        if is_binary(From) -> ok;
-           true -> throw({bad_type, from})
-        end,
-        if is_binary(NewCode) -> ok;
-           true -> throw({bad_type, code})
-        end,
-        if is_binary(VMType) -> ok;
-           true -> throw({bad_type, deploy})
-        end,
-        FTx=#{ type => Type,
-               from => From,
-               timestamp => Timestamp,
-               seq => Seq,
-               deploy => VMType,
-               code => NewCode,
-               sig => Sig
-             },
-        case State of
-          [] -> FTx;
-          [St] ->
-            if is_binary(St) -> ok;
-               true -> throw({bad_type, state})
+          <<"deploy">> ->
+            #{sig:=Sig}=Tx,
+            lager:debug("tx ~p", [Tx]),
+            [From, Timestamp, Seq, VMType, NewCode| State] = maps:get(tx, Tx),
+            if is_integer(Timestamp) -> ok;
+               true -> throw({bad_timestamp, Timestamp})
             end,
-            FTx#{state => St}
-        end;
+            if is_binary(From) -> ok;
+               true -> throw({bad_type, from})
+            end,
+            if is_binary(NewCode) -> ok;
+               true -> throw({bad_type, code})
+            end,
+            if is_binary(VMType) -> ok;
+               true -> throw({bad_type, deploy})
+            end,
+            FTx=#{ type => Type,
+                   from => From,
+                   timestamp => Timestamp,
+                   seq => Seq,
+                   deploy => VMType,
+                   code => NewCode,
+                   sig => Sig
+                 },
+            case State of
+              [] -> FTx;
+              [St] ->
+                if is_binary(St) -> ok;
+                   true -> throw({bad_type, state})
+                end,
+                FTx#{state => St}
+            end;
 
-      tx -> %generic finance tx
-        #{sig:=Sig}=Tx,
-        lager:debug("tx ~p", [Tx]),
-        [From, To, Amount, Cur, Timestamp, Seq, ExtraJSON] = maps:get(tx, Tx),
-        if is_integer(Timestamp) ->
-             ok;
-           true ->
-             throw({bad_timestamp, Timestamp})
+          tx -> %generic finance tx
+            #{sig:=Sig}=Tx,
+            lager:debug("tx ~p", [Tx]),
+            [From, To, Amount, Cur, Timestamp, Seq, ExtraJSON] = maps:get(tx, Tx),
+            if is_integer(Timestamp) ->
+                 ok;
+               true ->
+                 throw({bad_timestamp, Timestamp})
+            end,
+            FTx=#{ type => Type,
+                   from => From,
+                   to => To,
+                   amount => Amount,
+                   cur => Cur,
+                   timestamp => Timestamp,
+                   seq => Seq,
+                   extradata => ExtraJSON,
+                   sig => Sig
+                 },
+            case maps:is_key(<<"extdata">>, Tx) of
+              true -> FTx;
+              false ->
+                try %parse fee data, if no extdata
+                  DecodedJSON=jsx:decode(ExtraJSON, [return_maps]),
+                  %make exception if no cur data
+                  #{<<"fee">> := Fee,
+                    <<"feecur">> := FeeCur}=DecodedJSON,
+                  true=is_integer(Fee),
+                  true=is_binary(FeeCur),
+                  FTx#{extdata=> #{
+                         fee=>Fee,
+                         feecur=>FeeCur
+                        }}
+                catch _:_ ->
+                        FTx
+                end
+            end;
+
+          block ->
+            block:unpack(maps:get(block, Tx));
+
+          patch -> %settings patch
+            #{sig:=Sig}=Tx,
+            #{ patch => maps:get(patch, Tx),
+               sig => Sig};
+
+          register ->
+            PubKey=maps:get(register, Tx),
+            T=maps:get(<<"timestamp">>, Tx, 0),
+            POW=maps:get(<<"pow">>, Tx, <<>>),
+            case size(PubKey) of
+              33 -> ok;
+              _ -> throw('bad_pubkey')
+            end,
+            case maps:is_key(address, Tx) of
+              false ->
+                #{ type => register,
+                   register => PubKey,
+                   timestamp => T,
+                   pow => POW
+                 };
+              true ->
+                #{ type => register,
+                   register => PubKey,
+                   timestamp => T,
+                   pow => POW,
+                   address => maps:get(address, Tx)
+                 }
+            end;
+
+          _ ->
+            lager:error("Bad tx ~p", [Tx]),
+            throw({"bad tx type", Type})
         end,
-        FTx=#{ type => Type,
-               from => From,
-               to => To,
-               amount => Amount,
-               cur => Cur,
-               timestamp => Timestamp,
-               seq => Seq,
-               extradata => ExtraJSON,
-               sig => Sig
-             },
-        case maps:is_key(<<"extdata">>, Tx) of
-          true -> FTx;
-          false ->
-            try %parse fee data, if no extdata
-              DecodedJSON=jsx:decode(ExtraJSON, [return_maps]),
-              %make exception if no cur data
-              #{<<"fee">> := Fee,
-                <<"feecur">> := FeeCur}=DecodedJSON,
-              true=is_integer(Fee),
-              true=is_binary(FeeCur),
-              FTx#{extdata=> #{
-                     fee=>Fee,
-                     feecur=>FeeCur
-                    }}
-            catch _:_ ->
-                    FTx
-            end
-        end;
-
-      block ->
-        block:unpack(maps:get(block, Tx));
-
-      patch -> %settings patch
-        #{sig:=Sig}=Tx,
-        #{ patch => maps:get(patch, Tx),
-           sig => Sig};
-
-      register ->
-        PubKey=maps:get(register, Tx),
-        T=maps:get(<<"timestamp">>, Tx, 0),
-        POW=maps:get(<<"pow">>, Tx, <<>>),
-        case size(PubKey) of
-          33 -> ok;
-          _ -> throw('bad_pubkey')
-        end,
-        case maps:is_key(address, Tx) of
-          false ->
-            #{ type => register,
-               register => PubKey,
-               timestamp => T,
-               pow => POW
-             };
-          true ->
-            #{ type => register,
-               register => PubKey,
-               timestamp => T,
-               pow => POW,
-               address => maps:get(address, Tx)
-             }
-        end;
-
-      _ ->
-        lager:error("Bad tx ~p", [Tx]),
-        throw({"bad tx type", Type})
-    end,
-  case maps:is_key(<<"extdata">>, Tx) of
-    true ->
-      %probably newly parsed extdata should have priority? or not?
-      maps:fold( fun set_ext/3, R, maps:get(<<"extdata">>, Tx));
-    false ->
-      R
+      case maps:is_key(<<"extdata">>, Tx) of
+        true ->
+          %probably newly parsed extdata should have priority? or not?
+          maps:fold( fun set_ext/3, R, maps:get(<<"extdata">>, Tx));
+        false ->
+          R
+      end
   end.
 
 txlist_hash(List) ->
