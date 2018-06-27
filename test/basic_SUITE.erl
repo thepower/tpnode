@@ -337,7 +337,7 @@ api_register_wallet() ->
 get_sequence(Node, Wallet) ->
     Ledger = rpc:call(Node, ledger, get, [naddress:decode(Wallet)]),
     case bal:get(seq, Ledger) of
-        Seq when is_integer(Seq) -> Seq;
+        Seq when is_integer(Seq) -> max(Seq, os:system_time(millisecond));
         _ -> 0
     end.
 
