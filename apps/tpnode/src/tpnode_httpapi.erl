@@ -467,7 +467,7 @@ h(<<"GET">>, [<<"settings">>], _Req) ->
   Block=blockchain:get_settings(),
   answer(
    #{ result => <<"ok">>,
-      settings => Block
+      settings => prettify_settings(Block)
     }
   );
 
@@ -624,6 +624,8 @@ h(_Method, [<<"status">>], Req) ->
 
 %PRIVATE API
 
+% ----------------------------------------------------------------------
+
 filter_block(Block, Address) ->
   maps:map(
     fun(bals, B) ->
@@ -632,6 +634,8 @@ filter_block(Block, Address) ->
         [ {TxID, TX} || {TxID, #{from:=F, to:=T}=TX} <- B, F==Address orelse T==Address ];
        (_, V) -> V
     end, Block).
+
+% ----------------------------------------------------------------------
 
 prettify_block(Block) ->
   prettify_block(Block, fun(Bin) -> bin2hex:dbin2hex(Bin) end).
@@ -741,6 +745,45 @@ prettify_block(#{}=Block0, BinPacker) ->
 
 prettify_block(#{hash:=<<0, 0, 0, 0, 0, 0, 0, 0>>}=Block0, BinPacker) ->
   Block0#{ hash=>BinPacker(<<0:64/big>>) }.
+
+% ----------------------------------------------------------------------
+
+prettify_settings(Block) ->
+    prettify_settings(Block, fun(Bin) -> bin2hex:dbin2hex(Bin) end).
+
+prettify_settings(#{}=Block0, BinPacker) ->
+%%    lager:error("block: ~p", [Block0]),
+    maps:map(
+        fun(keys, Keys) ->
+            maps:map(
+                fun(_, V) ->
+                    BinPacker(V)
+                end,
+                Keys
+            );
+        (<<"current">>, CurrentSettings) ->
+            maps:map(
+                fun(<<"endless">>, Wallets) ->
+                    maps:fold(
+                        fun(K, V, Acc) ->
+                            Address = <<"0x",(hex:encode(K))/binary>>,
+                            maps:put(Address, V, Acc)
+                        end,
+                        #{},
+                        Wallets
+                    );
+                    (_, V) ->
+                        V
+                end,
+                CurrentSettings
+            );
+        (_, V) ->
+            V
+        end,
+        Block0
+    ).
+
+% ----------------------------------------------------------------------
 
 show_signs(Signs, BinPacker) ->
   lists:map(
