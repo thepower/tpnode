@@ -265,7 +265,11 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
             end;
         true ->
             answer(
-                #{ result => <<"other_chain">>, chain => Blk },
+                #{
+                    result => <<"other_chain">>,
+                    chain => Blk,
+                    chain_nodes => get_nodes(Blk)
+                },
                 #{ address => Addr }
             )
     end
@@ -811,4 +815,33 @@ show_signs(Signs, BinPacker) ->
          }
     end, Signs).
 
+% ----------------------------------------------------------------------
 
+get_nodes(Chain) when is_integer(Chain) ->
+    Nodes = gen_server:call(discovery, {lookup, <<"apipeer">>, Chain}),
+    WhitelistedKeys = [address, <<"address">>, port, <<"port">>],
+
+    lists:map(
+        fun(Addr) when is_map(Addr) ->
+            maps:map(
+                fun(address, Ip) when is_list(Ip) ->
+                    list_to_binary(Ip);
+                    (_, V) ->
+                        V
+                end,
+                whitelist_keys(Addr, WhitelistedKeys)
+            );
+            (V) ->
+                V
+        end,
+        Nodes
+    ).
+
+
+whitelist_keys(Map, Whitelisted) when is_map(Map) ->
+    maps:filter(
+        fun(K, _) ->
+            lists:member(K, Whitelisted)
+        end,
+        Map
+    ).
