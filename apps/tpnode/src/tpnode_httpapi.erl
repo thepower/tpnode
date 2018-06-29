@@ -259,7 +259,11 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
                     );
                 #{} ->
                     answer(
-                        #{result => <<"found">>, chain => Blk},
+                        #{
+                            result => <<"found">>,
+                            chain => Blk,
+                            chain_nodes => get_nodes(Blk)
+                        },
                         #{address => Addr}
                     )
             end;
