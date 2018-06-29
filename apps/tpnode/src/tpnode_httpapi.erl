@@ -827,6 +827,8 @@ get_nodes(Chain) when is_integer(Chain) ->
             maps:map(
                 fun(address, Ip) when is_list(Ip) ->
                     list_to_binary(Ip);
+                    (hostname, Name) when is_list(Name) ->
+                    list_to_binary(Name);
                     (_, V) ->
                         V
                 end,
