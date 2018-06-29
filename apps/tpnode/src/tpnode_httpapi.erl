@@ -829,19 +829,10 @@ get_nodes(Chain) when is_integer(Chain) ->
                     (_, V) ->
                         V
                 end,
-                whitelist_keys(Addr, WhitelistedKeys)
+                maps:with(WhitelistedKeys, Addr)
             );
             (V) ->
                 V
         end,
         Nodes
-    ).
-
-
-whitelist_keys(Map, Whitelisted) when is_map(Map) ->
-    maps:filter(
-        fun(K, _) ->
-            lists:member(K, Whitelisted)
-        end,
-        Map
     ).
