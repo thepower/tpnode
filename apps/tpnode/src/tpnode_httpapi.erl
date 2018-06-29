@@ -293,6 +293,13 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
             )
   end;
 
+h(<<"GET">>, [<<"nodes">>, Chain], _Req) ->
+    answer(#{
+        chain_nodes => get_nodes(binary_to_integer(Chain, 10))
+    });
+
+
+
 
 h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
@@ -843,3 +850,4 @@ get_nodes(Chain) when is_integer(Chain) ->
         end,
         Nodes
     ).
+
