@@ -108,6 +108,19 @@ handle_request(Method, Path, Req, Target, Format, _Opts) ->
                         stack=>ST}
                     }
 			end;
+        error:badarg ->
+            case erlang:get_stacktrace() of
+                [{erlang, binary_to_integer, [A |_], _FL} | _] ->
+                    {500, #{
+                        error => bad_integer,
+                        format => Format,
+                        value => A
+                    }};
+                Any ->
+                    EcEe = <<"error:badarg">>,
+                    ST = format_stack(Any),
+                    {500, #{error=>unknown, format=>Format, ecee=>EcEe, stack=>ST}}
+            end;
 		Ec:Ee ->
 			EcEe=iolist_to_binary(io_lib:format("~p:~p", [Ec, Ee])),
                         ST=format_stack(erlang:get_stacktrace()),
