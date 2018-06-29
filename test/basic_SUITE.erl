@@ -195,7 +195,12 @@ build_announce(Name) ->
     Now = os:system_time(second),
     Announce = #{
         name => Name,
-        address => #{address => <<"127.0.0.1">>, port => 1234, proto => api},
+        address => #{
+            address => <<"127.0.0.1">>,
+            hostname => "c4n3.pwr.local",
+            port => 1234,
+            proto => api
+        },
         created => Now,
         ttl => 600,
         scopes => [api, xchain],
@@ -221,7 +226,14 @@ discovery_got_announce_test(_Config) ->
     gen_server:cast(DiscoveryC4N1, {got_announce, AnnounceBin}),
     timer:sleep(2000),  % wait for announce propagation
     Result = gen_server:call(DiscoveryC4N1, {lookup, ServiceName, 4}),
-    Experted = [#{address => <<"127.0.0.1">>,port => 1234, proto => api}],
+    Experted = [
+        #{
+            address => <<"127.0.0.1">>,
+            hostname=>"c4n3.pwr.local",
+            port => 1234,
+            proto => api
+        }
+    ],
     ?assertEqual(Experted, Result),
     % c4n1 should forward the announce to c4n2
     Result1 = gen_server:call(DiscoveryC4N2, {lookup, ServiceName, 4}),
