@@ -19,7 +19,8 @@
          start_link/1,
          put/1, put/2,
          check/1, check/2,
-		 deploy4test/2,
+         deploy4test/2,
+         get/2,
          get/1, restore/2, tpic/2]).
 
 %% ------------------------------------------------------------------
@@ -52,6 +53,12 @@ check(KVS) when is_list(KVS) ->
 
 check(KVS, Block) when is_list(KVS) ->
     gen_server:call(?SERVER, {check, KVS, Block}).
+
+get(Pid, Address) when is_binary(Address) ->
+    gen_server:call(Pid, {get, Address});
+
+get(Pid, KS) when is_list(KS) ->
+    gen_server:call(Pid, {get, KS}).
 
 get(Address) when is_binary(Address) ->
     gen_server:call(?SERVER, {get, Address});
@@ -319,11 +326,12 @@ deploy4test(LedgerInit, TestFun) ->
 					 {ok, P1}=rdb_dispatcher:start_link(),
 					 P1
 			 end,
-	Ledger=case whereis(ledger) of
+	Ledger=case whereis(ledger4test) of
 			   P when is_pid(P) -> false;
 			   undefined ->
 				   {ok, P}=ledger:start_link(
-							[{filename, "db/ledger_txtest"}]
+							[{filename, "db/ledger_txtest"},
+               {name, ledger4test}]
 						   ),
 				   gen_server:call(P, '_flush'),
 				   gen_server:call(P, {put, LedgerInit}),
@@ -331,7 +339,7 @@ deploy4test(LedgerInit, TestFun) ->
 		   end,
 
 	Res=try
-			TestFun()
+			TestFun(Ledger)
 		after
 				  if Ledger == false -> ok;
 					 true -> gen_server:stop(Ledger, normal, 3000)

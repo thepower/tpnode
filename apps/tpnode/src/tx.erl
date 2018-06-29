@@ -1,8 +1,9 @@
 -module(tx).
 
--export([get_ext/2, set_ext/3, sign/2, verify/1, pack/1, unpack/1]).
+-export([get_ext/2, set_ext/3, sign/2, verify/1, verify/2, pack/1, unpack/1]).
 -export([txlist_hash/1, rate/2, mergesig/2, verify1/1, mkmsg/1]).
--export([purpose/1, construct_tx/1]).
+-export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1, 
+         construct_tx/1]).
 
 -ifndef(TEST).
 -define(TEST, 1).
@@ -11,6 +12,8 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
+-include("apps/tpnode/include/tx_const.hrl").
 
 mergesig(#{sig:=S1}=Tx1, #{sig:=S2}) ->
   Tx1#{sig=>
@@ -123,44 +126,45 @@ mkmsg(#{ from:=From, amount:=Amount,
                 From,
                 To,
                 trunc(Amount),
-                if is_list(Currency) -> Currency;
-                   is_binary(Currency) -> binary_to_list(Currency)
-                end,
+                to_list(Currency),
                 Timestamp,
                 Seq,
-                if is_list(Append) -> Append;
-                   is_binary(Append) -> binary_to_list(Append)
-                end
+                to_list(Append)
                ]);
 
 mkmsg(Unknown) ->
   throw({unknown_tx_type, Unknown}).
 
-to_list(Bin) when is_binary(Bin) ->
-  binary_to_list(Bin);
-to_list(Lst) when is_list(Lst) ->
-  Lst.
+-spec to_list(Arg :: binary() | list()) -> list().
 
-to_binary(Bin) when is_binary(Bin) ->
-  Bin;
-to_binary(Lst) when is_list(Lst) ->
-  list_to_binary(Lst).
+to_list(Arg) when is_list(Arg) ->
+  Arg;
+to_list(Arg) when is_binary(Arg) ->
+  binary_to_list(Arg).
 
-purpose(transfer) -> 0;
-purpose(srcfee) -> 1;
-purpose(dstfee) -> 2;
-purpose(gas) -> 3;
-purpose(N) when is_integer(N) -> N;
-purpose(Any) -> throw({unknown_purpose, Any}).
-
-decode_purpose(0) -> transfer;
-decode_purpose(1) -> srcfee;
-decode_purpose(2) -> dstfee;
-decode_purpose(3) -> gas;
-decode_purpose(N) when is_integer(N) -> N.
+to_binary(Arg) when is_binary(Arg) ->
+  Arg;
+to_binary(Arg) when is_list(Arg) ->
+  list_to_binary(Arg).
 
 construct_tx(#{
-  ver:=2,
+  kind:=register,
+  t:=Timestamp
+ }=Tx0) ->
+  Tx=maps:with([ver,t],Tx0),
+  E0=#{
+    "k"=>encode_kind(2,register),
+    "t"=>Timestamp,
+    "e"=>to_binary(maps:get(txext, Tx, ""))
+   },
+  Tx0#{
+    kind=>register,
+    body=>msgpack:pack(E0,[{spec,new},{pack_str, from_list}]),
+    sign=>#{}
+   };
+
+construct_tx(#{
+  kind:=generic,
   from:=F,
   to:=To,
   t:=Timestamp,
@@ -171,16 +175,16 @@ construct_tx(#{
   A1=lists:map(
        fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
              is_integer(Amount), is_binary(Cur) ->
-           [purpose(Purpose), to_list(Cur), Amount]
+           [encode_purpose(Purpose), to_list(Cur), Amount]
        end, Amounts),
   E0=#{
-    "v"=>2,
+    "k"=>encode_kind(2,generic),
     "f"=>F,
     "to"=>To,
     "t"=>Timestamp,
     "s"=>Seq,
     "p"=>A1,
-    "e"=>to_binary(maps:get(extradata, Tx, ""))
+    "e"=>to_binary(maps:get(txext, Tx, ""))
    },
   {E1,Tx1}=case maps:find(call,Tx) of
              {ok, #{function:=Fun,args:=Args}} when is_binary(Fun),
@@ -190,20 +194,26 @@ construct_tx(#{
                {E0, maps:remove(call, Tx)}
            end,
   Tx1#{
+    kind=>generic,
     body=>msgpack:pack(E1,[{spec,new},{pack_str, from_list}]),
     sign=>#{}
    }.
 
 unpack_body(#{body:=Body}=Tx) ->
-  {ok,#{
-     "v":=2,
-     "f":=From,
-     "to":=To,
-     "t":=Timestamp,
-     "s":=Seq,
-     "p":=Payload,
-     "e":=Extradata
-    }=B}=msgpack:unpack(Body,[{spec,new},{unpack_str, as_list}]),
+  {ok,#{"k":=IKind}=B}=msgpack:unpack(Body,[{spec,new},{unpack_str, as_list}]),
+  {Ver, Kind}=decode_kind(IKind),
+  unpack_body(Tx#{ver=>Ver, kind=>Kind},B).
+
+unpack_body(#{ ver:=2,
+              kind:=generic
+             }=Tx,
+            #{ "f":=From,
+               "to":=To,
+               "t":=Timestamp,
+               "s":=Seq,
+               "p":=Payload,
+               "e":=Extradata
+             }=Unpacked) ->
   Amounts=lists:map(
        fun([Purpose, Cur, Amount]) ->
          #{amount=>Amount,
@@ -218,18 +228,33 @@ unpack_body(#{body:=Body}=Tx) ->
     t=>Timestamp,
     seq=>Seq,
     payload=>Amounts,
-    extdata=>Extradata
+    txext=>Extradata
    },
-  case maps:is_key("c",B) of
+  case maps:is_key("c",Unpacked) of
     false -> Decoded;
     true ->
-      [Function, Args]=maps:get("c",B),
+      [Function, Args]=maps:get("c",Unpacked),
       Decoded#{
         call=>#{function=>Function, args=>Args}
        }
-  end.
+  end;
 
-sign(#{ver:=2,
+unpack_body(#{ ver:=2,
+              kind:=register
+             }=Tx,
+            #{ "t":=Timestamp,
+               "e":=Extradata
+             }=_Unpacked) ->
+  Tx#{
+    ver=>2,
+    t=>Timestamp,
+    txext=>Extradata
+   };
+
+unpack_body(#{ver:=Ver, kind:=Kind},_Unpacked) ->
+  throw({unknown_ver_or_kind,{Ver,Kind},_Unpacked}).
+
+sign(#{kind:=_Kind,
        body:=Bin,
        sign:=PS}=Tx, PrivKey) ->
   Pub=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
@@ -298,15 +323,146 @@ verify1(#{
       }
   end.
 
+-type tx() :: tx2() | tx1().
+-type tx2() :: #{
+        ver:=non_neg_integer(),
+        kind:=atom(),
+        body:=binary(),
+        sign:=map(),
+        sigverify=>#{valid:=integer(),
+                     invalid:=integer()
+                    }
+       }.
+-type tx1() :: #{ 'patch':=binary(), 'sig':=list() } 
+| #{ 'type':='register', 'pow':=binary(), 
+     'register':=binary(), 'timestamp':=integer() }
+| #{ from := binary(), sig := map(), timestamp := integer() }.
 
-verify(#{register:=_, type:=register}=Tx) ->
+-spec verify(tx()|binary(), ['nocheck_ledger'| {ledger, pid()}]) ->
+  {ok, tx()} | 'bad_sig'.
+
+verify(Tx) ->
+  verify(Tx, []).
+
+verify(#{
+  from:=From,
+  body:=Body,
+  sign:=HSigs,
+  ver:=2,
+  kind:=_K
+ }=Tx, Opts) ->
+  CI=get_ext(<<"contract_issued">>, Tx),
+  Res=case checkaddr(From) of
+        {true, _IAddr} when CI=={ok, From} ->
+          %contract issued. Check nodes key.
+          try
+            maps:fold(
+              fun(Pub, Sig, {AValid, AInvalid}) ->
+                  case tpecdsa:secp256k1_ecdsa_verify(Body, Sig, Pub) of
+                    correct ->
+                      V=chainsettings:is_our_node(Pub) =/= false,
+                      if V ->
+                           {AValid+1, AInvalid};
+                         true ->
+                           {AValid, AInvalid+1}
+                      end;
+                    _ ->
+                      {AValid, AInvalid+1}
+                  end
+              end,
+              {0, 0}, HSigs)
+          catch _:_ ->
+                  throw(verify_error)
+          end;
+        {true, _IAddr} ->
+          VerFun=case lists:member(nocheck_ledger,Opts) of
+                   false ->
+                     LedgerInfo=ledger:get(
+                            proplists:get_value(ledger,Opts,ledger),
+                            From),
+                     case LedgerInfo of
+                       #{pubkey:=PK} when is_binary(PK) ->
+                         fun(Pub, Sig, {AValid, AInvalid}) ->
+                             case tpecdsa:secp256k1_ecdsa_verify(Body, Sig, Pub) of
+                               correct when PK==Pub ->
+                                 {AValid+1, AInvalid};
+                               _ ->
+                                 {AValid, AInvalid+1}
+                             end
+                         end;
+                       _ ->
+                         throw({ledger_err, From})
+                     end;
+                   true ->
+                     fun(Pub, Sig, {AValid, AInvalid}) ->
+                         case tpecdsa:secp256k1_ecdsa_verify(Body, Sig, Pub) of
+                           correct ->
+                             {AValid+1, AInvalid};
+                           _ ->
+                             {AValid, AInvalid+1}
+                         end
+                     end
+                 end,
+          maps:fold(
+            VerFun,
+            {0, 0}, HSigs);
+        _ ->
+          throw({invalid_address, from})
+      end,
+
+  case Res of
+    {0, _} ->
+      bad_sig;
+    {Valid, Invalid} when Valid>0 ->
+      {ok, Tx#{
+             sigverify=>#{
+               valid=>Valid,
+               invalid=>Invalid
+              }
+            }
+      }
+  end;
+
+verify(#{
+  body:=Body,
+  sign:=HSigs,
+  ver:=2,
+  kind:=Kind
+ }=Tx, _Opts) when Kind==register ->
+  VerFun=fun(Pub, Sig, {AValid, AInvalid}) ->
+             case tpecdsa:secp256k1_ecdsa_verify(Body, Sig, Pub) of
+               correct ->
+                 {AValid+1, AInvalid};
+               _ ->
+                 {AValid, AInvalid+1}
+             end
+         end,
+  Res=maps:fold(
+        VerFun,
+        {0, 0}, HSigs),
+  case Res of
+    {0, _} ->
+      bad_sig;
+    {Valid, Invalid} when Valid>0 ->
+      {ok, Tx#{
+             sigverify=>#{
+               valid=>Valid,
+               invalid=>Invalid
+              }
+            }
+      }
+  end;
+
+
+
+verify(#{register:=_, type:=register}=Tx, _) ->
   {ok, Tx};
 
 verify(#{
   from := From,
   sig := HSigs,
   timestamp := T
- }=Tx) ->
+ }=Tx, Opts) ->
   Message=mkmsg(Tx),
   if is_integer(T) ->
        ok;
@@ -338,7 +494,10 @@ verify(#{
                                throw(verify_error)
                        end;
                      {true, _IAddr} ->
-                       case ledger:get(From) of
+                       LedgerInfo=ledger:get(
+                                    proplists:get_value(ledger,Opts,ledger),
+                                    From),
+                       case LedgerInfo of
                          #{pubkey:=PK} when is_binary(PK) ->
                            VerFun=fun(Pub, Sig, {AValid, AInvalid}) ->
                                       case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
@@ -371,12 +530,14 @@ verify(#{
       }
   end;
 
-verify(#{patch:=_, sig:=_}=Patch) ->
+verify(#{patch:=_, sig:=_}=Patch, _) ->
   settings:verify(Patch);
 
-verify(Bin) when is_binary(Bin) ->
+verify(Bin, Opts) when is_binary(Bin) ->
   Tx=unpack(Bin),
-  verify(Tx).
+  verify(Tx, Opts).
+
+-spec pack(tx()) -> binary().
 
 pack(#{ ver:=2,
         body:=Bin,
@@ -765,7 +926,7 @@ digaddr_tx_test() ->
           58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   PubKey=tpecdsa:calc_pub(Priv, true),
   From=(naddress:construct_public(0, 0, 1)),
-  Test=fun() ->
+  Test=fun(LedgerPID) ->
            To=(naddress:construct_public(0, 0, 2)),
            TestTx2=#{ from=>From,
                       to=>To,
@@ -776,8 +937,8 @@ digaddr_tx_test() ->
                     },
            BinTx2=tx:sign(TestTx2, Priv),
            BinTx2r=tx:pack(tx:unpack(BinTx2)),
-           {ok, CheckTx2}=tx:verify(BinTx2),
-           {ok, CheckTx2r}=tx:verify(BinTx2r),
+           {ok, CheckTx2}=tx:verify(BinTx2,[{ledger, LedgerPID}]),
+           {ok, CheckTx2r}=tx:verify(BinTx2r,[{ledger, LedgerPID}]),
            CheckTx2=CheckTx2r
        end,
   Ledger=[ {From, bal:put(pubkey, PubKey, bal:new()) } ],
@@ -810,7 +971,7 @@ deploy_test() ->
           58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   PubKey=tpecdsa:calc_pub(Priv, true),
   From=(naddress:construct_public(0, 0, 1)),
-  Test=fun() ->
+  Test=fun(LedgerPID) ->
            TestTx2=#{ from=>From,
                       deploy=><<"chainfee">>,
                       code=><<"code">>,
@@ -820,8 +981,8 @@ deploy_test() ->
                     },
            BinTx2=tx:sign(TestTx2, Priv),
            BinTx2r=tx:pack(tx:unpack(BinTx2)),
-           {ok, CheckTx2}=tx:verify(BinTx2),
-           {ok, CheckTx2r}=tx:verify(BinTx2r),
+           {ok, CheckTx2}=tx:verify(BinTx2,[{ledger, LedgerPID}]),
+           {ok, CheckTx2r}=tx:verify(BinTx2r,[{ledger, LedgerPID}]),
            [
             ?assertEqual(CheckTx2, CheckTx2r),
             ?assertEqual(maps:without([sigverify], CheckTx2r), tx:unpack(BinTx2))
@@ -864,6 +1025,52 @@ txs_sig_test() ->
    ?assertNotEqual(H1, H3)
   ].
 
+tx2_reg_test() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Pub=tpecdsa:calc_pub(Pvt1,true),
+  T1=#{
+    kind => register,
+    t => 1530106238743,
+    ver => 2
+   },
+  TXConstructed=tx:construct_tx(T1),
+  Packed=tx:pack(tx:sign(TXConstructed,Pvt1)),
+  [
+  ?assertMatch({ok,#{sigverify:=#{valid:=1,invalid:=0}}}, verify(Packed, [])),
+  ?assertMatch({ok,#{sign:=#{Pub:=_}} }, verify(Packed))
+  ].
+
+
+tx2_generic_test() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  PubKey=tpecdsa:calc_pub(Pvt1, true),
+  T1=#{
+    kind => generic,
+    from => <<128,0,32,0,2,0,0,3>>,
+    payload =>
+    [#{amount => 10,cur => <<"XXX">>,purpose => transfer},
+     #{amount => 20,cur => <<"FEE">>,purpose => srcfee}],
+    seq => 5,sign => #{},t => 1530106238743,
+    to => <<128,0,32,0,2,0,0,5>>,
+    ver => 2
+   },
+  TXConstructed=tx:construct_tx(T1),
+  Packed=tx:pack(tx:sign(TXConstructed,Pvt1)),
+  Test=fun(LedgerPID) ->
+           [
+            ?assertMatch(#{ ver:=2, kind:=generic}, tx:unpack(Packed)),
+            ?assertMatch({ok,#{
+                            ver:=2,
+                            kind:=generic,
+                            sigverify:=#{valid:=1,invalid:=0}
+                           }}, verify(Packed, [{ledger, LedgerPID}])),
+            ?assertThrow({ledger_err, _}, verify(Packed))
+           ]
+       end,
+  Ledger=[ {<<128,0,32,0,2,0,0,3>>, bal:put(pubkey, PubKey, bal:new()) } ],
+  ledger:deploy4test(Ledger, Test).
 -endif.
 
 

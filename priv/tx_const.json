@@ -1,0 +1,12 @@
+{
+  "purpose": {
+    "0": "transfer",
+    "1": "srcfee",
+    "2": "dstfee",
+    "3": "gas"
+  },
+  "kind": {
+    "16": ["generic", 2],
+    "17": ["register", 2]
+  }
+}
