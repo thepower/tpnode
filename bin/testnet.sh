@@ -116,6 +116,11 @@ attach_testnet() {
     tmux a -t testnet:chain4
 }
 
+compile_testnet() {
+    stop_testnet
+    REBAR_PROFILE=test ./rebar3 compile
+}
+
 usage() {
     echo "usage: $0 start|stop|attach|reset"
 }
@@ -139,6 +144,9 @@ case $1 in
         ;;
     reset)
         reset_testnet
+        ;;
+    compile)
+        compile_testnet
         ;;
     *)
         usage

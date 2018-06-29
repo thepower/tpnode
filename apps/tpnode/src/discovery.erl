@@ -11,7 +11,8 @@
 }).
 -define(KNOWN_ATOMS,
     [address, name, valid_until, port, proto, tpic,
-        nodeid, scopes, xchain, api, chain, created, ttl]).
+        nodeid, scopes, xchain, api, chain, created, ttl,
+        hostname]).
 
 
 -ifdef(TEST).
@@ -293,13 +294,20 @@ get_unixtime() ->
     (Mega * 1000000 + Sec).
 
 % --------------------------------------------------------
-announce_one_service(Name, Address, Ttl, Scopes) ->
+announce_one_service(Name, Address, Hostname, Ttl, Scopes) ->
     try
-        TranslatedAddress = translate_address(Address),
+        TranslatedAddress0 = translate_address(Address),
+        TranslatedAddress = case Hostname of
+                       unknown ->
+                           TranslatedAddress0;
+                       _ ->
+                           maps:put(hostname, Hostname, TranslatedAddress0)
+                   end,
         lager:debug(
             "make announce for service ~p, address: ~p, scopes: ~p",
             [Name, TranslatedAddress, Scopes]
         ),
+
         Announce = #{
             name => Name,
             address => TranslatedAddress,
@@ -370,6 +378,7 @@ is_right_proto(ServiceName, Proto0)  ->
 make_announce(#{names:=Names} = _Dict, State) ->
     lager:debug("Announcing our local services"),
     Ttl = get_config(intrachain_ttl, 120, State),
+    Hostname = get_config(hostname, unknown, State),
 %%    ValidUntil = get_unixtime() + get_config(intrachain_ttl, 120, State),
     Addresses = get_config(addresses, get_default_addresses(), State),
     AllScopesCfg = get_config(scope, ?DEFAULT_SCOPE_CONFIG, State),
@@ -385,7 +394,7 @@ make_announce(#{names:=Names} = _Dict, State) ->
 
                 if
                     IsRightProto == true andalso IsAdvertisable == true ->
-                        announce_one_service(Name, Address, Ttl, Scopes),
+                        announce_one_service(Name, Address, Hostname, Ttl, Scopes),
                         AddrCounter + 1;
                     true ->
 %%                        lager:debug("skip announce for address ~p ~p", [Name, Address]),
@@ -533,6 +542,7 @@ translate_address(#{address:=IP}=Address0) when is_map(Address0) ->
 
 % check if local service is exists
 query_local(Name, #{names:=Names}=_Dict, State) ->
+    Hostname = get_config(hostname, unknown, State),
     case maps:is_key(Name, Names) of
         false -> [];
         true ->
@@ -547,7 +557,15 @@ query_local(Name, #{names:=Names}=_Dict, State) ->
                 LocalAddresses
             ),
             lists:map(
-                fun(Address) -> translate_address(Address) end,
+                fun(Address) ->
+                    Translated0 = translate_address(Address),
+                    case Hostname of
+                        unknown ->
+                            Translated0;
+                        _ ->
+                            maps:put(hostname, Hostname, Translated0)
+                    end
+                end,
                 RightAddresses
             )
     end.

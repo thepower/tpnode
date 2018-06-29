@@ -259,13 +259,21 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
                     );
                 #{} ->
                     answer(
-                        #{result => <<"found">>, chain => Blk},
+                        #{
+                            result => <<"found">>,
+                            chain => Blk,
+                            chain_nodes => get_nodes(Blk)
+                        },
                         #{address => Addr}
                     )
             end;
         true ->
             answer(
-                #{ result => <<"other_chain">>, chain => Blk },
+                #{
+                    result => <<"other_chain">>,
+                    chain => Blk,
+                    chain_nodes => get_nodes(Blk)
+                },
                 #{ address => Addr }
             )
     end
@@ -284,6 +292,13 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
                 #{http_code => 400}
             )
   end;
+
+h(<<"GET">>, [<<"nodes">>, Chain], _Req) ->
+    answer(#{
+        chain_nodes => get_nodes(binary_to_integer(Chain, 10))
+    });
+
+
 
 
 h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
@@ -811,4 +826,28 @@ show_signs(Signs, BinPacker) ->
          }
     end, Signs).
 
+% ----------------------------------------------------------------------
+
+get_nodes(Chain) when is_integer(Chain) ->
+    Nodes = gen_server:call(discovery, {lookup, <<"apipeer">>, Chain}),
+    WhitelistedKeys =
+        [address, <<"address">>, port, <<"port">>, hostname, <<"hostname">>],
+
+    lists:map(
+        fun(Addr) when is_map(Addr) ->
+            maps:map(
+                fun(address, Ip) when is_list(Ip) ->
+                    list_to_binary(Ip);
+                    (hostname, Name) when is_list(Name) ->
+                    list_to_binary(Name);
+                    (_, V) ->
+                        V
+                end,
+                maps:with(WhitelistedKeys, Addr)
+            );
+            (V) ->
+                V
+        end,
+        Nodes
+    ).
 
