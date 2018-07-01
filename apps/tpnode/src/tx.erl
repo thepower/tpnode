@@ -177,6 +177,8 @@ construct_tx(#{
              is_integer(Amount), is_binary(Cur) ->
            [encode_purpose(Purpose), to_list(Cur), Amount]
        end, Amounts),
+  Ext=maps:get(txext, Tx, #{}),
+  true=is_map(Ext),
   E0=#{
     "k"=>encode_kind(2,generic),
     "f"=>F,
@@ -184,7 +186,7 @@ construct_tx(#{
     "t"=>Timestamp,
     "s"=>Seq,
     "p"=>A1,
-    "e"=>to_binary(maps:get(txext, Tx, ""))
+    "e"=>Ext
    },
   {E1,Tx1}=case maps:find(call,Tx) of
              {ok, #{function:=Fun,args:=Args}} when is_binary(Fun),
@@ -1065,8 +1067,7 @@ tx2_generic_test() ->
                             ver:=2,
                             kind:=generic,
                             sigverify:=#{valid:=1,invalid:=0}
-                           }}, verify(Packed, [{ledger, LedgerPID}])),
-            ?assertThrow({ledger_err, _}, verify(Packed))
+                           }}, verify(Packed, [{ledger, LedgerPID}]))
            ]
        end,
   Ledger=[ {<<128,0,32,0,2,0,0,3>>, bal:put(pubkey, PubKey, bal:new()) } ],
