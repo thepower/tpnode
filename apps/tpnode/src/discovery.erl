@@ -543,6 +543,18 @@ translate_address(#{address:=IP}=Address0) when is_map(Address0) ->
 % check if local service is exists
 query_local(Name, #{names:=Names}=_Dict, State) ->
     Hostname = get_config(hostname, unknown, State),
+    NodeId = nodekey:node_id(),
+    AddHostname =
+        fun(Address) when is_map(Address) ->
+            Translated0 = translate_address(Address),
+            case Hostname of
+                unknown ->
+                    Translated0;
+                _ ->
+                    maps:put(hostname, Hostname, Translated0)
+            end
+        end,
+
     case maps:is_key(Name, Names) of
         false -> [];
         true ->
@@ -557,14 +569,11 @@ query_local(Name, #{names:=Names}=_Dict, State) ->
                 LocalAddresses
             ),
             lists:map(
-                fun(Address) ->
-                    Translated0 = translate_address(Address),
-                    case Hostname of
-                        unknown ->
-                            Translated0;
-                        _ ->
-                            maps:put(hostname, Hostname, Translated0)
-                    end
+                fun(Address) when is_map(Address)->
+                    Address1 = AddHostname(Address),
+                    maps:put(nodeid, NodeId, Address1);
+                (Invalid) ->
+                    lager:error("Invalid address: ~p", [Invalid])
                 end,
                 RightAddresses
             )
@@ -582,8 +591,11 @@ query_remote(Name0, Dict, Chain) when is_integer(Chain)->
     Nodes = maps:get(Name, Dict, #{}),
     Announces = maps:values(Nodes),
     lists:map(
-        fun(#{address:=Address}) ->
-            Address
+        fun(#{address:=Address, nodeid:=NodeId})
+                when is_map(Address) andalso is_binary(NodeId) ->
+                    maps:put(nodeid, NodeId, Address);
+            (#{address:=Address}) ->
+                Address
         end, Announces
     );
 
