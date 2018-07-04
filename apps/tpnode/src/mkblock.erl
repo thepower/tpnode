@@ -976,7 +976,15 @@ withdraw(FBal,
   end,
   CurFSeq=bal:get(seq, FBal),
   if CurFSeq < Seq -> ok;
-     true -> throw ('bad_seq')
+     true ->
+       L=try
+           ledger:get(From)
+         catch _:_ ->
+                 cant_get_ledger
+         end,
+       lager:error("Bad seq addr ~p, cur ~p tx ~p, ledger ~p",
+                   [From, CurFSeq, Seq, L]),
+       throw ('bad_seq')
   end,
   CurFTime=bal:get(t, FBal),
   if CurFTime < Timestamp -> ok;
