@@ -222,17 +222,14 @@ discovery_got_announce_test(_Config) ->
     DiscoveryC5N2 = rpc:call(get_node(<<"test_c5n2">>), erlang, whereis, [discovery]),
     Rnd = integer_to_binary(rand:uniform(100000)),
     ServiceName = <<"looking_glass_", Rnd/binary>>,
-    {_Announce, AnnounceBin} = build_announce(ServiceName),
+    {Announce, AnnounceBin} = build_announce(ServiceName),
     gen_server:cast(DiscoveryC4N1, {got_announce, AnnounceBin}),
     timer:sleep(2000),  % wait for announce propagation
     Result = gen_server:call(DiscoveryC4N1, {lookup, ServiceName, 4}),
+    NodeId = maps:get(nodeid, Announce, <<"">>),
+    Address = maps:get(address, Announce),
     Experted = [
-        #{
-            address => <<"127.0.0.1">>,
-            hostname=>"c4n3.pwr.local",
-            port => 1234,
-            proto => api
-        }
+        maps:put(nodeid, NodeId, Address)
     ],
     ?assertEqual(Experted, Result),
     % c4n1 should forward the announce to c4n2
