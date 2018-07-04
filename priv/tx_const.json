@@ -7,6 +7,9 @@
   },
   "kind": {
     "16": ["generic", 2],
-    "17": ["register", 2]
+    "17": ["register", 2],
+    "18": ["deploy", 2],
+    "19": ["patch", 2],
+    "20": ["block", 2]
   }
 }
