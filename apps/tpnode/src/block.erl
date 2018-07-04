@@ -557,8 +557,8 @@ block_test_() ->
                 200, 100, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100>>,
     Priv2Key= <<200, 300, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100,
                 200, 300, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100>>,
-    Pub1=tpecdsa:secp256k1_ec_pubkey_create(Priv1Key, true),
-    Pub2=tpecdsa:secp256k1_ec_pubkey_create(Priv2Key, true),
+    Pub1=tpecdsa:calc_pub(Priv1Key, true),
+    Pub2=tpecdsa:calc_pub(Priv2Key, true),
     RPatch=[
              #{t=>set, p=>[globals, patchsigs], v=>2},
              #{t=>set, p=>[chains], v=>[0]},

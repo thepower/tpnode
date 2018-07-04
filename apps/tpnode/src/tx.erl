@@ -259,14 +259,14 @@ unpack_body(#{ver:=Ver, kind:=Kind},_Unpacked) ->
 sign(#{kind:=_Kind,
        body:=Bin,
        sign:=PS}=Tx, PrivKey) ->
-  Pub=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
-  Sig = tpecdsa:secp256k1_ecdsa_sign(Bin, PrivKey, default, <<>>),
+  Pub=tpecdsa:calc_pub(PrivKey, true),
+  Sig = tpecdsa:sign(Bin, PrivKey),
   Tx#{sign=>maps:put(Pub,Sig,PS)};
 
 sign(#{
   from:=From
  }=Tx, PrivKey) ->
-  Pub=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
+  Pub=tpecdsa:calc_pub(PrivKey, true),
   case checkaddr(From) of
     {true, _IAddr} ->
       ok;
@@ -277,7 +277,7 @@ sign(#{
   TxBin=mkmsg(Tx),
   {ok, [MType|LTx]} = msgpack:unpack(TxBin),
 
-  Sig = tpecdsa:secp256k1_ecdsa_sign(TxBin, PrivKey, default, <<>>),
+  Sig = tpecdsa:sign(TxBin, PrivKey),
 
   msgpack:pack(
     maps:merge(
@@ -301,7 +301,7 @@ verify1(#{
        throw({bad_timestamp, T})
   end,
   VerFun=fun(Pub, Sig, {AValid, AInvalid}) ->
-             case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
+             case tpecdsa:verify(Message, Pub, Sig) of
                correct ->
                  {AValid+1, AInvalid};
                _ ->
@@ -360,7 +360,7 @@ verify(#{
           try
             maps:fold(
               fun(Pub, Sig, {AValid, AInvalid}) ->
-                  case tpecdsa:secp256k1_ecdsa_verify(Body, Sig, Pub) of
+                  case tpecdsa:verify(Body, Pub, Sig) of
                     correct ->
                       V=chainsettings:is_our_node(Pub) =/= false,
                       if V ->
@@ -385,7 +385,7 @@ verify(#{
                      case LedgerInfo of
                        #{pubkey:=PK} when is_binary(PK) ->
                          fun(Pub, Sig, {AValid, AInvalid}) ->
-                             case tpecdsa:secp256k1_ecdsa_verify(Body, Sig, Pub) of
+                             case tpecdsa:verify(Body, Pub, Sig) of
                                correct when PK==Pub ->
                                  {AValid+1, AInvalid};
                                _ ->
@@ -397,7 +397,7 @@ verify(#{
                      end;
                    true ->
                      fun(Pub, Sig, {AValid, AInvalid}) ->
-                         case tpecdsa:secp256k1_ecdsa_verify(Body, Sig, Pub) of
+                         case tpecdsa:verify(Body, Pub, Sig) of
                            correct ->
                              {AValid+1, AInvalid};
                            _ ->
@@ -432,7 +432,7 @@ verify(#{
   kind:=Kind
  }=Tx, _Opts) when Kind==register ->
   VerFun=fun(Pub, Sig, {AValid, AInvalid}) ->
-             case tpecdsa:secp256k1_ecdsa_verify(Body, Sig, Pub) of
+             case tpecdsa:verify(Body, Pub, Sig) of
                correct ->
                  {AValid+1, AInvalid};
                _ ->
@@ -479,7 +479,7 @@ verify(#{
                        try
                          maps:fold(
                            fun(Pub, Sig, {AValid, AInvalid}) ->
-                               case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
+                               case tpecdsa:verify(Message, Pub, Sig) of
                                  correct ->
                                    V=chainsettings:is_our_node(Pub) =/= false,
                                    if V ->
@@ -502,7 +502,7 @@ verify(#{
                        case LedgerInfo of
                          #{pubkey:=PK} when is_binary(PK) ->
                            VerFun=fun(Pub, Sig, {AValid, AInvalid}) ->
-                                      case tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Pub) of
+                                      case tpecdsa:verify(Message, Pub, Sig) of
                                         correct when PK==Pub ->
                                           {AValid+1, AInvalid};
                                         _ ->
@@ -880,7 +880,7 @@ register_test() ->
 tx_jsondata_test() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
           248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
-  %Pub1Min=tpecdsa:secp256k1_ec_pubkey_create(Pvt1, true),
+  %Pub1Min=tpecdsa:calc_pub(Pvt1, true),
   From=(naddress:construct_public(0, 0, 1)),
   BinTx1=sign(#{
            from => From,
@@ -1066,7 +1066,10 @@ tx2_generic_test() ->
             ?assertMatch({ok,#{
                             ver:=2,
                             kind:=generic,
-                            sigverify:=#{valid:=1,invalid:=0}
+                            sigverify:=#{valid:=1,invalid:=0},
+                            seq:=5,
+                            from:= <<128,0,32,0,2,0,0,3>>,
+                            to:= <<128,0,32,0,2,0,0,5>>
                            }}, verify(Packed, [{ledger, LedgerPID}]))
            ]
        end,

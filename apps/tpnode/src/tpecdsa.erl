@@ -1,12 +1,6 @@
 -module(tpecdsa).
 -export([generate_priv/0, minify/1, calc_pub/2, sign/2, verify/3]).
--export([secp256k1_ecdsa_sign/4,
-  secp256k1_ecdsa_verify/3,
-  secp256k1_ec_pubkey_create/2,
-  secp256k1_ec_pubkey_create/1,
-  export/2,
-  import/1
-]).
+-export([export/2, import/1 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -63,19 +57,6 @@ verify(Message, Public, Sig) ->
   if R -> correct;
     true -> incorrect
   end.
-
-
-secp256k1_ecdsa_sign(Msg32, SecKey, _Nonce, _NonceData) ->
-  sign(Msg32, SecKey).
-
-secp256k1_ecdsa_verify(Msg32, Sig, Pubkey) ->
-  verify(Msg32, Pubkey, Sig).
-
-secp256k1_ec_pubkey_create(SecKey) -> %use mini keys by default
-  calc_pub(SecKey, true).
-
-secp256k1_ec_pubkey_create(SecKey, Compressed) ->
-  calc_pub(SecKey, Compressed).
 
 
 export(<<PrivKey:32/binary>>,pem) ->
@@ -140,21 +121,17 @@ sign_test() ->
 						 128, 128, 128, 128, 128, 128, 128, 128,
 						 128, 128, 128, 128, 128, 128, 128, 128>>,
   Msg32 = <<"Hello">>,
-  << _/binary >> = Sig = secp256k1_ecdsa_sign(Msg32, SecKey, default, <<>>),
+  << _/binary >> = Sig = sign(Msg32, SecKey),
   ?assertEqual(correct,
-							 secp256k1_ecdsa_verify(Msg32, Sig,
-																			secp256k1_ec_pubkey_create(SecKey, false)
-																		 )
+							 verify(Msg32, calc_pub(SecKey, false), Sig)
 							),
   ?assertEqual(correct,
-							 secp256k1_ecdsa_verify(Msg32, Sig,
-																			secp256k1_ec_pubkey_create(SecKey, true)
-																		 )
+							 verify(Msg32, calc_pub(SecKey, true), Sig)
 							),
   ?assertEqual(incorrect,
-							 secp256k1_ecdsa_verify(<<1, Msg32/binary>>,
+							 verify(<<1, Msg32/binary>>,
 																			Sig,
-																			secp256k1_ec_pubkey_create(SecKey, false)
+																			calc_pub(SecKey, false)
 																		 )
 							).
 -endif.

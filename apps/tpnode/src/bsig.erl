@@ -10,7 +10,7 @@ checksig1(BlockHash, SrcSig) ->
     #{binextra:=BExt, extra:=Xtra, signature:=Sig}=US=unpacksig(HSig),
     PubKey=proplists:get_value(pubkey, Xtra),
     Msg= <<BExt/binary, BlockHash/binary>>,
-    case tpecdsa:secp256k1_ecdsa_verify(Msg, Sig, PubKey) of
+    case tpecdsa:verify(Msg, PubKey, Sig) of
         correct ->
             {true, US};
         _ ->
@@ -31,11 +31,11 @@ checksig(BlockHash, Sigs) ->
 signhash1(MsgHash, ExtraData, PrivKey) ->
     BinExtra=pack_sign_ed(ExtraData),
     Msg= <<BinExtra/binary, MsgHash/binary>>,
-    Signature=tpecdsa:secp256k1_ecdsa_sign(Msg, PrivKey, default, <<>>),
+    Signature=tpecdsa:sign(Msg, PrivKey),
     <<255, (size(Signature)):8/integer, Signature/binary, BinExtra/binary>>.
 
 signhash(MsgHash, ExtraData, PrivKey) ->
-  PubKey=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
+  PubKey=tpecdsa:calc_pub(PrivKey, true),
   signhash1(MsgHash, [{pubkey, PubKey}|ExtraData], PrivKey).
 
 unpack_sign_ed(Bin) -> unpack_sign_ed(Bin, []).

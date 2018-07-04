@@ -1316,7 +1316,7 @@ benchmark(N) ->
     Parent=crypto:hash(sha256, <<"123">>),
     Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
       248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
-    Pub1=tpecdsa:secp256k1_ec_pubkey_create(Pvt1, false),
+    Pub1=tpecdsa:calc_pub(Pvt1, false),
     From=address:pub2addr(0, Pub1),
     Coin= <<"FTT">>,
     Addresses=lists:map(
@@ -1438,7 +1438,7 @@ alloc_addr_test() ->
     Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
       248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
     ParentHash=crypto:hash(sha256, <<"parent">>),
-    Pub1=tpecdsa:secp256k1_ec_pubkey_create(Pvt1),
+    Pub1=tpecdsa:calc_pub(Pvt1,true),
 
     TX0=tx:unpack( tx:pack( #{ type=>register, register=>Pub1 })),
     #{block:=Block,

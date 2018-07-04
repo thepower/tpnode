@@ -19,8 +19,8 @@ geninvite(N,Secret) ->
 sign(Message) ->
     PKey=nodekey:get_priv(),
     Msg32 = crypto:hash(sha256, Message),
-    Sig = tpecdsa:secp256k1_ecdsa_sign(Msg32, PKey, default, <<>>),
-    Pub=tpecdsa:secp256k1_ec_pubkey_create(PKey, true),
+    Sig = tpecdsa:sign(Msg32, PKey),
+    Pub=tpecdsa:calc_pub(PKey, true),
     <<Pub/binary, Sig/binary, Message/binary>>.
 
 verify(<<Public:33/binary, Sig:71/binary, Message/binary>>) ->
@@ -32,7 +32,7 @@ verify(<<Public:33/binary, Sig:71/binary, Message/binary>>) ->
               Pub == Public
       end, false, TrustedKeys),
     Msg32 = crypto:hash(sha256, Message),
-    {Found, tpecdsa:secp256k1_ecdsa_verify(Msg32, Sig, Public)}.
+    {Found, tpecdsa:verify(Msg32, Public, Sig)}.
 
 
 gentx(BFrom, BTo, Amount, HPrivKey) when is_binary(BFrom)->
@@ -486,7 +486,7 @@ getpvt(Id) ->
 
 getpub(Id) ->
     Pvt=getpvt(Id),
-    Pub=tpecdsa:secp256k1_ec_pubkey_create(Pvt, false),
+    Pub=tpecdsa:calc_pub(Pvt, false),
     Pub.
 
 rnd_key() ->
@@ -499,7 +499,7 @@ crypto() ->
     %{_, XPriv}=crypto:generate_key(ecdh, crypto:ec_curve(secp256k1)),
     XPriv=rnd_key(),
     XPub=calc_pub(XPriv),
-    Pub=tpecdsa:secp256k1_ec_pubkey_create(XPriv, true),
+    Pub=tpecdsa:calc_pub(XPriv, true),
     if(Pub==XPub) -> ok;
       true ->
           io:format("~p~n", [
@@ -525,8 +525,8 @@ calc_pub(Priv) ->
 
 sign1(Message) ->
     PrivKey=nodekey:get_priv(),
-    Sig = tpecdsa:secp256k1_ecdsa_sign(Message, PrivKey, default, <<>>),
-    Pub=tpecdsa:secp256k1_ec_pubkey_create(PrivKey, true),
+    Sig = tpecdsa:sign(Message, PrivKey),
+    Pub=tpecdsa:calc_pub(PrivKey, true),
     <<(size(Pub)):8/integer, (size(Sig)):8/integer, Pub/binary, Sig/binary, Message/binary>>.
 
 sign2(Message) ->
@@ -548,7 +548,7 @@ verify1(<<PubLen:8/integer, SigLen:8/integer, Rest/binary>>) ->
               Pub=hex:parse(HexKey),
               Pub == Public
       end, false, TrustedKeys),
-    {Found, tpecdsa:secp256k1_ecdsa_verify(Message, Sig, Public)}.
+    {Found, tpecdsa:verify(Message, Public, Sig)}.
 
 verify2(<<PubLen:8/integer, SigLen:8/integer, Rest/binary>>) ->
     <<Public:PubLen/binary, Sig:SigLen/binary, Message/binary>>=Rest,
