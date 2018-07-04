@@ -831,9 +831,10 @@ show_signs(Signs, BinPacker) ->
 get_nodes(Chain) when is_integer(Chain) ->
     Nodes = gen_server:call(discovery, {lookup, <<"apipeer">>, Chain}),
     WhitelistedKeys =
-        [address, <<"address">>, port, <<"port">>, hostname, <<"hostname">>],
+        [address, <<"address">>, port, <<"port">>, hostname, <<"hostname">>,
+            nodeid, <<"nodeid">>],
 
-    lists:map(
+    Nodes1 = lists:map(
         fun(Addr) when is_map(Addr) ->
             maps:map(
                 fun(address, Ip) when is_list(Ip) ->
@@ -849,5 +850,66 @@ get_nodes(Chain) when is_integer(Chain) ->
                 V
         end,
         Nodes
+    ),
+    AddToList =
+        fun(List, NewItem) ->
+            case NewItem of
+                unknown ->
+                    List;
+                _ ->
+                    lists:usort([NewItem | List])
+            end
+        end,
+    lists:foldl(
+        fun(Addr, NodeMap) when is_map(Addr) ->
+            Host = maps:get(hostname, Addr, unknonwn),
+            Ip0 = maps:get(address, Addr, unknonwn),
+            Port = maps:get(port, Addr, unknonwn),
+            Ip = add_port_to_ip(Ip0, Port),
+
+            case maps:get(nodeid, Addr, unknonwn) of
+                unknown -> NodeMap;
+                NodeId ->
+                    NodeRecord = maps:get(NodeId, NodeMap, #{}),
+                    Hosts = maps:get(host, NodeRecord, []),
+                    Ips = maps:get(ip, NodeRecord, []),
+                    NodeRecord1 = maps:put(
+                        host,
+                        AddToList(Hosts, Host),
+                        NodeRecord
+                    ),
+                    NodeRecord2 = maps:put(
+                        ip,
+                        AddToList(Ips, Ip),
+                        NodeRecord1
+                    ),
+                    maps:put(NodeId, NodeRecord2, NodeMap)
+            end;
+            (Invalid, NodeMap) ->
+                lager:error("invalid address: ~p", Invalid),
+                NodeMap
+        end,
+        #{},
+        Nodes1
     ).
+
+add_port_to_ip(unknown, _Port) ->
+    unknown;
+add_port_to_ip(_Ip, unknown) ->
+    unknown;
+add_port_to_ip(Ip, Port)
+    when is_binary(Ip) andalso is_integer(Port) ->
+        case inet:parse_address(binary_to_list(Ip)) of
+            {ok, {_,_,_,_}} ->
+                <<Ip/binary, ":", (integer_to_binary(Port))/binary>>;
+            {ok, _} ->
+                <<"[", Ip/binary, "]:", (integer_to_binary(Port))/binary>>;
+            _ ->
+                unknown
+        end;
+
+add_port_to_ip(Ip, Port) ->
+    lager:error("Invalid ip address (~p) or port (~p)", [Ip, Port]),
+    unknown.
+
 
