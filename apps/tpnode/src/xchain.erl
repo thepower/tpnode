@@ -44,17 +44,14 @@ childspec() ->
     HTTPOpts=[{connection_type, supervisor}, {port, CrossChainPort}],
     HTTPConnType=#{connection_type => supervisor,
         env => #{dispatch => HTTPDispatch}},
-    HTTPAcceptors=10,
     [
         ranch:child_spec(crosschain_api,
-            HTTPAcceptors,
             ranch_tcp,
             HTTPOpts,
             cowboy_clear,
             HTTPConnType),
 
         ranch:child_spec(crosschain_api6,
-            HTTPAcceptors,
             ranch_tcp,
             [inet6, {ipv6_v6only, true}|HTTPOpts],
             cowboy_clear,
