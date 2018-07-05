@@ -329,12 +329,14 @@ announce_one_service(Name, Address, Hostname, Ttl, Scopes) ->
     end.
 
 % ------------------------------------------------------------
+-spec is_local_service(Announce :: #{ 'nodeid' := _, _ := _ }) -> boolean().
+
 is_local_service(#{nodeid:=RemoteNodeId} = _Announce) ->
     MyNodeId = nodekey:node_id(),
     MyNodeId =:= RemoteNodeId;
 
-is_local_service(#{<<"nodeid">>:=RemoteNodeId} = Announce) ->
-    is_local_service(Announce#{nodeid => RemoteNodeId});
+%%is_local_service(#{<<"nodeid">>:=RemoteNodeId} = Announce) ->
+%%    is_local_service(Announce#{nodeid => RemoteNodeId});
 
 is_local_service(_Announce) ->
     false.
@@ -412,10 +414,12 @@ make_announce(#{names:=Names} = _Dict, State) ->
     ok.
 
 % --------------------------------------------------------
+-spec find_service(pid() | binary(), #{'names'=>map(), 'pids'=>map()}) ->
+    'error' | {ok, _}.
 
-find_service(Pid, #{pids:=PidsDict}) when is_pid(Pid) ->
-    lager:debug("find service by pid ~p", [Pid]),
-    maps:find(Pid, PidsDict);
+%%find_service(Pid, #{pids:=PidsDict}) when is_pid(Pid) ->
+%%    lager:debug("find service by pid ~p", [Pid]),
+%%    maps:find(Pid, PidsDict);
 
 find_service(Name, #{names:=NamesDict}) when is_binary(Name) ->
     lager:debug("find service by name ~p", [Name]),
@@ -780,6 +784,13 @@ relay_announce(_PrevAnnounce, NewAnnounce, _AnnounceBin, _XChainThrottle) ->
     0.
 
 % --------------------------------------------------------
+-spec xchain_relay_announce(
+  SentXchain :: number(),
+  Throttle :: number(),
+  Announce :: #{'chain' => number()} | map(),
+  AnnounceBin :: binary()) -> number().
+
+
 xchain_relay_announce(SentXchain, Throttle, #{chain:=Chain}=Announce, AnnounceBin) ->
     Now = get_unixtime(),
     MyChain = blockchain:chain(),
