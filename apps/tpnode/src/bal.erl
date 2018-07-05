@@ -10,6 +10,7 @@
          mput/5,
          mput/6,
          pack/1,
+         pack/2,
          unpack/1,
          merge/2,
          changes/1
@@ -206,19 +207,34 @@ get(lastblk, Bal) ->maps:get(lastblk, Bal, <<0, 0, 0, 0, 0, 0, 0, 0>>);
 get(T, _) ->      throw({"unsupported bal field", T}).
 
 -spec pack (bal()) -> binary().
+pack(Bal) ->
+  pack(Bal, false).
+
+
+-spec pack (bal(), boolean()) -> binary().
 pack(#{
   amount:=Amount
- }=Bal) ->
+ }=Bal, false) ->
   msgpack:pack(
     maps:put(
       amount, Amount,
       maps:with(?FIELDS, Bal)
      )
+   );
+
+pack(#{
+  amount:=Amount
+ }=Bal, true) ->
+  msgpack:pack(
+    maps:put(
+      amount, Amount,
+      maps:with([ublk|?FIELDS], Bal)
+     )
    ).
 
 -spec unpack (binary()) -> bal().
 unpack(Bal) ->
-  case msgpack:unpack(Bal, [{known_atoms, [amount|?FIELDS]}]) of
+  case msgpack:unpack(Bal, [{known_atoms, [ublk,amount|?FIELDS]}]) of
     {ok, #{amount:=_}=Hash} ->
       maps:put(changes, [],
                maps:filter( fun(K, _) -> is_atom(K) end, Hash)

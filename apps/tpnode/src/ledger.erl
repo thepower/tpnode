@@ -214,9 +214,24 @@ handle_call({Action, KVS0, BlockID}, _From, #{db:=DB, mt:=MT}=State) when
              {ok, Batch} = rocksdb:batch(),
              TR=lists:foldl(
                   fun({K, V}, Total) ->
-                          ok=rocksdb:batch_put(Batch, K, term_to_binary(V)),
+                          ok=rocksdb:batch_put(Batch, K,
+                                               term_to_binary(
+                                                 maps:remove(ublk,V)
+                                                )
+                                              ),
                           if BlockID == undefined ->
                                  Total+1;
+                             BlockID == ublk ->
+                               case maps:is_key(ublk, V) of
+                                 true ->
+                                   UBlk=maps:get(ublk,V),
+                                   ok=rocksdb:batch_put(Batch,
+                                                        <<"lb:", K/binary>>,
+                                                        UBlk),
+                                   Total+2;
+                                 false ->
+                                   Total+1
+                               end;
                              true ->
                                  ok=rocksdb:batch_put(Batch,
                                                       <<"lb:", K/binary>>,
@@ -227,6 +242,7 @@ handle_call({Action, KVS0, BlockID}, _From, #{db:=DB, mt:=MT}=State) when
                   0, KVS),
              ?assertEqual(TR, rocksdb:batch_count(Batch)),
              if BlockID == undefined -> ok;
+                BlockID == ublk -> ok;
                 true ->
                     ok=rocksdb:batch_put(Batch,
                                          <<"lastblk">>,

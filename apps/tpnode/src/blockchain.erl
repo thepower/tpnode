@@ -50,10 +50,11 @@ chainstate() ->
                fun({_, #{chain:=_HisChain,
                          %null:=<<"sync_available">>,
                          last_hash:=Hash,
-                         prev_hash:=PHash,
+%                         prev_hash:=PHash,
                          last_height:=Heig
-                        }
+                        }=A
                    }, Acc) ->
+                   PHash=maps:get(prev_hash,A,<<0,0,0,0,0,0,0,0>>),
                    maps:put({Heig, Hash, PHash}, maps:get({Heig, Hash, PHash}, Acc, 0)+1, Acc);
                   ({_, _}, Acc) ->
                    Acc
@@ -848,46 +849,51 @@ handle_info({b2b_sync, Hash}, #{
                          sync:=b2b,
                          syncpeer:=Handler
                         }=State) ->
-    case tpiccall(Handler,
-                  #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
-                  [block]
-                 ) of
-        [{_, R}] ->
-            case maps:is_key(block, R) of
-                false ->
-                    lager:error("No block part arrived, broken sync ~p", [R]),
-                    {noreply, State};
-                true ->
-                    #{block := BlockPart} = R,
-                    BinBlock = receive_block(Handler, BlockPart),
-                    #{hash:=NewH}=Block=block:unpack(BinBlock),
-          case block:verify(Block) of
-            {true, _} ->
-              gen_server:cast(self(), {new_block, Block, self()}),
-              case maps:find(child, Block) of
-                {ok, Child} ->
-                  self() ! {b2b_sync, Child},
-                  lager:info("block ~s have child ~s", [blkid(NewH), blkid(Child)]);
-                error ->
-                  erlang:send_after(1000, self(), runsync),
-                  lager:info("block ~s no child, sync done? Try after 1 sec again", [blkid(NewH)])
-              end,
-              {noreply, State};
-            false ->
-              lager:error("Broken block ~s got from ~p. Wait a little",
-                    [blkid(NewH),
-                     proplists:get_value(pubkey,
-                               maps:get(authdata, tpic:peer(Handler), [])
-                              )
-                    ]),
-              erlang:send_after(10000, self(), runsync),
-              {noreply, State}
+  case tpiccall(Handler,
+                #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
+                [block]
+               ) of
+    [{_, R}] ->
+      case maps:is_key(block, R) of
+        false ->
+          lager:error("No block part arrived, broken sync ~p", [R]),
+          {noreply, State};
+        true ->
+          try
+            #{block := BlockPart} = R,
+            BinBlock = receive_block(Handler, BlockPart),
+            #{hash:=NewH}=Block=block:unpack(BinBlock),
+            case block:verify(Block) of
+              {true, _} ->
+                gen_server:cast(self(), {new_block, Block, self()}),
+                case maps:find(child, Block) of
+                  {ok, Child} ->
+                    self() ! {b2b_sync, Child},
+                    lager:info("block ~s have child ~s", [blkid(NewH), blkid(Child)]);
+                  error ->
+                    erlang:send_after(1000, self(), runsync),
+                    lager:info("block ~s no child, sync done? Try after 1 sec again", [blkid(NewH)])
+                end,
+                {noreply, State};
+              false ->
+                lager:error("Broken block ~s got from ~p. Wait a little",
+                            [blkid(NewH),
+                             proplists:get_value(pubkey,
+                                                 maps:get(authdata, tpic:peer(Handler), [])
+                                                )
+                            ]),
+                erlang:send_after(10000, self(), runsync),
+                {noreply, State}
+            end
+          catch throw:broken_sync ->
+                  lager:notice("Broken sync"),
+                  {noreply, State}
           end
-            end;
-        _ ->
-            erlang:send_after(10000, self(), runsync),
-            {noreply, State}
-    end;
+      end;
+    _ ->
+      erlang:send_after(10000, self(), runsync),
+      {noreply, State}
+  end;
 
 handle_info(checksync, #{
         lastblock:=#{header:=#{height:=MyHeight}, hash:=_MyLastHash}
@@ -950,18 +956,31 @@ handle_info(runsync, #{
                      last_height:=Height,
                      null:=<<"sync_available">>}=Info} ->
             ByBlock=maps:get(<<"byblock">>, Info, false),
-            %Inst=maps:get(<<"instant">>, Info, false),
-            lager:notice("Disabled instant sync. FIX ME"),
-            Inst=false,
-            lager:info("Found candidate h=~w my ~w, bb ~s inst ~s",
-                       [Height, MyHeight, ByBlock, Inst ]),
+            Inst0=maps:get(<<"instant">>, Info, false),
+            Inst=case Inst0 of
+                   false ->
+                     false;
+                   true ->
+                     case application:get_env(tpnode,allow_instant) of
+                       {ok,true} ->
+                         lager:notice("Forced instant sync in config"),
+                         true;
+                       {ok,I} when is_integer(I) ->
+                         Height-MyHeight >= I;
+                       _ ->
+                         lager:notice("Disabled instant sync in config"),
+                         false
+                     end
+                 end,
+            lager:info("Found candidate h=~w my ~w, bb ~s inst ~s/~s",
+                       [Height, MyHeight, ByBlock, Inst0, Inst ]),
             if(Height==MyHeight) ->
                   lager:info("Sync done, finish."),
                   notify_settings(),
                   {noreply,
                    maps:without([sync, syncblock, syncpeer], State)
                   };
-              (Height-MyHeight > 50 andalso Inst) ->
+              Inst==true ->
                   % try instant sync;
                   gen_server:call(ledger, '_flush'),
                   ledger_sync:run_target(tpic, Handler, ledger, undefined),
@@ -1031,9 +1050,14 @@ receive_block(Handler, BlockPart, Acc) ->
         _ ->
             lager:debug("Received block part number ~p out of ~p", [Number, Length]),
             Response = tpiccall(Handler,  #{null => <<"pick_next_part">>}, [block]),
-            [{_, R}] = Response,
-            #{block := NewBlockPart} = R,
-            receive_block(Handler, NewBlockPart, NewAcc)
+            case Response of
+              [{_, R}] ->
+                #{block := NewBlockPart} = R,
+                receive_block(Handler, NewBlockPart, NewAcc);
+              [] ->
+                lager:notice("Broken sync"),
+                throw('broken_sync')
+            end
     end.
 
 save_sets(ignore, _Settings) -> ok;

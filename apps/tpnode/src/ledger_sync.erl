@@ -70,8 +70,9 @@ continue(TPIC, LedgerPID, [{Handler, Res}], Parent, Acc, BlockAcc) ->
             gen_server:call(LedgerPID,
                             {put, maps:fold(
                                     fun(K, V, A) ->
-                                            [{K, bal:unpack(V)}|A]
-                                    end, [], L)}),
+                                        CL=bal:unpack(V),
+                                            [{K, CL}|A]
+                                    end, [], L), ublk}),
             lager:info("L ~w~n", [maps:size(L)]),
             Parent ! {inst_sync, ledger},
             case Done of
@@ -116,7 +117,7 @@ synchronizer(TPIC, PeerID,
     if BlockSent == done ->
         SP1 = send_settings(TPIC, PeerID, Patches),
         if SP1 == done ->
-                SP2 = send_ledger(TPIC, PeerID, first, Itr),
+                SP2 = send_ledger({DBH, Snapshot}, TPIC, PeerID, first, Itr),
                 lager:info("Sync finished: ~p / ~p", [SP1, SP2]);
             true ->
                 lager:info("Sync interrupted while sending settings ~p", [SP1])
@@ -196,7 +197,7 @@ send_settings(TPIC, PeerID, Settings) ->
               timeout
     end.
 
-send_ledger(TPIC, PeerID, Act, Itr) ->
+send_ledger(DB, TPIC, PeerID, Act, Itr) ->
     receive
         {'$gen_cast', {tpic, PeerID, Bin}} ->
             case msgpack:unpack(Bin) of
@@ -204,11 +205,11 @@ send_ledger(TPIC, PeerID, Act, Itr) ->
                     tpic:cast(TPIC, PeerID, msgpack:pack(#{null=><<"stopped">>})),
                     interrupted;
                 {ok, #{null:=<<"continue">>}} ->
-                    case pickx(Act, Itr, 1000, []) of
+                    case pickx(DB, Act, Itr, 1000, []) of
                         {ok, L} ->
                             Blob=#{done=>false, ledger=>maps:from_list(L)},
                             tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
-                            send_ledger(TPIC, PeerID, next, Itr);
+                            send_ledger(DB, TPIC, PeerID, next, Itr);
                         {error, L} ->
                             Blob=#{done=>true, ledger=>maps:from_list(L)},
                             tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
@@ -225,16 +226,26 @@ send_ledger(TPIC, PeerID, Act, Itr) ->
     end.
 
 
-pickx(_, _, 0, A) -> {ok, A};
-pickx(Act, Itr, N, A) ->
-    case rocksdb:iterator_move(Itr, Act) of
-        {ok, <<"lb:", _/binary>>, _} ->
-            pickx(next, Itr, N, A);
-        {ok, <<"lastblk">>, _} ->
-            pickx(next, Itr, N, A);
-        {ok, K, V} ->
-            pickx(next, Itr, N-1,
-                  [{K, bal:pack(binary_to_term(V))}|A]);
-        {error, _} ->
-            {error, A}
-    end.
+pickx(_, _, _, 0, A) -> {ok, A};
+pickx({DBH, Snapshot}=DB, Act, Itr, N, A) ->
+  case rocksdb:iterator_move(Itr, Act) of
+    {ok, <<"lb:", _/binary>>, _} ->
+      pickx(DB, next, Itr, N, A);
+    {ok, <<"lastblk">>, _} ->
+      pickx(DB, next, Itr, N, A);
+    {ok, K, V} ->
+      V0=binary_to_term(V),
+      lager:notice("FX ME here"),
+      V1=case rocksdb:get(DBH, <<"lb:", K/binary>>, [{snapshot, Snapshot}]) of
+           {ok, LBH} ->
+             lager:notice("LB ~p",[LBH]),
+             V0#{ ublk=>LBH };
+           _ ->
+             lager:notice("LB none"),
+             V0
+         end,
+      pickx(DB, next, Itr, N-1, [{K, bal:pack(V1,true)}|A]);
+    {error, _} ->
+      {error, A}
+  end.
+
