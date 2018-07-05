@@ -862,12 +862,12 @@ get_nodes(Chain) when is_integer(Chain) ->
         end,
     lists:foldl(
         fun(Addr, NodeMap) when is_map(Addr) ->
-            Host = maps:get(hostname, Addr, unknonwn),
-            Ip0 = maps:get(address, Addr, unknonwn),
-            Port = maps:get(port, Addr, unknonwn),
+            Host = maps:get(hostname, Addr, unknown),
+            Ip0 = maps:get(address, Addr, unknown),
+            Port = maps:get(port, Addr, unknown),
             Ip = add_port_to_ip(Ip0, Port),
 
-            case maps:get(nodeid, Addr, unknonwn) of
+            case maps:get(nodeid, Addr, unknown) of
                 unknown -> NodeMap;
                 NodeId ->
                     NodeRecord = maps:get(NodeId, NodeMap, #{}),
