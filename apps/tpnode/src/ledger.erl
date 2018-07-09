@@ -51,6 +51,9 @@ put(KVS, Block) when is_list(KVS) ->
 check(KVS) when is_list(KVS) ->
     gen_server:call(?SERVER, {check, KVS}).
 
+check(Pid, KVS) when is_pid(Pid), is_list(KVS) ->
+    gen_server:call(Pid, {check, KVS});
+
 check(KVS, Block) when is_list(KVS) ->
     gen_server:call(?SERVER, {check, KVS, Block}).
 
