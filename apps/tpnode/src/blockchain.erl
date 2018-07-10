@@ -846,24 +846,24 @@ handle_info({inst_sync, done, Log}, #{ldb:=LDB}=State) ->
     end;
 
 handle_info({b2b_sync, Hash}, #{
-                         sync:=b2b,
-                         syncpeer:=Handler,
-                        sync_candidates:=Candidates}=State) ->lager:debug("run b2b sync from hash: ~p", [blkid(Hash)]),
-    case tpiccall(Handler,
-                  #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
-                  [block]
-                 ) of
-        [{_, R}] ->
-            case maps:is_key(block, R) of
-                false ->
-                    lager:error("No block part arrived, broken sync ~p", [R]),erlang:send_after(10000, self(), runsync),
-                    {noreply, State#{
+  sync:=b2b,
+  syncpeer:=Handler,
+  sync_candidates:=Candidates} = State) -> lager:debug("run b2b sync from hash: ~p", [blkid(Hash)]),
+  case tpiccall(Handler,
+    #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
+    [block]
+  ) of
+    [{_, R}] ->
+      case maps:is_key(block, R) of
+        false ->
+          lager:error("No block part arrived, broken sync ~p", [R]), erlang:send_after(10000, self(), runsync),
+          {noreply, State#{
             sync_candidates => tl(Candidates)
           }};
-                true ->lager:debug("block found in received b2b sync data"),
-                    try#{block := BlockPart} = R,
-                    BinBlock = receive_block(Handler, BlockPart),
-                    #{hash:=NewH}=Block=block:unpack(BinBlock),
+        true -> lager:debug("block found in received b2b sync data"),
+          try #{block := BlockPart} = R,
+          BinBlock = receive_block(Handler, BlockPart),
+          #{hash:=NewH} = Block = block:unpack(BinBlock),
           case block:verify(Block) of
             {true, _} ->
               gen_server:cast(self(), {new_block, Block, self()}),
@@ -874,34 +874,33 @@ handle_info({b2b_sync, Hash}, #{
                   {noreply, State};
                 error ->
                   erlang:send_after(1000, self(), runsync),
-                  lager:info("block ~s no child, sync done? Try after 1 sec again", [blkid(NewH)])
-              ,
-              {noreply, State#{
+                  lager:info("block ~s no child, sync done? Try after 1 sec again", [blkid(NewH)]),
+                  {noreply, State#{
                     sync_candidates => tl(Candidates)
                   }}
               end;
             false ->
               lager:error("Broken block ~s got from ~p. Wait a little",
-                    [blkid(NewH),
-                     proplists:get_value(pubkey,
-                               maps:get(authdata, tpic:peer(Handler), [])
-                              )
-                    ]),
+                [blkid(NewH),
+                  proplists:get_value(pubkey,
+                    maps:get(authdata, tpic:peer(Handler), [])
+                  )
+                ]),
               erlang:send_after(10000, self(), runsync),
               {noreply, State#{
                 sync_candidates => tl(Candidates)
-              }}end
+              }} end
           catch throw:broken_sync ->
-                  lager:notice("Broken sync"),
-                  {noreply, State}
+            lager:notice("Broken sync"),
+            {noreply, State}
           end
-            end;
-        _ ->
-            lager:error("b2b no response"),erlang:send_after(10000, self(), runsync),
-            {noreply, State#{
+      end;
+    _ ->
+      lager:error("b2b no response"), erlang:send_after(10000, self(), runsync),
+      {noreply, State#{
         sync_candidates => tl(Candidates)
       }}
-    end;
+  end;
 
 handle_info(checksync, #{
         lastblock:=#{header:=#{height:=MyHeight}, hash:=_MyLastHash}
@@ -936,17 +935,21 @@ handle_info(checksync, #{
   end,
   {noreply, State};
 
-handle_info(runsync, #{
-              lastblock:=#{header:=#{height:=MyHeight}, hash:=MyLastHash}
-             }=State) ->
-  lager:debug("got runsync, myHeight: ~p, myLastHash: ~p", [MyHeight, blkid(MyLastHash)]),  %State1=run_sync(State),
-    GetDefaultCandidates =
+handle_info(
+  runsync,
+  #{
+    lastblock:=#{header:=#{height:=MyHeight}, hash:=MyLastHash}
+  } = State) ->
+  lager:debug("got runsync, myHeight: ~p, myLastHash: ~p", [MyHeight, blkid(MyLastHash)]),
+  
+  GetDefaultCandidates =
     fun() ->
-      lager:debug("use default list of candidates"),lists:reverse(
-                 tpiccall(<<"blockchain">>,
-                          #{null=><<"sync_request">>},
-                          [last_hash, last_height, chain]
-                         ))
+      lager:debug("use default list of candidates"),
+      lists:reverse(
+        tpiccall(<<"blockchain">>,
+          #{null=><<"sync_request">>},
+          [last_hash, last_height, chain]
+        ))
     end,
   
   Candidates =
@@ -960,70 +963,81 @@ handle_info(runsync, #{
         SavedCandidates
     end,
   
-  lager:debug("runsync candidates: ~p", [Candidates]),case lists:foldl( %first suitable will be the quickest
-                fun({CHandler, #{chain:=_HisChain,
-                               last_hash:=_,
-                               last_height:=_,
-                               null:=<<"sync_available">>}=CInfo}, undefined) ->
-                        {CHandler, CInfo};
-                   ({_, _}, undefined) ->
-                        undefined;
-                   ({_, _}, {AccH, AccI}) ->
-                        {AccH, AccI}
-                end, undefined, Candidates) of
-        undefined ->
-            lager:notice("No candidates for sync."),
-            {noreply, maps:without([sync, syncblock, syncpeer, sync_candidates], State)};
-        {Handler, #{chain:=_Ch,
-                     last_hash:=_,
-                     last_height:=Height,
-                     null:=<<"sync_available">>} = Info
+  lager:debug("runsync candidates: ~p", [Candidates]),
+  case
+    lists:foldl( %first suitable will be the quickest
+      fun({CHandler, #{chain:=_HisChain,
+        last_hash:=_,
+        last_height:=_,
+        null:=<<"sync_available">>} = CInfo}, undefined) ->
+        {CHandler, CInfo};
+        ({_, _}, undefined) ->
+          undefined;
+        ({_, _}, {AccH, AccI}) ->
+          {AccH, AccI}
+      end,
+      undefined,
+      Candidates
+    )
+  of
+    undefined ->
+      lager:notice("No candidates for sync."),
+      {noreply, maps:without([sync, syncblock, syncpeer, sync_candidates], State)};
+    
+    {Handler,
+      #{
+        chain:=_Ch,
+        last_hash:=_,
+        last_height:=Height,
+        null:=<<"sync_available">>
+      } = Info
     } ->
-      
       lager:debug("chosen sync candidate info: ~p", [Info]),
-            ByBlock=maps:get(<<"byblock">>, Info, false),
-            Inst0=maps:get(<<"instant">>, Info, false),Inst=case Inst0 of
-                   false ->
-                     false;
-                   true ->
-                     case application:get_env(tpnode,allow_instant) of
-                       {ok,true} ->
-                         lager:notice("Forced instant sync in config"),
-                         true;
-                       {ok,I} when is_integer(I) ->
-                         Height-MyHeight >= I;
-                       _ ->
-            lager:notice("Disabled instant syncin config"),
-            falseend
-                 end,
-            lager:info("Found candidate h=~w my ~w, bb ~s inst ~s/~s",
-                       [Height, MyHeight, ByBlock, Inst0,Inst ]),
-            if(Height==MyHeight) ->
-                  lager:info("Sync done, finish."),
-                  notify_settings(),
-                  {noreply,
-                   maps:without([sync, syncblock, syncpeer, sync_candidates], State)
-                  };
-               Inst==true ->
-                  % try instant sync;
-                  gen_server:call(ledger, '_flush'),
-                  ledger_sync:run_target(tpic, Handler, ledger, undefined),
-                  {noreply, State#{
-                             sync=>inst,
-                             syncpeer=>Handler,
+      ByBlock = maps:get(<<"byblock">>, Info, false),
+      Inst0 = maps:get(<<"instant">>, Info, false),
+      Inst = case Inst0 of
+               false ->
+                 false;
+               true ->
+                 case application:get_env(tpnode, allow_instant) of
+                   {ok, true} ->
+                     lager:notice("Forced instant sync in config"),
+                     true;
+                   {ok, I} when is_integer(I) ->
+                     Height - MyHeight >= I;
+                   _ ->
+                     lager:notice("Disabled instant syncin config"),
+                     false
+                 end
+             end,
+      lager:info("Found candidate h=~w my ~w, bb ~s inst ~s/~s",
+        [Height, MyHeight, ByBlock, Inst0, Inst]),
+      if (Height == MyHeight) ->
+        lager:info("Sync done, finish."),
+        notify_settings(),
+        {noreply,
+          maps:without([sync, syncblock, syncpeer, sync_candidates], State)
+        };
+        Inst == true ->
+          % try instant sync;
+          gen_server:call(ledger, '_flush'),
+          ledger_sync:run_target(tpic, Handler, ledger, undefined),
+          {noreply, State#{
+            sync=>inst,
+            syncpeer=>Handler,
             sync_candidates => Candidates
-                             }};
-              true ->
-                  %try block by block
-                  lager:error("RUN b2b sync since ~s",[blkid(MyLastHash)]),
-                  self() ! {b2b_sync, MyLastHash},
-                  {noreply, State#{
-                              sync=>b2b,
-                              syncpeer=>Handler,
+          }};
+        true ->
+          %try block by block
+          lager:error("RUN b2b sync since ~s", [blkid(MyLastHash)]),
+          self() ! {b2b_sync, MyLastHash},
+          {noreply, State#{
+            sync=>b2b,
+            syncpeer=>Handler,
             sync_candidates => Candidates
-                             }}
-            end
-    end;
+          }}
+      end
+  end;
 
 
 handle_info(_Info, State) ->
