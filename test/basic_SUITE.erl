@@ -268,7 +268,16 @@ api_get_tx_status(TxId) ->
     api_get_tx_status(TxId, get_base_url()).
 
 api_get_tx_status(TxId, BaseUrl) ->
-    tpapi:get_tx_status(TxId, BaseUrl).
+    Status = tpapi:get_tx_status(TxId, BaseUrl),
+    case Status of
+      timeout ->
+        dump_testnet_state();
+      {ok, #{<<"res">> := <<"bad_seq">>}, _} ->
+        dump_testnet_state();
+      _ ->
+        ok
+    end,
+    Status.
 
 
 %% wait for transaction commit using distribution
@@ -276,6 +285,7 @@ wait_for_tx(TxId, NodeName) ->
     wait_for_tx(TxId, NodeName, 10).
 
 wait_for_tx(_TxId, _NodeName, 0 = _TrysLeft) ->
+    dump_testnet_state(),
     {timeout, _TrysLeft};
 
 wait_for_tx(TxId, NodeName, TrysLeft) ->
@@ -288,6 +298,7 @@ wait_for_tx(TxId, NodeName, TrysLeft) ->
         {true, ok} ->
             {ok, TrysLeft};
         {false, Error} ->
+            dump_testnet_state(),
             {error, Error}
     end.
 
@@ -393,6 +404,19 @@ new_wallet() ->
     PubKey = tpecdsa:calc_pub(get_wallet_priv_key(), true),
     {ok, Wallet, _TxId} = tpapi:register_wallet(PubKey, get_base_url()),
     Wallet.
+
+
+dump_testnet_state() ->
+    io:format("dump testnet state ~n"),
+    StateDumper =
+        fun(NodeName) ->
+            io:format("last block for node ~p ~n", [NodeName]),
+            LastBlock = rpc:call(get_node(NodeName), blockchain, last, []),
+            io:format("~p ~n", [LastBlock])
+        end,
+    lists:foreach(StateDumper, ?TESTNET_NODES),
+    ok.
+    
 
 
 transaction_test(_Config) ->
@@ -512,13 +536,14 @@ instant_sync_test(_Config) ->
               ]
              ),
   gen_server:call(Pid, '_flush'),
+  
+  Hash2=rpc:call(get_node(<<"test_c4n1">>),ledger,check,[[]]),
 
   ledger_sync:run_target(TPIC, Handler, Pid, undefined),
 
   R=inst_sync_wait_more(),
   ?assertEqual(ok,R),
   Hash1=ledger:check(Pid,[]),
-  Hash2=rpc:call(get_node(<<"test_c4n1">>),ledger,check,[[]]),
   io:format("Hash ~p ~p~n",[Hash1,Hash2]),
   ?assertMatch({ok,_},Hash1),
   ?assertMatch({ok,_},Hash2),

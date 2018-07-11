@@ -380,7 +380,7 @@ is_right_proto(ServiceName, Proto0)  ->
 make_announce(#{names:=Names} = _Dict, State) ->
     lager:debug("Announcing our local services"),
     Ttl = get_config(intrachain_ttl, 120, State),
-    Hostname = get_config(hostname, unknown, State),
+    Hostname = application:get_env(tpnode, hostname, unknown),
 %%    ValidUntil = get_unixtime() + get_config(intrachain_ttl, 120, State),
     Addresses = get_config(addresses, get_default_addresses(), State),
     AllScopesCfg = get_config(scope, ?DEFAULT_SCOPE_CONFIG, State),
