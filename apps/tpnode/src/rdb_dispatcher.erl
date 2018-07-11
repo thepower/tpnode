@@ -40,23 +40,24 @@ init(Args) ->
       }}.
 
 handle_call({open, DBPath, Args}, _Form, #{dbs:=DBS}=State) ->
-    case maps:is_key(DBPath, DBS) of
-        true ->
-            {reply, maps:get(DBPath, DBS), State};
-        false ->
-            R=rocksdb:open(DBPath, Args),
-            case R of
-                {ok, Pid} ->
-                    {reply,
-                     R,
-                     State#{
-                       dbs=> maps:put(DBPath, {ok, Pid}, DBS)
-                      }
-                    };
-                Any ->
-                    {reply, Any, State}
-            end
-    end;
+  filelib:ensure_dir(DBPath),
+  case maps:is_key(DBPath, DBS) of
+    true ->
+      {reply, maps:get(DBPath, DBS), State};
+    false ->
+      R=rocksdb:open(DBPath, Args),
+      case R of
+        {ok, Pid} ->
+          {reply,
+           R,
+           State#{
+             dbs=> maps:put(DBPath, {ok, Pid}, DBS)
+            }
+          };
+        Any ->
+          {reply, Any, State}
+      end
+  end;
 
 handle_call({close, DBPath}, _Form, #{dbs:=DBS}=State) ->
     case maps:is_key(DBPath, DBS) of
