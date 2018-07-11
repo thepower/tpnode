@@ -1,6 +1,6 @@
 -module(tx1).
 
--export([sign/2,verify1/1,verify/2,pack/1,unpack_mp/1]).
+-export([sign/2,verify1/1,verify/2,pack/1,unpack_mp/1,mkmsg/1]).
 
 checkaddr(<<Ia:64/big>>) -> {true, Ia};
 checkaddr(_) -> false.

@@ -3,7 +3,7 @@
 -export([get_ext/2, set_ext/3, sign/2, verify/1, verify/2, pack/1, unpack/1]).
 -export([txlist_hash/1, rate/2, mergesig/2]).
 -export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1, 
-         construct_tx/1]).
+         construct_tx/1,construct_tx/2]).
 
 -ifndef(TEST).
 -define(TEST, 1).
@@ -74,11 +74,17 @@ to_binary(Arg) when is_binary(Arg) ->
 to_binary(Arg) when is_list(Arg) ->
   list_to_binary(Arg).
 
+pack_body(Body) ->
+  msgpack:pack(Body,[{spec,new},{pack_str, from_list}]).
+
+construct_tx(Any) -> 
+  construct_tx(Any,[]).
+
 construct_tx(#{
   kind:=register,
   t:=Timestamp,
   keys:=PubKeys
- }=Tx0) ->
+ }=Tx0,Params) ->
   Tx=maps:with([ver,t],Tx0),
   Keys1=iolist_to_binary(lists:sort(PubKeys)),
   E0=#{
@@ -87,19 +93,32 @@ construct_tx(#{
     "e"=>maps:get(txext, Tx, #{}),
     "h"=>crypto:hash(sha256,Keys1)
    },
+
+  InvBody=case Tx0 of
+            #{inv:=Invite} ->
+              E0#{"inv"=>crypto:hash(sha256,Invite)};
+            _ -> 
+              E0
+          end,
+
+  PowBody=case proplists:get_value(pow_diff,Params) of
+            undefined -> InvBody;
+            I when is_integer(I) ->
+              mine_sha512(InvBody, 0, I)
+          end,
+
   case Tx0 of
-       #{inv:=Invite} ->
-         E1=E0#{"inv"=>crypto:hash(sha256,Invite)},
+       #{inv:=Invite1} ->
          Tx0#{
-           inv=>Invite,
+           inv=>Invite1,
            kind=>register,
-           body=>msgpack:pack(E1,[{spec,new},{pack_str, from_list}]),
+           body=>pack_body(PowBody),
            sign=>#{}
           };
        _ -> 
          Tx0#{
            kind=>register,
-           body=>msgpack:pack(E0,[{spec,new},{pack_str, from_list}]),
+           body=>pack_body(PowBody),
            sign=>#{}
           }
      end;
@@ -111,7 +130,7 @@ construct_tx(#{
   t:=Timestamp,
   seq:=Seq,
   payload:=Amounts
- }=Tx0) ->
+ }=Tx0,_Params) ->
   Tx=maps:with([ver,from,to,t,seq,payload,call,extradata],Tx0),
   A1=lists:map(
        fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
@@ -186,11 +205,13 @@ unpack_body(#{ ver:=2,
               kind:=register
              }=Tx,
             #{ "t":=Timestamp,
-               "e":=Extradata
+               "e":=Extradata,
+               "h":=Hash
              }=_Unpacked) ->
   Tx#{
     ver=>2,
     t=>Timestamp,
+    keysh=>Hash,
     txext=>Extradata
    };
 
@@ -230,11 +251,11 @@ verify(Tx) ->
   verify(Tx, []).
 
 verify(#{
+  kind:=generic,
   from:=From,
   body:=Body,
   sign:=HSigs,
-  ver:=2,
-  kind:=_K
+  ver:=2 
  }=Tx, Opts) ->
   CI=get_ext(<<"contract_issued">>, Tx),
   Res=case checkaddr(From) of
@@ -309,33 +330,39 @@ verify(#{
   end;
 
 verify(#{
+  kind:=register,
   body:=Body,
   sign:=HSigs,
-  ver:=2,
-  kind:=Kind
- }=Tx, _Opts) when Kind==register ->
+  ver:=2
+ }=Tx, _Opts) ->
   VerFun=fun(Pub, Sig, {AValid, AInvalid}) ->
              case tpecdsa:verify(Body, Pub, Sig) of
                correct ->
-                 {AValid+1, AInvalid};
+                 {[Pub|AValid], AInvalid};
                _ ->
                  {AValid, AInvalid+1}
              end
          end,
   Res=maps:fold(
         VerFun,
-        {0, 0}, HSigs),
+        {[], 0}, HSigs),
   case Res of
     {0, _} ->
       bad_sig;
-    {Valid, Invalid} when Valid>0 ->
-      {ok, Tx#{
-             sigverify=>#{
-               valid=>Valid,
-               invalid=>Invalid
-              }
-            }
-      }
+    {Valid, Invalid} when length(Valid)>0 ->
+      Pubs=crypto:hash(sha256,iolist_to_binary(lists:sort(Valid))),
+      #{keysh:=H}=unpack_body(Tx),
+      if Pubs==H ->
+           {ok, Tx#{
+                  sigverify=>#{
+                    valid=>length(Valid),
+                    invalid=>Invalid
+                   }
+                 }
+           };
+         true ->
+           bad_keys
+      end
   end;
 
 
@@ -350,12 +377,21 @@ verify(Struct, Opts) ->
 
 pack(#{ ver:=2,
         body:=Bin,
-        sign:=PS}) ->
-  msgpack:pack(
-    #{"ver"=>2,
+        sign:=PS}=Tx) ->
+  T=#{"ver"=>2,
       "body"=>Bin,
       "sign"=>PS
-     },[{spec,new},{pack_str, from_list}]);
+     },
+  T1=case Tx of 
+    #{inv:=Invite} ->
+         T#{"inv"=>Invite};
+       _ ->
+         T
+     end,
+  msgpack:pack(T1,[
+                  {spec,new},
+                  {pack_str, from_list}
+                 ]);
 
 pack(Any) ->
   tx1:pack(Any).
@@ -366,16 +402,22 @@ unpack(Tx) when is_map(Tx) ->
 unpack(BinTx) when is_binary(BinTx) ->
   {ok, Tx0} = msgpack:unpack(BinTx, [{known_atoms,
                                       [type, sig, tx, patch, register,
-                                       register, address, block,
-                                       inv] },
+                                       register, address, block ] },
                                      {unpack_str, as_binary}] ),
   case Tx0 of
+    #{<<"ver">>:=2, <<"sign">>:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv} ->
+      unpack_body( #{
+        ver=>2,
+        sign=>Sign,
+        body=>TxBody,
+        inv=>Inv
+       });
     #{<<"ver">>:=2, <<"sign">>:=Sign, <<"body">>:=TxBody} ->
-      unpack_body(#{
-                    ver=>2,
-                    sign=>Sign,
-                    body=>TxBody
-                   });
+      unpack_body( #{
+        ver=>2,
+        sign=>Sign,
+        body=>TxBody
+       });
     _ ->
       tx1:unpack_mp(Tx0)
   end.
@@ -530,7 +572,7 @@ patch_test() ->
                #{t=>set, p=>[current, fee, <<"FTT">>, <<"kb">>], v=>trunc(1.0e9)}
               ])),
           Priv),
-  io:format("PK ~p~n", [settings:verify(Patch)]),
+  %io:format("PK ~p~n", [settings:verify(Patch)]),
   tx:verify(Patch).
 
 deploy_test() ->
@@ -602,17 +644,19 @@ tx2_reg_test() ->
   Pub2=tpecdsa:calc_pub(Pvt2,true),
   T1=#{
     kind => register,
-    t => 1530106238743,
+    t => 1530106238744,
     ver => 2,
     inv => <<"preved">>,
     keys => [Pub1,Pub2]
    },
-  TXConstructed=tx:construct_tx(T1),
-  %Packed=tx:pack(tx:sign(tx:sign(TXConstructed,Pvt1),Pvt2)),
-  %?assertMatch({ok,#{sigverify:=#{valid:=2,invalid:=0}}}, verify(Packed, [])),
-  %?assertMatch({ok,#{sign:=#{Pub1:=_,Pub2:=_}} }, verify(Packed)),
-  %tx:unpack(Packed).
-  TXConstructed.
+  TXConstructed=tx:sign(tx:sign(tx:construct_tx(T1,[{pow_diff,16}]),Pvt1),Pvt2),
+  Packed=tx:pack(TXConstructed),
+  [
+  ?assertMatch(<<0,0,_/binary>>, crypto:hash(sha512,maps:get(body,unpack(Packed)))),
+  ?assertMatch({ok,_}, verify(Packed, [])),
+  ?assertMatch({ok,#{sigverify:=#{valid:=2,invalid:=0}}}, verify(Packed, [])),
+  ?assertMatch({ok,#{sign:=#{Pub1:=_,Pub2:=_}} }, verify(Packed))
+  ].
 
 tx2_generic_test() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
@@ -647,4 +691,26 @@ tx2_generic_test() ->
   ledger:deploy4test(Ledger, Test).
 -endif.
 
+
+mine_sha512(Body, Nonce, Diff) ->
+  DS=Body#{pow=>Nonce},
+%  if Nonce rem 1000000 == 0 ->
+%       io:format("nonce ~w~n",[Nonce]);
+%     true -> ok
+%  end,
+  Hash=crypto:hash(sha512,pack_body(DS)),
+  Act=if Diff rem 8 == 0 ->
+           <<Act1:Diff/big,_/binary>>=Hash,
+           Act1;
+         true ->
+           Pad=8-(Diff rem 8),
+           <<Act1:Diff/big,_:Pad/big,_/binary>>=Hash,
+           Act1
+      end,
+  if Act==0 ->
+       %io:format("Mined nonce ~w~n",[Nonce]),
+       DS;
+     true ->
+       mine_sha512(Body,Nonce+1,Diff)
+  end.
 
