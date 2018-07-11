@@ -270,7 +270,7 @@ api_get_tx_status(TxId) ->
 api_get_tx_status(TxId, BaseUrl) ->
     Status = tpapi:get_tx_status(TxId, BaseUrl),
     case Status of
-      timeout ->
+      {ok, timeout, _} ->
         dump_testnet_state();
       {ok, #{<<"res">> := <<"bad_seq">>}, _} ->
         dump_testnet_state();
