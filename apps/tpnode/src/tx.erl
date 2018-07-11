@@ -4,6 +4,7 @@
 -export([txlist_hash/1, rate/2, mergesig/2]).
 -export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1, 
          construct_tx/1,construct_tx/2]).
+-export([hashdiff/1]).
 
 -ifndef(TEST).
 -define(TEST, 1).
@@ -87,11 +88,12 @@ construct_tx(#{
  }=Tx0,Params) ->
   Tx=maps:with([ver,t],Tx0),
   Keys1=iolist_to_binary(lists:sort(PubKeys)),
+  KeysH=crypto:hash(sha256,Keys1),
   E0=#{
     "k"=>encode_kind(2,register),
     "t"=>Timestamp,
     "e"=>maps:get(txext, Tx, #{}),
-    "h"=>crypto:hash(sha256,Keys1)
+    "h"=>KeysH
    },
 
   InvBody=case Tx0 of
@@ -108,20 +110,24 @@ construct_tx(#{
           end,
 
   case Tx0 of
-       #{inv:=Invite1} ->
-         Tx0#{
-           inv=>Invite1,
-           kind=>register,
-           body=>pack_body(PowBody),
-           sign=>#{}
-          };
-       _ -> 
-         Tx0#{
-           kind=>register,
-           body=>pack_body(PowBody),
-           sign=>#{}
-          }
-     end;
+    #{inv:=Invite1} ->
+      maps:remove(keys,
+                  Tx0#{
+                    inv=>Invite1,
+                    kind=>register,
+                    body=>pack_body(PowBody),
+                    keysh=>KeysH,
+                    sign=>#{}
+                   });
+    _ -> 
+      maps:remove(keys,
+                  Tx0#{
+                    kind=>register,
+                    body=>pack_body(PowBody),
+                    keysh=>KeysH,
+                    sign=>#{}
+                   })
+  end;
 
 construct_tx(#{
   kind:=generic,
@@ -350,11 +356,13 @@ verify(#{
     {0, _} ->
       bad_sig;
     {Valid, Invalid} when length(Valid)>0 ->
+      BodyHash=hashdiff(crypto:hash(sha512,Body)),
       Pubs=crypto:hash(sha256,iolist_to_binary(lists:sort(Valid))),
       #{keysh:=H}=unpack_body(Tx),
       if Pubs==H ->
            {ok, Tx#{
                   sigverify=>#{
+                    pow_diff=>BodyHash,
                     valid=>length(Valid),
                     invalid=>Invalid
                    }
@@ -653,8 +661,11 @@ tx2_reg_test() ->
   Packed=tx:pack(TXConstructed),
   [
   ?assertMatch(<<0,0,_/binary>>, crypto:hash(sha512,maps:get(body,unpack(Packed)))),
+  ?assertMatch(#{ ver:=2, kind:=register, keysh:=_}, TXConstructed),
+  ?assertMatch(#{ ver:=2, kind:=register, keysh:=_}, tx:unpack(Packed)),
   ?assertMatch({ok,_}, verify(Packed, [])),
-  ?assertMatch({ok,#{sigverify:=#{valid:=2,invalid:=0}}}, verify(Packed, [])),
+  ?assertMatch({ok,#{sigverify:=#{pow_diff:=PD,valid:=2,invalid:=0}}}
+                 when PD>=16, verify(Packed, [])),
   ?assertMatch({ok,#{sign:=#{Pub1:=_,Pub2:=_}} }, verify(Packed))
   ].
 
@@ -690,6 +701,21 @@ tx2_generic_test() ->
   Ledger=[ {<<128,0,32,0,2,0,0,3>>, bal:put(pubkey, PubKey, bal:new()) } ],
   ledger:deploy4test(Ledger, Test).
 -endif.
+
+intdiff(I) when I>0 andalso I<128 ->
+  intdiff(I bsl 1)+1;
+
+intdiff(_I) ->
+  0.
+
+hashdiff(<<0,_Rest/binary>>) ->
+  hashdiff(_Rest)+8;
+
+hashdiff(<<I:8/integer,_Rest/binary>>) ->
+  intdiff(I);
+
+hashdiff(_) ->
+  0.
 
 
 mine_sha512(Body, Nonce, Diff) ->
