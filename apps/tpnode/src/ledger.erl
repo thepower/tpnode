@@ -428,7 +428,6 @@ drop_db(#{args:=Args}) ->
     file:del_dir(DBPath).
 
 open_db(#{args:=Args}) ->
-    filelib:ensure_dir("db/"),
     DBPath=proplists:get_value(filename,
                                  Args,
                                  ("db/ledger_" ++ atom_to_list(node()))
