@@ -39,6 +39,7 @@ init_per_suite(Config) ->
 %%    Env = os:getenv(),
 %%    io:fwrite("env ~p", [Env]),
 %%    io:fwrite("w ~p", [os:cmd("which erl")]),
+    file:make_symlink("../../../../db", "db"),
     application:ensure_all_started(inets),
     ok = wait_for_testnet(60),
     %cover_start(),
@@ -59,7 +60,23 @@ end_per_suite(Config) ->
 %%            exec:kill(Pid, 15)
 %%        end, Pids),
     %cover_finish(),
+    save_bckups(),
     Config.
+
+
+save_bckups() ->
+    io:format("saving bckups"),
+    SaveBckupForNode =
+        fun(Node) ->
+            BckupDir = "/tmp/ledger_bckups/" ++ Node ++ "/",
+%%        filelib:ensure_dir("../../../../" ++ BckupDir),
+            filelib:ensure_dir(BckupDir),
+            io:format("saving bckup for node ~p to dir ~p", [Node, BckupDir]),
+            rpc:call(get_node(Node), blockchain, backup, [BckupDir])
+        end,
+    lists:foreach(SaveBckupForNode, ?TESTNET_NODES),
+    ok.
+  
 
 
 %%get_node_cmd(Name) when is_list(Name) ->
