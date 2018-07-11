@@ -612,6 +612,86 @@ try_process([{TxID, #{deploy:=VMType, code:=Code, from:=Owner}=Tx} |Rest],
                           Acc#{failed=>[{TxID, X}|Failed]})
     end;
 
+try_process([{TxID, #{ver:=2,
+                      kind:=register,
+                      keysh:=_,
+                      sig:=Signatures,
+                      sigverify:=#{
+%                        valid:=ValidSig,
+                        pow_diff:=PD
+                       }
+                     }=Tx} |Rest],
+            SetState, Addresses, GetFun,
+            #{failed:=Failed,
+              success:=Success,
+              settings:=Settings }=Acc) ->
+  lager:notice("Ensure verified"),
+  try
+    %TODO: multisig fix here
+    PubKey=hd(maps:keys(Signatures)),
+    RegSettings=settings:get([<<"current">>, <<"register">>], SetState),
+    Diff=maps:get(<<"diff">>,RegSettings,0),
+    Inv=maps:get(<<"invite">>,RegSettings,0),
+    lager:info("Expected diff ~p ~p",[Diff,Inv]),
+    lager:info("tx ~p",[Tx]),
+
+    if Inv==1 ->
+         Invite=maps:get(inv,Tx,<<>>),
+         Invites=maps:get(<<"invites">>,RegSettings,[]),
+         HI=crypto:hash(md5,Invite),
+         InvFound=lists:member(HI,Invites),
+         lager:info("Inv ~p ~p",[Invite,InvFound]),
+         if InvFound -> 
+              ok;
+            true -> 
+              throw(bad_invite_code)
+         end;
+       true ->
+         Tx
+    end,
+
+    if Diff=/=0 ->
+         if PD<Diff ->
+              throw({required_difficult,Diff});
+            true -> ok
+         end;
+       true -> ok
+    end,
+
+    {CG, CB, CA}=case settings:get([<<"current">>, <<"allocblock">>], SetState) of
+                   #{<<"block">> := CurBlk,
+                     <<"group">> := CurGrp,
+                     <<"last">> := CurAddr} ->
+                     {CurGrp, CurBlk, CurAddr+1};
+                   _ ->
+                     throw(unallocable)
+                 end,
+
+    NewBAddr=naddress:construct_public(CG, CB, CA),
+
+    IncAddr=#{<<"t">> => <<"set">>,
+              <<"p">> => [<<"current">>, <<"allocblock">>, <<"last">>],
+              <<"v">> => CA},
+    AAlloc={<<"aalloc">>, #{sig=>[], patch=>[IncAddr]}},
+    SS1=settings:patch(AAlloc, SetState),
+    lager:info("Alloc address ~p ~s for key ~s",
+               [NewBAddr,
+                naddress:encode(NewBAddr),
+                bin2hex:dbin2hex(PubKey)
+               ]),
+
+    NewF=bal:put(pubkey, PubKey, bal:new()),
+    NewAddresses=maps:put(NewBAddr, NewF, Addresses),
+    try_process(Rest, SS1, NewAddresses, GetFun,
+                Acc#{success=> [{TxID, maps:remove(inv,Tx)}|Success],
+                     settings=>[AAlloc|lists:keydelete(<<"aalloc">>, 1, Settings)]
+                    })
+  catch throw:X ->
+          lager:info("Address alloc fail ~p", [X]),
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{failed=>[{TxID, X}|Failed]})
+  end;
+
 try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
             SetState, Addresses, GetFun,
             #{failed:=Failed,
@@ -1408,6 +1488,70 @@ ledger_hash(NewBal) ->
 
 
 -ifdef(TEST).
+
+alloc_addr2_test() ->
+    GetSettings=
+    fun(mychain) ->
+            0;
+       (settings) ->
+            #{chain => #{0 =>
+                         #{blocktime => 10,
+                           minsig => 2,
+                           nodes => [<<"node1">>, <<"node2">>, <<"node3">>],
+                           <<"allowempty">> => 0}
+                        },
+              chains => [0],
+              globals => #{<<"patchsigs">> => 2},
+              keys =>
+              #{ <<"node1">> => crypto:hash(sha256, <<"node1">>),
+                 <<"node2">> => crypto:hash(sha256, <<"node2">>),
+                 <<"node3">> => crypto:hash(sha256, <<"node3">>),
+                 <<"node4">> => crypto:hash(sha256, <<"node4">>)
+               },
+              nodechain => #{<<"node1">> => 0,
+                             <<"node2">> => 0,
+                             <<"node3">> => 0},
+              <<"current">> => #{
+                  <<"allocblock">> =>
+                  #{<<"block">> => 2, <<"group">> => 10, <<"last">> => 0}
+                 }
+             };
+       ({endless, _Address, _Cur}) ->
+            false;
+       (Other) ->
+            error({bad_setting, Other})
+    end,
+    GetAddr=fun test_getaddr/1,
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 
+            215, 220, 24, 240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 
+            158, 15, 210, 165>>,
+    ParentHash=crypto:hash(sha256, <<"parent">>),
+    Pub1=tpecdsa:calc_pub(Pvt1,true),
+
+    T1=#{
+      kind => register,
+      t => os:system_time(millisecond),
+      ver => 2,
+      inv => <<"test">>,
+      keys => [Pub1]
+     },
+    {ok,TX0}=tx:verify(tx:sign(tx:construct_tx(T1,[{pow_diff,8}]),Pvt1)),
+    #{block:=Block,
+    failed:=Failed}=generate_block(
+            [{<<"alloc_tx1_id">>, TX0}],
+            {1, ParentHash},
+            GetSettings,
+            GetAddr,
+            []),
+
+    io:format("~p~n", [Block]),
+    [
+    ?assertEqual([], Failed),
+    ?assertMatch(#{bals:=#{<<128, 1, 64, 0, 2, 0, 0, 1>>:=_,
+                           <<128, 1, 64, 0, 2, 0, 0, 1>>:=_}
+                  }, Block)
+    ].
+
 
 alloc_addr_test() ->
     GetSettings=

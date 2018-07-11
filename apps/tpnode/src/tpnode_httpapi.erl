@@ -577,11 +577,11 @@ h(<<"POST">>, [<<"tx">>, <<"debug">>], Req) ->
       end,
   U=tx:unpack(BinTx),
   lager:info("Debug TX ~p",[U]),
-  Dbg2=tx:mkmsg(U),
+  Dbg2=tx1:mkmsg(U),
   lager:info("Debug1 ~p",[bin2hex:dbin2hex(Dbg)]),
   lager:info("Debug2 ~p",[bin2hex:dbin2hex(Dbg2)]),
   XBin=io_lib:format("~p",[U]),
-  XTx=case tx:verify1(U) of
+  XTx=case tx1:verify1(U) of
         {ok, Tx} ->
           io_lib:format("~p.~n",[Tx]);
         Err ->
@@ -729,37 +729,56 @@ prettify_block(#{}=Block0, BinPacker) ->
          );
        (txs, TXS) ->
         lists:map(
-          fun({TxID, TXB}) ->
-              {TxID,
-               maps:map(
-                 fun(register, Val) ->
-                     BinPacker(Val);
-                    (from, <<Val:8/binary>>) ->
-                     BinPacker(Val);
-                    (to, <<Val:8/binary>>) ->
-                     BinPacker(Val);
-                    (address, Val) ->
-                     BinPacker(Val);
-                    (invite, Val) ->
-                     BinPacker(Val);
-                    (pow, Val) ->
-                     BinPacker(Val);
-                    (sig, #{}=V1) ->
-                     [
-                      {BinPacker(SPub),
-                       BinPacker(SPri)} || {SPub, SPri} <- maps:to_list(V1) ];
-                    (_, V1) -> V1
-                 end, maps:without([public_key, signature], TXB))
-              }
-          end,
-          TXS
-         );
+          fun({TxID, Body}) -> 
+              {TxID,prettify_tx(Body, BinPacker)}
+          end, TXS);
        (_, V) ->
         V
     end, Block0);
 
 prettify_block(#{hash:=<<0, 0, 0, 0, 0, 0, 0, 0>>}=Block0, BinPacker) ->
   Block0#{ hash=>BinPacker(<<0:64/big>>) }.
+
+% ----------------------------------------------------------------------
+
+prettify_tx(#{ver:=2}=TXB, BinPacker) ->
+  maps:map(
+    fun(from, <<Val:8/binary>>) ->
+        BinPacker(Val);
+       (to, <<Val:8/binary>>) ->
+        BinPacker(Val);
+       (body, Val) ->
+        BinPacker(Val);
+       (keysh, Val) ->
+        BinPacker(Val);
+       (sig, #{}=V1) ->
+        [
+         {BinPacker(SPub),
+          BinPacker(SPri)} || {SPub, SPri} <- maps:to_list(V1) ];
+       (_, V1) -> V1
+    end, maps:without([public_key, signature], TXB));
+
+prettify_tx(TXB, BinPacker) ->
+   maps:map(
+     fun(register, Val) ->
+         BinPacker(Val);
+        (from, <<Val:8/binary>>) ->
+         BinPacker(Val);
+        (to, <<Val:8/binary>>) ->
+         BinPacker(Val);
+        (address, Val) ->
+         BinPacker(Val);
+        (invite, Val) ->
+         BinPacker(Val);
+        (pow, Val) ->
+         BinPacker(Val);
+        (sig, #{}=V1) ->
+         [
+          {BinPacker(SPub),
+           BinPacker(SPri)} || {SPub, SPri} <- maps:to_list(V1) ];
+        (_, V1) -> V1
+     end, maps:without([public_key, signature], TXB)).
+
 
 % ----------------------------------------------------------------------
 

@@ -150,6 +150,23 @@ test_alloc_addr() ->
   TestPriv=address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),
   test_alloc_addr(<<"TEST5">>,TestPriv).
 
+test_alloc_addr2(Promo) ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Pub1=tpecdsa:calc_pub(Pvt1,true),
+  T1=#{
+    kind => register,
+    t => os:system_time(millisecond),
+    ver => 2,
+    inv => Promo,
+    keys => [Pub1]
+   },
+  TXConstructed=tx:sign(tx:construct_tx(T1,[{pow_diff,8}]),Pvt1),
+%  Packed=tx:pack(TXConstructed),
+  {TXConstructed,
+  txpool:new_tx(TXConstructed)
+  }.
+
 test_alloc_addr(Promo,PrivKey) ->
     PubKey=tpecdsa:calc_pub(PrivKey, true),
     T=os:system_time(second),
@@ -626,8 +643,6 @@ mine_sha512(Str, Nonce, Diff) ->
        mine_sha512(Str,Nonce+1,Diff)
   end.
 
-
-
 export_pvt_to_der() ->
   file:write_file("/tmp/addr1pvt.der",<<(hex:parse("302e0201010420"))/binary,(address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>))/binary,(hex:parse("a00706052b8104000a"))/binary>>).
 
@@ -658,4 +673,39 @@ cover_finish() ->
   cover:flush(nodes()),
   timer:sleep(1000),
   cover:analyse_to_file([{outdir,"cover"},html]).
+
+text_tx2reg() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  %  Pub=tpecdsa:calc_pub(Pvt1,true),
+  T1=#{
+    kind => register,
+    t => 1530106238743,
+    ver => 2
+   },
+  TXConstructed=tx:construct_tx(T1),
+  Packed=tx:pack(tx:sign(TXConstructed,Pvt1)),
+  %  [
+  %   ?assertMatch({ok,#{sigverify:=#{valid:=1,invalid:=0}}}, verify(Packed, [])),
+  %   ?assertMatch({ok,#{sign:=#{Pub:=_}} }, verify(Packed))
+  %  ].
+  Packed.
+
+
+test_tx2() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  T1=#{
+    kind => generic,
+    from => <<128,0,32,0,2,0,0,3>>,
+    payload =>
+    [#{amount => 10,cur => <<"XXX">>,purpose => transfer},
+     #{amount => 20,cur => <<"FEE">>,purpose => srcfee}],
+    seq => 5,sign => #{},t => 1530106238743,
+    to => <<128,0,32,0,2,0,0,5>>,
+    ver => 2
+   },
+  TXConstructed=tx:construct_tx(T1),
+  Packed=tx:pack(tx:sign(TXConstructed,Pvt1)),
+  txpool:new_tx(Packed).
 

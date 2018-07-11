@@ -16,11 +16,6 @@
 
 -include("apps/tpnode/include/tx_const.hrl").
 
-mergesig(#{sign:=S1}=Tx1, #{sign:=S2}) ->
-  Tx1#{sign=>
-       maps:merge(S1, S2)
-      };
-
 mergesig(#{sig:=S1}=Tx1, #{sig:=S2}) ->
   Tx1#{sig=>
        maps:merge(S1, S2)
@@ -117,7 +112,7 @@ construct_tx(#{
                     kind=>register,
                     body=>pack_body(PowBody),
                     keysh=>KeysH,
-                    sign=>#{}
+                    sig=>#{}
                    });
     _ -> 
       maps:remove(keys,
@@ -125,7 +120,7 @@ construct_tx(#{
                     kind=>register,
                     body=>pack_body(PowBody),
                     keysh=>KeysH,
-                    sign=>#{}
+                    sig=>#{}
                    })
   end;
 
@@ -164,7 +159,7 @@ construct_tx(#{
   Tx1#{
     kind=>generic,
     body=>msgpack:pack(E1,[{spec,new},{pack_str, from_list}]),
-    sign=>#{}
+    sig=>#{}
    }.
 
 unpack_body(#{body:=Body}=Tx) ->
@@ -226,10 +221,10 @@ unpack_body(#{ver:=Ver, kind:=Kind},_Unpacked) ->
 
 sign(#{kind:=_Kind,
        body:=Bin,
-       sign:=PS}=Tx, PrivKey) ->
+       sig:=PS}=Tx, PrivKey) ->
   Pub=tpecdsa:calc_pub(PrivKey, true),
   Sig = tpecdsa:sign(Bin, PrivKey),
-  Tx#{sign=>maps:put(Pub,Sig,PS)};
+  Tx#{sig=>maps:put(Pub,Sig,PS)};
 
 sign(Any, PrivKey) ->
   tx1:sign(Any, PrivKey).
@@ -240,7 +235,7 @@ sign(Any, PrivKey) ->
         ver:=non_neg_integer(),
         kind:=atom(),
         body:=binary(),
-        sign:=map(),
+        sig:=map(),
         sigverify=>#{valid:=integer(),
                      invalid:=integer()
                     }
@@ -260,7 +255,7 @@ verify(#{
   kind:=generic,
   from:=From,
   body:=Body,
-  sign:=HSigs,
+  sig:=HSigs,
   ver:=2 
  }=Tx, Opts) ->
   CI=get_ext(<<"contract_issued">>, Tx),
@@ -338,7 +333,7 @@ verify(#{
 verify(#{
   kind:=register,
   body:=Body,
-  sign:=HSigs,
+  sig:=HSigs,
   ver:=2
  }=Tx, _Opts) ->
   VerFun=fun(Pub, Sig, {AValid, AInvalid}) ->
@@ -385,10 +380,10 @@ verify(Struct, Opts) ->
 
 pack(#{ ver:=2,
         body:=Bin,
-        sign:=PS}=Tx) ->
+        sig:=PS}=Tx) ->
   T=#{"ver"=>2,
       "body"=>Bin,
-      "sign"=>PS
+      "sig"=>PS
      },
   T1=case Tx of 
     #{inv:=Invite} ->
@@ -413,17 +408,30 @@ unpack(BinTx) when is_binary(BinTx) ->
                                        register, address, block ] },
                                      {unpack_str, as_binary}] ),
   case Tx0 of
-    #{<<"ver">>:=2, <<"sign">>:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv} ->
+    #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv} ->
       unpack_body( #{
         ver=>2,
-        sign=>Sign,
+        sig=>Sign,
         body=>TxBody,
         inv=>Inv
        });
-    #{<<"ver">>:=2, <<"sign">>:=Sign, <<"body">>:=TxBody} ->
+    #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody} ->
       unpack_body( #{
         ver=>2,
-        sign=>Sign,
+        sig=>Sign,
+        body=>TxBody
+       });
+    #{<<"ver">>:=2, <<"sig">>:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv} ->
+      unpack_body( #{
+        ver=>2,
+        sig=>Sign,
+        body=>TxBody,
+        inv=>Inv
+       });
+    #{<<"ver">>:=2, <<"sig">>:=Sign, <<"body">>:=TxBody} ->
+      unpack_body( #{
+        ver=>2,
+        sig=>Sign,
         body=>TxBody
        });
     _ ->
@@ -666,7 +674,7 @@ tx2_reg_test() ->
   ?assertMatch({ok,_}, verify(Packed, [])),
   ?assertMatch({ok,#{sigverify:=#{pow_diff:=PD,valid:=2,invalid:=0}}}
                  when PD>=16, verify(Packed, [])),
-  ?assertMatch({ok,#{sign:=#{Pub1:=_,Pub2:=_}} }, verify(Packed))
+  ?assertMatch({ok,#{sig:=#{Pub1:=_,Pub2:=_}} }, verify(Packed))
   ].
 
 tx2_generic_test() ->
@@ -679,7 +687,7 @@ tx2_generic_test() ->
     payload =>
     [#{amount => 10,cur => <<"XXX">>,purpose => transfer},
      #{amount => 20,cur => <<"FEE">>,purpose => srcfee}],
-    seq => 5,sign => #{},t => 1530106238743,
+    seq => 5,sig => #{},t => 1530106238743,
     to => <<128,0,32,0,2,0,0,5>>,
     ver => 2
    },
