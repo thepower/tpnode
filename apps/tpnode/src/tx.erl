@@ -477,8 +477,46 @@ rate(#{cur:=TCur}=Tx, GetRateFun) ->
   catch _:_ -> throw('cant_calculate_fee')
   end.
 
+intdiff(I) when I>0 andalso I<128 ->
+  intdiff(I bsl 1)+1;
+
+intdiff(_I) ->
+  0.
+
+hashdiff(<<0,_Rest/binary>>) ->
+  hashdiff(_Rest)+8;
+
+hashdiff(<<I:8/integer,_Rest/binary>>) ->
+  intdiff(I);
+
+hashdiff(_) ->
+  0.
+
+mine_sha512(Body, Nonce, Diff) ->
+  DS=Body#{pow=>Nonce},
+%  if Nonce rem 1000000 == 0 ->
+%       io:format("nonce ~w~n",[Nonce]);
+%     true -> ok
+%  end,
+  Hash=crypto:hash(sha512,pack_body(DS)),
+  Act=if Diff rem 8 == 0 ->
+           <<Act1:Diff/big,_/binary>>=Hash,
+           Act1;
+         true ->
+           Pad=8-(Diff rem 8),
+           <<Act1:Diff/big,_:Pad/big,_/binary>>=Hash,
+           Act1
+      end,
+  if Act==0 ->
+       %io:format("Mined nonce ~w~n",[Nonce]),
+       DS;
+     true ->
+       mine_sha512(Body,Nonce+1,Diff)
+  end.
+
+
 -ifdef(TEST).
-register_test() ->
+old_register_test() ->
   Priv= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216,
           123, 142, 115, 120, 124, 240, 248, 115, 150, 54, 239,
           58, 218, 221, 145, 246, 158, 15, 210, 165>>,
@@ -501,7 +539,7 @@ register_test() ->
    ),
   #{register:=PubKey, timestamp:=T, pow:=<<223, 92, 191, _/binary>>}=Res.
 
-tx_jsondata_test() ->
+old_tx_jsondata_test() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
           248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   %Pub1Min=tpecdsa:calc_pub(Pvt1, true),
@@ -546,7 +584,7 @@ tx_jsondata_test() ->
    ?assertMatch({false, #{cost:=20, tip:=0}}, rate(UTx2, GetRateFun))
   ].
 
-digaddr_tx_test() ->
+old_digaddr_tx_test() ->
   Priv= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216,
           123, 142, 115, 120, 124, 240, 248, 115, 150, 54, 239,
           58, 218, 221, 145, 246, 158, 15, 210, 165>>,
@@ -570,7 +608,7 @@ digaddr_tx_test() ->
   Ledger=[ {From, bal:put(pubkey, PubKey, bal:new()) } ],
   ledger:deploy4test(Ledger, Test).
 
-patch_test() ->
+old_patch_test() ->
   Priv= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216,
           123, 142, 115, 120, 124, 240, 248, 115, 150, 54, 239,
           58, 218, 221, 145, 246, 158, 15, 210, 165>>,
@@ -617,7 +655,7 @@ deploy_test() ->
   Ledger=[ {From, bal:put(pubkey, PubKey, bal:new()) } ],
   ledger:deploy4test(Ledger, Test).
 
-txs_sig_test() ->
+old_txs_sig_test() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr=naddress:construct_public(1, 2, 3),
@@ -702,49 +740,13 @@ tx2_generic_test() ->
                             sigverify:=#{valid:=1,invalid:=0},
                             seq:=5,
                             from:= <<128,0,32,0,2,0,0,3>>,
-                            to:= <<128,0,32,0,2,0,0,5>>
+                            to:= <<128,0,32,0,2,0,0,5>>,
+                            payload:= [_,_]
                            }}, verify(Packed, [{ledger, LedgerPID}]))
            ]
        end,
   Ledger=[ {<<128,0,32,0,2,0,0,3>>, bal:put(pubkey, PubKey, bal:new()) } ],
   ledger:deploy4test(Ledger, Test).
+
 -endif.
-
-intdiff(I) when I>0 andalso I<128 ->
-  intdiff(I bsl 1)+1;
-
-intdiff(_I) ->
-  0.
-
-hashdiff(<<0,_Rest/binary>>) ->
-  hashdiff(_Rest)+8;
-
-hashdiff(<<I:8/integer,_Rest/binary>>) ->
-  intdiff(I);
-
-hashdiff(_) ->
-  0.
-
-
-mine_sha512(Body, Nonce, Diff) ->
-  DS=Body#{pow=>Nonce},
-%  if Nonce rem 1000000 == 0 ->
-%       io:format("nonce ~w~n",[Nonce]);
-%     true -> ok
-%  end,
-  Hash=crypto:hash(sha512,pack_body(DS)),
-  Act=if Diff rem 8 == 0 ->
-           <<Act1:Diff/big,_/binary>>=Hash,
-           Act1;
-         true ->
-           Pad=8-(Diff rem 8),
-           <<Act1:Diff/big,_:Pad/big,_/binary>>=Hash,
-           Act1
-      end,
-  if Act==0 ->
-       %io:format("Mined nonce ~w~n",[Nonce]),
-       DS;
-     true ->
-       mine_sha512(Body,Nonce+1,Diff)
-  end.
 
