@@ -751,6 +751,14 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
         BinPacker(Val);
        (keysh, Val) ->
         BinPacker(Val);
+       (extdata, V1) ->
+        maps:fold(
+          fun(<<"addr">>,V2,Acc) ->
+              [{<<"addr.txt">>,naddress:encode(V2)},
+               {<<"addr">>,BinPacker(V2)} |Acc];
+             (K2,V2,Acc) ->
+              [{K2,V2}|Acc]
+          end, [], V1);
        (sig, #{}=V1) ->
         [
          {BinPacker(SPub),
