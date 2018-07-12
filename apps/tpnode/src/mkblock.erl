@@ -19,7 +19,7 @@
 
 -type mkblock_acc() :: #{'emit':=[{_,_}], 'export':=list(),
 'failed':=[{_,_}], 'fee':=bal:bal(), 'tip':=bal:bal(),
-'height':=number(), 'outbound':=[{_,_}], 'parent':=binary(), 
+'height':=number(), 'outbound':=[{_,_}], 'parent':=binary(),
 'pick_block':=#{_=>1}, 'settings':=[{_,_}], 'success':=[{_,_}]}.
 
 %% ------------------------------------------------------------------
@@ -162,160 +162,160 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=State) ->
-    lager:info("-------[MAKE BLOCK]-------"),
+  lager:info("-------[MAKE BLOCK]-------"),
   PreTXL1=lists:foldl(
-        fun({TxID, TXB}, Acc) ->
-            case maps:is_key(TxID, Acc) of
-              true ->
-                TXB1=tx:mergesig(TXB,
-                         maps:get(TxID, Acc)),
-                {ok, Tx1} = tx:verify(TXB1),
-                maps:put(TxID, Tx1, Acc);
-              false ->
-                maps:put(TxID, TXB, Acc)
-            end
-        end, #{}, PreTXL0),
+            fun({TxID, TXB}, Acc) ->
+                case maps:is_key(TxID, Acc) of
+                  true ->
+                    TXB1=tx:mergesig(TXB,
+                                     maps:get(TxID, Acc)),
+                    {ok, Tx1} = tx:verify(TXB1),
+                    maps:put(TxID, Tx1, Acc);
+                  false ->
+                    maps:put(TxID, TXB, Acc)
+                end
+            end, #{}, PreTXL0),
   PreTXL=lists:keysort(1, maps:to_list(PreTXL1)),
 
-    AE=maps:get(ae, MySet, 1),
+  AE=maps:get(ae, MySet, 1),
 
   {_, ParentHash}=Parent=case maps:get(parent, State, undefined) of
-         undefined ->
-           lager:info("Fetching last block from blockchain"),
-           #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=gen_server:call(blockchain, last_block),
-           {Last_Height1, Last_Hash1};
-         {A, B} -> {A, B}
-       end,
+                           undefined ->
+                             lager:info("Fetching last block from blockchain"),
+                             #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=gen_server:call(blockchain, last_block),
+                             {Last_Height1, Last_Hash1};
+                           {A, B} -> {A, B}
+                         end,
 
   PreNodes=try
-    PreSig=maps:get(presig, State),
-    BK=maps:fold(
-       fun(_, {BH, _}, Acc) when BH =/= ParentHash ->
-           Acc;
-        (Node1, {_BH, Nodes2}, Acc) ->
-           [{Node1, Nodes2}|Acc]
-       end, [], PreSig),
-    lists:sort(bron_kerbosch:max_clique(BK))
-  catch Ec:Ee ->
-        Stack1=erlang:get_stacktrace(),
-        lager:error("Can't calc xsig ~p:~p ~p", [Ec, Ee, Stack1]),
-        []
-  end,
+             PreSig=maps:get(presig, State),
+             BK=maps:fold(
+                  fun(_, {BH, _}, Acc) when BH =/= ParentHash ->
+                      Acc;
+                     (Node1, {_BH, Nodes2}, Acc) ->
+                      [{Node1, Nodes2}|Acc]
+                  end, [], PreSig),
+             lists:sort(bron_kerbosch:max_clique(BK))
+           catch Ec:Ee ->
+                   Stack1=erlang:get_stacktrace(),
+                   lager:error("Can't calc xsig ~p:~p ~p", [Ec, Ee, Stack1]),
+                   []
+           end,
 
   try
-        if(AE==0 andalso PreTXL==[]) -> throw(empty);
-          true -> ok
-        end,
-        T1=erlang:system_time(),
-    lager:notice("MB pre nodes ~p", [PreNodes]),
+    if(AE==0 andalso PreTXL==[]) -> throw(empty);
+      true -> ok
+    end,
+    T1=erlang:system_time(),
+    lager:debug("MB pre nodes ~p", [PreNodes]),
 
-        PropsFun=fun(mychain) ->
-                         MyChain;
-                    (settings) ->
-                         blockchain:get_settings();
-                    ({valid_timestamp, TS}) ->
-             abs(os:system_time(millisecond)-TS)<3600000;
-          ({endless, From, Cur}) ->
-             EndlessPath=[<<"current">>, <<"endless">>, From, Cur],
-             case blockchain:get_settings(EndlessPath) of
-               true -> true;
-               _ ->
-                 % TODO 2018-05-01: Replace this code with false
-                 Endless=lists:member(
-                       From,
-                       application:get_env(tpnode, endless, [])
-                      ),
-                 if Endless ->
-                    lager:notice("Deprecated: issue tokens by address in config");
-                  true ->
-                    ok
-                 end,
-                 Endless
-             end;
-          ({get_block, Back}) when 32>=Back ->
-             FindBlock=fun FB(H, N) ->
-               case gen_server:call(blockchain, {get_block, H}) of
-                 undefined ->
-                   undefined;
-                 #{header:=#{parent:=P}}=Blk ->
-                   if N==0 ->
-                      maps:without([bals, txs], Blk);
-                    true ->
-                      FB(P, N-1)
-                   end
-               end
+    PropsFun=fun(mychain) ->
+                 MyChain;
+                (settings) ->
+                 blockchain:get_settings();
+                ({valid_timestamp, TS}) ->
+                 abs(os:system_time(millisecond)-TS)<3600000;
+                ({endless, From, Cur}) ->
+                 EndlessPath=[<<"current">>, <<"endless">>, From, Cur],
+                 case blockchain:get_settings(EndlessPath) of
+                   true -> true;
+                   _ ->
+                     % TODO 2018-05-01: Replace this code with false
+                     Endless=lists:member(
+                               From,
+                               application:get_env(tpnode, endless, [])
+                              ),
+                     if Endless ->
+                          lager:notice("Deprecated: issue tokens by address in config");
+                        true ->
+                          ok
+                     end,
+                     Endless
+                 end;
+                ({get_block, Back}) when 32>=Back ->
+                 FindBlock=fun FB(H, N) ->
+                 case gen_server:call(blockchain, {get_block, H}) of
+                   undefined ->
+                     undefined;
+                   #{header:=#{parent:=P}}=Blk ->
+                     if N==0 ->
+                          maps:without([bals, txs], Blk);
+                        true ->
+                          FB(P, N-1)
+                     end
+                 end
              end,
-            FindBlock(last, Back)
+    FindBlock(last, Back)
+  end,
+  AddrFun=fun({Addr, Cur}) ->
+              gen_server:call(blockchain, {get_addr, Addr, Cur});
+             (Addr) ->
+              gen_server:call(blockchain, {get_addr, Addr})
           end,
-    AddrFun=fun({Addr, Cur}) ->
-                        gen_server:call(blockchain, {get_addr, Addr, Cur});
-                   (Addr) ->
-                        gen_server:call(blockchain, {get_addr, Addr})
-                end,
 
-    #{block:=Block,
-      failed:=Failed,
-      emit:=EmitTXs}=generate_block(PreTXL, Parent, PropsFun, AddrFun,
-                    [{<<"prevnodes">>, PreNodes}]),
-        T2=erlang:system_time(),
-        if Failed==[] ->
-               ok;
-           true ->
-               %there was failed tx. Block empty?
-               gen_server:cast(txpool, {failed, Failed}),
-               if(AE==0) ->
-                     case maps:get(txs, Block, []) of
-                         [] -> throw(empty);
-                         _ -> ok
-                     end;
-                 true ->
-                     ok
-               end
-        end,
-        Timestamp=os:system_time(millisecond),
-        ED=[
-            {timestamp, Timestamp},
-            {createduration, T2-T1}
-           ],
-        SignedBlock=sign(Block, ED),
-    #{header:=#{height:=NewH}}=Block,
-        %cast whole block for my local blockvote
-        gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
+  #{block:=Block,
+    failed:=Failed,
+    emit:=EmitTXs}=generate_block(PreTXL, Parent, PropsFun, AddrFun,
+                                  [{<<"prevnodes">>, PreNodes}]),
+  T2=erlang:system_time(),
+  if Failed==[] ->
+       ok;
+     true ->
+       %there was failed tx. Block empty?
+       gen_server:cast(txpool, {failed, Failed}),
+       if(AE==0) ->
+           case maps:get(txs, Block, []) of
+             [] -> throw(empty);
+             _ -> ok
+           end;
+         true ->
+           ok
+       end
+  end,
+  Timestamp=os:system_time(millisecond),
+  ED=[
+      {timestamp, Timestamp},
+      {createduration, T2-T1}
+     ],
+  SignedBlock=sign(Block, ED),
+  #{header:=#{height:=NewH}}=Block,
+  %cast whole block for my local blockvote
+  gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
 
-    case application:get_env(tpnode, dumpblocks) of
-      {ok, true} ->
-        file:write_file("tmp/mkblk_" ++
-                integer_to_list(NewH) ++ "_" ++
-                binary_to_list(nodekey:node_id()),
-                io_lib:format("~p.~n", [SignedBlock])
-                 );
-      _ -> ok
-    end,
-        %Block signature for each other
-        lager:info("MB My sign ~p emit ~p",
-           [
-          maps:get(sign, SignedBlock),
-          length(EmitTXs)
-           ]),
-        HBlk=msgpack:pack(
-               #{null=><<"blockvote">>,
-                 <<"n">>=>node(),
-                 <<"hash">>=>maps:get(hash, SignedBlock),
-                 <<"sign">>=>maps:get(sign, SignedBlock),
-                 <<"chain">>=>MyChain
-                }
-              ),
-        tpic:cast(tpic, <<"blockvote">>, HBlk),
-    if EmitTXs==[] -> ok;
-       true ->
-         lager:info("Inject TXs ~p", [
-                       gen_server:call(txpool, {push_etx, EmitTXs})
-                      ])
-    end,
+  case application:get_env(tpnode, dumpblocks) of
+    {ok, true} ->
+      file:write_file("tmp/mkblk_" ++
+                      integer_to_list(NewH) ++ "_" ++
+                      binary_to_list(nodekey:node_id()),
+                      io_lib:format("~p.~n", [SignedBlock])
+                     );
+    _ -> ok
+  end,
+  %Block signature for each other
+  lager:info("MB My sign ~p emit ~p",
+             [
+              maps:get(sign, SignedBlock),
+              length(EmitTXs)
+             ]),
+  HBlk=msgpack:pack(
+         #{null=><<"blockvote">>,
+           <<"n">>=>node(),
+           <<"hash">>=>maps:get(hash, SignedBlock),
+           <<"sign">>=>maps:get(sign, SignedBlock),
+           <<"chain">>=>MyChain
+          }
+        ),
+  tpic:cast(tpic, <<"blockvote">>, HBlk),
+  if EmitTXs==[] -> ok;
+     true ->
+       lager:info("Inject TXs ~p", [
+                                    gen_server:call(txpool, {push_etx, EmitTXs})
+                                   ])
+  end,
+  {noreply, State#{preptxl=>[], parent=>undefined, presig=>#{}}}
+catch throw:empty ->
+        lager:info("Skip empty block"),
         {noreply, State#{preptxl=>[], parent=>undefined, presig=>#{}}}
-    catch throw:empty ->
-              lager:info("Skip empty block"),
-              {noreply, State#{preptxl=>[], parent=>undefined, presig=>#{}}}
     end;
 
 handle_info(process, State) ->
@@ -432,7 +432,7 @@ try_process([{TxID,
               settings:=Settings}=Acc) ->
   try
     NeedSig=chainsettings:get(patchsig,SetState),
-    if(length(ValidSig)<NeedSig) -> 
+    if(length(ValidSig)<NeedSig) ->
         throw({patchsig, NeedSig});
       true ->
         ok
@@ -641,9 +641,9 @@ try_process([{TxID, #{ver:=2,
          HI=crypto:hash(md5,Invite),
          InvFound=lists:member(HI,Invites),
          lager:info("Inv ~p ~p",[Invite,InvFound]),
-         if InvFound -> 
+         if InvFound ->
               ok;
-            true -> 
+            true ->
               throw(bad_invite_code)
          end;
        true ->
@@ -682,8 +682,9 @@ try_process([{TxID, #{ver:=2,
 
     NewF=bal:put(pubkey, PubKey, bal:new()),
     NewAddresses=maps:put(NewBAddr, NewF, Addresses),
+    NewTx=maps:remove(inv,tx:set_ext(<<"addr">>,NewBAddr,Tx)),
     try_process(Rest, SS1, NewAddresses, GetFun,
-                Acc#{success=> [{TxID, maps:remove(inv,Tx)}|Success],
+                Acc#{success=> [{TxID, NewTx}|Success],
                      settings=>[AAlloc|lists:keydelete(<<"aalloc">>, 1, Settings)]
                     })
   catch throw:X ->
@@ -711,9 +712,9 @@ try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
          HI=crypto:hash(md5,Invite),
          InvFound=lists:member(HI,Invites),
          lager:info("Inv ~p ~p",[Invite,InvFound]),
-         if InvFound -> 
+         if InvFound ->
               Tx#{invite=>HI};
-            true -> 
+            true ->
               throw(bad_invite_code)
          end;
        true ->
@@ -956,7 +957,6 @@ try_process_local([{TxID,
              Tx
         end,
 
-
     try_process(Rest, SetState, NewAddresses, GetFun,
                 savefee(GotFee,
                         Acc#{
@@ -965,12 +965,18 @@ try_process_local([{TxID,
                          }
                        )
                )
-  catch throw:X ->
+  catch error:{badkey,From} ->
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
+        error:{badkey,To} ->
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{failed=>[{TxID, no_dst_addr_loaded}|Failed]});
+        throw:X ->
           try_process(Rest, SetState, Addresses, GetFun,
                       Acc#{failed=>[{TxID, X}|Failed]})
   end.
 
--spec savefee(GotFee :: {binary(),non_neg_integer(),non_neg_integer()}, 
+-spec savefee(GotFee :: {binary(),non_neg_integer(),non_neg_integer()},
               mkblock_acc()) -> mkblock_acc().
 
 savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
@@ -1004,6 +1010,144 @@ deposit(Address, TBal,
           end, TXs), Gas}
   end.
 
+
+withdraw(FBal,
+     #{seq:=Seq, timestamp:=Timestamp, from:=From}=Tx,
+     GetFun, Settings) ->
+  if Amount >= 0 ->
+       ok;
+     true ->
+       throw ('bad_amount')
+  end,
+  Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
+  IsContract=is_binary(bal:get(vm, FBal)) andalso Contract_Issued=={ok, From},
+
+  lager:info("Withdraw ~p ~p", [IsContract, Tx]),
+  if Timestamp==0 andalso IsContract ->
+       ok;
+     is_integer(Timestamp) ->
+       case GetFun({valid_timestamp, Timestamp}) of
+         true ->
+           ok;
+         false ->
+           throw ('invalid_timestamp')
+       end;
+     true -> throw ('non_int_timestamp')
+  end,
+  LD=bal:get(t, FBal) div 86400000,
+  CD=Timestamp div 86400000,
+  NoSK=if IsContract -> true;
+          true ->
+            case settings:get([<<"current">>, <<"nosk">>], Settings) of
+              1 -> true;
+              _ -> false
+            end
+       end,
+  if NoSK -> ok;
+     true ->
+       FSK=bal:get_cur(<<"SK">>, FBal),
+       FSKUsed=if CD>LD ->
+              0;
+            true ->
+              bal:get(usk, FBal)
+           end,
+       if FSK < 1 ->
+          case GetFun({endless, From, <<"SK">>}) of
+            true -> ok;
+            false -> throw('no_sk')
+          end;
+        FSKUsed >= FSK -> throw('sk_limit');
+        true -> ok
+       end
+  end,
+  CurFSeq=bal:get(seq, FBal),
+  if CurFSeq < Seq -> ok;
+     true ->
+       %==== DEBUG CODE
+       L=try
+           ledger:get(From)
+         catch _:_ ->
+                 cant_get_ledger
+         end,
+       lager:error("Bad seq addr ~p, cur ~p tx ~p, ledger ~p",
+                   [From, CurFSeq, Seq, L]),
+       %==== END DEBU CODE
+       throw ('bad_seq')
+  end,
+  CurFTime=bal:get(t, FBal),
+  if CurFTime < Timestamp -> ok;
+     IsContract andalso Timestamp==0 -> ok;
+     true -> throw ('bad_timestamp')
+  end,
+  CurFAmount=bal:get_cur(Cur, FBal),
+  NewFAmount=if CurFAmount >= Amount ->
+            CurFAmount - Amount;
+          true ->
+            case GetFun({endless, From, Cur}) of
+              true ->
+                CurFAmount - Amount;
+              false ->
+                throw ('insufficient_fund')
+            end
+         end,
+  NewBal=maps:remove(keep,
+        bal:mput(
+          Cur,
+          NewFAmount,
+          Seq,
+          Timestamp,
+          FBal,
+          if IsContract ->
+             false;
+           true ->
+             if CD>LD -> reset;
+              true -> true
+             end
+          end
+         )
+         ),
+  GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
+            settings:get([<<"current">>, <<"fee">>, FeeCur], Settings);
+          ({params, Parameter}) ->
+            settings:get([<<"current">>, <<"fee">>, params, Parameter], Settings)
+        end,
+  {FeeOK, #{cost:=MinCost}=Fee}=if IsContract ->
+                    {true, #{cost=>0, tip=>0, cur=>Cur}};
+                  true ->
+                    Rate=tx:rate(Tx, GetFeeFun),
+                    lager:info("Rate ~p", [Rate]),
+                    Rate
+                    %{true, #{cost=>0, tip=>0, cur=><<>>}}
+                 end,
+  if FeeOK -> ok;
+     true -> throw ({'insufficient_fee', MinCost})
+  end,
+  #{cost:=FeeCost, tip:=Tip0, cur:=FeeCur}=Fee,
+  if FeeCost == 0 ->
+       {NewBal, {Cur, 0, 0}};
+     true ->
+       Tip=case GetFeeFun({params, <<"notip">>}) of
+           1 -> 0;
+           _ -> Tip0
+         end,
+       FeeAmount=FeeCost+Tip,
+       CurFFeeAmount=bal:get_cur(FeeCur, NewBal),
+       NewFFeeAmount=if CurFFeeAmount >= FeeAmount ->
+               CurFFeeAmount - FeeAmount;
+             true ->
+               case GetFun({endless, From, FeeCur}) of
+                 true ->
+                   CurFFeeAmount - FeeAmount;
+                 false ->
+                   throw ('insufficient_fund_for_fee')
+               end
+            end,
+       NewBal2=bal:put_cur(FeeCur,
+                 NewFFeeAmount,
+                 NewBal
+                ),
+       {NewBal2, {FeeCur, FeeCost, Tip}}
+  end;
 
 withdraw(FBal,
      #{cur:=Cur, seq:=Seq, timestamp:=Timestamp, amount:=Amount, from:=From}=Tx,
@@ -1057,6 +1201,7 @@ withdraw(FBal,
   CurFSeq=bal:get(seq, FBal),
   if CurFSeq < Seq -> ok;
      true ->
+       %==== DEBUG CODE
        L=try
            ledger:get(From)
          catch _:_ ->
@@ -1064,6 +1209,7 @@ withdraw(FBal,
          end,
        lager:error("Bad seq addr ~p, cur ~p tx ~p, ledger ~p",
                    [From, CurFSeq, Seq, L]),
+       %==== END DEBU CODE
        throw ('bad_seq')
   end,
   CurFTime=bal:get(t, FBal),
@@ -1220,15 +1366,24 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
               AAcc
           end,
          {A1, SAcc};
+      ({_, #{ver:=2, to:=T, from:=F, payload:=P}}, {AAcc1, SAcc}) ->
+           AAcc2=lists:foldl(
+                   fun(#{cur:=Cur}, AAcc) ->
+                       FB=bal:fetch(F, Cur, true, maps:get(F, AAcc, #{}), GetAddr),
+                       TB=bal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
+                       maps:put(F, FB, maps:put(T, TB, AAcc))
+                   end, AAcc1, P),
+           {AAcc2, SAcc};
       ({_, #{to:=T, from:=F, cur:=Cur}}, {AAcc, SAcc}) ->
          FB=bal:fetch(F, Cur, true, maps:get(F, AAcc, #{}), GetAddr),
          TB=bal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
          {maps:put(F, FB, maps:put(T, TB, AAcc)), SAcc};
-      (_, {AAcc, SAcc}) ->
+      ({_,_Any}, {AAcc, SAcc}) ->
+           lager:info("Can't load ~p",[_Any]),
          {AAcc, SAcc}
      end,
   {Addrs, _}=lists:foldl(Load, {Addrs0, undefined}, TXL),
-  lager:info("MB Pre Setting ~p", [XSettings]),
+  lager:debug("MB Pre Setting ~p", [XSettings]),
   _T3=erlang:system_time(),
   #{failed:=Failed,
     table:=NewBal0,
@@ -1489,6 +1644,71 @@ ledger_hash(NewBal) ->
 
 -ifdef(TEST).
 
+tx2_test() ->
+  GetSettings=
+  fun(mychain) ->
+      2;
+     (settings) ->
+      #{
+        chains => [2],
+        globals => #{<<"patchsigs">> => 2},
+        keys =>
+        #{ <<"node1">> => crypto:hash(sha256, <<"node1">>),
+           <<"node2">> => crypto:hash(sha256, <<"node2">>),
+           <<"node3">> => crypto:hash(sha256, <<"node3">>),
+           <<"node4">> => crypto:hash(sha256, <<"node4">>)
+         },
+        nodechain => #{<<"node1">> => 0,
+                       <<"node2">> => 0,
+                       <<"node3">> => 0},
+        <<"current">> => #{
+            <<"allocblock">> =>
+            #{<<"block">> => 2, <<"group">> => 10, <<"last">> => 0}
+           }
+       };
+     ({endless, _Address, _Cur}) ->
+      false;
+     (Other) ->
+      error({bad_setting, Other})
+  end,
+  GetAddr=fun test_getaddr/1,
+  ParentHash=crypto:hash(sha256, <<"parent">>),
+  
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr= <<128,1,64,0,2,0,0,1>>,
+  T1=#{
+    kind => generic,
+    t => os:system_time(millisecond),
+    seq => 1,
+    from => Addr,
+    to => <<128,1,64,0,2,0,0,2>>,
+    ver => 2,
+    payload => [
+                #{cur=><<"FTT">>,
+                  amount=>10,
+                  purpose=>transfer
+                 }
+               ]
+   },
+  TXConstructed=tx:sign(tx:construct_tx(T1),Pvt1),
+  {ok,TX0}=tx:verify(TXConstructed,[nocheck_ledger]),
+  #{block:=Block,
+    failed:=Failed}=generate_block(
+                      [{<<"tx1">>, TX0}],
+                      {1, ParentHash},
+                      GetSettings,
+                      GetAddr,
+                      []),
+
+  io:format("~p~n", [Block]),
+  [
+   ?assertEqual([], Failed),
+   ?assertMatch(#{
+      bals:=#{<<128, 1, 64, 0, 2, 0, 0, 1>>:=_}
+     }, Block)
+  ].
+
 alloc_addr2_test() ->
     GetSettings=
     fun(mychain) ->
@@ -1522,8 +1742,8 @@ alloc_addr2_test() ->
             error({bad_setting, Other})
     end,
     GetAddr=fun test_getaddr/1,
-    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 
-            215, 220, 24, 240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42,
+            215, 220, 24, 240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246,
             158, 15, 210, 165>>,
     ParentHash=crypto:hash(sha256, <<"parent">>),
     Pub1=tpecdsa:calc_pub(Pvt1,true),
