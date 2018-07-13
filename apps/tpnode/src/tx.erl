@@ -2,8 +2,8 @@
 
 -export([get_ext/2, set_ext/3, sign/2, verify/1, verify/2, pack/1, unpack/1]).
 -export([txlist_hash/1, rate/2, mergesig/2]).
--export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1, 
-         construct_tx/1,construct_tx/2]).
+-export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1,
+         construct_tx/1,construct_tx/2, get_payload/2]).
 -export([hashdiff/1]).
 
 -ifndef(TEST).
@@ -73,7 +73,7 @@ to_binary(Arg) when is_list(Arg) ->
 pack_body(Body) ->
   msgpack:pack(Body,[{spec,new},{pack_str, from_list}]).
 
-construct_tx(Any) -> 
+construct_tx(Any) ->
   construct_tx(Any,[]).
 
 construct_tx(#{
@@ -94,7 +94,7 @@ construct_tx(#{
   InvBody=case Tx0 of
             #{inv:=Invite} ->
               E0#{"inv"=>crypto:hash(sha256,Invite)};
-            _ -> 
+            _ ->
               E0
           end,
 
@@ -114,7 +114,7 @@ construct_tx(#{
                     keysh=>KeysH,
                     sig=>#{}
                    });
-    _ -> 
+    _ ->
       maps:remove(keys,
                   Tx0#{
                     kind=>register,
@@ -240,8 +240,8 @@ sign(Any, PrivKey) ->
                      invalid:=integer()
                     }
        }.
--type tx1() :: #{ 'patch':=binary(), 'sig':=list() } 
-| #{ 'type':='register', 'pow':=binary(), 
+-type tx1() :: #{ 'patch':=binary(), 'sig':=list() }
+| #{ 'type':='register', 'pow':=binary(),
      'register':=binary(), 'timestamp':=integer() }
 | #{ from := binary(), sig := map(), timestamp := integer() }.
 
@@ -256,7 +256,7 @@ verify(#{
   from:=From,
   body:=Body,
   sig:=HSigs,
-  ver:=2 
+  ver:=2
  }=Tx, Opts) ->
   CI=get_ext(<<"contract_issued">>, Tx),
   Res=case checkaddr(From) of
@@ -385,7 +385,7 @@ pack(#{ ver:=2,
       "body"=>Bin,
       "sig"=>PS
      },
-  T1=case Tx of 
+  T1=case Tx of
     #{inv:=Invite} ->
          T#{"inv"=>Invite};
        _ ->
@@ -447,6 +447,15 @@ txlist_hash(List) ->
                                      [Id, tx:pack(Tx)|Acc]
                                  end, [], lists:keysort(1, List)))).
 
+get_payload(#{ver:=2, kind:=generic, payload:=Payload}=_Tx, Purpose) ->
+  lists:foldl(
+    fun(#{amount:=_,cur:=_,purpose:=P1}=A, undefined) when P1==Purpose ->
+        A;
+       (_,A) ->
+        A
+    end, undefined, Payload).
+
+
 rate1(#{extradata:=ED}, Cur, TxAmount, GetRateFun) ->
   #{<<"base">>:=Base,
     <<"kb">>:=KB}=Rates=GetRateFun(Cur),
@@ -458,6 +467,36 @@ rate1(#{extradata:=ED}, Cur, TxAmount, GetRateFun) ->
       cost=>Cost,
       tip => max(0, TxAmount - Cost)
     }}.
+
+rate2(#{body:=Body}, Cur, TxAmount, GetRateFun) ->
+  #{<<"base">>:=Base,
+    <<"kb">>:=KB}=Rates=GetRateFun(Cur),
+  BaseEx=maps:get(<<"baseextra">>, Rates, 0),
+  BodySize=size(Body)-32, %correcton rate
+  ExtCur=max(0, BodySize-BaseEx),
+  Cost=Base+trunc(ExtCur*KB/1024),
+  {TxAmount >= Cost,
+   #{ cur=>Cur,
+      cost=>Cost,
+      tip => max(0, TxAmount - Cost)
+    }}.
+
+rate(#{ver:=2, kind:=generic}=Tx, GetRateFun) ->
+  try
+    case get_payload(Tx, srcfee) of
+      #{cur:=Cur, amount:=TxAmount} ->
+        rate2(Tx, Cur, TxAmount, GetRateFun);
+      _ ->
+        case GetRateFun({params, <<"feeaddr">>}) of
+          X when is_binary(X) ->
+            {false, #{ cost=>null } };
+          _ ->
+            {true, #{ cost=>0, tip => 0, cur=><<"NONE">> }}
+        end
+    end
+  catch _:_ -> throw('cant_calculate_fee')
+  end;
+
 
 rate(#{cur:=TCur}=Tx, GetRateFun) ->
   try
@@ -583,6 +622,7 @@ old_tx_jsondata_test() ->
    ?assertMatch({true, #{cost:=20, tip:=10}}, rate(UTx1, GetRateFun)),
    ?assertMatch({false, #{cost:=20, tip:=0}}, rate(UTx2, GetRateFun))
   ].
+
 
 old_digaddr_tx_test() ->
   Priv= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216,
@@ -747,6 +787,61 @@ tx2_generic_test() ->
        end,
   Ledger=[ {<<128,0,32,0,2,0,0,3>>, bal:put(pubkey, PubKey, bal:new()) } ],
   ledger:deploy4test(Ledger, Test).
+
+tx2_rate_test() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  %Pub1Min=tpecdsa:calc_pub(Pvt1, true),
+  From=(naddress:construct_public(0, 0, 1)),
+  T1=#{
+    kind => generic,
+    from => From,
+    payload =>
+    [#{amount => 10,cur => <<"TEST">>,purpose => transfer},
+     #{amount => 30,cur => <<"TEST">>,purpose => srcfee}],
+    seq => 1,
+    t => 1512450000,
+    to => From,
+    txext => #{
+      message=><<"preved12345678901234567890123456789123456789">>
+     },
+    ver => 2
+   },
+  TX1Constructed=tx:construct_tx(T1),
+  BinTx1=tx:pack(tx:sign(TX1Constructed,Pvt1)),
+
+  T2=#{
+    kind => generic,
+    from => From,
+    payload =>
+    [#{amount => 10,cur => <<"TEST">>,purpose => transfer},
+     #{amount => 10,cur => <<"TEST">>,purpose => srcfee}],
+    seq => 1,
+    t => 1512450000,
+    to => From,
+    txext => #{
+      message=><<"preved12345678901234567890123456789123456789">>
+     },
+    ver => 2
+   },
+  TX2Constructed=tx:construct_tx(T2),
+  BinTx2=tx:pack(tx:sign(TX2Constructed,Pvt1)),
+  io:format("tx2 ~p~n",[msgpack:unpack(maps:get(body,TX2Constructed))]),
+
+  GetRateFun=fun(_Currency) ->
+                 #{ <<"base">> => 1,
+                    <<"baseextra">> => 64,
+                    <<"kb">> => 1000
+                  }
+             end,
+  UTx1=tx:unpack(BinTx1),
+  UTx2=tx:unpack(BinTx2),
+  [
+   ?assertEqual(UTx1, tx:unpack( tx:pack(UTx1))),
+   ?assertMatch({true, #{cost:=20, tip:=10}}, rate(UTx1, GetRateFun)),
+   ?assertMatch({false, #{cost:=20, tip:=0}}, rate(UTx2, GetRateFun))
+  ].
+
 
 -endif.
 
