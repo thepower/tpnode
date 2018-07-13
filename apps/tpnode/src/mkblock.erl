@@ -986,6 +986,32 @@ savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
    }.
 
 deposit(Address, TBal,
+    #{ver:=2}=Tx,
+    GetFun, _Settings) ->
+  #{amount:=Amount, cur:= Cur} = tx:get_payload(Tx,transfer),
+  NewTAmount=bal:get_cur(Cur, TBal) + Amount,
+  NewT=maps:remove(keep,
+           bal:put_cur( Cur, NewTAmount, TBal)
+          ),
+  case bal:get(vm, NewT) of
+    undefined ->
+      {NewT, [], 0};
+    VMType ->
+      lager:info("Smartcontract ~p", [VMType]),
+      {L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, 1, GetFun),
+      {L1, lists:map(
+          fun(#{seq:=Seq}=ETx) ->
+              H=base64:encode(crypto:hash(sha, bal:get(state, TBal))),
+              BSeq=bin2hex:dbin2hex(<<Seq:64/big>>),
+              EA=(naddress:encode(Address)),
+              TxID= <<EA/binary, BSeq/binary, H/binary>>,
+              {TxID,
+               tx:set_ext( <<"contract_issued">>, Address, ETx)
+              }
+          end, TXs), Gas}
+  end;
+
+deposit(Address, TBal,
     #{cur:=Cur, amount:=Amount}=Tx,
     GetFun, _Settings) ->
   NewTAmount=bal:get_cur(Cur, TBal) + Amount,
@@ -1010,6 +1036,145 @@ deposit(Address, TBal,
           end, TXs), Gas}
   end.
 
+
+withdraw(FBal,
+     #{ver:=2, seq:=Seq, t:=Timestamp, from:=From}=Tx,
+     GetFun, Settings) ->
+  #{amount:=Amount, cur:= Cur} = tx:get_payload(Tx,transfer),
+  if Amount >= 0 ->
+       ok;
+     true ->
+       throw ('bad_amount')
+  end,
+  Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
+  IsContract=is_binary(bal:get(vm, FBal)) andalso Contract_Issued=={ok, From},
+
+  lager:info("Withdraw ~p ~p", [IsContract, Tx]),
+  if Timestamp==0 andalso IsContract ->
+       ok;
+     is_integer(Timestamp) ->
+       case GetFun({valid_timestamp, Timestamp}) of
+         true ->
+           ok;
+         false ->
+           throw ('invalid_timestamp')
+       end;
+     true -> throw ('non_int_timestamp')
+  end,
+  LD=bal:get(t, FBal) div 86400000,
+  CD=Timestamp div 86400000,
+  NoSK=if IsContract -> true;
+          true ->
+            case settings:get([<<"current">>, <<"nosk">>], Settings) of
+              1 -> true;
+              _ -> false
+            end
+       end,
+  if NoSK -> ok;
+     true ->
+       FSK=bal:get_cur(<<"SK">>, FBal),
+       FSKUsed=if CD>LD ->
+              0;
+            true ->
+              bal:get(usk, FBal)
+           end,
+       if FSK < 1 ->
+          case GetFun({endless, From, <<"SK">>}) of
+            true -> ok;
+            false -> throw('no_sk')
+          end;
+        FSKUsed >= FSK -> throw('sk_limit');
+        true -> ok
+       end
+  end,
+  CurFSeq=bal:get(seq, FBal),
+  if CurFSeq < Seq -> ok;
+     true ->
+       %==== DEBUG CODE
+       L=try
+           ledger:get(From)
+         catch _:_ ->
+                 cant_get_ledger
+         end,
+       lager:error("Bad seq addr ~p, cur ~p tx ~p, ledger ~p",
+                   [From, CurFSeq, Seq, L]),
+       %==== END DEBU CODE
+       throw ('bad_seq')
+  end,
+  CurFTime=bal:get(t, FBal),
+  if CurFTime < Timestamp -> ok;
+     IsContract andalso Timestamp==0 -> ok;
+     true -> throw ('bad_timestamp')
+  end,
+  CurFAmount=bal:get_cur(Cur, FBal),
+  NewFAmount=if CurFAmount >= Amount ->
+            CurFAmount - Amount;
+          true ->
+            case GetFun({endless, From, Cur}) of
+              true ->
+                CurFAmount - Amount;
+              false ->
+                throw ('insufficient_fund')
+            end
+         end,
+  NewBal=maps:remove(keep,
+        bal:mput(
+          Cur,
+          NewFAmount,
+          Seq,
+          Timestamp,
+          FBal,
+          if IsContract ->
+             false;
+           true ->
+             if CD>LD -> reset;
+              true -> true
+             end
+          end
+         )
+         ),
+  GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
+            settings:get([<<"current">>, <<"fee">>, FeeCur], Settings);
+          ({params, Parameter}) ->
+            settings:get([<<"current">>, <<"fee">>, params, Parameter], Settings)
+        end,
+  {FeeOK, #{cost:=MinCost}=Fee}=if IsContract ->
+                    {true, #{cost=>0, tip=>0, cur=>Cur}};
+                  true ->
+                    Rate=tx:rate(Tx, GetFeeFun),
+                    lager:info("Rate ~p", [Rate]),
+                    Rate
+                    %{true, #{cost=>0, tip=>0, cur=><<>>}}
+                 end,
+  if FeeOK -> ok;
+     true -> throw ({'insufficient_fee', MinCost})
+  end,
+  #{cost:=FeeCost, tip:=Tip0, cur:=FeeCur}=Fee,
+  if FeeCost == 0 ->
+       {NewBal, {Cur, 0, 0}};
+     true ->
+       Tip=case GetFeeFun({params, <<"notip">>}) of
+           1 -> 0;
+           _ -> Tip0
+         end,
+       FeeAmount=FeeCost+Tip,
+       CurFFeeAmount=bal:get_cur(FeeCur, NewBal),
+       NewFFeeAmount=if CurFFeeAmount >= FeeAmount ->
+               CurFFeeAmount - FeeAmount;
+             true ->
+               case GetFun({endless, From, FeeCur}) of
+                 true ->
+                   CurFFeeAmount - FeeAmount;
+                 false ->
+                   throw ('insufficient_fund_for_fee')
+               end
+            end,
+       NewBal2=bal:put_cur(FeeCur,
+                 NewFFeeAmount,
+                 NewBal
+                ),
+       {NewBal2, {FeeCur, FeeCost, Tip}}
+  end;
 
 withdraw(FBal,
      #{cur:=Cur, seq:=Seq, timestamp:=Timestamp, amount:=Amount, from:=From}=Tx,
@@ -1528,6 +1693,10 @@ tx2_test() ->
             #{<<"block">> => 2, <<"group">> => 10, <<"last">> => 0}
            }
        };
+     ({valid_timestamp, TS}) ->
+      abs(os:system_time(millisecond)-TS)<3600000
+      orelse
+      abs(os:system_time(millisecond)-(TS-86400000))<3600000;
      ({endless, _Address, _Cur}) ->
       false;
      (Other) ->
@@ -1535,14 +1704,14 @@ tx2_test() ->
   end,
   GetAddr=fun test_getaddr/1,
   ParentHash=crypto:hash(sha256, <<"parent">>),
-  
+ 
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr= <<128,1,64,0,2,0,0,1>>,
   T1=#{
     kind => generic,
     t => os:system_time(millisecond),
-    seq => 1,
+    seq => 10,
     from => Addr,
     to => <<128,1,64,0,2,0,0,2>>,
     ver => 2,
