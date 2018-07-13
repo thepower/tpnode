@@ -716,11 +716,16 @@ test_tx2b() ->
   T1=#{
     kind => generic,
     t => os:system_time(millisecond),
-    seq => 1,
+    seq => 2,
     from => Addr,
     to => <<128,1,64,0,4,0,0,1>>,
     ver => 2,
+    txext => #{
+      message => <<"preved">>
+     },
     payload => [
+                #{amount => 10,cur => <<"FTT">>,purpose => transfer},
+                #{amount => 20,cur => <<"FTT">>,purpose => srcfee}
                ]
    },
   TXConstructed=tx:sign(tx:construct_tx(T1),Pvt1),
