@@ -81,7 +81,7 @@ construct_tx(#{
   t:=Timestamp,
   keys:=PubKeys
  }=Tx0,Params) ->
-  Tx=maps:with([ver,t],Tx0),
+  Tx=maps:with([ver,t,txext],Tx0),
   Keys1=iolist_to_binary(lists:sort(PubKeys)),
   KeysH=crypto:hash(sha256,Keys1),
   E0=#{
@@ -132,7 +132,7 @@ construct_tx(#{
   seq:=Seq,
   payload:=Amounts
  }=Tx0,_Params) ->
-  Tx=maps:with([ver,from,to,t,seq,payload,call,extradata],Tx0),
+  Tx=maps:with([ver,from,to,t,seq,payload,call,txext],Tx0),
   A1=lists:map(
        fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
              is_integer(Amount), is_binary(Cur) ->
