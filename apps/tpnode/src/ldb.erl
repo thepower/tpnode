@@ -1,5 +1,5 @@
 -module(ldb).
--export([put_key/3, read_key/3, del_key/2, open/1, keys/1]).
+-export([put_key/3, read_key/3, del_key/2, open/1]).
 
 open(Path) ->
     gen_server:call(rdb_dispatcher,
@@ -23,23 +23,3 @@ put_key(_DB, Key, _Value) ->
 
 del_key(DB, Key) ->
     rocksdb:delete(DB, Key, []).
-
-%multiput(DB, Elements) ->
-%    Batch=lists:foldl(
-%            fun({K, V}, Acc) ->
-%                    h2leveldb:add_put(K, term_to_binary(V), Acc)
-%            end,
-%            h2leveldb:new_write_batch(), Elements),
-%    ok = h2leveldb:write(DB, Batch).
-
-keys(DB) ->
-    {ok, K} = rocksdb:iterator(DB, []),
-    next_key(DB, K).
-
-next_key(DB, Key) ->
-    case rocksdb:iterator_move(Key, next) of
-        {ok, K} ->
-            [ K | next_key(DB, K) ];
-        _ ->
-            []
-    end.
