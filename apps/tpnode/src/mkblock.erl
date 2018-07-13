@@ -17,10 +17,19 @@
 -export([start_link/0]).
 -export([generate_block/5, benchmark/1, decode_tpic_txs/1]).
 
--type mkblock_acc() :: #{'emit':=[{_,_}], 'export':=list(),
-'failed':=[{_,_}], 'fee':=bal:bal(), 'tip':=bal:bal(),
-'height':=number(), 'outbound':=[{_,_}], 'parent':=binary(),
-'pick_block':=#{_=>1}, 'settings':=[{_,_}], 'success':=[{_,_}]}.
+-type mkblock_acc() :: #{'emit':=[{_,_}],
+                         'export':=list(),
+                         'failed':=[{_,_}],
+                         'fee':=bal:bal(),
+                         'tip':=bal:bal(),
+                         'height':=number(),
+                         'outbound':=[{_,_}],
+                         'parent':=binary(),
+                         'table':=map(),
+                         'pick_block':=#{_=>1},
+                         'settings':=[{_,_}],
+                         'success':=[{_,_}]
+                        }.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -1427,6 +1436,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            success=>[],
            settings=>[],
            outbound=>[],
+           table=>#{},
            emit=>[],
            fee=>bal:new(),
            tip=>bal:new(),
@@ -1704,7 +1714,7 @@ tx2_test() ->
   end,
   GetAddr=fun test_getaddr/1,
   ParentHash=crypto:hash(sha256, <<"parent">>),
- 
+
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr= <<128,1,64,0,2,0,0,1>>,
