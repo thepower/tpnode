@@ -664,6 +664,10 @@ prettify_block(#{}=Block0, BinPacker) ->
               PrettyBal=maps:map(
                           fun(pubkey, PubKey) ->
                               BinPacker(PubKey);
+                             (state, PubKey) ->
+                              BinPacker(PubKey);
+                             (code, PubKey) ->
+                              BinPacker(PubKey);
                              (_BalKey, BalVal) ->
                               BalVal
                           end, FixedBal),
