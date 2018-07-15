@@ -56,7 +56,11 @@ new() ->
 -spec changes (bal()) -> sparsebal().
 changes(Bal) ->
   Changes=maps:get(changes, Bal, []),
-  maps:with([amount|Changes], maps:remove(changes, Bal)).
+  if Changes==[] ->
+       #{};
+     true ->
+       maps:with([amount|Changes], maps:remove(changes, Bal))
+  end.
 
 
 -spec fetch (binary(), binary(), boolean(),
@@ -77,10 +81,15 @@ get_cur(Currency, #{amount:=A}=_Bal) ->
 
 -spec put_cur (binary(), integer(), bal()) -> bal().
 put_cur(Currency, Value, #{amount:=A}=Bal) ->
-  Bal#{
-    amount => A#{ Currency => Value},
-    changes=>[amount|maps:get(changes, Bal, [])]
-   }.
+  case maps:get(Currency, A, 0) of
+    Value -> %no changes
+      Bal;
+    _ ->
+      Bal#{
+        amount => A#{ Currency => Value},
+        changes=>[amount|maps:get(changes, Bal, [])]
+       }
+  end.
 
 -spec mput (Cur::binary(), Amount::integer(), Seq::non_neg_integer(),
             T::non_neg_integer(), Bal::bal(), UseSK::boolean()|'reset') -> bal().

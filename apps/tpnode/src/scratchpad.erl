@@ -713,19 +713,20 @@ test_tx2b() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr=naddress:decode(<<"AA100000006710887143">>),
+  Seq=bal:get(seq,ledger:get(Addr)),
   T1=#{
     kind => generic,
     t => os:system_time(millisecond),
-    seq => 2,
+    seq => Seq+1,
     from => Addr,
-    to => <<128,1,64,0,4,0,0,1>>,
+    to => <<128,1,64,0,4,0,0,2>>,
     ver => 2,
     txext => #{
       message => <<"preved">>
      },
     payload => [
-                #{amount => 10,cur => <<"FTT">>,purpose => transfer},
-                #{amount => 20,cur => <<"FTT">>,purpose => srcfee}
+                #{amount => 10,cur => <<"FTT">>,purpose => transfer}
+                %#{amount => 20,cur => <<"FTT">>,purpose => srcfee}
                ]
    },
   TXConstructed=tx:sign(tx:construct_tx(T1),Pvt1),

@@ -4,7 +4,7 @@
 -export([txlist_hash/1, rate/2, mergesig/2]).
 -export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1,
          construct_tx/1,construct_tx/2, get_payload/2]).
--export([hashdiff/1]).
+-export([hashdiff/1,upgrade/1]).
 
 -ifndef(TEST).
 -define(TEST, 1).
@@ -245,11 +245,14 @@ sign(Any, PrivKey) ->
      'register':=binary(), 'timestamp':=integer() }
 | #{ from := binary(), sig := map(), timestamp := integer() }.
 
--spec verify(tx()|binary(), ['nocheck_ledger'| {ledger, pid()}]) ->
+-spec verify(tx()|binary()) ->
   {ok, tx()} | 'bad_sig'.
 
 verify(Tx) ->
   verify(Tx, []).
+
+-spec verify(tx()|binary(), ['nocheck_ledger'| {ledger, pid()}]) ->
+  {ok, tx()} | 'bad_sig'.
 
 verify(#{
   kind:=generic,
@@ -552,6 +555,41 @@ mine_sha512(Body, Nonce, Diff) ->
      true ->
        mine_sha512(Body,Nonce+1,Diff)
   end.
+
+upgrade(#{
+  from:=From,
+  to:=To,
+  amount:=Amount,
+  cur:=Cur,
+  seq:=Seq,
+  timestamp:=T
+ }=Tx) ->
+  DED=jsx:decode(maps:get(extradata, Tx, "{}"), [return_maps]),
+  Fee=case DED of 
+        #{ <<"fee">>:=FeeA, <<"feecur">>:=FeeC } ->
+          [#{amount=>FeeA, cur=>FeeC, purpose=>srcfee}];
+        _ ->
+          []
+      end,
+  TxExt=case DED of
+          #{<<"message">>:=Msg} ->
+            #{msg=>Msg};
+          _ ->
+            #{}
+        end,
+  construct_tx(#{
+    ver=>2,
+    kind=>generic,
+    from=>From,
+    to=>To,
+    t=>T,
+    seq=>Seq,
+    payload=>[#{amount=>Amount, cur=>Cur, purpose=>transfer}|Fee],
+    txext => TxExt
+   }).
+
+
+
 
 
 -ifdef(TEST).
