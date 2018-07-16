@@ -17,6 +17,10 @@
 -export([start_link/0]).
 -export([generate_block/5, benchmark/1, decode_tpic_txs/1]).
 
+-ifdef(TEST).
+-export([cleanup_bals/1]).
+-endif.
+
 -type mkblock_acc() :: #{'emit':=[{_,_}],
                          'export':=list(),
                          'failed':=[{_,_}],
@@ -1469,28 +1473,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
      true -> ok
   end,
   _T4=erlang:system_time(),
-  NewBal=maps:fold(
-       fun(K, V, BA) ->
-           case maps:get(keep, V, true) of
-             false ->
-               BA;
-             true ->
-               case maps:is_key(ublk, V) of
-                 false ->
-                   maps:put(K, bal:changes(V), BA);
-                 true ->
-                   C1=bal:changes(V),
-                   case (maps:size(C1)>0) of
-                     true ->
-                       maps:put(K,
-                            maps:put(lastblk, maps:get(ublk, V), C1),
-                            BA);
-                     false ->
-                       BA
-                   end
-               end
-           end
-       end, #{}, NewBal0),
+  NewBal=cleanup_bals(NewBal0),
   ExtraPatch=maps:fold(
          fun(ToChain, _NoOfTxs, AccExtraPatch) ->
              [ToChain|AccExtraPatch]
@@ -1664,6 +1647,30 @@ decode_tpic_txs(TXs) ->
       fun({TxID, Tx}) ->
               {TxID, tx:unpack(Tx)}
       end, maps:to_list(TXs)).
+
+cleanup_bals(NewBal0) ->
+  maps:fold(
+    fun(K, V, BA) ->
+        case maps:get(keep, V, true) of
+          false ->
+            BA;
+          true ->
+            case maps:is_key(ublk, V) of
+              false ->
+                maps:put(K, V, BA);
+              true ->
+                C1=bal:changes(V),
+                case (maps:size(C1)>0) of
+                  true ->
+                    maps:put(K,
+                             maps:put(lastblk, maps:get(ublk, V), C1),
+                             BA);
+                  false ->
+                    BA
+                end
+            end
+        end
+    end, #{}, NewBal0).
 
 -ifdef(TEST).
 ledger_hash(NewBal) ->
