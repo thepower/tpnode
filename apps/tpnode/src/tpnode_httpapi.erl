@@ -102,13 +102,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
                                lager:info("Error ~p", [_Err]),
                                {-1, <<0, 0, 0, 0, 0, 0, 0, 0>>, #{}}
                            end,
-  QS=cowboy_req:parse_qs(_Req),
-  BinPacker=case proplists:get_value(<<"bin">>, QS) of
-              <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
-              <<"hex">> -> fun(Bin) -> hex:encode(Bin) end;
-              <<"raw">> -> fun(Bin) -> Bin end;
-              _ -> fun(Bin) -> base64:encode(Bin) end
-            end,
+  BinPacker=packer(_Req,hex),
   Header=maps:map(
            fun(_, V) when is_binary(V) -> BinPacker(V);
               (_, V) -> V
@@ -304,6 +298,7 @@ h(<<"GET">>, [<<"nodes">>, Chain], _Req) ->
 h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
   try
+    BinPacker=packer(_Req,hex),
     Addr=case TAddr of
            <<"0x", Hex/binary>> ->
              hex:parse(Hex);
@@ -338,17 +333,17 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
         Info1=maps:merge(maps:remove(ublk, Info), InfoU),
         Info2=maps:map(
                 fun
-                  (lastblk, V) -> bin2hex:dbin2hex(V);
-      (ublk, V) -> bin2hex:dbin2hex(V);
+                  (lastblk, V) -> BinPacker(V);
+      (ublk, V) -> BinPacker(V);
       (pubkey, V) ->
                     case proplists:get_value(<<"pubkey">>, QS) of
                       <<"b64">> -> base64:encode(V);
                       <<"pem">> -> tpecdsa:export(V,pem);
                       <<"raw">> -> V;
-                      _ -> hex:encode(V)
+                      _ -> BinPacker(V)
                     end;
-      (preblk, V) -> bin2hex:dbin2hex(V);
-      (code, V) -> base64:encode(V);
+      (preblk, V) -> BinPacker(V);
+      (code, V) -> BinPacker(V);
       (state, V) ->
         try
           iolist_to_binary(
@@ -404,13 +399,7 @@ h(<<"POST">>, [<<"test">>, <<"tx">>], Req) ->
     });
 
 h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
-  QS=cowboy_req:parse_qs(_Req),
-  BinPacker=case proplists:get_value(<<"bin">>, QS) of
-              <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
-              <<"hex">> -> fun(Bin) -> bin2hex:dbin2hex(Bin) end;
-              <<"raw">> -> fun(Bin) -> Bin end;
-              _ -> fun(Bin) -> bin2hex:dbin2hex(Bin) end
-            end,
+  BinPacker=packer(_Req,hex),
   BlockHash0=if(BlockId == <<"last">>) -> last;
                true ->
                  hex:parse(BlockId)
@@ -439,12 +428,7 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
 
 h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
-  BinPacker=case proplists:get_value(<<"bin">>, QS) of
-              <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
-              <<"hex">> -> fun(Bin) -> bin2hex:dbin2hex(Bin) end;
-              <<"raw">> -> fun(Bin) -> Bin end;
-              _ -> fun(Bin) -> bin2hex:dbin2hex(Bin) end
-            end,
+  BinPacker=packer(_Req,hex),
   Address=case proplists:get_value(<<"addr">>, QS) of
             undefined -> undefined;
             Addr -> naddress:decode(Addr)
@@ -482,7 +466,7 @@ h(<<"GET">>, [<<"settings">>], _Req) ->
   Block=blockchain:get_settings(),
   answer(
    #{ result => <<"ok">>,
-      settings => prettify_settings(Block)
+      settings => prettify_settings(Block,packer(_Req,b64))
     }
   );
 
@@ -509,6 +493,7 @@ h(<<"POST">>, [<<"register">>], Req) ->
     {ok, Tx} ->
       answer(
        #{ result => <<"ok">>,
+          notice => <<"method deprecated">>,
           pkey=>bin2hex:dbin2hex(PKey),
           txid => Tx
         }
@@ -679,6 +664,10 @@ prettify_block(#{}=Block0, BinPacker) ->
               PrettyBal=maps:map(
                           fun(pubkey, PubKey) ->
                               BinPacker(PubKey);
+                             (state, PubKey) ->
+                              BinPacker(PubKey);
+                             (code, PubKey) ->
+                              BinPacker(PubKey);
                              (_BalKey, BalVal) ->
                               BalVal
                           end, FixedBal),
@@ -751,6 +740,14 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
         BinPacker(Val);
        (keysh, Val) ->
         BinPacker(Val);
+       (extdata, V1) ->
+        maps:fold(
+          fun(<<"addr">>,V2,Acc) ->
+              [{<<"addr.txt">>,naddress:encode(V2)},
+               {<<"addr">>,BinPacker(V2)} |Acc];
+             (K2,V2,Acc) ->
+              [{K2,V2}|Acc]
+          end, [], V1);
        (sig, #{}=V1) ->
         [
          {BinPacker(SPub),
@@ -781,9 +778,6 @@ prettify_tx(TXB, BinPacker) ->
 
 
 % ----------------------------------------------------------------------
-
-prettify_settings(Block) ->
-    prettify_settings(Block, fun(Bin) -> bin2hex:dbin2hex(Bin) end).
 
 prettify_settings(#{}=Block0, BinPacker) ->
 %%    lager:error("block: ~p", [Block0]),
@@ -848,7 +842,8 @@ show_signs(Signs, BinPacker) ->
 % ----------------------------------------------------------------------
 
 get_nodes(Chain) when is_integer(Chain) ->
-    Nodes = gen_server:call(discovery, {lookup, <<"apipeer">>, Chain}),
+%%    Nodes = gen_server:call(discovery, {lookup, <<"apipeer">>, Chain}),
+    Nodes = discovery:lookup(<<"apipeer">>, Chain),
     WhitelistedKeys =
         [address, <<"address">>, port, <<"port">>, hostname, <<"hostname">>,
             nodeid, <<"nodeid">>],
@@ -931,4 +926,15 @@ add_port_to_ip(Ip, Port) ->
     lager:error("Invalid ip address (~p) or port (~p)", [Ip, Port]),
     unknown.
 
+packer(Req,Default) ->
+  QS=cowboy_req:parse_qs(Req),
+  case proplists:get_value(<<"bin">>, QS) of
+    <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
+    <<"hex">> -> fun(Bin) -> hex:encode(Bin) end;
+    <<"raw">> -> fun(Bin) -> Bin end;
+    _ -> case Default of
+           hex -> fun(Bin) -> hex:encode(Bin) end;
+           b64 -> fun(Bin) -> base64:encode(Bin) end
+         end
+  end.
 

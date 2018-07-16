@@ -24,7 +24,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1]).
+-export([start_link/1, lookup/2, lookup/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -101,7 +101,7 @@ init(Args) ->
         check_expire_interval => CheckExpireInterval,
         announce_interval => AnnounceServicesInterval,
         cleantimer => erlang:send_after(CheckExpireInterval * 1000, self(), cleanup),
-        announcetimer => erlang:send_after(10 * 1000, self(), make_announce)
+        announcetimer => erlang:send_after(rand:uniform(15) * 1000, self(), make_announce)
     }}.
 
 
@@ -379,7 +379,7 @@ is_right_proto(ServiceName, Proto0)  ->
 % make announce of our local services with tpic scope
 make_announce(#{names:=Names} = _Dict, State) ->
     lager:debug("Announcing our local services"),
-    Ttl = get_config(intrachain_ttl, 120, State),
+    Ttl = max(get_config(intrachain_ttl, 120, State), 30),
     Hostname = application:get_env(tpnode, hostname, unknown),
 %%    ValidUntil = get_unixtime() + get_config(intrachain_ttl, 120, State),
     Addresses = get_config(addresses, get_default_addresses(), State),
@@ -542,6 +542,29 @@ translate_address(#{address:=IP}=Address0) when is_map(Address0) ->
             Address0
     end.
 
+
+% --------------------------------------------------------
+
+lookup(Name) ->
+    lookup(Name, blockchain:chain()).
+
+
+lookup(Name, Chain) ->
+    Discovery = whereis(discovery),
+    try
+        gen_server:call(Discovery, {lookup, Name, Chain})
+    catch
+        exit:{timeout, Details} = Reason ->
+            ProcInfo = erlang:process_info(Discovery),
+            StackTrace = erlang:process_info(Discovery, current_stacktrace),
+            QLen = proplists:get_value(message_queue_len, ProcInfo),
+            lager:error("got lookup timeout: ~p", [Details]),
+            lager:error("message_queue_len: ~p", [QLen]),
+            lager:error("process info: ~p", [ProcInfo]),
+            lager:error("stack trace: ~p", [StackTrace]),
+            erlang:raise(exit, Reason, erlang:get_stacktrace())
+    end.
+
 % --------------------------------------------------------
 
 % check if local service is exists
@@ -610,6 +633,7 @@ query_remote(Name, _Dict, Chain) ->
 % --------------------------------------------------------
 
 query(Name0, Chain, State) ->
+    timer:sleep(1000),
     Name = convert_to_binary(Name0),
     LocalChain = blockchain:chain(),
     #{local_services := LocalDict, remote_services := RemoteDict} = State,
@@ -653,14 +677,13 @@ validate_announce(
           #{
               name := _Name,
               address := _Address,
-%%              valid_until := ValidUntil,
               nodeid := _NodeId,
               scopes := _Scopes,
               created := Created,
               ttl := Ttl
           } = _Announce,
           State) ->
-    MaxTtl = get_config(xchain_ttl, 1800, State),
+    MaxTtl = max(get_config(xchain_ttl, 1800, State), 30),
     TtlToCheck = min(Ttl, MaxTtl),
     Now = get_unixtime(),
     MaxExpireTime = Now + TtlToCheck,
