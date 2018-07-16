@@ -24,7 +24,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1]).
+-export([start_link/1, lookup/2, lookup/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -542,6 +542,29 @@ translate_address(#{address:=IP}=Address0) when is_map(Address0) ->
             Address0
     end.
 
+
+% --------------------------------------------------------
+
+lookup(Name) ->
+    lookup(Name, blockchain:chain()).
+
+
+lookup(Name, Chain) ->
+    Discovery = whereis(discovery),
+    try
+        gen_server:call(Discovery, {lookup, Name, Chain})
+    catch
+        exit:{timeout, Details} = Reason ->
+            ProcInfo = erlang:process_info(Discovery),
+            StackTrace = erlang:process_info(Discovery, current_stacktrace),
+            QLen = proplists:get_value(message_queue_len, ProcInfo),
+            lager:error("got lookup timeout: ~p", [Details]),
+            lager:error("message_queue_len: ~p", [QLen]),
+            lager:error("process info: ~p", [ProcInfo]),
+            lager:error("stack trace: ~p", [StackTrace]),
+            erlang:raise(exit, Reason, erlang:get_stacktrace())
+    end.
+
 % --------------------------------------------------------
 
 % check if local service is exists
@@ -610,6 +633,7 @@ query_remote(Name, _Dict, Chain) ->
 % --------------------------------------------------------
 
 query(Name0, Chain, State) ->
+    timer:sleep(1000),
     Name = convert_to_binary(Name0),
     LocalChain = blockchain:chain(),
     #{local_services := LocalDict, remote_services := RemoteDict} = State,

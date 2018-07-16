@@ -842,7 +842,8 @@ show_signs(Signs, BinPacker) ->
 % ----------------------------------------------------------------------
 
 get_nodes(Chain) when is_integer(Chain) ->
-    Nodes = gen_server:call(discovery, {lookup, <<"apipeer">>, Chain}),
+%%    Nodes = gen_server:call(discovery, {lookup, <<"apipeer">>, Chain}),
+    Nodes = discovery:lookup(<<"apipeer">>, Chain),
     WhitelistedKeys =
         [address, <<"address">>, port, <<"port">>, hostname, <<"hostname">>,
             nodeid, <<"nodeid">>],
