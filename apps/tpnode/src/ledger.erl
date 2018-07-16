@@ -206,9 +206,14 @@ handle_call({Action, KVS0, BlockID}, _From, #{db:=DB, mt:=MT}=State) when
     %lager:info("KVS0 ~p", [KVS0]),
     %lager:info("KVS1 ~p", [KVS]),
 
-    MT1=gb_merkle_trees:balance(
+    MT1=try gb_merkle_trees:balance(
           lists:foldl(fun applykv/2, MT, KVS)
-         ),
+         )
+        catch Ec:Ee ->
+                S=erlang:get_stacktrace(),
+                lager:error("Bad KV arrived to ~p ledger: ~p",[Action, KVS0]),
+                erlang:raise(Ec,Ee,S)
+        end,
     Res={ok, gb_merkle_trees:root_hash(MT1)},
     {reply, Res,
      case Action of
