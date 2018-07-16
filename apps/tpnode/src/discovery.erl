@@ -101,7 +101,7 @@ init(Args) ->
         check_expire_interval => CheckExpireInterval,
         announce_interval => AnnounceServicesInterval,
         cleantimer => erlang:send_after(CheckExpireInterval * 1000, self(), cleanup),
-        announcetimer => erlang:send_after(10 * 1000, self(), make_announce)
+        announcetimer => erlang:send_after(rand:uniform(15) * 1000, self(), make_announce)
     }}.
 
 
@@ -379,7 +379,7 @@ is_right_proto(ServiceName, Proto0)  ->
 % make announce of our local services with tpic scope
 make_announce(#{names:=Names} = _Dict, State) ->
     lager:debug("Announcing our local services"),
-    Ttl = get_config(intrachain_ttl, 120, State),
+    Ttl = max(get_config(intrachain_ttl, 120, State), 30),
     Hostname = application:get_env(tpnode, hostname, unknown),
 %%    ValidUntil = get_unixtime() + get_config(intrachain_ttl, 120, State),
     Addresses = get_config(addresses, get_default_addresses(), State),
@@ -677,14 +677,13 @@ validate_announce(
           #{
               name := _Name,
               address := _Address,
-%%              valid_until := ValidUntil,
               nodeid := _NodeId,
               scopes := _Scopes,
               created := Created,
               ttl := Ttl
           } = _Announce,
           State) ->
-    MaxTtl = get_config(xchain_ttl, 1800, State),
+    MaxTtl = max(get_config(xchain_ttl, 1800, State), 30),
     TtlToCheck = min(Ttl, MaxTtl),
     Now = get_unixtime(),
     MaxExpireTime = Now + TtlToCheck,
