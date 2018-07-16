@@ -944,16 +944,15 @@ try_process_local([{TxID,
          throw('unverified')
     end,
 
-    FBal=maps:get(From, Addresses),
-    TBal=maps:get(To, Addresses),
     EnsureSettings=fun(undefined) -> GetFun(settings);
                       (SettingsReady) -> SettingsReady
                    end,
 
     RealSettings=EnsureSettings(SetState),
-    {NewF, GotFee}=withdraw(FBal, Tx, GetFun, RealSettings),
-    {NewT, NewEmit, _GasUsed}=deposit(To, TBal, Tx, GetFun, RealSettings),
-    NewAddresses=maps:put(From, NewF, maps:put(To, NewT, Addresses)),
+    {NewF, GotFee}=withdraw(maps:get(From, Addresses), Tx, GetFun, RealSettings),
+    Addresses1=maps:put(From, NewF, Addresses),
+    {NewT, NewEmit, _GasUsed}=deposit(To, maps:get(To, Addresses1), Tx, GetFun, RealSettings),
+    NewAddresses=maps:put(To, NewT, Addresses1),
 
     CI=tx:get_ext(<<"contract_issued">>, Tx),
     Tx1=if CI=={ok, From} ->
@@ -2037,6 +2036,124 @@ contract_test() ->
               <<160, 0, 0, 0, 0, 0, 0, 1>>,
               <<160, 0, 0, 0, 0, 0, 0, 2>>], maps:get(bals, Block)),
   { Success, Failed, Emit, NewLedger}.
+
+mkblock_tx2_self_test() ->
+    OurChain=5,
+  GetSettings=fun(mychain) ->
+            OurChain;
+           (settings) ->
+                  #{
+              chains => [0, 1],
+              chain =>
+              #{0 =>
+                #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
+                1 =>
+                #{blocktime => 10, minsig => 1}
+               },
+              globals => #{<<"patchsigs">> => 2},
+              keys =>
+              #{
+                <<"node1">> => crypto:hash(sha256, <<"node1">>),
+                <<"node2">> => crypto:hash(sha256, <<"node2">>),
+                <<"node3">> => crypto:hash(sha256, <<"node3">>),
+                <<"node4">> => crypto:hash(sha256, <<"node4">>)
+               },
+              nodechain =>
+              #{
+                <<"node1">> => 0,
+                <<"node2">> => 0,
+                <<"node3">> => 0,
+                <<"node4">> => 1
+               },
+              <<"current">> => #{
+                  <<"fee">> => #{
+                      params=>#{
+                        <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>
+                       },
+                      <<"FTT">> => #{
+                          <<"base">> => 1,
+                          <<"baseextra">> => 64,
+                          <<"kb">> => 10
+                         }
+                     }
+                 }
+             };
+           ({endless, _Address, _Cur}) ->
+            false;
+           ({valid_timestamp, TS}) ->
+            abs(os:system_time(millisecond)-TS)<3600000
+            orelse
+            abs(os:system_time(millisecond)-(TS-86400000))<3600000;
+           (Other) ->
+            error({bad_setting, Other})
+        end,
+    GetAddr=fun test_getaddr/1,
+
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+      248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+    ParentHash=crypto:hash(sha256, <<"parent">>),
+  SG=3,
+
+  TX0=tx:sign(
+        tx:construct_tx(
+          #{
+          ver=>2,
+          kind=>generic,
+          from=>naddress:construct_public(SG, OurChain, 3),
+          to=>naddress:construct_public(1, OurChain, 3),
+          payload=>[
+                    #{purpose=>transfer, amount=>10, cur=><<"FTT">>},
+                    #{purpose=>srcfee, amount=>2, cur=><<"FTT">> }
+                   ],
+          seq=>2,
+          t=>os:system_time(millisecond)
+         }), Pvt1),
+  TX1=tx:sign(
+        tx:construct_tx(
+          #{
+          from => naddress:construct_public(1, OurChain, 3),
+          kind => generic,
+          payload =>
+          [#{amount => 10,cur => <<"FTT">>,purpose => transfer},
+           #{purpose=>srcfee, amount=>1, cur=><<"FTT">> }],
+          seq => 3,
+          t => os:system_time(millisecond),
+          to => naddress:construct_public(1, OurChain, 3),
+          ver => 2}
+         ), Pvt1),
+  #{block:=Block,
+    failed:=_Failed}=generate_block(
+            [
+             {<<"0interchain">>, maps:put(sigverify,#{valid=>1},TX0)},
+             {<<"1invalid">>, maps:put(sigverify,#{valid=>1},TX1)}
+            ],
+            {1, ParentHash},
+            GetSettings,
+            GetAddr,
+             []),
+
+  SignedBlock=block:sign(Block, <<1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>),
+  ?assertMatch({true, {_, _}}, block:verify(SignedBlock)),
+  #{bals:=NewBals}=Block,
+  lists:foreach(
+    fun({K,#{amount:=V}}) ->
+        lager:info("Bal ~p: ~p", [K,V])
+    end, maps:to_list(NewBals)),
+  FinalBals=#{
+    naddress:construct_public(1, OurChain, 3) => 
+      #{<<"FTT">> => 119,<<"SK">> => 1,<<"TST">> => 26},
+    naddress:construct_public(SG, OurChain, 3) => 
+      #{<<"FTT">> => 98,<<"SK">> => 3,<<"TST">> => 26},
+    <<160,0,0,0,0,0,0,0>> => #{<<"FTT">> => 100,<<"TST">> => 100},
+    <<160,0,0,0,0,0,0,1>> => #{<<"FTT">> => 103,<<"TST">> => 100}
+   },
+  maps:fold(
+    fun(Addr, Bal, Acc) ->
+        [?assertMatch(#{Addr := #{amount:=Bal}}, maps:with([Addr],NewBals))|Acc]
+    end, [], FinalBals).
+
+
 
 mkblock_tx2_test() ->
     OurChain=5,
