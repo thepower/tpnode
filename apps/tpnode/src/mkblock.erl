@@ -17,10 +17,6 @@
 -export([start_link/0]).
 -export([generate_block/5, benchmark/1, decode_tpic_txs/1]).
 
--ifdef(TEST).
--export([cleanup_bals/1]).
--endif.
-
 -type mkblock_acc() :: #{'emit':=[{_,_}],
                          'export':=list(),
                          'failed':=[{_,_}],
