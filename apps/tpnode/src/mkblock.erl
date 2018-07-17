@@ -938,7 +938,7 @@ try_process_local([{TxID,
            end,
     if Verify -> ok;
        true ->
-         error_logger:error_msg("Unverified ~p",[Tx]),
+         %error_logger:error_msg("Unverified ~p",[Tx]),
          throw('unverified')
     end,
 
