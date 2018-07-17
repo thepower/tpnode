@@ -452,7 +452,7 @@ mkblock_tx2_self_test() ->
   #{bals:=NewBals}=Block,
   lists:foreach(
     fun({K,#{amount:=V}}) ->
-        lager:info("Bal ~p: ~p", [K,V])
+        io:format("Bal ~p: ~p~n", [K,V])
     end, maps:to_list(NewBals)),
   FinalBals=#{
     naddress:construct_public(1, OurChain, 3) => 
@@ -705,7 +705,6 @@ mkblock_tx2_test() ->
                                   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>),
   file:write_file("tmp/testblk.txt", io_lib:format("~p.~n", [Block])),
   ?assertMatch({true, {_, _}}, block:verify(SignedBlock)),
-  lager:info("FSK B ~p", [proplists:get_keys(maps:get(txs, Block))]),
   _=maps:get(OurChain+2, block:outward_mk(maps:get(outbound, Block), SignedBlock)),
   #{bals:=NewBals}=Block,
   FinalBals=#{
@@ -950,7 +949,6 @@ mkblock_test() ->
                                   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>),
   file:write_file("tmp/testblk.txt", io_lib:format("~p.~n", [Block])),
   ?assertMatch({true, {_, _}}, block:verify(SignedBlock)),
-  lager:info("FSK B ~p", [proplists:get_keys(maps:get(txs, Block))]),
   _=maps:get(OurChain+2, block:outward_mk(maps:get(outbound, Block), SignedBlock)),
   #{bals:=NewBals}=Block,
   ?assertMatch(#{<<160, 0, 0, 0, 0, 0, 0, 1>>:=#{
