@@ -5,24 +5,24 @@
 -define (D(Type, Val, TL, LL), self() ! {d, Depth, Type, Val, TL, LL}).
 
 format(Type, TL, LL, Bin) when Type==arr orelse Type==map ->
-  <<Tag:TL,Len:LL>>=Bin,
-  TagFormat="0b~"++integer_to_list(TL)++".2.0B",
-  LenFormat="0b~"++integer_to_list(LL)++".2.0B",
+  <<_Tag:TL,Len:LL>>=Bin,
+%  TagFormat="0b~"++integer_to_list(TL)++".2.0B",
+%  LenFormat="0b~"++integer_to_list(LL)++".2.0B",
   #{type=>Type,
-    btag=>iolist_to_binary(io_lib:format(TagFormat,[Tag])),
-    blen=>iolist_to_binary(io_lib:format(LenFormat,[Len])),
+%    btag=>iolist_to_binary(io_lib:format(TagFormat,[Tag])),
+%    blen=>iolist_to_binary(io_lib:format(LenFormat,[Len])),
     len=>Len
    };
 %  io_lib:format(" ~s size ~b "++TagFormat++" "++LenFormat,
 %                [ Type, Len, Tag, Len]);
 
 format(str=Type, TL, LL, Bin) ->
-  <<Tag:TL,Len:LL,Str/binary>>=Bin,
-  TagFormat="0b~"++integer_to_list(TL)++".2.0B",
-  LenFormat="0b~"++integer_to_list(LL)++".2.0B",
+  <<_Tag:TL,Len:LL,Str/binary>>=Bin,
+%  TagFormat="0b~"++integer_to_list(TL)++".2.0B",
+%  LenFormat="0b~"++integer_to_list(LL)++".2.0B",
   #{type=>Type,
-    btag=>iolist_to_binary(io_lib:format(TagFormat,[Tag])),
-    blen=>iolist_to_binary(io_lib:format(LenFormat,[Len])),
+%    btag=>iolist_to_binary(io_lib:format(TagFormat,[Tag])),
+%    blen=>iolist_to_binary(io_lib:format(LenFormat,[Len])),
     len=>Len,
     str=>Str
    };
@@ -30,12 +30,12 @@ format(str=Type, TL, LL, Bin) ->
   %              [ Type, Tag, Len, Str]);
 
 format(bin=Type, TL, LL, Bin) ->
-  <<Tag:TL,Len:LL,Str/binary>>=Bin,
-  TagFormat="0b~"++integer_to_list(TL)++".2.0B",
-  LenFormat="0b~"++integer_to_list(LL)++".2.0B",
+  <<_Tag:TL,Len:LL,Str/binary>>=Bin,
+%  TagFormat="0b~"++integer_to_list(TL)++".2.0B",
+%  LenFormat="0b~"++integer_to_list(LL)++".2.0B",
   #{type=>Type,
-    btag=>iolist_to_binary(io_lib:format(TagFormat,[Tag])),
-    blen=>iolist_to_binary(io_lib:format(LenFormat,[Len])),
+%    btag=>iolist_to_binary(io_lib:format(TagFormat,[Tag])),
+%    blen=>iolist_to_binary(io_lib:format(LenFormat,[Len])),
     len=>Len,
     str=>hex:encode(Str)
    };
@@ -44,9 +44,9 @@ format(bin=Type, TL, LL, Bin) ->
 
 format(uint=Type, 8, 0, Bin) ->
   S=bit_size(Bin)-8,
-  <<Tag:8/integer,Val:S/big>>=Bin,
+  <<_Tag:8/integer,Val:S/big>>=Bin,
   #{type=>Type,
-    btag=>iolist_to_binary(io_lib:format("0b~8.2.0B",[Tag])),
+%    btag=>iolist_to_binary(io_lib:format("0b~8.2.0B",[Tag])),
     len=>size(Bin)-1,
     int=>Val
    };
@@ -54,9 +54,9 @@ format(uint=Type, 8, 0, Bin) ->
 
 format(uint=Type, 1, 0, Bin) ->
   S=bit_size(Bin)-1,
-  <<Tag:1/integer,Val:S/big>>=Bin,
+  <<_Tag:1/integer,Val:S/big>>=Bin,
   #{type=>Type,
-    btag=>iolist_to_binary(io_lib:format("0b~1.2.0B",[Tag])),
+%    btag=>iolist_to_binary(io_lib:format("0b~1.2.0B",[Tag])),
     len=>1,
     int=>Val
    };
@@ -112,7 +112,7 @@ path2str(Path) ->
                  end, Path))).
   %iolist_to_binary(io_lib:format("~p",[Path])).
 
-dump() ->
+dump(DescrFun) ->
   #{r:=Res}=lists:foldl(
     fun(#{depth:=D,type:=T}=E0,#{r:=Res,path:=Path}=_Acc) ->
         {RPx,_}=try lists:split(D,Path)
@@ -149,18 +149,53 @@ dump() ->
            end,
         NewPath=RP++[T],
 %        io:format("T ~7s Depth ~p 1 x ~b ~p ~n",[T,D,length(RPx),NewPath]),
-        E=E0#{p=>path2str(RP)},
-        #{
-                   r=>Res++[E],
-                   path=>NewPath
-                  }
+        Descr=DescrFun(E0,RP),
+        E=case Descr of false -> 
+                          E0#{path=>path2str(RP)};
+                        _ -> 
+                          E0#{path=>path2str(RP),descr=>Descr}
+          end,
+        #{ r=>Res++[E], path=>NewPath }
     end, #{d=>0,r=>[],path=>[]}, recv()),
   Res.
 
 
 show(Tx) ->
-  {_Res,<<>>}=unpack_stream(Tx,0),
-  dump().
+  {Res,<<>>}=unpack_stream(Tx,0),
+  io:format("~p~n",[Res]),
+  case Res of 
+    #{<<"k">>:=_} ->
+      dump(fun(#{type:=T},[{mapv,<<"e">>}]) ->
+               if T==map -> "ok";
+                  true -> {error,"must be map"}
+               end;
+              (#{type:=T},[{mapv,<<"k">>}]) ->
+               if T==uint -> "ok";
+                  true -> {error,"must be uint"}
+               end;
+               (#{type:=T},[{mapv,<<"t">>}]) ->
+               if T==uint -> "ok";
+                  true -> {error,"must be uint"}
+               end;
+              (#{type:=T},[{mapv,<<"s">>}]) ->
+               if T==uint -> "ok";
+                  true -> {error,"must be uint"}
+               end;
+              (#{type:=T},[{mapv,<<"to">>}]) ->
+               if T==bin -> "ok";
+                  true -> {error,"must be bin"}
+               end;
+              (#{type:=T},[{mapv,<<"from">>}]) ->
+               if T==bin -> "ok";
+                  true -> {error,"must be bin"}
+               end;
+              (E0,Path)->
+               io:format("~p: ~p~n",[Path,E0]),
+               false 
+           end);
+    _ ->
+      dump(fun(_,_)->false end)
+  end.
 
 %% ATOMS
 unpack_stream(<<16#C0, Rest/binary>>, Depth) ->
