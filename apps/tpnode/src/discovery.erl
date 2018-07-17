@@ -225,7 +225,7 @@ handle_info(cleanup, #{cleantimer:=CT} = State) ->
         check_expire_interval:=CheckExpireInterval} = State,
     {noreply, State#{
         cleantimer => erlang:send_after(CheckExpireInterval * 1000, self(), cleanup),
-        remote_services => filter_expired(RemoteDict, get_unixtime())
+        remote_services => filter_expired(RemoteDict, os:system_time(seconds))
     }};
 
 handle_info(make_announce, #{announcetimer:=Timer} = State) ->
@@ -289,11 +289,6 @@ set_config(Key, Value, State) ->
     }.
 
 % --------------------------------------------------------
-get_unixtime() ->
-    {Mega, Sec, _Micro} = os:timestamp(),
-    (Mega * 1000000 + Sec).
-
-% --------------------------------------------------------
 announce_one_service(Name, Address, Hostname, Ttl, Scopes) ->
     try
         TranslatedAddress0 = translate_address(Address),
@@ -312,7 +307,7 @@ announce_one_service(Name, Address, Hostname, Ttl, Scopes) ->
             name => Name,
             address => TranslatedAddress,
 %%            valid_until => ValidUntil,
-            created => get_unixtime(),
+            created => os:system_time(seconds),
             ttl => Ttl,
             nodeid => nodekey:node_id(),
             scopes => Scopes,
@@ -381,7 +376,7 @@ make_announce(#{names:=Names} = _Dict, State) ->
     lager:debug("Announcing our local services"),
     Ttl = max(get_config(intrachain_ttl, 120, State), 30),
     Hostname = application:get_env(tpnode, hostname, unknown),
-%%    ValidUntil = get_unixtime() + get_config(intrachain_ttl, 120, State),
+%%    ValidUntil = os:system_time(seconds) + get_config(intrachain_ttl, 120, State),
     Addresses = get_config(addresses, get_default_addresses(), State),
     AllScopesCfg = get_config(scope, ?DEFAULT_SCOPE_CONFIG, State),
 
@@ -437,7 +432,7 @@ register_service(Name0, Pid, #{names:=NameDict, pids:=PidDict} = _Dict, Options)
     Record0 = #{
         pid => Pid,
         monitor => nopid,
-        updated => get_unixtime(),
+        updated => os:system_time(seconds),
         options => Options
     },
 
@@ -685,13 +680,17 @@ validate_announce(
           State) ->
     MaxTtl = max(get_config(xchain_ttl, 1800, State), 30),
     TtlToCheck = min(Ttl, MaxTtl),
-    Now = get_unixtime(),
+    Now = os:system_time(seconds),
     MaxExpireTime = Now + TtlToCheck,
     ValidUntil = Created + TtlToCheck,
     if
         ValidUntil > MaxExpireTime ->
             throw("too big ttl");
         ValidUntil < Now ->
+            lager:debug(
+                "got expired announce. now: ~p, valid until: ~p, ttl: ~p, announce: ~p",
+                [ Now, ValidUntil, TtlToCheck, _Announce ]
+            ),
             throw("announce expired");
         true ->
             ok
@@ -815,7 +814,7 @@ relay_announce(_PrevAnnounce, NewAnnounce, _AnnounceBin, _XChainThrottle) ->
 
 
 xchain_relay_announce(SentXchain, Throttle, #{chain:=Chain}=Announce, AnnounceBin) ->
-    Now = get_unixtime(),
+    Now = os:system_time(seconds),
     MyChain = blockchain:chain(),
     if
         % relay own chain announces which isn't throttled
@@ -971,7 +970,7 @@ test1() ->
     Announce = #{
         name => <<"looking_glass">>,
         address => #{address => <<"127.0.0.1">>, port => 1234, proto => tpic},
-        created => get_unixtime()
+        created => os:system_time(seconds)
     },
 %%  gen_server:cast(discovery, {got_announce, Announce}),
     MaxTtl = 120,
@@ -989,7 +988,7 @@ test2() ->
     Announce = #{
         name => <<"looking_glass">>,
         address => #{address => <<"127.0.0.1">>, port => 1234, proto => tpic},
-        created => get_unixtime(),
+        created => os:system_time(seconds),
         ttl => 100500
 
     },
@@ -1000,7 +999,7 @@ test3() ->
     Announce = #{
         name => <<"looking_glass">>,
         address => #{address => <<"127.0.0.1">>, port => 1234, proto => tpic},
-        created => get_unixtime(),
+        created => os:system_time(seconds),
         ttl => 2
     },
     gen_server:cast(discovery, {got_announce, Announce}),
@@ -1011,7 +1010,7 @@ test4() ->
     Announce = #{
         name => <<"looking_glass">>,
         address => #{address => <<"127.0.0.1">>, port => 1234, proto => tpic},
-        created => get_unixtime(),
+        created => os:system_time(seconds),
         ttl => 100
     },
     Packed = pack(Announce),
