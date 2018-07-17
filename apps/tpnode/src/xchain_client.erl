@@ -82,7 +82,7 @@ handle_cast(settings, State) ->
     {noreply, change_settings_handler(State)};
 
 handle_cast({discovery, Announce, AnnounceBin}, #{subs:=Subs} = State) ->
-    lager:notice("xchain client got announce from discovery. Relay it to all connected chains"),
+    lager:notice("xchain client got announce from discovery. Relay it to all connected chains in case xchain connections are exists"),
     try
         relay_discovery(Announce, AnnounceBin, Subs)
     catch
@@ -401,14 +401,16 @@ get_peers(Subs) ->
 
 relay_discovery(_Announce, AnnounceBin, Subs) ->
     Sender =
-        fun(_Key, #{connection:=Conn, ws_mode:=true}=Sub) ->
+        fun(_Key, #{connection:=Conn, ws_mode:=true}, Cnt) ->
             Cmd = pack({xdiscovery, AnnounceBin}),
             gun:ws_send(Conn, {binary, Cmd}),
-            Sub;
-        (_Key, Sub) ->
-            lager:info("Skip relaying to unfinished connection: ~p", [Sub])
+            Cnt+1;
+        (_Key, Sub, Cnt) ->
+            lager:debug("Skip relaying to unfinished connection: ~p", [Sub]),
+            Cnt
         end,
-    maps:map(Sender, Subs),
+    Sent = maps:fold(Sender, 0, Subs),
+    lager:debug("~p xchain discovery announces were sent", [Sent]),
     ok.
 
 %% --------------------------------------------------------------------

@@ -361,7 +361,7 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
                 {ok, VN, VD} = CV,
                 maps:put(contract, [VN,VD], Info2)
               catch _:_ ->
-                      lager:error("NC"),
+%%                      lager:error("NC"),
                       Info2
               end,
 

@@ -396,6 +396,7 @@ make_transaction(Node, From, To, Currency, Amount, Message) ->
         seq=> Seq + 1,
         timestamp => os:system_time(millisecond)
     },
+    io:format("transaction body ~p ~n", [Tx]),
     SignedTx = tx:sign(Tx, get_wallet_priv_key()),
     Res4 = api_post_transaction(SignedTx),
     maps:get(<<"txid">>, Res4, unknown).
@@ -486,7 +487,7 @@ transaction_test(_Config) ->
     NewAmount6 = Amount - 1,
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount6}}}, Wallet2Data6),
 
-    % second transaction from Wallet2 should be failed, because Wallet2 we spent all SK for today
+    % second transaction from Wallet2 should be failed, because Wallet2 spent all SK for today
     Message7 = <<"sk test">>,
     TxId7 = make_transaction(Wallet2, Wallet, Cur, 1, Message7),
     io:format("TxId7: ~p", [TxId7]),
