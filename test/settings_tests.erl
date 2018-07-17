@@ -1,8 +1,6 @@
 -module(settings_tests).
 
--ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--endif.
 
 exists_test() ->
     TestPatch=settings:dmp(
