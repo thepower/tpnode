@@ -1,6 +1,9 @@
 -module(tpnode_httpapi).
 
--export([h/3, after_filter/1, prettify_block/2, prettify_block/1]).
+-export([h/3, after_filter/1, 
+         prettify_block/2, 
+         prettify_block/1,
+         prettify_tx/2]).
 
 -export([answer/0, answer/1, err/1, err/2, err/3, err/4]).
 
@@ -91,8 +94,10 @@ after_filter(Req) ->
   cowboy_req:set_resp_header(<<"access-control-allow-headers">>,
                              <<"content-type">>, Req6).
 
+h(Method, [<<"playground">>|Path], Req) ->
+  httpapi_playground:h(Method, Path, Req);
+
 h(Method, [<<"api">>|Path], Req) ->
-  lager:info("Path ~p", [Path]),
   h(Method, Path, Req);
 
 h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
@@ -143,14 +148,6 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
         ver=>list_to_binary(Ver)
        }
     });
-
-h(<<"GET">>, [<<"miner">>, TAddr], _Req) ->
-    answer(
-        #{
-            result => <<"ok">>,
-            mined => naddress:mine(binary_to_integer(TAddr))
-        }
-    );
 
 h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
   try
