@@ -27,11 +27,14 @@ h(<<"GET">>, [<<"tx">>,<<"construct">>], _Req) ->
 
 h(<<"POST">>, [<<"tx">>,<<"validate">>], Req) ->
   #{<<"tx">>:=B64Tx}=apixiom:bodyjs(Req),
-  Bin=base64:decode(B64Tx),
+  Bin=case B64Tx of
+        <<"0x",Hex/binary>> -> hex:decode(Hex);
+        _ -> base64:decode(B64Tx)
+      end,
   Res0=#{
     dcontainer => tx_visualizer:show(Bin)
    },
-  
+
   Res1=try
          {ok,#{"body":=Body}}=msgpack:unpack(Bin),
          Res0#{
@@ -89,7 +92,7 @@ h(<<"POST">>, [<<"tx">>,<<"construct">>], Req) ->
                                      maps:put(purpose,b2a(V,
                                                           [
                                                            <<"srcfee">>,
-                                                           <<"transfer">> 
+                                                           <<"transfer">>
                                                           ]
                                                          ),A);
                                     (K,V,A) ->
