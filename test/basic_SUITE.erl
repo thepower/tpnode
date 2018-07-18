@@ -403,8 +403,18 @@ make_transaction(Node, From, To, Currency, Amount, Message) ->
 
 new_wallet() ->
     PubKey = tpecdsa:calc_pub(get_wallet_priv_key(), true),
-    {ok, Wallet, _TxId} = tpapi:register_wallet(PubKey, get_base_url()),
-    Wallet.
+    case tpapi:register_wallet(PubKey, get_base_url()) of
+        {ok, Wallet, _TxId} ->
+            Wallet;
+        timeout ->
+            io:format("wallet registration timeout~n"),
+            dump_testnet_state(),
+            throw(wallet_registration_timeout);
+        Other ->
+            io:format("wallet registration error: ~p ~n", [Other]),
+            dump_testnet_state(),
+            throw(wallet_registration_error)
+    end.
 
 
 dump_testnet_state() ->
@@ -418,7 +428,6 @@ dump_testnet_state() ->
     lists:foreach(StateDumper, ?TESTNET_NODES),
     ok.
     
-
 
 transaction_test(_Config) ->
     % регистрируем кошелек
