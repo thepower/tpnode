@@ -52,6 +52,13 @@ format(uint=Type, 8, 0, Bin) ->
    };
 %  io_lib:format("~s 0b~8.2.0B = ~B",[ Type, Tag, Val]);
 
+format(int5=Type, 3, 0, Bin) ->
+  <<_Tag:3/integer,Val:5/big>>=Bin,
+  #{type=>Type,
+    len=>1,
+    int=>Val
+   };
+%
 format(uint=Type, 1, 0, Bin) ->
   S=bit_size(Bin)-1,
   <<_Tag:1/integer,Val:S/big>>=Bin,
@@ -62,14 +69,15 @@ format(uint=Type, 1, 0, Bin) ->
    };
 %  io_lib:format("~s 0b~1.2.0B = ~B",[ Type, Tag, Val]);
 
-format(Type, TL, 0, Bin) ->
+format(Type, TL, 0, Bin) when TL==8 orelse TL==16 orelse TL==32 orelse TL==64 ->
+  %io:format("T ~p tl ~p~n",[Type,TL]),
   <<Tag:TL,_/binary>>=Bin,
   TagFormat="0b~"++integer_to_list(TL)++".2.0B",
   #{type=>Type,
     btag=>iolist_to_binary(io_lib:format(TagFormat,[Tag]))
    };
  
-format(Type, TL, LL, Bin) ->
+format(Type, TL, LL, Bin) when TL==8 orelse TL==16 orelse TL==32 orelse TL==64 ->
   <<Tag:TL,Len:LL,Str/binary>>=Bin,
   TagFormat="0b~"++integer_to_list(TL)++".2.0B",
   LenFormat="0b~"++integer_to_list(LL)++".2.0B",
@@ -150,10 +158,18 @@ dump(DescrFun) ->
         NewPath=RP++[T],
 %        io:format("T ~7s Depth ~p 1 x ~b ~p ~n",[T,D,length(RPx),NewPath]),
         Descr=DescrFun(E0,RP),
-        E=case Descr of false -> 
-                          E0#{path=>path2str(RP)};
-                        _ -> 
-                          E0#{path=>path2str(RP),descr=>Descr}
+        E=case Descr of 
+            false -> 
+              E0#{path=>path2str(RP)};
+            {error,Txt} when is_list(Txt) -> 
+              E0#{path=>path2str(RP),descr=>list_to_binary(Txt),res=>error};
+            {warning,Txt} when is_list(Txt) -> 
+              E0#{path=>path2str(RP),descr=>list_to_binary(Txt),res=>warning};
+            _ when is_list(Descr) -> 
+              E0#{path=>path2str(RP),descr=>list_to_binary(Descr),res=>ok};
+            _ ->
+              E0#{path=>path2str(RP),
+                  descr=>iolist_to_binary(io_lib:format("~p",[Descr])),res=>error}
           end,
         #{ r=>Res++[E], path=>NewPath }
     end, #{d=>0,r=>[],path=>[]}, recv()),
@@ -162,7 +178,7 @@ dump(DescrFun) ->
 
 show(Tx) ->
   {Res,<<>>}=unpack_stream(Tx,0),
-  io:format("~p~n",[Res]),
+  %io:format("-------------~n~p~n",[Res]),
   case Res of 
     #{<<"k">>:=_} ->
       dump(fun(#{type:=T},[{mapv,<<"e">>}]) ->
@@ -185,13 +201,68 @@ show(Tx) ->
                if T==bin -> "ok";
                   true -> {error,"must be bin"}
                end;
-              (#{type:=T},[{mapv,<<"from">>}]) ->
+               (#{type:=T},[{mapv,<<"p">>}])->
+               if T==arr -> "ok";
+                  true -> {error, "payload must be array"}
+               end;
+              (#{type:=T},[{mapv,<<"p">>},{arr,_},{arr,0}]) ->
+               if T==uint -> "ok";
+                  true -> {error, "1st element of payload item (purpose) must be uint"}
+               end;
+               (#{type:=T},[{mapv,<<"p">>},{arr,_},{arr,1}]) ->
+               if T==str -> "ok";
+                  true -> {error, "2nd element of payload item (currency) must be string"}
+               end;
+              (#{type:=T},[{mapv,<<"p">>},{arr,_},{arr,2}]) ->
+               if T==uint -> "ok";
+                  true -> {error, "3rd element of payload item (amount) must be uint"}
+               end;
+              (#{type:=T},[{mapv,<<"p">>},{arr,_}])->
+               if T==arr -> "ok";
+                  true -> {error, "payload items must be array"}
+               end;
+               (#{type:=T},[{mapv,<<"f">>}]) ->
                if T==bin -> "ok";
                   true -> {error,"must be bin"}
                end;
+              (#{type:=T},[{mapk,_}])->
+               if T==str -> "ok";
+                  true -> {error, "keys of this map must be strings"}
+               end;
+               (#{type:=T},[])->
+               if T==map -> "ok";
+                  true -> {error, "top level element must be map"}
+               end;
               (E0,Path)->
-               io:format("~p: ~p~n",[Path,E0]),
-               false 
+               lager:notice("Body unknown element ~p: ~p~n",[Path,E0]),
+               {warning, "unknown element"}
+           end);
+    #{<<"ver">>:=_,<<"body">>:=_} ->
+      dump(fun
+             (#{type:=T},[{mapv,<<"body">>}])->
+               if T==bin -> "ok";
+                  T==str -> {warning, "body must be binary"};
+                  true -> {error, "body must be binary"}
+               end;
+             (#{type:=T},[{mapv,<<"sig">>}])->
+               if T==map -> "ok";
+                  true -> {error, "sig must be map"}
+               end;
+             (#{type:=T},[{mapv,<<"ver">>}])->
+               if T==uint -> "ok";
+                  true -> {error, "ver must be uint"}
+               end;
+             (#{type:=T},[{mapk,_}])->
+               if T==str -> "ok";
+                  true -> {error, "keys of this map must be strings"}
+               end;
+             (#{type:=T},[])->
+               if T==map -> "ok";
+                  true -> {error, "top level element must be map"}
+               end;
+              (E0,Path)->
+               lager:notice("Container unknown element ~p: ~p",[Path,E0]),
+               {warning, "unknown element"}
            end);
     _ ->
       dump(fun(_,_)->false end)
