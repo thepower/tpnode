@@ -396,14 +396,25 @@ make_transaction(Node, From, To, Currency, Amount, Message) ->
         seq=> Seq + 1,
         timestamp => os:system_time(millisecond)
     },
+    io:format("transaction body ~p ~n", [Tx]),
     SignedTx = tx:sign(Tx, get_wallet_priv_key()),
     Res4 = api_post_transaction(SignedTx),
     maps:get(<<"txid">>, Res4, unknown).
 
 new_wallet() ->
     PubKey = tpecdsa:calc_pub(get_wallet_priv_key(), true),
-    {ok, Wallet, _TxId} = tpapi:register_wallet(PubKey, get_base_url()),
-    Wallet.
+    case tpapi:register_wallet(PubKey, get_base_url()) of
+        {ok, Wallet, _TxId} ->
+            Wallet;
+        timeout ->
+            io:format("wallet registration timeout~n"),
+            dump_testnet_state(),
+            throw(wallet_registration_timeout);
+        Other ->
+            io:format("wallet registration error: ~p ~n", [Other]),
+            dump_testnet_state(),
+            throw(wallet_registration_error)
+    end.
 
 
 dump_testnet_state() ->
@@ -417,7 +428,6 @@ dump_testnet_state() ->
     lists:foreach(StateDumper, ?TESTNET_NODES),
     ok.
     
-
 
 transaction_test(_Config) ->
     % регистрируем кошелек
@@ -486,7 +496,7 @@ transaction_test(_Config) ->
     NewAmount6 = Amount - 1,
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount6}}}, Wallet2Data6),
 
-    % second transaction from Wallet2 should be failed, because Wallet2 we spent all SK for today
+    % second transaction from Wallet2 should be failed, because Wallet2 spent all SK for today
     Message7 = <<"sk test">>,
     TxId7 = make_transaction(Wallet2, Wallet, Cur, 1, Message7),
     io:format("TxId7: ~p", [TxId7]),
