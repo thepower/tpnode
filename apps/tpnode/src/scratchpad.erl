@@ -736,3 +736,11 @@ test_tx2b() ->
   }.
 
 
+-include_lib("public_key/include/OTP-PUB-KEY.hrl").
+
+test_parse_cert() ->
+  {ok,PEM}=file:read_file("/tmp/knuth.cer"),
+  [{'Certificate',Der,not_encrypted}|_]=public_key:pem_decode(PEM),
+  OTPCert = public_key:pkix_decode_cert(Der, otp),
+  OTPCert#'OTPCertificate'.tbsCertificate#'OTPTBSCertificate'.validity.
+
