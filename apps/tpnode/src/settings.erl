@@ -199,6 +199,11 @@ patch1([#{<<"t">>:=Action, <<"p">>:=K, <<"v">>:=V}|Settings], M) ->
 %    patch(#{patch=>Patch,
 %            sig=>Sigs}, M);
 
+patch({_TxID, #{patches:=Patch,
+               sig:=Sigs}}, M) ->
+    patch(#{patch=>Patch,
+            sig=>Sigs}, M);
+
 patch({_TxID, #{patch:=Patch,
                sig:=Sigs}}, M) ->
     patch(#{patch=>Patch,

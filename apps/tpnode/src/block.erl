@@ -300,6 +300,8 @@ verify(#{ header:=#{parent:=Parent,
 
 
 binarize_settings([]) -> [];
+binarize_settings([{TxID, #{ kind:=patch, ver:=2, patches:=_ }=Patch}|Rest]) ->
+    [{TxID, tx:pack(Patch)}|binarize_settings(Rest)];
 binarize_settings([{TxID, #{ patch:=_LPatch }=Patch}|Rest]) ->
     [{TxID, tx:pack(Patch)}|binarize_settings(Rest)].
 

@@ -469,6 +469,50 @@ try_process([{TxID,
                        })
   end;
 
+try_process([{TxID, #{ver:=2,
+                      kind:=patch,
+                      patches:=[_|_]=_LPatch,
+                      sigverify:=#{
+                        pubkeys:=[_|_]=PubKeys
+                       }
+                     }=Tx} |Rest],
+            SetState, Addresses, GetFun,
+            #{failed:=Failed,
+              settings:=Settings}=Acc) ->
+  try
+    NeedSig=chainsettings:get(patchsig,SetState),
+    if(length(PubKeys)<NeedSig) ->
+        throw({patchsig, NeedSig});
+      true ->
+        ok
+    end,
+    SS1=settings:patch({TxID, Tx}, SetState),
+    lager:info("Success Patch ~p against settings ~p", [_LPatch, SetState]),
+    try_process(Rest, SS1, Addresses, GetFun,
+                Acc#{
+                  settings=>[{TxID, Tx}|Settings]
+                 }
+               )
+  catch throw:Ee ->
+          lager:info("Fail to Patch ~p ~p",
+                     [_LPatch, Ee]),
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{
+                        failed=>[{TxID, Ee}|Failed]
+                       });
+        Ec:Ee ->
+          S=erlang:get_stacktrace(),
+          lager:info("Fail to Patch ~p ~p:~p against settings ~p",
+                     [_LPatch, Ec, Ee, SetState]),
+          lager:info("at ~p", [S]),
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{
+                        failed=>[{TxID, Tx}|Failed]
+                       })
+  end;
+ 
+
+
 try_process([{TxID,
               #{seq:=_Seq, timestamp:=_Timestamp, to:=To, portin:=PortInBlock}=Tx}
              |Rest],

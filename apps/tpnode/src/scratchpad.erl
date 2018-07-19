@@ -764,7 +764,8 @@ patch_v2() ->
   {
    Patch,
    tx:verify(Patch),
-   txpool:new_tx(Patch)
+   tx:unpack(tx:pack(Patch))
+%   txpool:new_tx(Patch)
   }.
 
 -include_lib("public_key/include/OTP-PUB-KEY.hrl").

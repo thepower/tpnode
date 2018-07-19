@@ -2,6 +2,81 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+tx2_patch_test() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 1, 1>>,
+  Pvt2= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 2, 2>>,
+  Pvt3= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 3, 3>>,
+  Pvt4= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 4, 4>>,
+
+  GetSettings=
+  fun(mychain) ->
+      2;
+     (settings) ->
+      #{
+        chains => [2],
+        globals => #{<<"patchsigs">> => 2},
+        keys =>
+        #{ <<"node1">> => tpecdsa:calc_pub(Pvt1,true),
+           <<"node2">> => tpecdsa:calc_pub(Pvt2,true),
+           <<"node3">> => tpecdsa:calc_pub(Pvt3,true),
+           <<"node4">> => tpecdsa:calc_pub(Pvt4,true)
+         },
+        nodechain => #{<<"node1">> => 0,
+                       <<"node2">> => 0,
+                       <<"node3">> => 0},
+        <<"current">> => #{
+            <<"allocblock">> =>
+            #{<<"block">> => 2, <<"group">> => 10, <<"last">> => 0}
+           }
+       };
+     ({valid_timestamp, TS}) ->
+      abs(os:system_time(millisecond)-TS)<3600000
+      orelse
+      abs(os:system_time(millisecond)-(TS-86400000))<3600000;
+     ({endless, _Address, _Cur}) ->
+      false;
+     (Other) ->
+      error({bad_setting, Other})
+  end,
+  Tx=tx:construct_tx(
+    #{kind=>patch,
+      ver=>2,
+      patches=>
+      [
+       #{t=>set, 
+         p=>[<<"current">>, <<"testbranch">>, <<"test1">>],
+         v=>os:system_time(seconds)
+        }
+      ]
+     }
+   ),
+  SignTx=lists:foldl(
+    fun(Key, Acc) ->
+        tx:sign(Acc, Key)
+    end, Tx, [Pvt1, Pvt2, Pvt3, Pvt4]),
+  {ok,TX0}=tx:verify(SignTx),
+  ParentHash=crypto:hash(sha256, <<"parent">>),
+  GetAddr=fun test_getaddr/1,
+  R1=#{block:=Block,
+    failed:=Failed}=mkblock:generate_block(
+                      [{<<"tx1">>, TX0}],
+                      {1, ParentHash},
+                      GetSettings,
+                      GetAddr,
+                      []),
+  {Failed,Block,maps:keys(R1)}.
+  %[
+  % ?assertEqual([], Failed),
+  % ?assertMatch(#{
+  %    bals:=#{<<128, 1, 64, 0, 2, 0, 0, 1>>:=_}
+  %   }, Block)
+  %].
+
+
 tx2_test() ->
   GetSettings=
   fun(mychain) ->

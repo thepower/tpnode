@@ -79,13 +79,14 @@ construct_tx(#{
   kind:=patch,
   patches:=Patches
  }=Tx0,_Params) ->
-  Tx=maps:with([ver,txext],Tx0),
+  Tx=maps:with([ver,txext,patches],Tx0),
   E0=#{
     "k"=>encode_kind(2,patch),
     "e"=>maps:get(txext, Tx, #{}),
     "p"=>Patches
    },
   Tx#{
+    patches=>settings:dmp(settings:mp(Patches)),
     kind=>patch,
     body=>pack_body(E0),
     sig=>[]
