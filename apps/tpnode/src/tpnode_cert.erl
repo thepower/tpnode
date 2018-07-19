@@ -2,9 +2,9 @@
 
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
-% TODO: change this interval to 3 hours
 
--define(EXPIRE_CHECK_INTERVAL, 10). % expire check interval in seconds
+
+-define(EXPIRE_CHECK_INTERVAL, 3*60*60). % expire check interval in seconds
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -49,6 +49,13 @@ handle_call(_Request, _From, State) ->
   lager:notice("Unknown call ~p", [_Request]),
   {reply, ok, State}.
 
+handle_cast(certreq_done, State) ->
+  lager:debug("enable certificate requests"),
+  self() ! ssl_restart,
+  {noreply, State#{
+    cert_req_active => false
+  }};
+
 handle_cast(_Msg, State) ->
   lager:notice("Unknown cast ~p", [_Msg]),
   {noreply, State}.
@@ -87,27 +94,18 @@ handle_info(certreq, #{cert_req_active := CurrentCertReq} = State) ->
   lager:debug("skiping certreq because of current cert_req state: ~p", [CurrentCertReq]),
   {noreply, State};
 
-handle_info(certreq_done, State) ->
-  lager:debug("enable certificate requests"),
-  self() ! ssl_restart,
-  {noreply, State#{
-    cert_req_active => false
-  }};
-
 
 handle_info(check_cert_expire, #{expiretimer := Timer, cert_req_active := false} = State) ->
   catch erlang:cancel_timer(Timer),
-  NewReqState =
-    case check_cert_expire() of
-      ok ->
-        false;
-      certreq ->
-        lager:notice("request new certificate"),
-        self() ! certreq,
-        certreq
-    end,
+  case check_cert_expire() of
+    ok ->
+      false;
+    certreq ->
+      lager:notice("going to request new certificate"),
+      self() ! certreq,
+      certreq
+  end,
   {noreply, State#{
-    cert_req_active => NewReqState,
     expiretimer => erlang:send_after(?EXPIRE_CHECK_INTERVAL * 1000, self(), check_cert_expire)
   }};
 
@@ -119,7 +117,19 @@ handle_info(check_cert_expire, #{expiretimer := Timer} = State) ->
     expiretimer => erlang:send_after(?EXPIRE_CHECK_INTERVAL * 1000, self(), check_cert_expire)
   }};
 
+handle_info({'DOWN', _Ref, process, _Pid, normal}, State) ->
+  lager:debug("cert request process ~p finished successfuly", [_Pid]),
+  {noreply, State};
 
+handle_info({'DOWN', _Ref, process, _Pid, {{badmatch,{error,eacces}}, _}}, State) ->
+  lager:error("Got eacces error. Couldn't spawn http server on port 80 for letsencrypt verification?"),
+  {noreply, State#{
+    cert_req_active => false
+  }};
+
+handle_info(_Info, State) when is_tuple(_Info)->
+  lager:notice("Unhandled tuple ~b info ~p", [size(_Info), _Info]),
+  {noreply, State};
 
 handle_info(_Info, State) ->
   lager:notice("Unhandled info ~p", [_Info]),
@@ -274,17 +284,47 @@ check_or_request(Hostname) ->
 
 %% -------------------------------------------------------------------------------------
 
-on_complete({State, Data}) ->
-  case State of
-    error ->
-      lager:error("letsencrypt error: ~p", [Data]);
-    _ ->
-      lager:error("letsencrypt certificate issued: ~p (~p)", [State, Data]),
-      lager:debug("letsencrypt certificate issued: ~p (~p)", [State, Data])
+letsencrypt_runner(CertPath, Hostname) ->
+  % TODO: remove staging flag here
+  letsencrypt:start([{mode, standalone}, staging, {cert_path, CertPath}, {port, 80}]),
+%%  letsencrypt:start([{mode,standalone}, {cert_path, CertPath}, {port, 80}]),
+  try
+    case letsencrypt:make_cert(utils:make_binary(Hostname), #{async => false}) of
+      {error, Data} ->
+        lager:error("letsencrypt error: ~p", [Data]);
+      {State, Data} ->
+        lager:error("letsencrypt certificate issued: ~p (~p)", [State, Data]);
+      Error ->
+        lager:error("letsencrypt generic error: ~p", [Error])
+    end
+  catch
+    exit:{{{badmatch,{error,eacces}}, _ }, _} ->
+      lager:error("Cert request error. Can't access port 80!!!");
+    Ee:Ec ->
+      lager:error(
+        "letsencrypt execution error: ~p ~p ~p",
+        [Ee, Ec, erlang:get_stacktrace()]
+      )
   end,
   letsencrypt:stop(),
-  self() ! certreq_done,
+  gen_server:cast(?MODULE, certreq_done),
   ok.
+  
+  
+  
+
+%% -------------------------------------------------------------------------------------
+
+%%on_complete({State, Data}) ->
+%%  case State of
+%%    error ->
+%%      lager:error("letsencrypt error: ~p", [Data]);
+%%    _ ->
+%%      lager:error("letsencrypt certificate issued: ~p (~p)", [State, Data])
+%%  end,
+%%  letsencrypt:stop(),
+%%  gen_server:cast(?MODULE, certreq_done),
+%%  ok.
 
 %% -------------------------------------------------------------------------------------
 
@@ -292,10 +332,16 @@ do_cert_request(Hostname) ->
   lager:debug("request letsencrypt cert for host ~p", [Hostname]),
   CertPath = get_cert_path(),
   filelib:ensure_dir(CertPath ++ "/"),
-  % TODO: remove staging flag here
-  letsencrypt:start([{mode, standalone}, staging, {cert_path, CertPath}, {port, 80}]),
-%%  letsencrypt:start([{mode,standalone}, {cert_path, CertPath}, {port, 80}]),
-  letsencrypt:make_cert(utils:make_binary(Hostname), #{callback => fun on_complete/1}).
+  RunnerFun =
+    fun() ->
+      process_flag(trap_exit, true),
+      letsencrypt_runner(CertPath, Hostname)
+    end,
+    
+  Pid = erlang:spawn(RunnerFun),
+  erlang:monitor(process, Pid),
+  ok.
+
 
 %% -------------------------------------------------------------------------------------
 
