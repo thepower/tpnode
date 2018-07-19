@@ -210,7 +210,7 @@ as well, this fields pack in TLV format.
 Here is predefined fields
 
 | name           | length | tag | type   |
-|----------------+--------+-----+--------|
+|----------------|--------|-----|--------|
 | timestamp      | 8      | 1   | uint64 |
 | pubkey         | vary   | 2   | binary |
 | createduration | 8      | 3   | uint64 |
