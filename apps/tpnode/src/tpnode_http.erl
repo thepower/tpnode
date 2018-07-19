@@ -60,19 +60,19 @@ childspec_ssl(CertFile, KeyFile) ->
   SslOpts = [
     {certfile, utils:make_list(CertFile)},
     {keyfile, utils:make_list(KeyFile)}],
-  HTTPOpts = [ get_http_opts(Port) | SslOpts ],
+  HTTPOpts = get_http_opts(Port) ++ SslOpts,
   HTTPConnType = get_http_conn_type(),
   [
     ranch:child_spec(
       https,
-      ranch_tcp,
+      ranch_ssl,
       HTTPOpts,
       cowboy_clear,
       HTTPConnType
     ),
     ranch:child_spec(
       https6,
-      ranch_tcp,
+      ranch_ssl,
       [inet6, {ipv6_v6only, true} | HTTPOpts],
       cowboy_clear,
       HTTPConnType

@@ -60,7 +60,7 @@ init([]) ->
             { tpnode_announcer, {tpnode_announcer, start_link, [#{}]}, permanent, 5000, worker, []},
             { xchain_client, {xchain_client, start_link, [#{}]}, permanent, 5000, worker, []},
             { xchain_dispatcher, {xchain_dispatcher, start_link, []}, permanent, 5000, worker, []},
-            { tpnode_certreq, {tpnode_certreq, start_link, []}, permanent, 5000, worker, []}
+            { tpnode_cert, {tpnode_cert, start_link, []}, permanent, 5000, worker, []}
            ]
             ++ xchain:childspec()
             ++ tpnode_http:childspec()
