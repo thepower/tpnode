@@ -9,7 +9,7 @@ structure:
 
 {
   "body": BinaryBody,
-  "sign": Map,
+  "sig": Array,
   "ver": 2
 }
 
@@ -45,10 +45,9 @@ of supplied JSON file (priv/tx_const.json in tpnode repo):
 
 ```
 
-Field "sign" contains msgpack's map (types 0x80-0x8f or 0xde-0xdf). 
-Each key/value pair contains signature for one key.
-Key is a signer's public key, value is a signature.
-Both keys and values are binaries (0xc4 type). 
+Field "sig" contains msgpack's list (types 0x90-0x9f or 0xdc-0xdc). 
+Each array item contains signature for one key. Signature format
+described below.
 Transaction might have multiple signatures.
 
 Field "ver" must me an integer, which indicates version of transaction to
@@ -103,7 +102,7 @@ unpacking of this tx will give (all binaried encoded in base64)
 ```
 {
   "body" => h6FlgKFmxAiAACAAAgAAA6FrEKFwkpMAo1hYWAqTAaNGRUUUoXMFoXTPAAABZEFwVxeidG/ECIAAIAACAAAF
-    "sign" => {
+    "sig" => {
       A+gojhtyygRzi5O7JypL+KlAdoeMTHdJlOn+GoghUsT0vz =>
         MEUCIQD4jWcnksiFrUIZvCv4sjD9ustDe62c5PpQwuNA71Ys7QIgKhKkBd2LPsn6ryJs+FA+ZSOebqaXlokbJGofDVSPYQQ=
     },
@@ -201,4 +200,60 @@ Should be concatenated: `0x02266C9DAA52F9BB5AD73B77A703437E27A3344F36F1D4FF0C026
 ## Block passing transactions
 
 
+
+## Signature format
+
+Each signature may contain additional data, which is signed with main payload
+(body). Additional data may contain few predefined fields and arbitrary fields
+as well, this fields pack in TLV format.
+
+Here is predefined fields
+
+| name           | length | tag | type   |
+|----------------+--------+-----+--------|
+| timestamp      | 8      | 1   | uint64 |
+| pubkey         | vary   | 2   | binary |
+| createduration | 8      | 3   | uint64 |
+| OTHER          | vary   | 240 | binary |
+| purpose        | vary   | 254 | string |
+| signature      | vary   | 255 | binary |
+
+To sign some payload you should pack additional data (at least pubkey).
+Let's imagine we have private key 
+`0x0102030405060708090001020304050607080900010203040506070809000102`
+and we need sign string "Hello, world!". 
+
+First of all we need to calculate public key, for this private key it will be
+`0x02B1912FABA80FCECD2A64C574FEFE422C61106001EC588AF1BD9D7548B81064CB`
+Let's additionaly put timestamp 1532000000000 into signature.
+
+Our whole binary will be such:
+
+```
+02 21 02B1912FABA80FCECD2A64C574FEFE422C61106001EC588AF1BD9D7548B81064CB 
+01 08 00000164B250D800
+```
+
+Now we have to append payload for calculating signature
+
+```
+02 21 02B1912FABA80FCECD2A64C574FEFE422C61106001EC588AF1BD9D7548B81064CB 
+01 08 00000164B250D800 48656C6C6F2C20776F726C6421
+```
+
+sha256 of this whole binary will be 
+`60C3B88A5F32816F574C8FABFB45A35338A20D7C1678F20DABDBBD7F94568F15` 
+and signature will be
+
+```
+304402205250D827749F285CE174137EC88B394092E43B9E6C6774045EE5E6ED5023225202204D1628F019E57BF19C1A0FE37193355A059F22CF8203D85E112FF3B4873D46FE
+```
+
+Now packed extradata should be prepended by signature with tag 255 and correct length
+
+```
+FF 46 304402205250D827749F285CE174137EC88B394092E43B9E6C6774045EE5E6ED5023225202204D1628F019E57BF19C1A0FE37193355A059F22CF8203D85E112FF3B4873D46FE
+02 21 02B1912FABA80FCECD2A64C574FEFE422C61106001EC588AF1BD9D7548B81064CB 
+01 08 00000164B250D800
+```
 

@@ -8,7 +8,13 @@
 
 -include("apps/tpnode/include/tx_const.hrl").
 
-mergesig(#{sig:=S1}=Tx1, #{sig:=S2}) ->
+mergesig(#{sig:=S1}=Tx1, #{sig:=S2}) when is_map(S1), is_map(S2)->
+  Tx1#{sig=>
+       maps:merge(S1, S2)
+      };
+
+mergesig(#{sig:=S1}=Tx1, #{sig:=S2}) when is_list(S1), is_list(S2)->
+  throw('fixme'),
   Tx1#{sig=>
        maps:merge(S1, S2)
       }.
@@ -104,7 +110,7 @@ construct_tx(#{
                     kind=>register,
                     body=>pack_body(PowBody),
                     keysh=>KeysH,
-                    sig=>#{}
+                    sig=>[]
                    });
     _ ->
       maps:remove(keys,
@@ -112,7 +118,7 @@ construct_tx(#{
                     kind=>register,
                     body=>pack_body(PowBody),
                     keysh=>KeysH,
-                    sig=>#{}
+                    sig=>[]
                    })
   end;
 
@@ -151,7 +157,7 @@ construct_tx(#{
   Tx1#{
     kind=>generic,
     body=>msgpack:pack(E1,[{spec,new},{pack_str, from_list}]),
-    sig=>#{}
+    sig=>[]
    }.
 
 unpack_body(#{body:=Body}=Tx) ->
@@ -212,11 +218,10 @@ unpack_body(#{ver:=Ver, kind:=Kind},_Unpacked) ->
   throw({unknown_ver_or_kind,{Ver,Kind},_Unpacked}).
 
 sign(#{kind:=_Kind,
-       body:=Bin,
+       body:=Body,
        sig:=PS}=Tx, PrivKey) ->
-  Pub=tpecdsa:calc_pub(PrivKey, true),
-  Sig = tpecdsa:sign(Bin, PrivKey),
-  Tx#{sig=>maps:put(Pub,Sig,PS)};
+  Sig=bsig:signhash(Body,[],PrivKey),
+  Tx#{sig=>[Sig|PS]};
 
 sign(Any, PrivKey) ->
   tx1:sign(Any, PrivKey).
@@ -227,7 +232,7 @@ sign(Any, PrivKey) ->
         ver:=non_neg_integer(),
         kind:=atom(),
         body:=binary(),
-        sig:=map(),
+        sig:=list(),
         sigverify=>#{valid:=integer(),
                      invalid:=integer()
                     }
@@ -250,7 +255,7 @@ verify(#{
   kind:=generic,
   from:=From,
   body:=Body,
-  sig:=HSigs,
+  sig:=LSigs,
   ver:=2
  }=Tx, Opts) ->
   CI=get_ext(<<"contract_issued">>, Tx),
@@ -258,21 +263,10 @@ verify(#{
         {true, _IAddr} when CI=={ok, From} ->
           %contract issued. Check nodes key.
           try
-            maps:fold(
-              fun(Pub, Sig, {AValid, AInvalid}) ->
-                  case tpecdsa:verify(Body, Pub, Sig) of
-                    correct ->
-                      V=chainsettings:is_our_node(Pub) =/= false,
-                      if V ->
-                           {AValid+1, AInvalid};
-                         true ->
-                           {AValid, AInvalid+1}
-                      end;
-                    _ ->
-                      {AValid, AInvalid+1}
-                  end
-              end,
-              {0, 0}, HSigs)
+            bsig:checksig(Body, LSigs, 
+                          fun(PubKey,_) ->
+                              chainsettings:is_our_node(PubKey) =/= false
+                          end)
           catch _:_ ->
                   throw(verify_error)
           end;
@@ -280,46 +274,33 @@ verify(#{
           VerFun=case lists:member(nocheck_ledger,Opts) of
                    false ->
                      LedgerInfo=ledger:get(
-                            proplists:get_value(ledger,Opts,ledger),
-                            From),
+                                  proplists:get_value(ledger,Opts,ledger),
+                                  From),
                      case LedgerInfo of
                        #{pubkey:=PK} when is_binary(PK) ->
-                         fun(Pub, Sig, {AValid, AInvalid}) ->
-                             case tpecdsa:verify(Body, Pub, Sig) of
-                               correct when PK==Pub ->
-                                 {AValid+1, AInvalid};
-                               _ ->
-                                 {AValid, AInvalid+1}
-                             end
+                         fun(PubKey, _) ->
+                             PK==PubKey
                          end;
                        _ ->
                          throw({ledger_err, From})
                      end;
                    true ->
-                     fun(Pub, Sig, {AValid, AInvalid}) ->
-                         case tpecdsa:verify(Body, Pub, Sig) of
-                           correct ->
-                             {AValid+1, AInvalid};
-                           _ ->
-                             {AValid, AInvalid+1}
-                         end
-                     end
+                     undefined
                  end,
-          maps:fold(
-            VerFun,
-            {0, 0}, HSigs);
+          bsig:checksig(Body, LSigs, VerFun);
         _ ->
           throw({invalid_address, from})
       end,
 
   case Res of
-    {0, _} ->
+    {[], _} ->
       bad_sig;
-    {Valid, Invalid} when Valid>0 ->
+    {Valid, Invalid} when length(Valid)>0 ->
       {ok, Tx#{
              sigverify=>#{
-               valid=>Valid,
-               invalid=>Invalid
+               valid=>length(Valid),
+               invalid=>Invalid,
+               pubkeys=>bsig:extract_pubkeys(Valid)
               }
             }
       }
@@ -328,33 +309,25 @@ verify(#{
 verify(#{
   kind:=register,
   body:=Body,
-  sig:=HSigs,
+  sig:=LSigs,
   ver:=2
  }=Tx, _Opts) ->
-  VerFun=fun(Pub, Sig, {AValid, AInvalid}) ->
-             case tpecdsa:verify(Body, Pub, Sig) of
-               correct ->
-                 {[Pub|AValid], AInvalid};
-               _ ->
-                 {AValid, AInvalid+1}
-             end
-         end,
-  Res=maps:fold(
-        VerFun,
-        {[], 0}, HSigs),
+  Res=bsig:checksig(Body, LSigs),
   case Res of
     {0, _} ->
       bad_sig;
     {Valid, Invalid} when length(Valid)>0 ->
       BodyHash=hashdiff(crypto:hash(sha512,Body)),
-      Pubs=crypto:hash(sha256,iolist_to_binary(lists:sort(Valid))),
+      ValidPK=bsig:extract_pubkeys(Valid),
+      Pubs=crypto:hash(sha256,iolist_to_binary(lists:sort(ValidPK))),
       #{keysh:=H}=unpack_body(Tx),
       if Pubs==H ->
            {ok, Tx#{
                   sigverify=>#{
                     pow_diff=>BodyHash,
                     valid=>length(Valid),
-                    invalid=>Invalid
+                    invalid=>Invalid,
+                    pubkeys=>ValidPK
                    }
                  }
            };

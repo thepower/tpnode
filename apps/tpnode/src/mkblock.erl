@@ -622,10 +622,11 @@ try_process([{TxID, #{deploy:=VMType, code:=Code, from:=Owner}=Tx} |Rest],
 try_process([{TxID, #{ver:=2,
                       kind:=register,
                       keysh:=_,
-                      sig:=Signatures,
+                      sig:=_Signatures,
                       sigverify:=#{
-%                        valid:=ValidSig,
-                        pow_diff:=PD
+                        valid:=_ValidSig,
+                        pow_diff:=PD,
+                        pubkeys:=[PubKey|_]
                        }
                      }=Tx} |Rest],
             SetState, Addresses, GetFun,
@@ -635,7 +636,6 @@ try_process([{TxID, #{ver:=2,
   lager:notice("Ensure verified"),
   try
     %TODO: multisig fix here
-    PubKey=hd(maps:keys(Signatures)),
     RegSettings=settings:get([<<"current">>, <<"register">>], SetState),
     Diff=maps:get(<<"diff">>,RegSettings,0),
     Inv=maps:get(<<"invite">>,RegSettings,0),

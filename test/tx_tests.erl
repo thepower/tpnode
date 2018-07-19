@@ -199,7 +199,7 @@ tx2_reg_test() ->
   ?assertMatch({ok,_}, tx:verify(Packed, [])),
   ?assertMatch({ok,#{sigverify:=#{pow_diff:=PD,valid:=2,invalid:=0}}}
                  when PD>=16, tx:verify(Packed, [])),
-  ?assertMatch({ok,#{sig:=#{Pub1:=_,Pub2:=_}} }, tx:verify(Packed))
+  ?assertMatch({ok,#{sigverify:=#{valid:=2}} }, tx:verify(Packed))
   ].
 
 tx2_generic_test() ->
