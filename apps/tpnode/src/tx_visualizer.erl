@@ -245,8 +245,12 @@ show(Tx) ->
                   true -> {error, "body must be binary"}
                end;
              (#{type:=T},[{mapv,<<"sig">>}])->
-               if T==map -> "ok";
-                  true -> {error, "sig must be map"}
+               if T==arr -> "ok";
+                  true -> {error, "sig must be array"}
+               end;
+              (#{type:=T},[{mapv,<<"sig">>},{arr,_}])->
+               if T==bin -> "ok";
+                  true -> {error, "signature must be binary"}
                end;
              (#{type:=T},[{mapv,<<"ver">>}])->
                if T==uint -> "ok";

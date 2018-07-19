@@ -640,7 +640,7 @@ prettify_block(Block) ->
 prettify_block(#{}=Block0, BinPacker) ->
   maps:map(
     fun(sign, Signs) ->
-        show_signs(Signs, BinPacker);
+        show_signs(Signs, BinPacker, true);
        (hash, BlockHash) ->
         BinPacker(BlockHash);
        (child, BlockHash) ->
@@ -688,7 +688,7 @@ prettify_block(#{}=Block0, BinPacker) ->
                        fun(patch, Payload) ->
                            settings:dmp(Payload);
                           (signatures, Sigs) ->
-                           show_signs(Sigs, BinPacker);
+                           show_signs(Sigs, BinPacker, true);
                           (_K, V) -> V
                        end, CBody)}
           end,
@@ -737,6 +737,13 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
         BinPacker(Val);
        (keysh, Val) ->
         BinPacker(Val);
+       (sigverify, Fields) ->
+        maps:map(
+          fun(pubkeys, Val) ->
+              [ BinPacker(Sig) || Sig <- Val ];
+             (_,Val) ->
+              Val
+          end, Fields);
        (extdata, V1) ->
         maps:fold(
           fun(<<"addr">>,V2,Acc) ->
@@ -745,10 +752,9 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
              (K2,V2,Acc) ->
               [{K2,V2}|Acc]
           end, [], V1);
-       (sig, #{}=V1) ->
-        [
-         {BinPacker(SPub),
-          BinPacker(SPri)} || {SPub, SPri} <- maps:to_list(V1) ];
+       (sig, [_|_]=V1) ->
+        %[ unpacksig4json(Sig,BinPacker) || Sig <- V1 ];
+        show_signs(V1, BinPacker, false);
        (_, V1) -> V1
     end, maps:without([public_key, signature], TXB));
 
@@ -810,7 +816,7 @@ prettify_settings(#{}=Block0, BinPacker) ->
 
 % ----------------------------------------------------------------------
 
-show_signs(Signs, BinPacker) ->
+show_signs(Signs, BinPacker, IsNode) ->
   lists:map(
     fun(BSig) ->
         #{binextra:=Hdr,
@@ -826,14 +832,20 @@ show_signs(Signs, BinPacker) ->
                  end, Extra
                 ),
         NodeID=proplists:get_value(pubkey, Extra, <<>>),
-        #{ binextra => BinPacker(Hdr),
+        R1=#{ binextra => BinPacker(Hdr),
            signature => BinPacker(Signature),
-           extra =>UExtra,
-           '_nodeid' => nodekey:node_id(NodeID),
-           '_nodename' => try chainsettings:is_our_node(NodeID)
-                          catch _:_ -> null
-                          end
-         }
+           extra =>UExtra
+         },
+        if IsNode ->
+             R1#{
+               '_nodeid' => nodekey:node_id(NodeID),
+               '_nodename' => try chainsettings:is_our_node(NodeID)
+                              catch _:_ -> null
+                              end
+              };
+           true ->
+             R1
+        end
     end, Signs).
 
 % ----------------------------------------------------------------------
