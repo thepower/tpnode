@@ -722,7 +722,7 @@ test_tx2b() ->
     to => <<128,1,64,0,4,0,0,2>>,
     ver => 2,
     txext => #{
-      message => <<"preved">>
+      <<"message">> => <<"preved">>
      },
     payload => [
                 #{amount => 10,cur => <<"FTT">>,purpose => transfer}
@@ -735,6 +735,37 @@ test_tx2b() ->
   txpool:new_tx(TXConstructed)
   }.
 
+sign_patchv2(Patch) ->
+  sign_patchv2(Patch, "c1*.config").
+
+sign_patchv2(Patch, Wildcard) ->
+  PrivKeys=lists:usort(get_all_nodes_keys(Wildcard)),
+  lists:foldl(
+    fun(Key,Acc) ->
+        tx:sign(Acc,Key)
+    end, Patch, PrivKeys).
+
+
+patch_v2() ->
+  Patch=sign_patchv2(
+          tx:construct_tx(
+            #{kind=>patch,
+              ver=>2,
+              patches=>
+              [
+               #{t=>set, 
+                 p=>[<<"current">>, <<"testbranch">>, <<"test1">>],
+                 v=>os:system_time(seconds)
+                }
+              ]
+             }
+           )
+         ),
+  {
+   Patch,
+   tx:verify(Patch),
+   txpool:new_tx(Patch)
+  }.
 
 -include_lib("public_key/include/OTP-PUB-KEY.hrl").
 

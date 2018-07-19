@@ -75,6 +75,25 @@ construct_tx(Any) ->
   construct_tx(Any,[]).
 
 construct_tx(#{
+  ver:=2,
+  kind:=patch,
+  patches:=Patches
+ }=Tx0,_Params) ->
+  Tx=maps:with([ver,txext],Tx0),
+  E0=#{
+    "k"=>encode_kind(2,patch),
+    "e"=>maps:get(txext, Tx, #{}),
+    "p"=>Patches
+   },
+  Tx#{
+    kind=>patch,
+    body=>pack_body(E0),
+    sig=>[]
+   };
+
+
+construct_tx(#{
+  ver:=2,
   kind:=register,
   t:=Timestamp,
   keys:=PubKeys
@@ -123,6 +142,7 @@ construct_tx(#{
   end;
 
 construct_tx(#{
+  ver:=2,
   kind:=generic,
   from:=F,
   to:=To,
@@ -211,6 +231,18 @@ unpack_body(#{ ver:=2,
     ver=>2,
     t=>Timestamp,
     keysh=>Hash,
+    txext=>Extradata
+   };
+
+unpack_body(#{ ver:=2,
+              kind:=patch
+             }=Tx,
+            #{ "p":=Patches,
+               "e":=Extradata
+             }=_Unpacked) ->
+  Tx#{
+    ver=>2,
+    patches=>Patches,
     txext=>Extradata
    };
 
@@ -336,6 +368,26 @@ verify(#{
       end
   end;
 
+verify(#{
+  kind:=patch,
+  body:=Body,
+  sig:=LSigs,
+  ver:=2
+ }=Tx, _Opts) ->
+  Res=bsig:checksig(Body, LSigs),
+  case Res of
+    {0, _} ->
+      bad_sig;
+    {Valid, Invalid} when length(Valid)>0 ->
+      {ok, Tx#{
+             sigverify=>#{
+               valid=>length(Valid),
+               invalid=>Invalid,
+               pubkeys=>bsig:extract_pubkeys(Valid)
+              }
+            }
+      }
+  end;
 
 verify(Bin, Opts) when is_binary(Bin) ->
   Tx=unpack(Bin),
