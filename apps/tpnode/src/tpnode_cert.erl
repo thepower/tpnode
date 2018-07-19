@@ -14,8 +14,6 @@
 
 -export([check_cert_expire/1]).
 
-% TODO: this export only for debug. don't forget to remove it later.
--export([do_cert_request/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -39,11 +37,13 @@ init(Args) ->
   application:ensure_all_started(letsencrypt),
   {ok,
     Args#{
-      ssl_active => false,
       cert_req_active => false,
       expiretimer => erlang:send_after(rand:uniform(15) * 1000, self(), check_cert_expire)
     }
   }.
+
+handle_call(state, _From, State) ->
+  {reply, State, State};
 
 handle_call(_Request, _From, State) ->
   lager:notice("Unknown call ~p", [_Request]),
@@ -53,35 +53,46 @@ handle_cast(_Msg, State) ->
   lager:notice("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
-handle_info(ssl_on, #{ssl_active := false} = State) ->
+handle_info(ssl_on, State) ->
   lager:info("spawning ssl api listeners"),
   spawn_ssl(),
-  {noreply, State#{
-    ssl_active => true
-  }};
-
-handle_info(ssl_on, State) ->
-  lager:error("got ssl_on but ssl api listeners are already active"),
   {noreply, State};
 
 handle_info(ssl_off, State) ->
   lager:info("shuting down ssl api"),
-  % TODO: do real shutdown here
-  {noreply, State#{
-    ssl_active => false
-  }};
+  shutdown_ssl(),
+  {noreply, State};
+
+handle_info(ssl_restart, State) ->
+  lager:info("restarting ssl api"),
+  shutdown_ssl(),
+  spawn_ssl(),
+  {noreply, State};
 
 
 handle_info(certreq, #{cert_req_active := false} = State) ->
-  check_or_request(),
+  NewSate =
+    case check_or_request() of
+      certreq ->
+        certreq;
+      _ ->
+        false
+    end,
   {noreply, State#{
-    cert_req_active => false
+    cert_req_active => NewSate
   }};
 
 % certificate request is in the process, skip this certreq
 handle_info(certreq, #{cert_req_active := CurrentCertReq} = State) ->
   lager:debug("skiping certreq because of current cert_req state: ~p", [CurrentCertReq]),
   {noreply, State};
+
+handle_info(certreq_done, State) ->
+  lager:debug("enable certificate requests"),
+  self() ! ssl_restart,
+  {noreply, State#{
+    cert_req_active => false
+  }};
 
 
 handle_info(check_cert_expire, #{expiretimer := Timer, cert_req_active := false} = State) ->
@@ -107,6 +118,8 @@ handle_info(check_cert_expire, #{expiretimer := Timer} = State) ->
   {noreply, State#{
     expiretimer => erlang:send_after(?EXPIRE_CHECK_INTERVAL * 1000, self(), check_cert_expire)
   }};
+
+
 
 handle_info(_Info, State) ->
   lager:notice("Unhandled info ~p", [_Info]),
@@ -253,12 +266,11 @@ check_or_request(Hostname) ->
   end,
   case Action of
     certreq ->
-      lager:error("do cert request here");
-%%      do_cert_request(Hostname)
+      do_cert_request(Hostname);
     _ ->
       pass
   end,
-  ok.
+  Action.
 
 %% -------------------------------------------------------------------------------------
 
@@ -271,6 +283,7 @@ on_complete({State, Data}) ->
       lager:debug("letsencrypt certificate issued: ~p (~p)", [State, Data])
   end,
   letsencrypt:stop(),
+  self() ! certreq_done,
   ok.
 
 %% -------------------------------------------------------------------------------------
@@ -279,6 +292,7 @@ do_cert_request(Hostname) ->
   lager:debug("request letsencrypt cert for host ~p", [Hostname]),
   CertPath = get_cert_path(),
   filelib:ensure_dir(CertPath ++ "/"),
+  % TODO: remove staging flag here
   letsencrypt:start([{mode, standalone}, staging, {cert_path, CertPath}, {port, 80}]),
 %%  letsencrypt:start([{mode,standalone}, {cert_path, CertPath}, {port, 80}]),
   letsencrypt:make_cert(utils:make_binary(Hostname), #{callback => fun on_complete/1}).
@@ -296,5 +310,22 @@ spawn_ssl() ->
       [supervisor:start_child(tpnode_sup, Spec) || Spec <- Specs]
   end,
   lager:debug("ssl spawn result: ~p", [Pids]),
-  ok.
+  ListenerFilter =
+    fun({ok, Pid}, Acc) ->
+      Acc ++ [Pid];
+      (_, Acc) ->
+        Acc
+    end,
+  lists:foldl(ListenerFilter, [], Pids).
 
+
+shutdown_ssl() ->
+  Names = tpnode_http:child_names_ssl(),
+  Killer =
+    fun(Name) ->
+      supervisor:terminate_child(tpnode_sup, {ranch_listener_sup, Name}),
+      supervisor:delete_child(tpnode_sup, {ranch_listener_sup, Name})
+    end,
+  lists:foreach(Killer, Names),
+  ok.
+  

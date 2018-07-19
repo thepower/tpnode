@@ -1,5 +1,5 @@
 -module(tpnode_http).
--export([childspec/0, childspec_ssl/2]).
+-export([childspec/0, childspec_ssl/2, child_names_ssl/0]).
 
 
 get_http_conn_type() ->
@@ -78,3 +78,7 @@ childspec_ssl(CertFile, KeyFile) ->
       HTTPConnType
     )
   ].
+
+
+child_names_ssl() ->
+  [https, https6].
