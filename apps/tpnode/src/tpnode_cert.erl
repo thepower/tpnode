@@ -109,27 +109,26 @@ handle_info(check_cert_expire, #{expiretimer := Timer, cert_req_active := false}
     expiretimer => erlang:send_after(?EXPIRE_CHECK_INTERVAL * 1000, self(), check_cert_expire)
   }};
 
-% certificate request is in the process, just renew timer
+% certificate request is in progress, just renew timer
 handle_info(check_cert_expire, #{expiretimer := Timer} = State) ->
   catch erlang:cancel_timer(Timer),
-  lager:debug("cert expire timer tick"),
+  lager:debug("cert expire timer tick (certificate request is in progress)"),
   {noreply, State#{
     expiretimer => erlang:send_after(?EXPIRE_CHECK_INTERVAL * 1000, self(), check_cert_expire)
   }};
 
 handle_info({'DOWN', Ref, process, _Pid, normal}, #{cert_req_active := Ref} = State) ->
   lager:debug("cert request process ~p finished successfuly", [_Pid]),
-  {noreply, State};
+  {noreply, State#{
+    cert_req_active => false
+  }};
 
-%%handle_info(
-%%  {'DOWN', _Ref, process, Pid, {{badmatch,{error,eacces}}, _}},
-%%  #{cert_req_active := Pid} = State) ->
-%%    lager:error(
-%%      "Got eacces error. Haven't permitions to spawn the http server on port 80 " ++
-%%      "for letsencrypt verification?"),
-%%    {noreply, State#{
-%%      cert_req_active => false
-%%    }};
+handle_info({'DOWN', Ref, process, _Pid, Reason}, #{cert_req_active := Ref} = State) ->
+  lager:debug("cert request process ~p finished with reason: ~p", [_Pid, Reason]),
+  {noreply, State#{
+    cert_req_active => false
+  }};
+
 
 handle_info(_Info, State) when is_tuple(_Info)->
   lager:notice("Unhandled info tuple [~b]: ~p", [size(_Info), _Info]),
@@ -324,7 +323,7 @@ letsencrypt_runner(CertPath, Hostname) ->
     exit:{{{badmatch,{error,eacces}}, _ }, _} ->
       lager:error(
         "Got eacces error. Do you have permition to run the http server on port 80 " ++
-        "for letsencrypt hostname verification?");
+        "or webroot access for letsencrypt hostname verification?");
     
     Ee:Ec ->
       lager:error(
