@@ -80,8 +80,8 @@ handle_info(ssl_restart, State) ->
 handle_info(certreq, #{cert_req_active := false} = State) ->
   NewSate =
     case check_or_request() of
-      certreq ->
-        certreq;
+      Ref when is_reference(Ref) ->
+        Ref;
       _ ->
         false
     end,
@@ -101,7 +101,7 @@ handle_info(check_cert_expire, #{expiretimer := Timer, cert_req_active := false}
     ok ->
       false;
     certreq ->
-      lager:notice("going to request new certificate"),
+      lager:notice("going to request a new certificate"),
       self() ! certreq,
       certreq
   end,
@@ -117,18 +117,22 @@ handle_info(check_cert_expire, #{expiretimer := Timer} = State) ->
     expiretimer => erlang:send_after(?EXPIRE_CHECK_INTERVAL * 1000, self(), check_cert_expire)
   }};
 
-handle_info({'DOWN', _Ref, process, _Pid, normal}, State) ->
+handle_info({'DOWN', Ref, process, _Pid, normal}, #{cert_req_active := Ref} = State) ->
   lager:debug("cert request process ~p finished successfuly", [_Pid]),
   {noreply, State};
 
-handle_info({'DOWN', _Ref, process, _Pid, {{badmatch,{error,eacces}}, _}}, State) ->
-  lager:error("Got eacces error. Couldn't spawn http server on port 80 for letsencrypt verification?"),
-  {noreply, State#{
-    cert_req_active => false
-  }};
+%%handle_info(
+%%  {'DOWN', _Ref, process, Pid, {{badmatch,{error,eacces}}, _}},
+%%  #{cert_req_active := Pid} = State) ->
+%%    lager:error(
+%%      "Got eacces error. Haven't permitions to spawn the http server on port 80 " ++
+%%      "for letsencrypt verification?"),
+%%    {noreply, State#{
+%%      cert_req_active => false
+%%    }};
 
 handle_info(_Info, State) when is_tuple(_Info)->
-  lager:notice("Unhandled tuple ~b info ~p", [size(_Info), _Info]),
+  lager:notice("Unhandled info tuple [~b]: ~p", [size(_Info), _Info]),
   {noreply, State};
 
 handle_info(_Info, State) ->
@@ -251,7 +255,7 @@ check_or_request() ->
   Hostname = get_hostname(),
   case Hostname of
     unknown ->
-      ok;
+      pass;
     _ ->
       check_or_request(utils:make_list(Hostname))
   end.
@@ -279,15 +283,34 @@ check_or_request(Hostname) ->
       do_cert_request(Hostname);
     _ ->
       pass
+  end.
+
+%% -------------------------------------------------------------------------------------
+
+get_letsencrypt_startspec(CertPath) ->
+  GetStaging = fun() ->
+    case application:get_env(tpnode, staging, unknown) of
+      true ->
+        [staging];
+      _ ->
+        []
+    end
   end,
-  Action.
+  GetMode = fun() ->
+    case application:get_env(tpnode, webroot, unknown) of
+      unknown ->
+        [{mode, standalone}, {port, 80}]; % standalone mode
+      Path ->
+        [{mode,webroot},{webroot_path, utils:make_list(Path)}] % webroot mode
+    end
+  end,
+  GetMode() ++ GetStaging() ++ [{cert_path, utils:make_list(CertPath)}].
+
 
 %% -------------------------------------------------------------------------------------
 
 letsencrypt_runner(CertPath, Hostname) ->
-  % TODO: remove staging flag here
-  letsencrypt:start([{mode, standalone}, staging, {cert_path, CertPath}, {port, 80}]),
-%%  letsencrypt:start([{mode,standalone}, {cert_path, CertPath}, {port, 80}]),
+  letsencrypt:start(get_letsencrypt_startspec(CertPath)),
   try
     case letsencrypt:make_cert(utils:make_binary(Hostname), #{async => false}) of
       {error, Data} ->
@@ -299,10 +322,13 @@ letsencrypt_runner(CertPath, Hostname) ->
     end
   catch
     exit:{{{badmatch,{error,eacces}}, _ }, _} ->
-      lager:error("Cert request error. Can't access port 80!!!");
+      lager:error(
+        "Got eacces error. Do you have permition to run the http server on port 80 " ++
+        "for letsencrypt hostname verification?");
+    
     Ee:Ec ->
       lager:error(
-        "letsencrypt execution error: ~p ~p ~p",
+        "letsencrypt runtime error: ~p ~p ~p",
         [Ee, Ec, erlang:get_stacktrace()]
       )
   end,
@@ -339,8 +365,7 @@ do_cert_request(Hostname) ->
     end,
     
   Pid = erlang:spawn(RunnerFun),
-  erlang:monitor(process, Pid),
-  ok.
+  erlang:monitor(process, Pid).
 
 
 %% -------------------------------------------------------------------------------------
