@@ -27,7 +27,7 @@ init([]) ->
     application:ensure_all_started(tinymq),
     code:ensure_loaded(tpic_checkauth),
     tpnode:reload(),
-
+  
     % we'll register this services-without-pid on discovery starting up
     MandatoryServices = [ api ],
 
@@ -59,7 +59,8 @@ init([]) ->
             { discovery, {discovery, start_link, [Discovery]}, permanent, 5000, worker, []},
             { tpnode_announcer, {tpnode_announcer, start_link, [#{}]}, permanent, 5000, worker, []},
             { xchain_client, {xchain_client, start_link, [#{}]}, permanent, 5000, worker, []},
-            { xchain_dispatcher, {xchain_dispatcher, start_link, []}, permanent, 5000, worker, []}
+            { xchain_dispatcher, {xchain_dispatcher, start_link, []}, permanent, 5000, worker, []},
+            { tpnode_cert, {tpnode_cert, start_link, []}, permanent, 5000, worker, []}
            ]
             ++ xchain:childspec()
             ++ tpnode_http:childspec()
