@@ -82,7 +82,9 @@ handle_cast(settings, State) ->
     {noreply, change_settings_handler(State)};
 
 handle_cast({discovery, Announce, AnnounceBin}, #{subs:=Subs} = State) ->
-    lager:notice("xchain client got announce from discovery. Relay it to all connected chains in case xchain connections are exists"),
+    lager:notice(
+        "xchain client got announce from discovery. " ++
+        "Relay it to all active xchain connections."),
     try
         relay_discovery(Announce, AnnounceBin, Subs)
     catch
@@ -225,7 +227,8 @@ lost_connection(Pid, Subs) ->
 
                     % unsubscribe all channels
                     NewSub2#{
-                        channels => maps:map(fun(_Channel, _OldState) -> 0 end, Channels)
+                        channels =>
+                            maps:map(fun(_Channel, _OldState) -> 0 end, Channels)
                     };
                 _ ->
                     Sub

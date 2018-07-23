@@ -659,6 +659,9 @@ query(Name, State) ->
 address2key(#{address:=Ip, port:=Port, proto:=Proto}) ->
     {Ip, Port, Proto};
 
+address2key(#{hostname:=Host, port:=Port, proto:=Proto}) ->
+    {Host, Port, Proto};
+
 address2key(Invalid) ->
     lager:info("invalid address: ~p", [Invalid]),
     throw("can't parse address").
@@ -774,7 +777,7 @@ add_valid_until(Announce, _MaxTtl) ->
 
 % --------------------------------------------------------
 
-% relay announce to connected nodes
+% relay announce to active xchain connections
 relay_announce(
         #{created:=CreatedPrev, sent_xchain:=SentXChainPrev} = PrevAnnounce,
         #{created:=CreatedNew, nodeid:=NodeId} = NewAnnounce,
@@ -810,17 +813,17 @@ relay_announce(_PrevAnnounce, NewAnnounce, _AnnounceBin, _XChainThrottle) ->
 
 % --------------------------------------------------------
 -spec xchain_relay_announce(
-  SentXchain :: number(),
-  Throttle :: number(),
-  Announce :: #{'chain' => number()} | map(),
-  AnnounceBin :: binary()) -> number().
+  SentXchain :: non_neg_integer(),
+  Throttle :: non_neg_integer(),
+  Announce :: #{'chain' => non_neg_integer()} | map(),
+  AnnounceBin :: binary()) -> non_neg_integer().
 
 
 xchain_relay_announce(SentXchain, Throttle, #{chain:=Chain}=Announce, AnnounceBin) ->
     Now = os:system_time(seconds),
     MyChain = blockchain:chain(),
     if
-        % relay own chain announces which isn't throttled
+        % relay our chain announces which isn't throttled
         MyChain =:= Chain andalso SentXchain + Throttle < Now ->
             gen_server:cast(xchain_client, {discovery, Announce, AnnounceBin}),
             Now;
