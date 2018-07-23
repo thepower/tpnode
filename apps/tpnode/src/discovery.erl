@@ -84,9 +84,9 @@ my_address_v4() ->
 
 init(Args) ->
     lager:notice("start discovery"),
-    CheckExpireInterval = maps:get(check_expire_interval, Args, 60), % in seconds
+    CheckExpireInterval = maps:get(check_expire_interval, Args, 10), % in seconds
     Settings = read_config(),
-    AnnounceServicesInterval = maps:get(announce_interval, Settings, 60), % in seconds
+    AnnounceServicesInterval = maps:get(announce_interval, Settings, 120), % in seconds
     LocalServices =
         #{
             names => #{},
@@ -177,7 +177,7 @@ handle_cast(make_announce, #{local_services:=Dict} = State) ->
 handle_cast({got_announce, AnnounceBin}, State) ->
     lager:debug("Got service announce ~p", [AnnounceBin]),
     try
-        MaxTtl = get_config(intrachain_ttl, 120, State),
+        MaxTtl = get_config(intrachain_ttl, 300, State),
 
         {noreply, State#{
             remote_services => parse_and_process_announce(MaxTtl, AnnounceBin, State)
@@ -374,7 +374,7 @@ is_right_proto(ServiceName, Proto0)  ->
 % make announce of our local services with tpic scope
 make_announce(#{names:=Names} = _Dict, State) ->
     lager:debug("Announcing our local services"),
-    Ttl = max(get_config(intrachain_ttl, 120, State), 30),
+    Ttl = max(get_config(intrachain_ttl, 300, State), 30),
     Hostname = application:get_env(tpnode, hostname, unknown),
 %%    ValidUntil = os:system_time(seconds) + get_config(intrachain_ttl, 120, State),
     Addresses = get_config(addresses, get_default_addresses(), State),
@@ -728,6 +728,7 @@ parse_and_process_announce(MaxTtl, AnnounceBin, #{remote_services:=Dict} = State
     Settings = {Dict, MaxTtl, XChainThrottle, AnnounceBin},
     process_announce(Announce, Settings).
 
+% --------------------------------------------------------
 
 
 % parse foreign service announce and add it to services database
@@ -754,7 +755,6 @@ process_announce(Announce, Settings) ->
     {Dict, _MaxTtl, _XChainThrottle, _AnnounceBin} = Settings,
     lager:error("invalid announce: ~p", [Announce]),
     Dict.
-
 
 % --------------------------------------------------------
 
@@ -789,8 +789,11 @@ relay_announce(
         NodeId =:= MyNodeId ->
             lager:debug("skip relaying of self announce: ~p", [NewAnnounce]),
             SentXChainPrev;
-        CreatedPrev /= CreatedNew ->
-            lager:debug("relay announce ~p", [NewAnnounce]),
+        CreatedPrev < CreatedNew ->
+            lager:debug(
+              "relay new announce. old: ~p, new: ~p, new announce body: ~p",
+              [CreatedPrev, CreatedNew, NewAnnounce]
+            ),
             send_service_announce(NewAnnounce, AnnounceBin),
             xchain_relay_announce(SentXChainPrev, XChainThrottle, NewAnnounce, AnnounceBin);
         CreatedPrev =:= CreatedNew ->
