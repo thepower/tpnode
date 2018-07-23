@@ -1,9 +1,10 @@
 -module(tpnode_httpapi).
 
--export([h/3, after_filter/1, 
-         prettify_block/2, 
+-export([h/3, after_filter/1,
+         prettify_block/2,
          prettify_block/1,
-         prettify_tx/2]).
+         prettify_tx/2,
+         binjson/1]).
 
 -export([answer/0, answer/1, err/1, err/2, err/3, err/4]).
 
@@ -460,12 +461,21 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   end;
 
 h(<<"GET">>, [<<"settings">>], _Req) ->
-  Block=blockchain:get_settings(),
-  answer(
-   #{ result => <<"ok">>,
-      settings => prettify_settings(Block,packer(_Req,b64))
-    }
-  );
+  Settings=blockchain:get_settings(),
+  EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+          Conf1=jsx_config:list_to_config(Conf),
+          jsx_parser:resume([{Type, base64:encode(Str)}|Tokens],
+                            State, Handler, Stack, Conf1)
+      end,
+  {200,
+   [ {<<"content-type">>, <<"application/json">>} ],
+   jsx:encode(
+     #{ result => <<"ok">>,
+        settings => Settings
+      },
+     [ strict, {error_handler, EHF} ]
+    )
+  };
 
 h(<<"POST">>, [<<"register">>], Req) ->
   {_RemoteIP, _Port}=cowboy_req:peer(Req),
@@ -715,7 +725,7 @@ prettify_block(#{}=Block0, BinPacker) ->
          );
        (txs, TXS) ->
         lists:map(
-          fun({TxID, Body}) -> 
+          fun({TxID, Body}) ->
               {TxID,prettify_tx(Body, BinPacker)}
           end, TXS);
        (_, V) ->
@@ -779,40 +789,6 @@ prettify_tx(TXB, BinPacker) ->
         (_, V1) -> V1
      end, maps:without([public_key, signature], TXB)).
 
-
-% ----------------------------------------------------------------------
-
-prettify_settings(#{}=Block0, BinPacker) ->
-%%    lager:error("block: ~p", [Block0]),
-    maps:map(
-        fun(keys, Keys) ->
-            maps:map(
-                fun(_, V) ->
-                    BinPacker(V)
-                end,
-                Keys
-            );
-        (<<"current">>, CurrentSettings) ->
-            maps:map(
-                fun(<<"endless">>, Wallets) ->
-                    maps:fold(
-                        fun(K, V, Acc) ->
-                            Address = <<"0x",(hex:encode(K))/binary>>,
-                            maps:put(Address, V, Acc)
-                        end,
-                        #{},
-                        Wallets
-                    );
-                    (_, V) ->
-                        V
-                end,
-                CurrentSettings
-            );
-        (_, V) ->
-            V
-        end,
-        Block0
-    ).
 
 % ----------------------------------------------------------------------
 
@@ -946,4 +922,23 @@ packer(Req,Default) ->
            b64 -> fun(Bin) -> base64:encode(Bin) end
          end
   end.
+
+binjson(Term) ->
+  EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+%          io:format("State ~p~n",[State]),
+%          io:format("Handler ~p~n",[Handler]),
+%          io:format("Stack ~p~n",[Handler]),
+%          io:format("~p~n",[{Type, Str}]),
+%          io:format("~p~n",[Tokens]),
+%          io:format("C0 ~p~n",[Conf]),
+%          Conf1=jsx_config:parse_config(Conf--[strict_commas]),
+          Conf1=jsx_config:list_to_config(Conf),
+%          io:format("C1 ~p~n",[Conf1]),
+          jsx_parser:resume([{Type, base64:encode(Str)}|Tokens],
+                            State, Handler, Stack, Conf1)
+      end,
+   jsx:encode(
+     Term,
+     [ strict, {error_handler, EHF} ]
+    ).
 
