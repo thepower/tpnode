@@ -407,11 +407,11 @@ new_wallet() ->
         {ok, Wallet, _TxId} ->
             Wallet;
         timeout ->
-            io:format("wallet registration timeout~n"),
+            io:format("wallet registration timeout, pub key: ~p~n", [PubKey]),
             dump_testnet_state(),
             throw(wallet_registration_timeout);
         Other ->
-            io:format("wallet registration error: ~p ~n", [Other]),
+            io:format("wallet registration error: ~p, pub key: ~p ~n", [Other, PubKey]),
             dump_testnet_state(),
             throw(wallet_registration_error)
     end.
