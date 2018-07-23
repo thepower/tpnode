@@ -46,11 +46,10 @@ err(ErrorCode, ErrorMessage, Data, Options) ->
         _ ->
             Required0
     end,
-
-    answer_formater(
+    {
         maps:get(http_code, Options, 200),
         maps:merge(Data, Required1)
-    ).
+    }.
 
 answer() ->
     answer(#{}).
@@ -59,24 +58,30 @@ answer(Data) ->
     answer(Data, #{}).
 
 answer(Data, Options) when is_map(Data) ->
-    Data1 =
-        case maps:is_key(address, Options) of
-            true ->
-                add_address(
-                    maps:get(address, Options),
-                    Data
-                );
-            _ ->
-                Data
-        end,
-    answer_formater(
-        200,
-        maps:put(<<"ok">>, true, Data1)
-    ).
-
-answer_formater(HttpStatus, Data)
-    when is_integer(HttpStatus) andalso is_map(Data) ->
-    {HttpStatus, Data}.
+  Data1 =
+  case maps:is_key(address, Options) of
+    true ->
+      add_address(
+        maps:get(address, Options),
+        Data
+       );
+    _ ->
+      Data
+  end,
+  Data2=maps:put(<<"ok">>, true, Data1),
+  MS=maps:with([jsx,msgpack],Options),
+  case(maps:size(MS)>0) of
+    true ->
+      {
+       200,
+       {Data2,MS}
+      };
+    false ->
+      {
+       200,
+       Data2
+      }
+  end.
 
 
 
@@ -453,11 +458,17 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
                         Address)
                  end,
       Block=prettify_block(ReadyBlock, BinPacker),
+      EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+              Conf1=jsx_config:list_to_config(Conf),
+              jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                                State, Handler, Stack, Conf1)
+          end,
       answer(
-       #{ result => <<"ok">>,
-          block => Block
-        }
-      )
+        #{ result => <<"ok">>,
+           block => Block
+         },
+        #{jsx=>[ strict, {error_handler, EHF} ]}
+       )
   end;
 
 h(<<"GET">>, [<<"settings">>], _Req) ->
@@ -467,15 +478,12 @@ h(<<"GET">>, [<<"settings">>], _Req) ->
           jsx_parser:resume([{Type, base64:encode(Str)}|Tokens],
                             State, Handler, Stack, Conf1)
       end,
-  {200,
-   [ {<<"content-type">>, <<"application/json">>} ],
-   jsx:encode(
-     #{ result => <<"ok">>,
-        settings => Settings
-      },
-     [ strict, {error_handler, EHF} ]
-    )
-  };
+  answer(
+    #{ result => <<"ok">>,
+       settings => Settings
+     },
+    #{jsx=>[ strict, {error_handler, EHF} ]}
+   );
 
 h(<<"POST">>, [<<"register">>], Req) ->
   {_RemoteIP, _Port}=cowboy_req:peer(Req),

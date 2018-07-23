@@ -175,12 +175,26 @@ process_response({Status, Body}, <<"msgpack">> = Format, Req)
         msgpack:pack(Body)
     }, Format, Req);
 
+process_response({Status, {Body,PackerOpts}}, <<"msgpack">> = Format, Req)
+    when is_integer(Status) andalso is_map(Body) ->
+    process_response({Status,
+        [{<<"Content-Type">>, <<"application/msgpack">>}],
+        msgpack:pack(Body,maps:get(msgpack,PackerOpts,[]))
+    }, Format, Req);
+
 %% json is default answer format
 process_response({Status, Body}, Format, Req)
     when is_integer(Status) andalso is_map(Body) ->
     process_response({Status,
         [{<<"Content-Type">>, <<"application/json">>}],
         jsx:encode(Body)
+    }, Format, Req);
+
+process_response({Status, {Body,PackerOpts}}, Format, Req)
+    when is_integer(Status) andalso is_map(Body) ->
+    process_response({Status,
+        [{<<"Content-Type">>, <<"application/json">>}],
+        jsx:encode(Body,maps:get(jsx,PackerOpts,[]))
     }, Format, Req);
 
 process_response({Status, Body}, _Format, Req)
