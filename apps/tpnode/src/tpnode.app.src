@@ -1,25 +1,26 @@
 {application, tpnode,
- [
-  {description, "ThePower Node"},
-  {vsn, "0.1"},
-  {registered, []},
-  {applications, [
-	  kernel,
-	  stdlib,
-	  lager,
-	  tinymq,
-	  lager,
-	  jsx,
-	  cowboy,
-	  rocksdb,
-	  tinymq,
-	  gb_merkle_trees,
-	  msgpack,
-	  cowdb,
-	  mkmap,
-	  tables,
-	  tpic
-  ]},
-  {mod, { tpnode, []}},
-  {env, []}
- ]}.
+  [
+    {description, "ThePower Node"},
+    {vsn, "0.1"},
+    {registered, []},
+    {applications, [
+      kernel,
+      stdlib,
+      lager,
+      tinymq,
+      lager,
+      jsx,
+      cowboy,
+      rocksdb,
+      tinymq,
+      gb_merkle_trees,
+      msgpack,
+      cowdb,
+      mkmap,
+      tables,
+      tpic,
+      letsencrypt
+    ]},
+    {mod, {tpnode, []}},
+    {env, []}
+  ]}.
