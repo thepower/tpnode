@@ -228,10 +228,10 @@ test_add_ch5() ->
   Patches=lists:foldl(
             fun({Name,Key},Acc) ->
                 [ #{t=>set, p=>[keys,Name], v=>Key} | Acc]
-            end, 
+            end,
             lists:foldl(fun({NN,_},Acc) ->
                             [ #{t=>set, p=>[nodechain,NN], v=>5} | Acc ]
-                        end, 
+                        end,
                         [
                          #{t=><<"list_add">>, p=>[chains], v=>5}
                         ], Keys),
@@ -278,7 +278,7 @@ test_gen_invites_patch(PowDiff,From,To,Secret) ->
            fun(N) ->
                Code=geninvite(N,Secret),
                io:format("~s~n",[Code]),
-               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>], 
+               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>],
                  v=>crypto:hash(md5,Code)
                 }
            end, lists:seq(From,To)))).
@@ -315,18 +315,18 @@ test_reg_invites() ->
                #{t=>set, p=>[<<"current">>, <<"register">>, <<"diff">>], v=>16},
                #{t=>set, p=>[<<"current">>, <<"register">>, <<"invite">>], v=>1},
                #{t=>set, p=>[<<"current">>, <<"register">>, <<"cleanpow">>], v=>1},
-               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>], 
+               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>],
                  v=>crypto:hash(md5,<<"TEST1">>)
                 },
-               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>], 
+               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>],
                  v=>crypto:hash(md5,<<"TEST2">>)
                 },
-               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>], 
+               #{t=><<"list_add">>, p=>[<<"current">>, <<"register">>, <<"invites">>],
                  v=>crypto:hash(md5,<<"TEST3">>)
                 }
               ]))),
   %    io:format("PK ~p~n", [settings:verify(Patch)]),
-  { 
+  {
    Patch,
    gen_server:call(txpool, {patch, Patch})}.
 
@@ -719,7 +719,7 @@ test_tx2b() ->
     t => os:system_time(millisecond),
     seq => Seq+1,
     from => Addr,
-    to => <<128,1,64,0,4,0,0,2>>,
+    to => <<128,1,64,0,5,0,0,2>>,
     ver => 2,
     txext => #{
       <<"message">> => <<"preved">>
@@ -753,9 +753,25 @@ patch_v2() ->
               ver=>2,
               patches=>
               [
-               #{t=>set, 
+               #{t=>set,
                  p=>[<<"current">>, <<"testbranch">>, <<"test1">>],
                  v=>os:system_time(seconds)
+                },
+               #{t=>set,
+                 p=>[<<"current">>, <<"testbranch">>, crypto:hash(sha,"preved")],
+                 v=>crypto:hash(sha,"medved")
+                },
+               #{t=>list_add,
+                 p=>[<<"current">>, <<"testbranch">>, <<"list_of_bin">>],
+                 v=>crypto:hash(sha,"medved4")
+                 },
+               #{t=>list_add,
+                 p=>[<<"current">>, <<"testbranch">>, <<"list_of_bin">>],
+                 v=>crypto:hash(sha,"medved5")
+                 },
+               #{t=>list_add,
+                 p=>[<<"current">>, <<"testbranch">>, <<"list_of_bin">>],
+                 v=>crypto:hash(sha,"medved6")
                 }
               ]
              }
@@ -764,8 +780,8 @@ patch_v2() ->
   {
    Patch,
    tx:verify(Patch),
-   tx:unpack(tx:pack(Patch))
-%   txpool:new_tx(Patch)
+   tx:unpack(tx:pack(Patch)),
+   txpool:new_tx(Patch)
   }.
 
 -include_lib("public_key/include/OTP-PUB-KEY.hrl").

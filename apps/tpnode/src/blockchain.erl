@@ -1153,7 +1153,11 @@ apply_block_conf(Block, Conf0) ->
                           )
     end,
     lists:foldl(
-      fun({_TxID, #{patch:=Body}}, Acc) ->
+      fun({_TxID, #{patch:=Body}}, Acc) -> %old patch
+              lager:notice("TODO: Must check sigs"),
+              %Hash=crypto:hash(sha256, Body),
+              settings:patch(Body, Acc);
+         ({_TxID, #{patches:=Body,kind:=patch}}, Acc) -> %new patch
               lager:notice("TODO: Must check sigs"),
               %Hash=crypto:hash(sha256, Body),
               settings:patch(Body, Acc)
