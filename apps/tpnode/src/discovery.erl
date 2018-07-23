@@ -85,7 +85,8 @@ my_address_v4() ->
 init(Args) ->
     lager:notice("start discovery"),
     CheckExpireInterval = maps:get(check_expire_interval, Args, 10), % in seconds
-    Settings = read_config(),
+    Hostname = application:get_env(tpnode, hostname, unknown),
+    Settings = maps:put(hostname, Hostname, read_config()), % copy hostname from global tpnode config into our local configs inside state
     AnnounceServicesInterval = maps:get(announce_interval, Settings, 120), % in seconds
     LocalServices =
         #{
