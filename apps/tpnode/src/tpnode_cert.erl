@@ -11,8 +11,7 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
-
--export([check_cert_expire/1]).
+-export([check_cert_expire/1, is_ssl_started/0]).
 
 
 %% ------------------------------------------------------------------
@@ -99,7 +98,8 @@ handle_info(check_cert_expire, #{expiretimer := Timer, cert_req_active := false}
   catch erlang:cancel_timer(Timer),
   case check_cert_expire() of
     ok ->
-      false;
+      ensure_ssl_started(),
+      pass;
     certreq ->
       lager:notice("going to request a new certificate"),
       self() ! certreq,
@@ -116,6 +116,7 @@ handle_info(check_cert_expire, #{expiretimer := Timer} = State) ->
   {noreply, State#{
     expiretimer => erlang:send_after(?EXPIRE_CHECK_INTERVAL * 1000, self(), check_cert_expire)
   }};
+
 
 handle_info({'DOWN', Ref, process, _Pid, normal}, #{cert_req_active := Ref} = State) ->
   lager:debug("cert request process ~p finished successfuly", [_Pid]),
@@ -335,21 +336,6 @@ letsencrypt_runner(CertPath, Hostname) ->
   gen_server:cast(?MODULE, certreq_done),
   ok.
   
-  
-  
-
-%% -------------------------------------------------------------------------------------
-
-%%on_complete({State, Data}) ->
-%%  case State of
-%%    error ->
-%%      lager:error("letsencrypt error: ~p", [Data]);
-%%    _ ->
-%%      lager:error("letsencrypt certificate issued: ~p (~p)", [State, Data])
-%%  end,
-%%  letsencrypt:stop(),
-%%  gen_server:cast(?MODULE, certreq_done),
-%%  ok.
 
 %% -------------------------------------------------------------------------------------
 
@@ -366,6 +352,34 @@ do_cert_request(Hostname) ->
   Pid = erlang:spawn(RunnerFun),
   erlang:monitor(process, Pid).
 
+%% -------------------------------------------------------------------------------------
+
+% a check were all ssl listeners started or not
+is_ssl_started() ->
+  Children = supervisor:which_children(tpnode_sup),
+  Names = tpnode_http:child_names_ssl(),
+  Checker =
+    fun(Name, State) when State =:= unknown, State =:= true ->
+      case lists:keyfind({ranch_listener_sup, Name}, 1, Children) of
+        false -> false;
+        _ -> true
+      end;
+      (_, _) ->
+        false
+    end,
+  lists:foldl(Checker, unknown, Names).
+
+%% -------------------------------------------------------------------------------------
+
+% ensure all ssl listeners are active. we don't validate certificate here
+ensure_ssl_started() ->
+  case is_ssl_started() of
+    false ->
+      self() ! ssl_on;
+    _ ->
+      pass
+  end.
+
 
 %% -------------------------------------------------------------------------------------
 
@@ -375,6 +389,7 @@ spawn_ssl() ->
     unknown ->
       [];
     _ ->
+      lager:info("enable ssl api"),
       Specs =
         tpnode_http:childspec_ssl(get_cert_file(Hostname), get_cert_key_file(Hostname)),
       [supervisor:start_child(tpnode_sup, Spec) || Spec <- Specs]
@@ -390,6 +405,7 @@ spawn_ssl() ->
 
 
 shutdown_ssl() ->
+  lager:info("disable ssl api"),
   Names = tpnode_http:child_names_ssl(),
   Killer =
     fun(Name) ->
