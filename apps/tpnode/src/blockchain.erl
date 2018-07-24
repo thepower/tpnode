@@ -413,8 +413,11 @@ handle_call({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
              {ok, LHash}=apply_ledger(check, MBlk),
              %NewTable=apply_bals(MBlk, Tbl),
              Sets1=apply_block_conf(MBlk, Sets),
-             lager:info("Ledger dst hash ~p, block ~p",
-                        [LHash, maps:get(ledger_hash, Header, <<0:256>>)]),
+             lager:info("Ledger dst hash ~s, block ~s",
+                        [hex:encode(LHash),
+                         hex:encode(maps:get(ledger_hash, Header, <<0:256>>))
+                        ]
+                       ),
              lager:debug("Txs ~p", [ Txs ]),
              NewPHash=maps:get(parent, Header),
              if LBlockHash=/=NewPHash ->
@@ -588,7 +591,7 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
             _ ->
                 #{error => unknown}
         end,
-    lager:info("Asked for ~s for blk ~s: ~p",[MyRel,blkid(Hash),R]),
+    lager:info("I am asked for ~s for blk ~s: ~p",[MyRel,blkid(Hash),R]),
 
     case maps:is_key(block, R) of
         false ->
@@ -848,7 +851,8 @@ handle_info({inst_sync, done, Log}, #{ldb:=LDB}=State) ->
 handle_info({b2b_sync, Hash}, #{
   sync:=b2b,
   syncpeer:=Handler,
-  sync_candidates:=Candidates} = State) -> lager:debug("run b2b sync from hash: ~p", [blkid(Hash)]),
+  sync_candidates:=Candidates} = State) ->
+  lager:debug("run b2b sync from hash: ~p", [blkid(Hash)]),
   case tpiccall(Handler,
     #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
     [block]
@@ -864,12 +868,13 @@ handle_info({b2b_sync, Hash}, #{
           try #{block := BlockPart} = R,
           BinBlock = receive_block(Handler, BlockPart),
           #{hash:=NewH} = Block = block:unpack(BinBlock),
+          %TODO Check parent of received block
           case block:verify(Block) of
             {true, _} ->
               gen_server:cast(self(), {new_block, Block, self()}),
               case maps:find(child, Block) of
                 {ok, Child} ->
-                  self() ! {b2b_sync, Child},
+                  self() ! {b2b_sync, NewH},
                   lager:info("block ~s have child ~s", [blkid(NewH), blkid(Child)]),
                   {noreply, State};
                 error ->
@@ -941,7 +946,7 @@ handle_info(
     lastblock:=#{header:=#{height:=MyHeight}, hash:=MyLastHash}
   } = State) ->
   lager:debug("got runsync, myHeight: ~p, myLastHash: ~p", [MyHeight, blkid(MyLastHash)]),
-  
+
   GetDefaultCandidates =
     fun() ->
       lager:debug("use default list of candidates"),
@@ -951,7 +956,7 @@ handle_info(
           [last_hash, last_height, chain]
         ))
     end,
-  
+
   Candidates =
     case maps:get(sync_candidates, State, default) of
       default ->
@@ -962,7 +967,7 @@ handle_info(
         lager:debug("use saved list of candidates"),
         SavedCandidates
     end,
-  
+
   lager:debug("runsync candidates: ~p", [Candidates]),
   case
     lists:foldl( %first suitable will be the quickest
@@ -983,7 +988,7 @@ handle_info(
     undefined ->
       lager:notice("No candidates for sync."),
       {noreply, maps:without([sync, syncblock, syncpeer, sync_candidates], State)};
-    
+
     {Handler,
       #{
         chain:=_Ch,

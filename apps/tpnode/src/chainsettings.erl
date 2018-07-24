@@ -44,7 +44,6 @@ settings_to_ets(NewSettings) ->
   KeyDB=maps:get(keys, NewSettings, #{}),
   NodeChain=maps:get(nodechain, NewSettings, #{}),
   PubKey=nodekey:get_pub(),
-  lager:info("My key ~s", [bin2hex:dbin2hex(PubKey)]),
   ChainNodes0=maps:fold(
                 fun(Name, XPubKey, Acc) ->
                     maps:put(XPubKey, Name, Acc)
@@ -55,7 +54,7 @@ settings_to_ets(NewSettings) ->
                fun(_PubKey, Name) ->
                    maps:get(Name, NodeChain, 0) == MyChain
                end, ChainNodes0),
-  lager:info("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
+  lager:info("My name ~s chain ~p our chain nodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
   ets:insert(blockchain,[{myname,MyName},{chainnodes,ChainNodes},{mychain,MyChain}]),
   NewSettings.
 
