@@ -691,25 +691,34 @@ text_tx2reg() ->
   %  ].
   Packed.
 
-
-test_tx2() ->
+test_tx2b() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr=naddress:decode(<<"AA100000006710887143">>),
+  Seq=bal:get(seq,ledger:get(Addr)),
   T1=#{
     kind => generic,
-    from => <<128,0,32,0,2,0,0,3>>,
-    payload =>
-    [#{amount => 10,cur => <<"XXX">>,purpose => transfer},
-     #{amount => 20,cur => <<"FEE">>,purpose => srcfee}],
-    seq => 5,sign => #{},t => 1530106238743,
-    to => <<128,0,32,0,2,0,0,5>>,
-    ver => 2
+    t => os:system_time(millisecond),
+    seq => Seq+1,
+    from => Addr,
+    to => <<128,1,64,0,4,0,0,2>>,
+    ver => 2,
+    txext => #{
+      <<"message">> => <<"preved">>
+     },
+    payload => [
+                #{amount => 10,cur => <<"FTT">>,purpose => transfer}
+                %#{amount => 20,cur => <<"FTT">>,purpose => srcfee}
+               ]
    },
-  TXConstructed=tx:construct_tx(T1),
-  Packed=tx:pack(tx:sign(TXConstructed,Pvt1)),
-  txpool:new_tx(Packed).
+  TXConstructed=tx:sign(tx:construct_tx(T1),Pvt1),
+  {
+  TXConstructed,
+  txpool:new_tx(TXConstructed)
+  }.
 
-test_tx2b() ->
+
+test_tx2_xc() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr=naddress:decode(<<"AA100000006710887143">>),

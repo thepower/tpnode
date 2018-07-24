@@ -13,7 +13,8 @@
      apply_ledger/2,
      last/0, last/1, chain/0,
      backup/1, restore/1,
-     chainstate/0]).
+     chainstate/0,
+     rel/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -32,6 +33,12 @@ start_link() ->
 chain() ->
   {ok, Chain} = chainsettings:get_setting(mychain),
   Chain.
+
+rel(Hash, Rel) when Rel==prev orelse Rel==child ->
+  gen_server:call(blockchain, {get_block, Hash, Rel});
+
+rel(Hash, self) ->
+  gen_server:call(blockchain, {get_block, Hash}).
 
 last(N) ->
     gen_server:call(blockchain, {last_block, N}).
@@ -287,6 +294,16 @@ handle_call({get_block, BlockHash}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}=L
                               undefined)
           end,
     {reply, Block, State};
+
+handle_call({get_block, BlockHash, Rel}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}}=State) ->
+  %lager:debug("Get block ~p", [BlockHash]),
+  H=if BlockHash==last ->
+         LBH;
+       true ->
+         BlockHash
+    end,
+  Res=block_rel(LDB, H, Rel),
+  {reply, Res, State};
 
 
 handle_call(chainnodes, _From, State) ->
@@ -568,49 +585,32 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
                 %<<"self">> -> self;
                 _ -> self
             end,
-    R = case ldb:read_key(LDB, <<"block:", Hash/binary>>, undefined) of
-            undefined -> #{error=>noblock};
-            #{header:=#{}} = Block when MyRel == self ->
-                #{block => block:pack(Block)};
-            #{header:=#{}, child:=Child} = _Block when MyRel == child ->
-                case ldb:read_key(LDB, <<"block:", Child/binary>>, undefined) of
-                    undefined -> #{error=>havenochild};
-                    #{header:=#{}} = SBlock ->
-                        #{block=>block:pack(SBlock)}
-                end;
-            #{header:=#{}} = _Block when MyRel == child ->
-                #{error=>nochild};
-            #{header:=#{parent:=Parent}} = _Block when MyRel == prev ->
-                case ldb:read_key(LDB, <<"block:", Parent/binary>>, undefined) of
-                    undefined -> #{error=>havenoprev};
-                    #{header:=#{}} = SBlock ->
-                        #{block=>block:pack(SBlock)}
-                end;
-            #{header:=#{}} = _Block when MyRel == prev ->
-                #{error=>noprev};
-            _ ->
-                #{error => unknown}
-        end,
+    R=case block_rel(LDB, Hash, MyRel) of
+      Error when is_atom(Error) ->
+        #{error=> Error};
+      Blk when is_map(Blk) ->
+          #{block => block:pack(Blk)}
+    end,
     lager:info("I am asked for ~s for blk ~s: ~p",[MyRel,blkid(Hash),R]),
 
     case maps:is_key(block, R) of
-        false ->
-            tpic:cast(tpic, Origin,
-                msgpack:pack(
+      false ->
+        tpic:cast(tpic, Origin,
+                  msgpack:pack(
                     maps:merge(
-                        #{
-                            null=> <<"block">>,
-                            req=> #{<<"hash">> => Hash,
-                                <<"rel">> => MyRel}
-                        }, R))),
-            {noreply, State};
+                      #{
+                      null=> <<"block">>,
+                      req=> #{<<"hash">> => Hash,
+                              <<"rel">> => MyRel}
+                     }, R))),
+        {noreply, State};
 
-        true ->
-            #{block := BinBlock} = R,
-            BlockParts = block:split_packet(BinBlock),
-            Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => MyRel}},
-            send_block(tpic, Origin, Map, BlockParts),
-            {noreply, State}
+      true ->
+        #{block := BinBlock} = R,
+        BlockParts = block:split_packet(BinBlock),
+        Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => MyRel}},
+        send_block(tpic, Origin, Map, BlockParts),
+        {noreply, State}
     end;
 
 
@@ -1410,5 +1410,33 @@ restore(Dir, N, Prev, C) ->
 
       ok=gen_server:call(blockchain,{new_block, Blk, self()}),
       restore(Dir, N+1, Hash, C+1)
+  end.
+
+block_rel(LDB,Hash,Rel) when Rel==prev orelse Rel==child orelse Rel==self ->
+  case ldb:read_key(LDB, <<"block:", Hash/binary>>, undefined) of
+    undefined ->
+      noblock;
+    #{header:=#{}} = Block when Rel == self ->
+      Block;
+    #{header:=#{}, child:=Child} = _Block when Rel == child ->
+      case ldb:read_key(LDB, <<"block:", Child/binary>>, undefined) of
+        undefined ->
+          havenochild;
+        #{header:=#{}} = SBlock ->
+          SBlock
+      end;
+    #{header:=#{}} = _Block when Rel == child ->
+      nochild;
+    #{header:=#{parent:=Parent}} = _Block when Rel == prev ->
+      case ldb:read_key(LDB, <<"block:", Parent/binary>>, undefined) of
+        undefined ->
+          havenoprev;
+        #{header:=#{}} = SBlock ->
+          SBlock
+      end;
+    #{header:=#{}} = _Block when Rel == prev ->
+      noprev;
+    _ ->
+      unknown
   end.
 

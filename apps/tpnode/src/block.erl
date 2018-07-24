@@ -6,6 +6,7 @@
 -export([pack/1, unpack/1]).
 -export([packsig/1, unpacksig/1]).
 -export([split_packet/2, split_packet/1, glue_packet/1]).
+-export([outward_chain/2]).
 
 -export([bals2bin/1]).
 
@@ -400,6 +401,59 @@ outward([{TxID, Chain}|Rest], #{txs:=Txs, tx_proof:=Proofs}=Block, Acc) ->
                        { [{TxID, Tx}|ChainTx], [{TxID, Proof}|ChainTp] } , Acc)
              ).
 
+outward_chain(Block, Chain) ->
+  outward_chain(
+    maps:get(outbound, Block, []),
+    Block,
+    Chain,
+    {[],[]}).
+
+
+outward_chain([], _Block, _Chain, {[], _}) ->
+  none;
+
+outward_chain([], Block, Chain, {Tx, Tp}) ->
+  Set=maps:get(settings, Block),
+  Patch=proplists:get_value(<<"outch:",(integer_to_binary(Chain))/binary>>, Set),
+  S1=settings:patch(Patch,#{}),
+  CS=lists:foldl( fun maps:get/2,
+                  S1,
+                  [<<"current">>,
+                   <<"outward">>,
+                   <<"ch:",(integer_to_binary(Chain))/binary>>]
+                ),
+  MiniBlock=maps:with([hash, header, sign], Block),
+  MB=MiniBlock#{ txs=>Tx, tx_proof=>Tp },
+  case CS of
+    #{<<"pre_height">>:=PH,
+      <<"pre_parent">>:=PP} ->
+      MB#{
+        extdata => #{
+          pre_parent=>PP,
+          pre_height=>PH
+         }
+       };
+    #{<<"parent">>:=_} ->
+      MB#{
+        extdata => #{
+         }
+       }
+  end;
+
+
+outward_chain([{TxID, Chain}|Rest],
+              #{txs:=Txs, tx_proof:=Proofs}=Block,
+              ReqChain, {ChainTx, ChainTp}) when Chain==ReqChain ->
+    Tx=proplists:get_value(TxID, Txs),
+    Proof=proplists:get_value(TxID, Proofs),
+    outward_chain(Rest,
+                  Block,
+                  ReqChain,
+                  { [{TxID, Tx}|ChainTx], [{TxID, Proof}|ChainTp] }
+                 );
+
+outward_chain([{_, _}|Rest], Block, ReqChain, Acc) ->
+  outward_chain(Rest, Block, ReqChain, Acc).
 
 binarizetx([]) ->
     [];
