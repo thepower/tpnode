@@ -848,11 +848,11 @@ handle_info({inst_sync, done, Log}, #{ldb:=LDB}=State) ->
            {noreply, State}
     end;
 
-handle_info({b2b_sync, Hash}, #{
-  sync:=b2b,
+handle_info({bbyb_sync, Hash}, #{
+  sync:=bbyb,
   syncpeer:=Handler,
   sync_candidates:=Candidates} = State) ->
-  lager:debug("run b2b sync from hash: ~p", [blkid(Hash)]),
+  lager:debug("run bbyb sync from hash: ~p", [blkid(Hash)]),
   case tpiccall(Handler,
     #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
     [block]
@@ -864,7 +864,7 @@ handle_info({b2b_sync, Hash}, #{
           {noreply, State#{
             sync_candidates => tl(Candidates)
           }};
-        true -> lager:debug("block found in received b2b sync data"),
+        true -> lager:debug("block found in received bbyb sync data"),
           try #{block := BlockPart} = R,
           BinBlock = receive_block(Handler, BlockPart),
           #{hash:=NewH} = Block = block:unpack(BinBlock),
@@ -874,7 +874,7 @@ handle_info({b2b_sync, Hash}, #{
               gen_server:cast(self(), {new_block, Block, self()}),
               case maps:find(child, Block) of
                 {ok, Child} ->
-                  self() ! {b2b_sync, NewH},
+                  self() ! {bbyb_sync, NewH},
                   lager:info("block ~s have child ~s", [blkid(NewH), blkid(Child)]),
                   {noreply, State};
                 error ->
@@ -901,7 +901,7 @@ handle_info({b2b_sync, Hash}, #{
           end
       end;
     _ ->
-      lager:error("b2b no response"), erlang:send_after(10000, self(), runsync),
+      lager:error("bbyb no response"), erlang:send_after(10000, self(), runsync),
       {noreply, State#{
         sync_candidates => tl(Candidates)
       }}
@@ -1034,10 +1034,10 @@ handle_info(
           }};
         true ->
           %try block by block
-          lager:error("RUN b2b sync since ~s", [blkid(MyLastHash)]),
-          self() ! {b2b_sync, MyLastHash},
+          lager:error("RUN bbyb sync since ~s", [blkid(MyLastHash)]),
+          self() ! {bbyb_sync, MyLastHash},
           {noreply, State#{
-            sync=>b2b,
+            sync=>bbyb,
             syncpeer=>Handler,
             sync_candidates => Candidates
           }}
