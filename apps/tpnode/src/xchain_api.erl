@@ -30,7 +30,7 @@ reply(Code, Result) ->
 
 
   {Code,
-   {Result, 
+   {Result,
     #{jsx=>[ strict, {error_handler, EHF} ]}
    }
   }.
@@ -45,6 +45,56 @@ h(<<"OPTIONS">>, _, _Req) ->
   {200, [], ""};
 
 
+h(<<"GET">>, [<<"parent">>,BChain,<<"last">>], _Req) ->
+  h(<<"GET">>, [<<"last">>,BChain], _Req);
+
+h(<<"GET">>, [<<"parent">>,BChain,SParent], _Req) ->
+  try
+    Parent=case SParent of
+             <<"0x", BArr/binary>> ->
+               hex:parse(BArr);
+             <<_:32/binary>> ->
+               SParent;
+             Any ->
+               base64:decode(Any)
+           end,
+    Chain=binary_to_integer(BChain),
+    Res=blockchain:rel(Parent,child),
+    if is_map(Res) -> ok;
+       is_atom(Res) ->
+         throw({noblock, Res})
+    end,
+    O=maps:get(settings, Res),
+    P=block:outward_ptrs(O,Chain),
+    reply(200,
+          #{ ok => true,
+             pointers => P
+           })
+
+  catch error:{badkey,outbound} ->
+          reply(404,
+                #{ ok=>false,
+                   error => <<"no outbound">>
+                 });
+        throw:noout ->
+          reply(404,
+                #{ ok=>false,
+                   error => <<"no outbound for this chain">>
+                 });
+        throw:{noblock, _R} ->
+          reply(404,
+                #{ ok=>false,
+                   error => <<"no block">>
+                 })
+  end;
+
+h(<<"GET">>, [<<"last">>,BChain], _Req) ->
+  Chain=binary_to_integer(BChain),
+  ChainPath=[<<"current">>, <<"outward">>, xchain:pack_chid(Chain)],
+  Last=chainsettings:get_settings_by_path(ChainPath),
+  reply(200, #{ pointers=>Last,
+                ok=>true });
+
 h(<<"GET">>, [<<"owbyparent">>,BChain,SParent], _Req) ->
   Parent=case SParent of
            <<"0x", BArr/binary>> ->
@@ -57,7 +107,7 @@ h(<<"GET">>, [<<"owbyparent">>,BChain,SParent], _Req) ->
   Chain=binary_to_integer(BChain),
   Res=blockchain:rel(Parent,child),
   OutwardBlock=block:outward_chain(Res,Chain),
-  case OutwardBlock of 
+  case OutwardBlock of
     none ->
       reply(404,
             #{ ok=>false,
@@ -71,14 +121,6 @@ h(<<"GET">>, [<<"owbyparent">>,BChain,SParent], _Req) ->
              })
   end;
 
-
-h(<<"GET">>, [<<"last">>,BChain], _Req) ->
-  Chain=binary_to_integer(BChain),
-  ChainPath=[<<"current">>, <<"outward">>, xchain:pack_chid(Chain)],
-  Last=chainsettings:get_settings_by_path(ChainPath),
-  reply(200, #{ last=>Last,
-                ok=>true });
-
 h(_Method, [<<"status">>], Req) ->
   {RemoteIP, _Port} = cowboy_req:peer(Req),
   lager:info("api call from ~p", [inet:ntoa(RemoteIP)]),
@@ -89,6 +131,8 @@ h(_Method, [<<"status">>], Req) ->
     data => #{
       request => Body
      }
-    %%            test => maps:from_list([{"192.168.2.1", 1234}, {"192.168.2.4", 1234}])
    }).
+
+
+
 

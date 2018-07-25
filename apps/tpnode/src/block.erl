@@ -6,7 +6,7 @@
 -export([pack/1, unpack/1]).
 -export([packsig/1, unpacksig/1]).
 -export([split_packet/2, split_packet/1, glue_packet/1]).
--export([outward_chain/2]).
+-export([outward_chain/2, outward_ptrs/2]).
 
 -export([bals2bin/1]).
 
@@ -414,14 +414,7 @@ outward_chain([], _Block, _Chain, {[], _}) ->
 
 outward_chain([], Block, Chain, {Tx, Tp}) ->
   Set=maps:get(settings, Block),
-  Patch=proplists:get_value(<<"outch:",(integer_to_binary(Chain))/binary>>, Set),
-  S1=settings:patch(Patch,#{}),
-  CS=lists:foldl( fun maps:get/2,
-                  S1,
-                  [<<"current">>,
-                   <<"outward">>,
-                   <<"ch:",(integer_to_binary(Chain))/binary>>]
-                ),
+  CS=outward_ptrs(Set, Chain),
   MiniBlock=maps:with([hash, header, sign], Block),
   MB=MiniBlock#{ txs=>Tx, tx_proof=>Tp },
   case CS of
@@ -440,7 +433,6 @@ outward_chain([], Block, Chain, {Tx, Tp}) ->
        }
   end;
 
-
 outward_chain([{TxID, Chain}|Rest],
               #{txs:=Txs, tx_proof:=Proofs}=Block,
               ReqChain, {ChainTx, ChainTp}) when Chain==ReqChain ->
@@ -454,6 +446,24 @@ outward_chain([{TxID, Chain}|Rest],
 
 outward_chain([{_, _}|Rest], Block, ReqChain, Acc) ->
   outward_chain(Rest, Block, ReqChain, Acc).
+
+outward_ptrs(Settings, Chain) ->
+  Patch=proplists:get_value(<<"outch:",(integer_to_binary(Chain))/binary>>, Settings),
+  if Patch==undefined ->
+       error;
+     true ->
+       S1=settings:patch(Patch,#{}),
+       lists:foldl( fun maps:get/2,
+                    S1,
+                    [<<"current">>,
+                     <<"outward">>,
+                     <<"ch:",(integer_to_binary(Chain))/binary>>]
+                  )
+  end.
+
+
+
+
 
 binarizetx([]) ->
     [];

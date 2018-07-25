@@ -793,6 +793,41 @@ patch_v2() ->
    txpool:new_tx(Patch)
   }.
 
+get_mp(URL) ->
+  {ok, {{_HTTP11, 200, _OK}, Headers, Body}}=
+  httpc:request(get, {URL, []}, [], [{body_format, binary}]),
+  case proplists:get_value("content-type",Headers) of
+    "application/msgpack" ->
+      {ok, Res}=msgpack:unpack(Body),
+      Res;
+    "application/json" -> jsx:decode(Body, [return_maps]);
+    ContentType ->
+      {ContentType, Body}
+  end.
+
+get_xchain_prev(Url, Ptr,Chain, Acc, Max) ->
+  EPtr=case Ptr of
+         <<_:32/binary>> ->
+           "0x"++binary_to_list(hex:encode(Ptr));
+         "last"->"last"
+       end,
+  MP=get_mp(Url++"/xchain/api/parent/"++
+         integer_to_list(Chain)++"/"++EPtr++".mp"),
+  case MP of
+     #{<<"pointers">>:=#{<<"pre_parent">>:=PP,
+                    <<"parent">>:=P,
+                        <<"height">>:=H}} ->
+      get_xchain_prev(Url, PP, Chain, [{H,P}|Acc], Max-1);
+    #{<<"pointers">>:=#{<<"parent">>:=P,
+                        <<"height">>:=H}} ->
+      [{H,P}|Acc];
+    Default ->
+      [Default|Acc]
+  end.
+
+get_xchain_blocks(Url,Chain) ->
+  get_xchain_prev(Url,"last",Chain,[],10).
+
 -include_lib("public_key/include/OTP-PUB-KEY.hrl").
 
 test_parse_cert() ->
