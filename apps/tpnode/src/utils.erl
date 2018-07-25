@@ -1,6 +1,6 @@
 -module(utils).
 
--export([make_binary/1, make_list/1]).
+-export([make_binary/1, make_list/1, apply_macro/2]).
 
 
 %% -------------------------------------------------------------------------------------
@@ -27,3 +27,17 @@ make_list(_Arg) ->
   throw(badarg).
 
 
+%% -------------------------------------------------------------------------------------
+
+apply_macro(MapWithMacro, Dict) when is_map(MapWithMacro) andalso is_map(Dict) ->
+  Worker =
+    fun(DictKey, DictValue, SrcMap) ->
+      maps:map(
+        fun(_K, V) ->
+          case V of
+            DictKey -> DictValue;
+            _ -> V
+          end
+        end, SrcMap)
+    end,
+  maps:fold(Worker, MapWithMacro, Dict).
