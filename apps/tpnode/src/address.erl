@@ -92,7 +92,7 @@ check(Address) ->
     end.
 
 encodekey(Pvt) ->
-    H2= <<128, Pvt/binary>>,
+    H2= <<128, Pvt/binary, 1>>,
     <<H3:4/binary, _/binary>>=crypto:hash(sha256, crypto:hash(sha256, H2)),
     base58:encode(<<H2/binary, H3/binary>>).
 
