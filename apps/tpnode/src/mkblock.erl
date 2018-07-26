@@ -263,7 +263,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
               case ledger:get(Addr) of
                 #{Addr:=Bal} -> Bal;
                 not_found -> bal:new()
-              end;
+              end
           end,
 
   #{block:=Block,
