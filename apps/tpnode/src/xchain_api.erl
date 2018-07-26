@@ -35,6 +35,12 @@ reply(Code, Result) ->
    }
   }.
 
+h(<<"GET">>, [<<"compat">>], _Req) ->
+  reply(200,
+        #{ ok => true,
+           version => 2
+         });
+
 h(<<"POST">>, [<<"ping">>], _Req) ->
   reply(200,
         #{ ok => true,

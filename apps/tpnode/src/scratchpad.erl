@@ -805,7 +805,13 @@ get_mp(URL) ->
       {ContentType, Body}
   end.
 
-get_xchain_prev(Url, Ptr,Chain, Acc, Max) ->
+get_xchain_prev(_Url, _Ptr, _StopAtH, _Chain, Acc, 0) ->
+  Acc;
+
+get_xchain_prev(_Url, _Ptr, StopAtH, _Chain, [{H,_}|_]=Acc, _Max) when StopAtH>=H ->
+  Acc;
+
+get_xchain_prev(Url, Ptr, StopAtH, Chain, Acc, Max) ->
   EPtr=case Ptr of
          <<_:32/binary>> ->
            "0x"++binary_to_list(hex:encode(Ptr));
@@ -817,7 +823,7 @@ get_xchain_prev(Url, Ptr,Chain, Acc, Max) ->
      #{<<"pointers">>:=#{<<"pre_parent">>:=PP,
                     <<"parent">>:=P,
                         <<"height">>:=H}} ->
-      get_xchain_prev(Url, PP, Chain, [{H,P}|Acc], Max-1);
+      get_xchain_prev(Url, PP, StopAtH, Chain, [{H,P}|Acc], Max-1);
     #{<<"pointers">>:=#{<<"parent">>:=P,
                         <<"height">>:=H}} ->
       [{H,P}|Acc];
@@ -825,8 +831,8 @@ get_xchain_prev(Url, Ptr,Chain, Acc, Max) ->
       [Default|Acc]
   end.
 
-get_xchain_blocks(Url,Chain) ->
-  get_xchain_prev(Url,"last",Chain,[],10).
+get_xchain_blocks(Url,StopAtH,Chain,Max) ->
+  get_xchain_prev(Url,"last",StopAtH,Chain,[],Max).
 
 -include_lib("public_key/include/OTP-PUB-KEY.hrl").
 
