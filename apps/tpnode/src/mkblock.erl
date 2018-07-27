@@ -254,10 +254,16 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
              end,
     FindBlock(last, Back)
   end,
-  AddrFun=fun({Addr, Cur}) ->
-              gen_server:call(blockchain, {get_addr, Addr, Cur});
+  AddrFun=fun({Addr, _Cur}) ->
+              case ledger:get(Addr) of
+                #{amount:=_}=Bal -> Bal;
+                not_found -> bal:new()
+              end;
              (Addr) ->
-              gen_server:call(blockchain, {get_addr, Addr})
+              case ledger:get(Addr) of
+                #{amount:=_}=Bal -> Bal;
+                not_found -> bal:new()
+              end
           end,
 
   #{block:=Block,
