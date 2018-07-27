@@ -11,6 +11,9 @@ make_binary(Arg) when is_binary(Arg) ->
 make_binary(Arg) when is_list(Arg) ->
   list_to_binary(Arg);
 
+make_binary(Arg) when is_atom(Arg) ->
+  atom_to_binary(Arg, utf8);
+
 make_binary(_Arg) ->
   throw(badarg).
 
@@ -22,6 +25,9 @@ make_list(Arg) when is_list(Arg) ->
 
 make_list(Arg) when is_binary(Arg) ->
   binary_to_list(Arg);
+
+make_list(Arg) when is_atom(Arg) ->
+  atom_to_list(Arg);
 
 make_list(_Arg) ->
   throw(badarg).
