@@ -32,6 +32,7 @@ all() ->
         discovery_lookup_test,
         discovery_unregister_by_name_test,
         discovery_unregister_by_pid_test,
+        discovery_ssl_test,
         instant_sync_test
     ].
 
@@ -208,29 +209,70 @@ discovery_unregister_by_pid_test(_Config) ->
     ?assertEqual({error, not_found, <<"test_service2">>}, Result4).
 
 
+build_announce(Name) when is_binary(Name)->
+  build_announce(#{name => Name});
+
 % build announce as c4n3
-build_announce(Name) ->
-    Now = os:system_time(second),
-    Announce = #{
-        name => Name,
-        address => #{
-            address => <<"127.0.0.1">>,
-            hostname => "c4n3.pwr.local",
-            port => 1234,
-            proto => api
-        },
-        created => Now,
-        ttl => 600,
-        scopes => [api, xchain],
-        nodeid => <<"28AFpshz4W4YD7tbLj1iu4ytpPzQ">>, % id from c4n3
-        chain => 4
+build_announce(Options) when is_map(Options) ->
+  Now = os:system_time(second),
+  Name = maps:get(name, Options, <<"service_name">>),
+  Proto =  maps:get(proto, Options, api),
+  Port = maps:get(port, Options, 1234),
+  Hostname = utils:make_list(maps:get(hostname, Options, "c4n3.pwr.local")),
+  Scopes = maps:get(scopes, Options, [api, xchain]),
+  Ttl = maps:get(ttl, Options, 600),
+  Created = maps:get(created, Options, Now),
+  Chain = maps:get(chain, Options, 4),
+  Ip = utils:make_binary(maps:get(ip, Options, <<"127.0.0.1">>)),
+  Announce = #{
+    name => Name,
+    address => #{
+      address => Ip,
+      hostname => Hostname,
+      port => Port,
+      proto => Proto
     },
-    meck:new(nodekey),
-    % priv key from c4n3 node
-    meck:expect(nodekey, get_priv, fun() -> hex:parse("2ACC7ACDBFFA92C252ADC21D8469CC08013EBE74924AB9FEA8627AE512B0A1E0") end),
-    AnnounceBin = discovery:pack(Announce),
-    meck:unload(nodekey),
-    {Announce, AnnounceBin}.
+    created => Created,
+    ttl => Ttl,
+    scopes => Scopes,
+    nodeid => <<"28AFpshz4W4YD7tbLj1iu4ytpPzQ">>, % id from c4n3
+    chain => Chain
+  },
+  meck:new(nodekey),
+  % priv key from c4n3 node
+  meck:expect(nodekey, get_priv, fun() ->
+    hex:parse("2ACC7ACDBFFA92C252ADC21D8469CC08013EBE74924AB9FEA8627AE512B0A1E0") end),
+  AnnounceBin = discovery:pack(Announce),
+  meck:unload(nodekey),
+  {Announce, AnnounceBin}.
+
+discovery_ssl_test(_Config) ->
+  DiscoveryC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
+  ServiceName = <<"apispeer">>,
+  {Announce, AnnounceBin} =
+    build_announce(#{
+      name => ServiceName,
+      proto => apis
+    }),
+  NodeId = maps:get(nodeid, Announce, unknown),
+  Address = maps:get(address, Announce, unknown),
+  Hostname = utils:make_binary(maps:get(hostname, Address, unknown)),
+  IpAddr = utils:make_binary(maps:get(address, Address, unknown)),
+  PortNo = maps:get(port, Address, 1234),
+  Host = <<"https://", Hostname/binary, ":", (integer_to_binary(PortNo))/binary>>,
+  Ip =  <<"https://", IpAddr/binary, ":", (integer_to_binary(PortNo))/binary>>,
+  gen_server:cast(DiscoveryC4N1, {got_announce, AnnounceBin}),
+  timer:sleep(2000),  % wait for announce propagation
+  Result = rpc:call(get_node(<<"test_c4n1">>), tpnode_httpapi, get_nodes, [4]),
+  io:format("get_nodes answer: ~p~n", [Result]),
+  ?assertMatch(#{NodeId := #{ host := _, ip := _}}, Result),
+  AddrInfo = maps:get(NodeId, Result, #{}),
+  Hosts = maps:get(host, AddrInfo, []),
+  Ips = maps:get(ip, AddrInfo, []),
+  ?assertEqual(true, lists:member(Host, Hosts)),
+  ?assertEqual(true, lists:member(Ip, Ips)).
+  
+  
 
 
 discovery_got_announce_test(_Config) ->
@@ -428,6 +470,8 @@ dump_testnet_state() ->
     lists:foreach(StateDumper, ?TESTNET_NODES),
     ok.
     
+
+
 
 transaction_test(_Config) ->
     % регистрируем кошелек
