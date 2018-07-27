@@ -9,6 +9,13 @@
 -export([answer/0, answer/1, err/1, err/2, err/3, err/4]).
 
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
+
+
 add_address(Address, Map1) ->
     HexAddress = <<"0x",(hex:encode(Address))/binary>>,
     TxtAddress = naddress:encode(Address),
