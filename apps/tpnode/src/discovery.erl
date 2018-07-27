@@ -692,7 +692,6 @@ query_remote(Name, _Dict, Chain) ->
 % --------------------------------------------------------
 
 query(Name0, Chain, State) ->
-    timer:sleep(1000),
     Name = convert_to_binary(Name0),
     LocalChain = blockchain:chain(),
     #{local_services := LocalDict, remote_services := RemoteDict} = State,
