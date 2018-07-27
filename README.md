@@ -2,6 +2,7 @@
 
 - Устанавливаем vagrant: `brew install caskroom/cask/vagrant`
 - Если используется parallels, дополнительно добавим поддержку в vagrant: `vagrant plugin install vagrant-parallels`
+- Если virtualbox `export PATH=/Applications/VirtualBox.app/Contents/MacOS:$PATH`
 - Для конфигурирования хостовой машины используется плагин hostmanager, добавим его: `vagrant plugin install vagrant-hostmanager`
 - Клонируем этот репозиторий, переходим в директорию с репозиторием
 - `vagrant up`
