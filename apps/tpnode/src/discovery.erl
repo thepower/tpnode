@@ -534,16 +534,16 @@ delete_service(InvalidName, Dict) ->
 
 % --------------------------------------------------------
 
-% translate IP address aliases to local IPv4 or IPv6 address
-translate_address(#{address:=IP} = Address) when is_map(Address) ->
-  case IP of
-    local4 ->
-      maps:put(address, hd(discovery:my_address_v4()), Address);
-    local6 ->
-      maps:put(address, hd(discovery:my_address_v6()), Address);
-    _ ->
-      Address
-  end.
+%%% translate IP address aliases to local IPv4 or IPv6 address
+%%translate_address(#{address:=IP} = Address) when is_map(Address) ->
+%%  case IP of
+%%    local4 ->
+%%      maps:put(address, hd(discovery:my_address_v4()), Address);
+%%    local6 ->
+%%      maps:put(address, hd(discovery:my_address_v6()), Address);
+%%    _ ->
+%%      Address
+%%  end.
 
 % --------------------------------------------------------
 
