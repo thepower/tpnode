@@ -893,11 +893,6 @@ get_nodes(Chain) when is_integer(Chain) ->
             Host = add_proto(Host0, Proto),
             Ip = add_proto(Ip0, Proto),
           
-            io:format(
-              "host: ~p, ip: ~p, port: ~p, host0: ~p, addr: ~p~n",
-              [Host, Ip, Port, Host0, maps:get(hostname, Addr, xxx)]
-            ),
-
             case maps:get(nodeid, Addr, unknown) of
                 unknown -> NodeMap;
                 NodeId ->
