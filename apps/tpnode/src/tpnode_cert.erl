@@ -358,10 +358,11 @@ do_cert_request(Hostname) ->
 -spec is_ssl_started() -> true|false|unknown.
 
 is_ssl_started() ->
+  
   Children = supervisor:which_children(tpnode_sup),
   Names = tpnode_http:child_names_ssl(),
   Checker =
-    fun(Name, State) when State =:= unknown, State =:= true ->
+    fun(Name, State) when State =:= unknown orelse State =:= true ->
       case lists:keyfind({ranch_listener_sup, Name}, 1, Children) of
         false -> false;
         _ -> true
