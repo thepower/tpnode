@@ -369,6 +369,16 @@ is_right_proto(ServiceName, Proto)  ->
 
 % --------------------------------------------------------
 
+get_local_names(Names) ->
+  case tpnode_cert:is_ssl_started() of
+    true ->
+      maps:keys(Names) ++ [<<"apispeer">>];
+    _ ->
+      maps:keys(Names)
+  end.
+
+% --------------------------------------------------------
+
 % make announce of our local services with tpic scope
 make_announce(#{names:=Names} = _Dict, State) ->
   lager:debug("Announcing our local services"),
@@ -379,7 +389,9 @@ make_announce(#{names:=Names} = _Dict, State) ->
   AllScopesCfg = get_config(scope, ?DEFAULT_SCOPE_CONFIG, State),
   MacroDict = get_config(macro_dict, #{}, State),
   
-  Announcer = fun(Name, _ServiceSettings, Counter) ->
+  LocalNames = get_local_names(Names),
+  
+  Announcer = fun(Name, Counter) ->
     Counter + lists:foldl(
       % #{address => local4, port => 53221, proto => tpic}
       fun(#{proto := Proto} = Address, AddrCounter) ->
@@ -412,7 +424,7 @@ make_announce(#{names:=Names} = _Dict, State) ->
       0,
       Addresses)
               end,
-  ServicesCount = maps:fold(Announcer, 0, Names),
+  ServicesCount = lists:foldl(Announcer, 0, LocalNames),
   lager:debug("Announced ~p of our services", [ServicesCount]),
   ok.
 
@@ -651,13 +663,7 @@ query_local(Name, #{names:=Names} = _Dict, State) ->
         add_hostname(substitute_macro(Address, MacroDict), Hostname),
       maps:put(nodeid, NodeId, Translated)
     end,
-  LocalNames =
-    case tpnode_cert:is_ssl_started() of
-      true ->
-        maps:keys(Names) ++ [<<"apispeer">>];
-      _ ->
-        maps:keys(Names)
-    end,
+  LocalNames = get_local_names(Names),
   case lists:member(Name, LocalNames) of
     false -> [];
     true ->
