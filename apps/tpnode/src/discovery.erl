@@ -56,8 +56,9 @@ my_address_v6() ->
   lists:foldl(
     fun({_NetIf, Flags}, Acc0) ->
       lists:foldl(
-        fun({addr, {0, _, _, _, _, _, _, _}}, Acc1) ->
-          Acc1;
+        fun
+          ({addr, {0, _, _, _, _, _, _, _}}, Acc1) ->
+            Acc1;
           ({addr, {16#fe80, _, _, _, _, _, _, _}}, Acc1) ->
             Acc1;
           ({addr, {_, _, _, _, _, _, _, _} = A}, Acc1) ->
@@ -559,8 +560,18 @@ substitute_macro(Address, Dict) when is_map(Address), is_map(Dict) ->
           _ ->
             throw(pass)  % we can't resolve this macro because ssl is down
         end;
-      
+
+      (address, local6) ->
+        case my_address_v6() of
+          [] ->
+            lager:error("can't find ipv6 address for local6 macro"),
+            throw(pass); % skip this address announce because host don't support ipv6
+          IPv6Addresses ->
+            hd(IPv6Addresses)
+        end;
+        
       (proto, apis) when IsSslRan =/= true ->
+        lager:error("skip apis proto because ssl is down right now"),
         throw(pass);  % we can't announce this proto because ssl is down
       
       (_K, V) ->
@@ -570,29 +581,29 @@ substitute_macro(Address, Dict) when is_map(Address), is_map(Dict) ->
 
 % --------------------------------------------------------
 build_macro_dict() ->
-    DictKeys = [local4, local6, rpcport, tpicport],
-    Worker =
-        fun
-            (local4, Dict) ->
-                maps:put(local4, hd(discovery:my_address_v4()), Dict);
-            (local6, Dict) ->
-                maps:put(local6, hd(discovery:my_address_v6()), Dict);
-            (rpcport, Dict) ->
-                Port = application:get_env(tpnode, rpcport, 43280),
-                maps:put(rpcport, Port, Dict);
-            (tpicport, Dict) ->
-                TpicConfig = application:get_env(tpnode, tpic, #{}),
-                TpicPort =
-                    case maps:get(port, TpicConfig, unknown) of
-                        unknown ->
-                            lager:error("Undefined tpic port. Can't read tpic configuration"),
-                            throw(unknown_tpic);
-                        ValidPort ->
-                            ValidPort
-                    end,
-                maps:put(tpicport, TpicPort, Dict)
-        end,
-    lists:foldl(Worker, #{}, DictKeys).
+  DictKeys = [local4, rpcport, tpicport],  % mandatory macro names
+  Worker =
+    fun
+      (local4, Dict) ->
+        maps:put(local4, hd(my_address_v4()), Dict);
+%%      (local6, Dict) ->
+%%        maps:put(local6, hd(my_address_v6()), Dict);
+      (rpcport, Dict) ->
+        Port = application:get_env(tpnode, rpcport, 43280),
+        maps:put(rpcport, Port, Dict);
+      (tpicport, Dict) ->
+        TpicConfig = application:get_env(tpnode, tpic, #{}),
+        TpicPort =
+          case maps:get(port, TpicConfig, unknown) of
+            unknown ->
+              lager:error("Undefined tpic port. Can't read tpic configuration"),
+              throw(unknown_tpic);
+            ValidPort ->
+              ValidPort
+          end,
+        maps:put(tpicport, TpicPort, Dict)
+    end,
+  lists:foldl(Worker, #{}, DictKeys).
 
 
 % --------------------------------------------------------
