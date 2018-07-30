@@ -9,6 +9,13 @@
 -export([answer/0, answer/1, err/1, err/2, err/3, err/4]).
 
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
+
+
 add_address(Address, Map1) ->
     HexAddress = <<"0x",(hex:encode(Address))/binary>>,
     TxtAddress = naddress:encode(Address),
@@ -835,45 +842,57 @@ show_signs(Signs, BinPacker, IsNode) ->
 % ----------------------------------------------------------------------
 
 get_nodes(Chain) when is_integer(Chain) ->
-%%    Nodes = gen_server:call(discovery, {lookup, <<"apipeer">>, Chain}),
     Nodes = discovery:lookup(<<"apipeer">>, Chain),
-    WhitelistedKeys =
-        [address, <<"address">>, port, <<"port">>, hostname, <<"hostname">>,
-            nodeid, <<"nodeid">>],
+    NodesHttps = discovery:lookup(<<"apispeer">>, Chain),
 
+%%    io:format("Nodes: ~p~n", [Nodes]),
+%%    io:format("NodesHttps: ~p~n", [NodesHttps]),
+  
+    % sanitize data types
     Nodes1 = lists:map(
         fun(Addr) when is_map(Addr) ->
             maps:map(
-                fun(address, Ip) when is_list(Ip) ->
-                    list_to_binary(Ip);
-                    (hostname, Name) when is_list(Name) ->
-                    list_to_binary(Name);
+                fun(address, Ip) ->
+                    utils:make_binary(Ip);
+                    (hostname, Name) ->
+                    utils:make_binary(Name);
                     (_, V) ->
                         V
                 end,
-                maps:with(WhitelistedKeys, Addr)
+                Addr
             );
             (V) ->
                 V
         end,
-        Nodes
+      NodesHttps ++ Nodes
     ),
+  
+%%    io:format("nodes1: ~p~n", [Nodes1]),
+  
     AddToList =
         fun(List, NewItem) ->
             case NewItem of
                 unknown ->
                     List;
                 _ ->
-                    lists:usort([NewItem | List])
+                    [NewItem | List]
             end
         end,
-    lists:foldl(
+    Result = lists:foldl(
         fun(Addr, NodeMap) when is_map(Addr) ->
-            Host = maps:get(hostname, Addr, unknown),
-            Ip0 = maps:get(address, Addr, unknown),
             Port = maps:get(port, Addr, unknown),
-            Ip = add_port_to_ip(Ip0, Port),
-
+            Host0 = add_port(maps:get(hostname, Addr, unknown), Port),
+            Ip0 = add_port(maps:get(address, Addr, unknown), Port),
+            Proto =
+              case utils:make_binary(maps:get(proto, Addr, unknown)) of
+                <<"api">> -> <<"http">>;
+                <<"apis">> -> <<"https">>;
+                _ -> unknown
+              end,
+  
+            Host = add_proto(Host0, Proto),
+            Ip = add_proto(Ip0, Proto),
+          
             case maps:get(nodeid, Addr, unknown) of
                 unknown -> NodeMap;
                 NodeId ->
@@ -898,13 +917,37 @@ get_nodes(Chain) when is_integer(Chain) ->
         end,
         #{},
         Nodes1
-    ).
+    ),
+    remove_duplicates(Result).
 
-add_port_to_ip(unknown, _Port) ->
+
+% #{<<"node_id">> => #{ host => [], ip => []}}
+remove_duplicates(NodeMap) ->
+  Worker =
+    fun(_NodeId, KeyMap) ->
+      Sorter =
+        fun
+          (host, V) ->
+            lists:usort(V);
+          (ip, V) ->
+            lists:usort(V);
+          (_, V) ->
+            V
+        end,
+      
+      maps:map(Sorter, KeyMap)
+    end,
+  maps:map(Worker, NodeMap).
+
+
+
+% ----------------------------------------------------------------------
+
+add_port(unknown, _Port) ->
     unknown;
-add_port_to_ip(_Ip, unknown) ->
+add_port(_Ip, unknown) ->
     unknown;
-add_port_to_ip(Ip, Port)
+add_port(Ip, Port)
     when is_binary(Ip) andalso is_integer(Port) ->
         case inet:parse_address(binary_to_list(Ip)) of
             {ok, {_,_,_,_}} ->
@@ -912,12 +955,29 @@ add_port_to_ip(Ip, Port)
             {ok, _} ->
                 <<"[", Ip/binary, "]:", (integer_to_binary(Port))/binary>>;
             _ ->
-                unknown
+              <<Ip/binary, ":", (integer_to_binary(Port))/binary>>
         end;
 
-add_port_to_ip(Ip, Port) ->
+add_port(Ip, Port) ->
     lager:error("Invalid ip address (~p) or port (~p)", [Ip, Port]),
     unknown.
+
+% ----------------------------------------------------------------------
+
+add_proto(unknown, _Proto) ->
+  unknown;
+
+add_proto(_Ip, unknown) ->
+  unknown;
+
+add_proto(Ip, Proto) when is_binary(Ip) ->
+  <<Proto/binary, "://", Ip/binary>>;
+
+add_proto(Ip, Proto) ->
+  lager:error("Invalid ip address (~p) or proto (~p)", [Ip, Proto]),
+  unknown.
+
+% ----------------------------------------------------------------------
 
 packer(Req,Default) ->
   QS=cowboy_req:parse_qs(Req),
@@ -930,6 +990,8 @@ packer(Req,Default) ->
            b64 -> fun(Bin) -> base64:encode(Bin) end
          end
   end.
+
+% ----------------------------------------------------------------------
 
 binjson(Term) ->
   EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->

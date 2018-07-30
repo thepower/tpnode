@@ -1,5 +1,5 @@
 -module(tpnode_http).
--export([childspec/0, childspec_ssl/2, child_names_ssl/0]).
+-export([childspec/0, childspec_ssl/2, child_names_ssl/0, get_ssl_port/0]).
 
 
 get_http_conn_type() ->
@@ -55,8 +55,12 @@ childspec() ->
   ].
 
 
+get_ssl_port() ->
+  application:get_env(tpnode, rpcsport, 43380).
+  
+
 childspec_ssl(CertFile, KeyFile) ->
-  Port = application:get_env(tpnode, rpcsport, 43380),
+  Port = get_ssl_port(),
   SslOpts = [
     {certfile, utils:make_list(CertFile)},
     {keyfile, utils:make_list(KeyFile)}],
