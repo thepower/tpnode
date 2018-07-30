@@ -329,8 +329,8 @@ is_local_service(#{nodeid:=RemoteNodeId} = _Announce) ->
     MyNodeId = nodekey:node_id(),
     MyNodeId =:= RemoteNodeId;
 
-%%is_local_service(#{<<"nodeid">>:=RemoteNodeId} = Announce) ->
-%%    is_local_service(Announce#{nodeid => RemoteNodeId});
+is_local_service(#{<<"nodeid">>:=RemoteNodeId} = Announce) ->
+    is_local_service(Announce#{nodeid => RemoteNodeId});
 
 is_local_service(_Announce) ->
     false.
@@ -364,9 +364,8 @@ get_default_addresses() ->
 
 % --------------------------------------------------------
 
-is_right_proto(ServiceName, Proto0)  ->
-    Proto = convert_to_binary(Proto0),
-    (<<Proto/binary, "peer">> =:= ServiceName).
+is_right_proto(ServiceName, Proto)  ->
+    (<<(utils:make_binary(Proto))/binary, "peer">> =:= ServiceName).
 
 % --------------------------------------------------------
 
@@ -629,8 +628,8 @@ lookup(Name, Chain) ->
         gen_server:call(Discovery, {lookup, Name, Chain})
     catch
         exit:{timeout, Details} = Reason ->
-            ProcInfo = erlang:process_info(Discovery),
             StackTrace = erlang:process_info(Discovery, current_stacktrace),
+            ProcInfo = erlang:process_info(Discovery),
             QLen = proplists:get_value(message_queue_len, ProcInfo),
             lager:error("got lookup timeout: ~p", [Details]),
             lager:error("message_queue_len: ~p", [QLen]),
@@ -642,39 +641,48 @@ lookup(Name, Chain) ->
 % --------------------------------------------------------
 
 % check if local service is exists
-query_local(Name, #{names:=Names}=_Dict, State) ->
-    Hostname = get_config(hostname, unknown, State),
-    MacroDict = get_config(macro_dict, #{}, State),
-    NodeId = nodekey:node_id(),
-    TranslateAddress =
-        fun(Address) when is_map(Address) ->
-            Translated =
-              add_hostname(substitute_macro(Address, MacroDict), Hostname),
-            maps:put(nodeid, NodeId, Translated)
+query_local(Name, #{names:=Names} = _Dict, State) ->
+  Hostname = get_config(hostname, unknown, State),
+  MacroDict = get_config(macro_dict, #{}, State),
+  NodeId = nodekey:node_id(),
+  TranslateAddress =
+    fun(Address) when is_map(Address) ->
+      Translated =
+        add_hostname(substitute_macro(Address, MacroDict), Hostname),
+      maps:put(nodeid, NodeId, Translated)
+    end,
+  LocalNames =
+    case tpnode_cert:is_ssl_started() of
+      true ->
+        maps:keys(Names) ++ [<<"apispeer">>];
+      _ ->
+        maps:keys(Names)
+    end,
+  case lists:member(Name, LocalNames) of
+    false -> [];
+    true ->
+      LocalAddresses = get_config(addresses, [], State),
+      Worker =
+        fun
+          (#{proto:=Proto} = Addr, Result) when is_map(Addr) ->
+            try
+              case is_right_proto(Name, Proto) of
+                true ->
+                  Result ++ [TranslateAddress(Addr)];
+                _ ->
+                  Result
+              end
+            catch
+              pass ->
+                lager:debug("skip address ~p", [Addr])
+            end;
+          
+          (_Invalid, Result) ->
+            lager:error("Invalid address: ~p", [_Invalid]),
+            Result
         end,
-
-    case maps:is_key(Name, Names) of
-        false -> [];
-        true ->
-            LocalAddresses = get_config(addresses, [], State),
-            RightAddresses = lists:filter(
-                fun(#{proto:=Proto}) ->
-                    is_right_proto(Name, Proto);
-                    (_InvalidAddress) ->
-                        lager:info("invalid address: ~p", [_InvalidAddress]),
-                        false
-                end,
-                LocalAddresses
-            ),
-            lists:map(
-                fun(Address) when is_map(Address)->
-                    TranslateAddress(Address);
-                (Invalid) ->
-                    lager:error("Invalid address: ~p", [Invalid])
-                end,
-                RightAddresses
-            )
-    end.
+      lists:foldl(Worker, [], LocalAddresses)
+  end.
 
 % --------------------------------------------------------
 

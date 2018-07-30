@@ -354,7 +354,9 @@ do_cert_request(Hostname) ->
 
 %% -------------------------------------------------------------------------------------
 
-% a check were all ssl listeners started or not
+% a check is all ssl listeners were started or not
+-spec is_ssl_started() -> true|false|unknown.
+
 is_ssl_started() ->
   Children = supervisor:which_children(tpnode_sup),
   Names = tpnode_http:child_names_ssl(),
