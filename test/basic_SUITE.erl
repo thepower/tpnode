@@ -313,8 +313,10 @@ api_get_tx_status(TxId, BaseUrl) ->
     Status = tpapi:get_tx_status(TxId, BaseUrl),
     case Status of
       {ok, timeout, _} ->
+        io:format("got transaction ~p timeout~n", [TxId]),
         dump_testnet_state();
       {ok, #{<<"res">> := <<"bad_seq">>}, _} ->
+        io:format("got transaction ~p badseq~n", [TxId]),
         dump_testnet_state();
       _ ->
         ok
@@ -417,8 +419,16 @@ api_register_wallet() ->
 get_sequence(Node, Wallet) ->
     Ledger = rpc:call(Node, ledger, get, [naddress:decode(Wallet)]),
     case bal:get(seq, Ledger) of
-        Seq when is_integer(Seq) -> max(Seq, os:system_time(millisecond));
-        _ -> 0
+        Seq when is_integer(Seq) ->
+          io:format(
+            "our node ledger seq for wallet ~p (via rpc:call): ~p~n",
+            [Wallet, Seq]
+          ),
+          NewSeq = max(Seq, os:system_time(millisecond)),
+          io:format("choose new wallet ~p seq: ~p~n", [Wallet, NewSeq]);
+        _ ->
+          io:format("choose new wallet ~p seq: 0~n", [Wallet]),
+          0
     end.
 
 
