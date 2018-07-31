@@ -444,19 +444,22 @@ make_transaction(Node, From, To, Currency, Amount, Message) ->
     maps:get(<<"txid">>, Res4, unknown).
 
 new_wallet() ->
-    PubKey = tpecdsa:calc_pub(get_wallet_priv_key(), true),
-    case tpapi:register_wallet(PubKey, get_base_url()) of
-        {ok, Wallet, _TxId} ->
-            Wallet;
-        timeout ->
-            io:format("wallet registration timeout, pub key: ~p~n", [PubKey]),
-            dump_testnet_state(),
-            throw(wallet_registration_timeout);
-        Other ->
-            io:format("wallet registration error: ~p, pub key: ~p ~n", [Other, PubKey]),
-            dump_testnet_state(),
-            throw(wallet_registration_error)
-    end.
+  PubKey = tpecdsa:calc_pub(get_wallet_priv_key(), true),
+  case tpapi:register_wallet(PubKey, get_base_url()) of
+    {error, timeout, TxId} ->
+      io:format(
+        "wallet registration timeout, txid: ~p, pub key: ~p~n",
+        [TxId, PubKey]
+      ),
+      dump_testnet_state(),
+      throw(wallet_registration_timeout);
+    {ok, Wallet, _TxId} ->
+      Wallet;
+    Other ->
+      io:format("wallet registration error: ~p, pub key: ~p ~n", [Other, PubKey]),
+      dump_testnet_state(),
+      throw(wallet_registration_error)
+  end.
 
 
 dump_testnet_state() ->
