@@ -425,7 +425,8 @@ get_sequence(Node, Wallet) ->
             [Wallet, Seq]
           ),
           NewSeq = max(Seq, os:system_time(millisecond)),
-          io:format("choose new wallet ~p seq: ~p~n", [Wallet, NewSeq]);
+          io:format("choose new wallet ~p seq: ~p~n", [Wallet, NewSeq]),
+          NewSeq;
         _ ->
           io:format("choose new wallet ~p seq: 0~n", [Wallet]),
           0
