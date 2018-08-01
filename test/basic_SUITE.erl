@@ -421,14 +421,14 @@ get_sequence(Node, Wallet) ->
     case bal:get(seq, Ledger) of
         Seq when is_integer(Seq) ->
           io:format(
-            "our node ledger seq for wallet ~p (via rpc:call): ~p~n",
+            "node ledger seq for wallet ~p (via rpc:call): ~p~n",
             [Wallet, Seq]
           ),
           NewSeq = max(Seq, os:system_time(millisecond)),
-          io:format("choose new wallet ~p seq: ~p~n", [Wallet, NewSeq]),
+          io:format("new wallet [~p] seq chosen: ~p~n", [Wallet, NewSeq]),
           NewSeq;
         _ ->
-          io:format("choose new wallet ~p seq: 0~n", [Wallet]),
+          io:format("new wallet [~p] seq chosen: 0~n", [Wallet]),
           0
     end.
 
