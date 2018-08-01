@@ -42,8 +42,8 @@ Vagrant.configure("2") do |config|
     inline: "eval `route -n | awk '{ if ($8 ==\"eth0\" && $2 != \"0.0.0.0\") print \"route del default gw \" $2; }'`"
 
   config.vm.provision "shell", inline: <<-SHELL
-    sudo apt-get update
-    sudo apt-get install -y build-essential clang libsctp-dev libncurses5-dev mc curl libssl-dev automake autoconf
+    sudo apt update
+    sudo apt install -y build-essential clang libsctp-dev libncurses5-dev mc curl libssl-dev automake autoconf jq
 
     # setup timezone
     echo 'Etc/UTC' > /etc/timezone
