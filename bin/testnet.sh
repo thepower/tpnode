@@ -1,8 +1,8 @@
 #!/bin/sh
 
-#NODES="test_c4n1 test_c4n2 test_c4n3 test_c2n1 test_c2n2 test_c2n3"
 CHAIN4="test_c4n1 test_c4n2 test_c4n3"
 CHAIN5="test_c5n1 test_c5n2 test_c5n3"
+CHAIN6="test_c6n1 test_c6n2 test_c6n3"
 # SYNC = 0 — no sync, SYNC = 1 — add -s sync to command line
 SYNC=0
 
@@ -42,6 +42,7 @@ start_node() {
 start_testnet() {
     for node in $CHAIN4; do start_node ./examples/test_chain4 ${node}; done
     for node in $CHAIN5; do start_node ./examples/test_chain5 ${node}; done
+    for node in $CHAIN6; do start_node ./examples/test_chain6 ${node}; done
 }
 
 node_pid() {
@@ -75,6 +76,7 @@ stop_node() {
 stop_testnet() {
     for node in ${CHAIN4}; do stop_node ${node}; done
     for node in ${CHAIN5}; do stop_node ${node}; done
+    for node in ${CHAIN6}; do stop_node ${node}; done
 }
 
 
@@ -96,6 +98,7 @@ reset_testnet() {
     stop_testnet
     for node in ${CHAIN4}; do reset_node ${node}; done
     for node in ${CHAIN5}; do reset_node ${node}; done
+    for node in ${CHAIN6}; do reset_node ${node}; done
 }
 
 attach_testnet() {
@@ -111,6 +114,9 @@ attach_testnet() {
         tmux new-window -n chain5     "erl -sname cons_c5n1 -hidden -remsh test_c5n1\@${HOST}"
         tmux split-window -v -p 67    "erl -sname cons_c5n2 -hidden -remsh test_c5n2\@${HOST}"
         tmux split-window -v          "erl -sname cons_c5n3 -hidden -remsh test_c5n3\@${HOST}"
+        tmux new-window -n chain6     "erl -sname cons_c6n1 -hidden -remsh test_c6n1\@${HOST}"
+        tmux split-window -v -p 67    "erl -sname cons_c6n2 -hidden -remsh test_c6n2\@${HOST}"
+        tmux split-window -v          "erl -sname cons_c6n3 -hidden -remsh test_c6n3\@${HOST}"
     fi
 
     tmux a -t testnet:chain4
