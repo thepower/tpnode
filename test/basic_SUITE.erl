@@ -326,7 +326,7 @@ api_get_tx_status(TxId, BaseUrl) ->
 
 %% wait for transaction commit using distribution
 wait_for_tx(TxId, NodeName) ->
-    wait_for_tx(TxId, NodeName, 10).
+    wait_for_tx(TxId, NodeName, 30).
 
 wait_for_tx(_TxId, _NodeName, 0 = _TrysLeft) ->
     dump_testnet_state(),
@@ -340,6 +340,7 @@ wait_for_tx(TxId, NodeName, TrysLeft) ->
             timer:sleep(1000),
             wait_for_tx(TxId, NodeName, TrysLeft - 1);
         {true, ok} ->
+            io:format("transaction ~p commited~n", [TxId]),
             {ok, TrysLeft};
         {false, Error} ->
             dump_testnet_state(),
