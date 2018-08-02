@@ -98,8 +98,13 @@ handle_info(check_cert_expire, #{expiretimer := Timer, cert_req_active := false}
   catch erlang:cancel_timer(Timer),
   case check_cert_expire() of
     ok ->
-      ensure_ssl_started(),
-      pass;
+      case is_ssl_configured() of
+        true ->
+          ensure_ssl_started(),
+          pass;
+        _ ->
+          pass
+      end;
     certreq ->
       lager:notice("going to request a new certificate"),
       self() ! certreq,
@@ -174,19 +179,35 @@ get_cert_key_file(Hostname) ->
 
 get_hostname() ->
   application:get_env(tpnode, hostname, unknown).
-  
+
+
+get_port() ->
+  application:get_env(tpnode, rpcsport, unknown).
+
+
+is_ssl_configured() ->
+  Hostname = get_hostname(),
+  Port = get_port(),
+  if
+    Port =:= unknown ->
+      false;
+    Hostname =:= unknown ->
+      false;
+    true ->
+      true
+  end.
+
 
 %% -------------------------------------------------------------------------------------
 
 -include_lib("public_key/include/OTP-PUB-KEY.hrl").
 
 check_cert_expire() ->
-  Hostname = get_hostname(),
-  case Hostname of
-    unknown ->
+  case is_ssl_configured() of
+    false ->
       ok;
     _ ->
-      case check_cert_expire(get_cert_file(Hostname)) of
+      case check_cert_expire(get_cert_file(get_hostname())) of
         expired ->
           certreq;
         not_found ->
@@ -252,19 +273,19 @@ parse_cert_date({utcTime, Date}) when is_list(Date) ->
 %% -------------------------------------------------------------------------------------
 
 check_or_request() ->
-  Hostname = get_hostname(),
-  case Hostname of
-    unknown ->
+  case is_ssl_configured() of
+    false ->
       pass;
     _ ->
-      check_or_request(utils:make_list(Hostname))
+      check_or_request(utils:make_list(get_hostname()))
   end.
 
 check_or_request(Hostname) ->
+  Configured = is_ssl_configured(),
   KeyExists = filelib:is_regular(get_cert_key_file(Hostname)),
   CertFile = get_cert_file(Hostname),
   CertExists = filelib:is_regular(CertFile),
-  Action = case KeyExists andalso CertExists of
+  Action = case Configured andalso KeyExists andalso CertExists of
     true ->
       % key and cert already exists for this hostname, check if it expired
       case check_cert_expire(CertFile) of
