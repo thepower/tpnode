@@ -72,7 +72,12 @@ handle_xchain(#{null:=<<"owblock">>,
          chain=>blockchain:chain(),
          null=><<"owblock">>,
          block => block:pack(OutwardBlock),
-         header => maps:with([hash, header, extdata],OutwardBlock)
+         header => maps:map(
+                     fun(extdata,PL) -> maps:from_list(PL);
+                        (_,Val) -> Val
+                     end,
+                     maps:with([hash, header, extdata],OutwardBlock)
+                    )
        }
   end;
 
@@ -110,7 +115,7 @@ handle_xchain(#{null:=<<"subscribe">>,
   {<<"subscribed">>, Channel};
 
 handle_xchain(#{null:=<<"ping">>}) ->
-  ok;
+  #{null=><<"pong">>};
 
 handle_xchain(#{null:=<<"xdiscovery">>, <<"bin">>:=AnnounceBin}) ->
   gen_server:cast(discovery, {got_xchain_announce, AnnounceBin}),

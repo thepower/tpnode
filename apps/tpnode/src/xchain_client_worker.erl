@@ -1,64 +1,101 @@
 -module(xchain_client_worker).
--export([run/1,test/1]).
+-export([start_link/1,start_link/2,run/2]).
 
-%run(ConnPid, #{proto:=P}=_Sub) ->
-%  lager:info("Start xcahin_pull"),
-%  Cmd = xchain:pack(#{null=><<"pre_ptr">>,<<"chain">>=>5}, P),
-%  gun:ws_send(ConnPid, {binary, Cmd}),
-%  receive 
-%    Any ->
-%      lager:info("pull ~p",[Any])
-%  after 10000 ->
-%          lager:info("Timeout")
-%  end.
+start_link(Sub) ->
+  GetFun=fun(node_id) ->
+               nodekey:node_id();
+              (chain) ->
+               blockchain:chain();
+              ({apply_block,Block}) ->
+               txpool:new_tx(Block);
+              ({last,_ChainNo}) ->
+               undefined
+           end,
+  Pid=spawn(xchain_client_worker,run,[Sub, GetFun]),
+  link(Pid),
+  {ok, Pid}.
 
-test(Sub) ->
-  run(Sub, fun(node_id) ->
+start_link(Sub,test) ->
+  GetFun=fun(node_id) ->
                nodekey:node_id();
               (chain) -> 5;
+              ({apply_block,#{txs:=TL,header:=H}=_Block}) ->
+               io:format("TXS ~b HDR: ~p~n",[length(TL),maps:get(height,H)]),
+               ok;
               ({last, 4}) ->
                <<70,145,201,163,89,206,171,17,192,231,231,17,15,61,24,125,228,102,251,
                  114,108,13,211,169,147,149,142,17,234,181,98,105>>;
               ({last,_ChainNo}) ->
                undefined
-           end).
+           end,
+  Pid=spawn(xchain_client_worker,run,[Sub, GetFun]),
+  link(Pid),
+  {ok, Pid}.
 
-run(Sub) ->
-  run(Sub, fun(node_id) ->
-               nodekey:node_id();
-              (chain) ->
-               blockchain:chain();
-              ({last,_ChainNo}) ->
-               undefined
-           end).
-
-run(#{address:=Ip, port:=Port, channels:=_Channels} = _Sub, GetFun) ->
+run(#{address:=Ip, port:=Port} = Sub, GetFun) ->
+  process_flag(trap_exit, true),
   lager:info("xchain client connecting to ~p ~p", [Ip, Port]),
   {ok, Pid} = gun:open(Ip, Port),
-  receive 
+  receive
     {gun_up, Pid, http} -> ok
-  after 10000 -> 
+  after 10000 ->
           throw('up_timeout')
   end,
-  %monitor(process, ConnPid),
-  Proto=case sync_get_decode(Pid, "/xchain/api/compat.mp") of 
+  Proto=case sync_get_decode(Pid, "/xchain/api/compat.mp") of
           {200, _, #{<<"ok">>:=true,<<"version">>:=Ver}} -> Ver;
           {404, _, _} -> 0;
           _ -> 0
         end,
-  {ok,U}=upgrade(Pid,Proto),
-  io:format("U ~p~n",[U]),
+  {ok,UpgradeHdrs}=upgrade(Pid,Proto),
+  lager:debug("Conn upgrade ~p",[UpgradeHdrs]),
   #{null:=<<"iam">>,
     <<"chain">>:=HisChain,
-    <<"node_id">>:=_}=R2=reg(Pid, Proto, GetFun),
-  io:format("R2 ~p~n",[R2]),
+    <<"node_id">>:=_}=reg(Pid, Proto, GetFun),
   MyLast=GetFun({last, HisChain}),
-  R0=block_list(Pid, Proto, GetFun(chain), last, MyLast, []),
-  io:format("WS ~p~n",[R0]),
-  %R1=make_ws_req(Pid, Proto, #{null=><<"pre_ptr">>,<<"chain">>=>5,}),
-  %io:format("WS ~p~n",[R1]),
+  MyChain=GetFun(chain),
+  BlockList=tl(block_list(Pid, Proto, GetFun(chain), last, MyLast, [])),
+  lists:foldl(
+      fun({_Height, BlockParent},Acc) ->
+          #{null:=<<"owblock">>,
+            <<"ok">>:=true,
+            <<"block">>:=Blk}=pick_block(Pid, Proto, MyChain, BlockParent),
+          Block=block:unpack(Blk),
+          ok=GetFun({apply_block, Block}),
+          Acc+1
+      end, 0, BlockList),
+  [<<"subscribed">>,_]=make_ws_req(Pid, Proto,
+                                   #{null=><<"subscribe">>,
+                                     <<"channel">>=>xchain:pack_chid(MyChain)}
+                                  ),
+  %io:format("SubRes ~p~n",[SubRes]),
+  ok=gun:ws_send(Pid, {binary, xchain:pack(#{null=><<"ping">>}, Proto)}),
+  ws_mode(Pid,Sub#{proto=>Proto},GetFun),
   gun:close(Pid),
   done.
+
+ws_mode(Pid, #{proto:=Proto}=Sub, GetFun) ->
+  receive
+    {'EXIT',_,_Reason} ->
+      lager:error("Linked process went down. Giving up...."),
+      gun:close(Pid),
+      exit;
+    stop ->
+      done;
+    {gun_ws, Pid, {binary, Bin}} ->
+      Cmd = xchain:unpack(Bin, Proto),
+      lager:debug("XChain client got ~p",[Cmd]),
+      Sub1=xchain_client_handler:handle_xchain(Cmd, Pid, Sub),
+      ws_mode(Pid, Sub1, GetFun);
+    {gun_down,Pid,ws,closed,[],[]} ->
+      lager:error("Gun down. Giving up...."),
+      giveup;
+    Any ->
+      lager:notice("XChain client unknown msg ~p",[Any]),
+      ws_mode(Pid, Sub, GetFun)
+  after 60000 ->
+          ok=gun:ws_send(Pid, {binary, xchain:pack(#{null=><<"ping">>}, Proto)}),
+          ws_mode(Pid, Sub, GetFun)
+  end.
 
 reg(Pid, Proto, GetFun) ->
   MyNodeId = GetFun(node_id),
@@ -69,6 +106,12 @@ reg(Pid, Proto, GetFun) ->
                      chain=>Chain
                     }).
 
+pick_block(Pid, Proto, Chain, Parent) ->
+  make_ws_req(Pid, Proto, #{null=><<"owblock">>,
+                            <<"chain">>=>Chain,
+                            <<"parent">>=>Parent
+                           }).
+
 block_list(Pid, Proto, Chain, Last, Known, Acc) ->
   Req=if Last==last ->
            #{null=><<"last_ptr">>, <<"chain">>=>Chain};
@@ -76,7 +119,7 @@ block_list(Pid, Proto, Chain, Last, Known, Acc) ->
            #{null=><<"pre_ptr">>,  <<"chain">>=>Chain, <<"parent">>=>Last}
     end,
   R=make_ws_req(Pid, Proto, Req),
-  case R of 
+  case R of
     #{null := N,
       <<"ok">> := true,
       <<"pointers">> := #{<<"height">> := H,
@@ -134,7 +177,7 @@ sync_get(Pid, Url) ->
   sync_get_continue(Pid, Ref, {0,[],[]}).
 
 sync_get_continue(Pid, Ref, {PCode,PHdr,PBody}) ->
-  {Fin,NS}=receive 
+  {Fin,NS}=receive
              {gun_response,Pid,Ref,IsFin, Code, Headers} ->
                {IsFin, {Code,Headers,PBody} };
              {gun_data,Pid,Ref, IsFin, Payload} ->
@@ -148,34 +191,3 @@ sync_get_continue(Pid, Ref, {PCode,PHdr,PBody}) ->
     nofin ->
       sync_get_continue(Pid, Ref, NS)
   end.
-
-%process(#{connection:=Pid,req_ref:=Ref}=Sub) ->
-%  receive 
-%    {gun_response,Pid,Ref,nofin, Code, Headers} ->
-%      process(Sub#{
-%                got=>#{
-%                  code=>Code,
-%                  hdr=>Headers,
-%                  payload=>[]
-%                 }});
-%    {gun_data,Pid,Ref,nofin, Payload} ->
-%      #{got:=#{payload:=PrePayload}=Got}=Sub,
-%      process(Sub#{got=>Got#{
-%                          payload=>[Payload|PrePayload]
-%                 }});
-%    {gun_data,Pid,Ref,fin, Payload} ->
-%      #{got:=#{payload:=PrePayload}=Got}=Sub,
-%      process(Sub#{got=>Got#{
-%                          payload=>[Payload|PrePayload]
-%                         }});
-%    Any -> io:format("Unhandled response ~p",[Any]),
-%           gun:close(Pid),
-%           receive {'DOWN',_,process,Pid, shutdown} -> 
-%                     Sub
-%           after 2000 ->
-%                   Sub
-%           end
-%  after 5000 ->
-%          timeout
-%  end.
-
