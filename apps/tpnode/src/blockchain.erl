@@ -464,7 +464,11 @@ handle_call({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                       SendSuccess=lists:map(
                                     fun({TxID, #{register:=_, address:=Addr}}) ->
                                         {TxID, #{address=>Addr}};
-                                       ({TxID, _}) ->
+                                       ({TxID, #{kind:=register, ver:=2,
+                                                 extdata:=#{<<"addr">>:=Addr}}}) ->
+                                        {TxID, #{address=>Addr}};
+                                       ({TxID, _Any}) ->
+                                        lager:info("TX ~p",[_Any]),
                                         TxID
                                     end, Txs),
                       gen_server:cast(txpool, {done, SendSuccess}),
