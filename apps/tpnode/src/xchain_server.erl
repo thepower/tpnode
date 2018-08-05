@@ -26,7 +26,7 @@ websocket_init(State) ->
 
 websocket_handle({binary, Bin}, #{proto:=P}=State) ->
   try
-    %%        lager:debug("ws server got binary msg: ~p", [Bin]),
+    %%lager:debug("ws server got binary msg: ~p", [Bin]),
     Cmd = xchain:unpack(Bin, P),
     lager:debug("ws server got term: ~p", [Cmd]),
     Result = xchain_server_handler:handle_xchain(Cmd),
@@ -35,7 +35,6 @@ websocket_handle({binary, Bin}, #{proto:=P}=State) ->
         {ok, State};
       Answer ->
         {reply, {binary, xchain:pack(Answer, P)}, State}
-
     end
   catch
     Ec:Ee ->

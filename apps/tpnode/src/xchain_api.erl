@@ -27,8 +27,6 @@ reply(Code, Result) ->
                                  State, Handler, Stack, Conf1)
           end
       end,
-
-
   {Code,
    {Result,
     #{jsx=>[ strict, {error_handler, EHF} ]}
@@ -49,7 +47,6 @@ h(<<"POST">>, [<<"ping">>], _Req) ->
 
 h(<<"OPTIONS">>, _, _Req) ->
   {200, [], ""};
-
 
 h(<<"GET">>, [<<"parent">>,BChain,<<"last">>], _Req) ->
   h(<<"GET">>, [<<"last">>,BChain], _Req);
@@ -74,9 +71,9 @@ h(<<"GET">>, [<<"parent">>,BChain,SParent], _Req) ->
     P=block:outward_ptrs(O,Chain),
     reply(200,
           #{ ok => true,
+             chain=>blockchain:chain(),
              pointers => P
            })
-
   catch error:{badkey,outbound} ->
           reply(404,
                 #{ ok=>false,
@@ -99,6 +96,7 @@ h(<<"GET">>, [<<"last">>,BChain], _Req) ->
   ChainPath=[<<"current">>, <<"outward">>, xchain:pack_chid(Chain)],
   Last=chainsettings:get_settings_by_path(ChainPath),
   reply(200, #{ pointers=>Last,
+                chain=>blockchain:chain(),
                 ok=>true });
 
 h(<<"GET">>, [<<"owbyparent">>,BChain,SParent], _Req) ->
@@ -117,11 +115,13 @@ h(<<"GET">>, [<<"owbyparent">>,BChain,SParent], _Req) ->
     none ->
       reply(404,
             #{ ok=>false,
+               chain=>blockchain:chain(),
                block => false}
            );
     _AnyBlock ->
       reply(200,
             #{ ok => true,
+               chain=>blockchain:chain(),
                block => block:pack(OutwardBlock),
                header => maps:with([hash, header, extdata],OutwardBlock)
              })
@@ -138,7 +138,4 @@ h(_Method, [<<"status">>], Req) ->
       request => Body
      }
    }).
-
-
-
 

@@ -9,6 +9,86 @@
 known_atoms() ->
   [iam, subscribed].
 
+handle_xchain(#{null:=<<"last_ptr">>,
+                <<"chain">>:=Chain}) ->
+  ChainPath=[<<"current">>, <<"outward">>, xchain:pack_chid(Chain)],
+  Last=chainsettings:get_settings_by_path(ChainPath),
+  #{ null=><<"last_ptr">>,
+     chain=>blockchain:chain(),
+     pointers=>Last,
+     ok=>true };
+
+handle_xchain(#{null:=<<"pre_ptr">>,
+                <<"chain">>:=Chain,
+                <<"parent">>:=Parent}) ->
+  try
+    Res=blockchain:rel(Parent,child),
+    if is_map(Res) -> ok;
+       is_atom(Res) ->
+         throw({noblock, Res})
+    end,
+    O=maps:get(settings, Res),
+    P=block:outward_ptrs(O,Chain),
+    #{ ok => true,
+       chain=>blockchain:chain(),
+       null=><<"pre_ptr">>,
+       pointers => P
+     }
+  catch 
+    error:{badkey,outbound} ->
+      #{ ok=>false,
+         null=><<"pre_ptr">>,
+         error => <<"no outbound">>
+       };
+    throw:noout ->
+      #{ ok=>false,
+         null=><<"pre_ptr">>,
+         error => <<"no outbound for this chain">>
+       };
+    throw:{noblock, _R} ->
+      #{ ok=>false,
+         null=><<"pre_ptr">>,
+         error => <<"no block">>
+       };
+    Ec:_ ->
+      #{ ok=>false,
+         null=><<"pre_ptr">>,
+         error => Ec
+       }
+  end;
+
+handle_xchain(#{null:=<<"owblock">>,
+                <<"chain">>:=Chain,
+                <<"parent">>:=Parent}) ->
+  Res=blockchain:rel(Parent,child),
+  OutwardBlock=block:outward_chain(Res,Chain),
+  case OutwardBlock of
+    none ->
+      #{ ok=>false,
+         null=><<"owblock">>,
+         block => false};
+    _AnyBlock ->
+      #{ ok => true,
+         chain=>blockchain:chain(),
+         null=><<"owblock">>,
+         block => block:pack(OutwardBlock),
+         header => maps:with([hash, header, extdata],OutwardBlock)
+       }
+  end;
+
+handle_xchain(#{null:=<<"node_id">>,
+                <<"node_id">>:=RemoteNodeId,
+                <<"chain">>:=_RemoteChain}) ->
+  try
+    lager:info("Got nodeid ~p",[RemoteNodeId]),
+    #{null=><<"iam">>, 
+      <<"node_id">>=>nodekey:node_id(),
+      <<"chain">>=>blockchain:chain()
+     }
+  catch _:_ ->
+          error
+  end;
+
 handle_xchain(#{null:=<<"node_id">>,
                 <<"node_id">>:=RemoteNodeId,
                 <<"channels">>:=RemoteChannels}) ->
@@ -16,7 +96,10 @@ handle_xchain(#{null:=<<"node_id">>,
     lager:info("Got nodeid ~p",[RemoteNodeId]),
     gen_server:cast(xchain_dispatcher,
                     {register_peer, self(), RemoteNodeId, RemoteChannels}),
-    #{null=><<"iam">>, <<"node_id">>=>nodekey:node_id()}
+    #{null=><<"iam">>, 
+      <<"node_id">>=>nodekey:node_id(),
+      <<"chain">>=>blockchain:chain()
+     }
   catch _:_ ->
           error
   end;

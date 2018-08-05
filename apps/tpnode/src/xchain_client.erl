@@ -131,13 +131,25 @@ handle_info({gun_data, GunPid, GunRef, _IsFin,
        end, GunPid, GunRef, Subs),
   {noreply, State#{subs=>S1}};
 
+handle_info({ws_request, Peer, Payload}, #{subs:=Subs}=State) ->
+  case maps:find(Peer,Subs) of
+    {ok, #{proto:=P,ws_mode:=true,connection:=Conn}} ->
+      Cmd = xchain:pack(Payload, P),
+      gun:ws_send(Conn, {binary, Cmd}),
+      {noreply, State};
+    {ok, #{}} ->
+      lager:error("Can't make ws request: not connected"),
+      {noreply, State};
+    error ->
+      {noreply, State}
+  end;
 
 handle_info({gun_up, _ConnPid, http}, State) ->
   lager:notice("xchain client http up"),
   {noreply, State};
 
 handle_info({gun_ws_upgrade, ConnPid, ok, _Headers}, #{subs:=Subs} = State) ->
-  lager:notice("xchain client connection upgraded to websocket"),
+  lager:notice("xchain clientv2 connection upgraded to websocket"),
   {noreply, State#{
               subs => update_sub(
                         fun(_,#{proto:=P, channels:=Channels}=Sub) ->
@@ -158,13 +170,24 @@ handle_info({gun_ws, ConnPid, {close, _, _}}, #{subs:=Subs} = State) ->
 handle_info({gun_ws, ConnPid, {binary, Bin} }, #{subs:=Subs}=State) ->
   try
     {SubKey, #{proto:=P}=Sub}=find_sub(ConnPid, Subs),
-    NewSub = xchain_client_handler:handle_xchain(
-               xchain:unpack(Bin,P), ConnPid, Sub
-              ),
-    if NewSub==Sub ->
-         {noreply, State};
-       true ->
-         {noreply, State#{subs=>maps:put(SubKey, NewSub, Subs)}}
+    Handle=case maps:find(ws_handler_pid,Sub) of
+             {ok, Pid} when is_pid(Pid) ->
+               case is_process_alive(Pid) of
+                 true  -> Pid;
+                 false -> default
+               end;
+             error ->
+               default
+           end,
+    if Handle==default ->
+         NewSub = xchain_client_handler:handle_xchain(
+                    xchain:unpack(Bin,P), ConnPid, Sub
+                   ),
+         if NewSub==Sub ->
+              {noreply, State};
+            true ->
+              {noreply, State#{subs=>maps:put(SubKey, NewSub, Subs)}}
+         end
     end
   catch
     Ec:Ee ->
