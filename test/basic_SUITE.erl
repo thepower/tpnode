@@ -326,7 +326,7 @@ api_get_tx_status(TxId, BaseUrl) ->
 
 %% wait for transaction commit using distribution
 wait_for_tx(TxId, NodeName) ->
-    wait_for_tx(TxId, NodeName, 10).
+    wait_for_tx(TxId, NodeName, 30).
 
 wait_for_tx(_TxId, _NodeName, 0 = _TrysLeft) ->
     dump_testnet_state(),
@@ -340,6 +340,7 @@ wait_for_tx(TxId, NodeName, TrysLeft) ->
             timer:sleep(1000),
             wait_for_tx(TxId, NodeName, TrysLeft - 1);
         {true, ok} ->
+            io:format("transaction ~p commited~n", [TxId]),
             {ok, TrysLeft};
         {false, Error} ->
             dump_testnet_state(),
@@ -421,14 +422,14 @@ get_sequence(Node, Wallet) ->
     case bal:get(seq, Ledger) of
         Seq when is_integer(Seq) ->
           io:format(
-            "our node ledger seq for wallet ~p (via rpc:call): ~p~n",
+            "node ledger seq for wallet ~p (via rpc:call): ~p~n",
             [Wallet, Seq]
           ),
           NewSeq = max(Seq, os:system_time(millisecond)),
-          io:format("choose new wallet ~p seq: ~p~n", [Wallet, NewSeq]),
+          io:format("new wallet [~p] seq chosen: ~p~n", [Wallet, NewSeq]),
           NewSeq;
         _ ->
-          io:format("choose new wallet ~p seq: 0~n", [Wallet]),
+          io:format("new wallet [~p] seq chosen: 0~n", [Wallet]),
           0
     end.
 
