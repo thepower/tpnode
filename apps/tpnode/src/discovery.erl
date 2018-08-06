@@ -122,6 +122,10 @@ handle_call({get_config, Key, Default}, _From, State) ->
 handle_call({set_config, Key, Value}, _From, State) ->
     {reply, ok, set_config(Key, Value, State)};
 
+handle_call(get_local_addresses, _From, State) ->
+  {reply, get_local_addresses(State), State};
+
+
 %% register Pid as new local service with name ServiceName
 handle_call({register, ServiceName, Pid}, _From, #{local_services:=Dict} = State) ->
     {reply, ok, State#{
@@ -291,6 +295,30 @@ set_config(Key, Value, State) ->
     State#{
         settings => maps:put(Key, Value, Config)
     }.
+
+% --------------------------------------------------------
+get_local_addresses(State) ->
+  Addresses = get_config(addresses, [], State),
+  Hostname = application:get_env(tpnode, hostname, unknown),
+  MacroDict = get_config(macro_dict, #{}, State),
+  Translator =
+    fun
+      (Address, Translated) ->
+        try
+          TranslatedAddress =
+            add_hostname(substitute_macro(Address, MacroDict), Hostname),
+          [TranslatedAddress | Translated]
+        catch
+          pass ->
+            lager:debug("skip address (pass): ~p", [Address]),
+            Translated
+        end
+    end,
+  lists:foldl(Translator, [], Addresses).
+
+  
+
+
 
 % --------------------------------------------------------
 announce_one_service(Name, TranslatedAddress, Ttl, Scopes) ->
@@ -652,6 +680,9 @@ lookup(Name, Chain) ->
 
 % --------------------------------------------------------
 
+
+
+
 % check if local service is exists
 query_local(Name, #{names:=Names} = _Dict, State) ->
   Hostname = get_config(hostname, unknown, State),
@@ -744,10 +775,12 @@ query(Name, State) ->
 
 % --------------------------------------------------------
 
-address2key(#{address:=Ip, port:=Port, proto:=Proto}) ->
+address2key(#{address:=Ip, port:=Port, proto:=Proto})
+  when is_integer(Port) andalso is_atom(Proto) ->
     {Ip, Port, Proto};
 
-address2key(#{hostname:=Host, port:=Port, proto:=Proto}) ->
+address2key(#{hostname:=Host, port:=Port, proto:=Proto})
+  when is_integer(Port) andalso is_atom(Proto) ->
     {Host, Port, Proto};
 
 address2key(Invalid) ->
