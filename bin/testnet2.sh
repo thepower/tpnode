@@ -3,15 +3,13 @@
 CHAIN4="test_c4n1 test_c4n2 test_c4n3"
 CHAIN5="test_c5n1 test_c5n2 test_c5n3"
 CHAIN6="test_c6n1 test_c6n2 test_c6n3"
-# SYNC = 0 — no sync, SYNC = 1 — add -s sync to command line
-SYNC=0
 
 HOST=`hostname -s`
 
 
 is_alive() {
     node=$1
-    proc_cnt=`ps axuwww | grep erl | grep "${node}.config" | wc -l`
+    proc_cnt=`ps axuwww | grep erl_pipes | grep "${node}" | wc -l`
     result=`[ ${proc_cnt} -ge 1 ]`
     return $result
 }
@@ -20,22 +18,19 @@ start_node() {
     dir=$1
     node=$2
 
-    sync_str=""
-
-    if [ $SYNC -eq 1 ]
-    then
-        sync_str="-s sync"
-    fi
-
     if is_alive ${node}
     then
         echo skipping alive node ${node}
     else
         echo starting node $node
         export TPNODE_RESTORE=${dir}
-        erl -config "${dir}/${node}.config" -sname ${node} -detached -noshell -pa _build/test/lib/*/ebin +SDcpu 2:2: -s lager ${sync_str} -s tpnode
+        export RELX_CONFIG_PATH="${dir}/${node}.config"
+        export VMARGS_PATH="${dir}/${node}.args"
+#        echo ${TPNODE_RESTORE}
+#        echo ${RELX_CONFIG_PATH}
+#        echo ${VMARGS_PATH}
+        ./bin/thepower start
     fi
-
 }
 
 
@@ -48,7 +43,7 @@ start_testnet() {
 node_pid() {
     node=$1
 
-    pids=`ps axuwww | grep erl | grep "${node}.config" | awk '{print \$2;}'`
+    pids=`ps axuwww | grep erl_pipes | grep "${node}" | awk '{print \$2;}'`
     pids_cnt=`echo ${pids}|wc -l`
 
     if [ $pids_cnt -ne 1 ]
@@ -122,13 +117,19 @@ attach_testnet() {
     tmux a -t testnet:chain4
 }
 
-compile_testnet() {
+update_testnet() {
     stop_testnet
-    REBAR_PROFILE=test ./rebar3 compile
+
+    ARCH=`uname -p | sed 's/86_//' | sed 's/aarch/arm/'`
+
+    rm -f thepower-latest*.tar.gz
+    wget -c http://dist.thepower.io/thepower-latest-${ARCH}.tar.gz
+    tar xvf thepower-latest*.tar.gz
+    rm -f thepower-latest*.tar.gz
 }
 
 usage() {
-    echo "usage: $0 start|stop|attach|reset"
+    echo "usage: $0 start|stop|attach|reset|update"
 }
 
 if [ $# -ne 1 ]
@@ -151,8 +152,8 @@ case $1 in
     reset)
         reset_testnet
         ;;
-    compile)
-        compile_testnet
+    update)
+        update_testnet
         ;;
     *)
         usage

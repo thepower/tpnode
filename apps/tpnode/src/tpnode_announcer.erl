@@ -74,37 +74,44 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 
 
-parse_address(#{address:=Ip, port:=Port, proto:=Proto} = _Address) ->
+parse_address(#{address:=Ip, port:=Port, proto:=Proto} = _Address)
+    when is_integer(Port) and is_atom(Proto) ->
     {Ip, Port, Proto};
 
 parse_address(_Address) ->
+    lager:error("invalid address: ~p", [_Address]),
     error.
 
 
 get_local_addresses() ->
-    gen_server:call(discovery, {get_config, addresses, []}).
+    gen_server:call(discovery, get_local_addresses).
 
 
 filter_local_addresses(Peers) ->
     LocalAddresses = get_local_addresses(),
-    LocalAddressFilter = fun({Ip, Port} = _Address) ->
-        IsLocalAddress = lists:any(
-            fun(#{address := LocalIp,
-                port := LocalPort} = _LocalAddress) ->
-                (
-                  Ip == LocalIp andalso
-                  Port == LocalPort
-                );
-                (InvalidLocalAddress) ->
-                    lager:info("invalid local address, skip it: ~p",
-															 [InvalidLocalAddress]),
-										% use true to skip it by filter and avoid using
-										% the invalid address in the renew_peers call
-                    true
-            end,
-            LocalAddresses),
-        (IsLocalAddress == false)
-    end,
+    LocalAddressFilter =
+        fun({Ip, Port} = _Address) when is_integer(Port) ->
+            IsLocalAddress = lists:any(
+                fun(#{address := LocalIp,
+                    port := LocalPort} = _LocalAddress)
+                    when is_integer(LocalPort) ->
+                    (
+                      Ip == LocalIp andalso
+                      Port == LocalPort
+                    );
+                    (InvalidLocalAddress) ->
+                        lager:info("invalid local address, skip it: ~p",
+                                   [InvalidLocalAddress]),
+                        % use true to skip it by filter and avoid using
+                        % the invalid address in the renew_peers call
+                        true
+                end,
+                LocalAddresses),
+            (IsLocalAddress == false);
+            (_Address) ->
+                lager:error("invalid address, skip it: ~p", [_Address]),
+                true
+        end,
     lists:filter(LocalAddressFilter, Peers).
 
 
