@@ -421,15 +421,14 @@ outward_chain([], Block, Chain, {Tx, Tp}) ->
     #{<<"pre_height">>:=PH,
       <<"pre_parent">>:=PP} ->
       MB#{
-        extdata => #{
-          pre_parent=>PP,
-          pre_height=>PH
-         }
+        extdata => [
+                    {pre_parent, PP},
+                    {pre_height, PH}
+                   ]
        };
     #{<<"parent">>:=_} ->
       MB#{
-        extdata => #{
-         }
+        extdata => []
        }
   end;
 
