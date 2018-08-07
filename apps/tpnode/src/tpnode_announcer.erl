@@ -11,7 +11,7 @@
 
 -export([start_link/1]).
 
--export([test/0, test1/0, test2/0]).
+-export([test/0, test1/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -83,59 +83,26 @@ parse_address(_Address) ->
     error.
 
 
-get_local_addresses() ->
-    gen_server:call(discovery, get_local_addresses).
-
-
-filter_local_addresses(Peers) ->
-    LocalAddresses = get_local_addresses(),
-    LocalAddressFilter =
-        fun({Ip, Port} = _Address) when is_integer(Port) ->
-            IsLocalAddress = lists:any(
-                fun(#{address := LocalIp,
-                    port := LocalPort} = _LocalAddress)
-                    when is_integer(LocalPort) ->
-                    (
-                      Ip == LocalIp andalso
-                      Port == LocalPort
-                    );
-                    (InvalidLocalAddress) ->
-                        lager:info("invalid local address, skip it: ~p",
-                                   [InvalidLocalAddress]),
-                        % use true to skip it by filter and avoid using
-                        % the invalid address in the renew_peers call
-                        true
-                end,
-                LocalAddresses),
-            (IsLocalAddress == false);
-            (_Address) ->
-                lager:error("invalid address, skip it: ~p", [_Address]),
-                true
-        end,
-    lists:filter(LocalAddressFilter, Peers).
-
-
 get_peers() ->
-    AllNodes = gen_server:call(discovery, {lookup, <<"tpicpeer">>}),
-    PeersFilter = fun(Address, Accepted) ->
-        Parsed = parse_address(Address),
-        case Parsed of
-            {Ip, Port, tpic} ->
-                Accepted ++ [{Ip, Port}];
-            {Ip, Port, <<"tpic">>} ->
-                Accepted ++ [{Ip, Port}];
-            _ ->
-                Accepted
-        end
-    end,
-    AllPeers = lists:foldl(PeersFilter, [], AllNodes),
-    filter_local_addresses(AllPeers).
+    AllRemoteNodes = gen_server:call(discovery, {lookup_remote, <<"tpicpeer">>}),
+    AddressParser =
+        fun(Address, Accepted) ->
+            Parsed = parse_address(Address),
+            case Parsed of
+                {Ip, Port, tpic} ->
+                    [{Ip, Port} | Accepted];
+                _ ->
+                    Accepted
+            end
+        end,
+    lists:foldl(AddressParser, [], AllRemoteNodes).
 
 renew_peers() ->
     renew_peers(get_peers()).
 
 renew_peers([]) ->
     ok;
+
 renew_peers(Peers) when is_list(Peers) ->
     lager:debug("add peers to tpic ~p", [Peers]),
     gen_server:call(tpic, {add_peers, Peers}).
@@ -152,26 +119,3 @@ test() ->
 
 test1() ->
     get_peers().
-
-
-test2() ->
-    register_node(),
-    LocalAddresses = get_local_addresses(),
-    Peers = get_peers() ++ [{"127.0.0.1", 43214}],
-    io:fwrite("local addresses: ~p~n", [LocalAddresses]),
-    io:fwrite("peers: ~p~n", [Peers]),
-    LocalAddressFilter = fun({Ip, Port} = _Address) ->
-        IsLocalAddress = lists:any(
-            fun(#{address := LocalIp,
-                port := LocalPort,
-                proto := Proto} = _LocalAddress) ->
-                (Ip == LocalIp andalso
-                 Port == LocalPort andalso
-                 (Proto == tpic orelse Proto == <<"tpic">>)
-                )
-            end,
-            LocalAddresses),
-        (IsLocalAddress == false)
-     end,
-    NewPeers = lists:filter(LocalAddressFilter, Peers),
-    io:fwrite("new peers: ~p~n", [NewPeers]).

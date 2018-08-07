@@ -170,11 +170,16 @@ handle_call({lookup, Name}, _From, State) ->
 handle_call({lookup, Name, Chain}, _From, State) ->
     {reply, query(Name, Chain, State), State};
 
+handle_call({lookup_remote, Name}, _From, #{remote_services := RemoteDict} = State) ->
+  {reply, query_remote(Name, RemoteDict, blockchain:chain()), State};
+
+
+handle_call({lookup_remote, Name, Chain}, _From, #{remote_services := RemoteDict} = State) ->
+  {reply, query_remote(Name, RemoteDict, Chain), State};
 
 handle_call(_Request, _From, State) ->
     lager:notice("Unknown call ~p", [_Request]),
     {reply, ok, State}.
-
 
 handle_cast(make_announce, #{local_services:=Dict} = State) ->
     lager:debug("Make local services announce (cast)"),
