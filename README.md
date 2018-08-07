@@ -1,53 +1,44 @@
-Запуск ноды на mac (протестировано с parallels):
+# The Power Node
 
-- Устанавливаем vagrant: `brew install caskroom/cask/vagrant`
-- Если используется parallels, дополнительно добавим поддержку в vagrant: `vagrant plugin install vagrant-parallels`
-- Если virtualbox `export PATH=/Applications/VirtualBox.app/Contents/MacOS:$PATH`
-- Для конфигурирования хостовой машины используется плагин hostmanager, добавим его: `vagrant plugin install vagrant-hostmanager`
-- Клонируем этот репозиторий, переходим в директорию с репозиторием
-- `vagrant up`
-- `vagrant ssh -- -A`  (-A нужен чтобы пробросить ssh агента с хостовой машины, это пригодится для авторизации при клонировании git репозиториев по ssh)
-- `cd /vagrant`
+## Node Setup
 
-После этого шага вы находитесь внутри виртуальной машины с линуксом в директории с проектом. У вас установлен Erlang/OTP, работает stcp и должны работать все остальные фишки описанные в этой инструкции.
-Также в /etc/hosts у вас будет прописан домен pwr.local с которым можно работать как с обычным linux-овым сервером где-то в сети.
+We use vagrant to setup development environment. Here is an example of setting up a development environment on MacOS
 
+### Prerequisites
 
-Чтобы собрать проект надо:
+1. Install vagrant: `brew install caskroom/cask/vagrant`
+2. If you are using the Parallels for virtualization, please add it's support to vagrant: `vagrant plugin install vagrant-parallels`
+3. If you are using the VirtualBox for virtualization (this is default option), you may want to modify the PATH variable to show vagrant the VirtualBox binary: `export PATH=/Applications/VirtualBox.app/Contents/MacOS:$PATH`
+4. We use the hostmanager plugin to manage the /etc/hosts file. Please, install this plugin: `vagrant plugin install vagrant-hostmanager`
 
-- устрановить Erlang/OTP (19 или 20)
-- склонировать репозиторий (бранч v2)
-- запустить make build
-- поправить хостнейм своей ноды
+### Set up the environment
 
-```
-% hostname
-omh.local
-```
+1. Please, clone this repository and get to it's directory.
+2. Start the virtual machine using vagrant: `vagrant up`
 
-берем локальную часть до первой точки, в моем случае omh
-в файлах examples/app*.config правим секцию neighbours - заменяем @knuth на @ваш_хостнейм
+   At the first time you run the vagrant command it will run the provisioning. It will be downloaded all necessary libraries, compiled proper version of erlang, etc. You have to reboot the virtual machine after successful provisioning (`vagrant halt; vagrant up`).
 
-- делаем make run1 в одной консоле и make run2 во второй
-- потом в каждой консоле делаем application:stop(tpnode),tpnode:start().
+3. Please, get into virtual environment. `vagrant ssh -- -A`  (We use the -A key to ssh agent forwarding. So, for operations inside the virtual machine, you will be able to use your ssh key from host machine.)
+4. `cd /vagrant`
 
-это временный хак
-надо перезапустить синхронизаторы. пока перезапускаем все приложение
+At this point you are in the project directory. 
 
-- через 10 секунд проверяем что сгенерился блок:
+To compile the testnet use command: `make buildtest`
 
-в консоле можно написать
+To run the testnet please use the script `./bin/testnet.sh`:
 
-```
-maps:get(header,gen_server:call(blockchain,last_block)).
+* start the testnet: `./bin/testnet.sh start`
+* stop the testnet: `./bin/testnet.sh stop`
+
+Please, also consult the Makefile targets as reference how to make other different tasks. 
+
+You can see the API ports using the command: `netstat -an |grep 498` (After testnet was started you should see 9 different ports. You can use these ports for API calls of The Power nodes.)
+
+Example API call:
+
+```bash
+curl http://pwr.local:49841/api/node/status | jq .
 ```
 
-или в вебе
-
-```
-http://127.0.0.1:43280/api/block/last
-http://127.0.0.1:43281/api/block/last
-```
-
-надо запускать 2 ноды, иначе блоки создаваться не будут (в генезисе настроен mingis=2)
+Please note, you may use the domain `pwr.local` in URL to reference the node from virtual machine or from host machine.
 
