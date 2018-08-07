@@ -160,7 +160,7 @@ get_peers(Subs) ->
 relay_discovery(_Announce, AnnounceBin, Subs) ->
   Sender =
   fun(_Key, #{worker:=W}, Cnt) ->
-      W ! {send_msg, {xdiscovery, AnnounceBin}},
+      W ! {send_msg, #{null=><<"xdiscovery">>, <<"bin">>=>AnnounceBin}},
       Cnt+1;
      (_Key, Sub, Cnt) ->
       lager:debug("Skip relaying to unfinished connection: ~p", [Sub]),

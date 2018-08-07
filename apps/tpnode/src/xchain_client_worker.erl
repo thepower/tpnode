@@ -146,7 +146,7 @@ block_list(Pid, Proto, Chain, Last, Known, Acc) ->
     end,
   R=make_ws_req(Pid, Proto, Req),
   case R of
-    #{null := N,
+      #{null := N,
       <<"ok">> := true,
       <<"pointers">> := #{<<"height">> := H,
                           <<"parent">> := P,
@@ -158,6 +158,12 @@ block_list(Pid, Proto, Chain, Last, Known, Acc) ->
         true ->
           block_list(Pid, Proto, Chain, PP, Known, [{H,P}|Acc])
       end;
+    #{null := N,
+      <<"ok">> := true,
+      <<"pointers">> := #{<<"height">> := H,
+                          <<"parent">> := P}} when N==<<"last_ptr">> orelse
+                                                   N==<<"pre_ptr">> ->
+      [{H,P}|Acc];
     Any ->
       lager:info("Err ~p",[Any]),
       Acc
