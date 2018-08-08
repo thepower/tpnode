@@ -1,15 +1,15 @@
-# Формат транзакции
+# Transaction format
 
-## Обычная транзакция
+## General purpose transaction
 
 type => tx fixstr (0xa0 ... 0xbf)
-from => Адрес 8 (0xc4)
-to => Адрес 8 байт binary (0xc4)
-amount => Amount fixint/uintXX (0x00..0x7f или 0xcc .. 0xcf)
-cur => тикер fixstr (0xa0 .. 0xbf)
-timestamp => таймштамп в мс. int64 (0xcf)
-seq => Int fixint/uintXX (0x00..0x7f или 0xcc..0xcf)
-extradata => text (JSON) fixstr/strXX (0xa0..0xbf или 0xd9..0xdb)
+from => Address 8 (0xc4)
+to => Address, 8 bites, binary (0xc4)
+amount => Amount fixint/uintXX (0x00..0x7f or 0xcc .. 0xcf)
+cur => currency name (ticker) fixstr (0xa0 .. 0xbf)
+timestamp => timestamp в мс. int64 (0xcf)
+seq => nonce, Int, fixint/uintXX (0x00..0x7f or 0xcc..0xcf)
+extradata => additional info, text (JSON) fixstr/strXX (0xa0..0xbf or 0xd9..0xdb)
 
 
 
@@ -32,16 +32,16 @@ msgpack (
         bin_pub_key1 => bin_signature1,
         bin_pub_key2 => bin_signature2,
         ...
-        }        
+        }
         extdata => {}
         }
 )
 
-## Портация
+## Chain migration
 
-from => Адрес
-portout => ИД чейна назначения
+from => Address
+portout => Destination chain ID
 timestamp => Timestamp ms
-seq => integer
+seq => Integer (nonce)
 
 

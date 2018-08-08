@@ -1,4 +1,4 @@
-Конвертация raw key в openssl
+Convertation from raw key format to openssl format.
 
 export(<<PubKey:33/binary>>,der) ->
   <<48,54,48,16,6,7,42,134,72,206,61,2,1,6,5,43,129,4,0,10,3,34,0,
@@ -8,7 +8,7 @@ export(<<PrivKey:32/binary>>,der) ->
     16#a0,16#07,16#06,16#05,16#2b,16#81,16#04,16#00,16#0a>>;
 
 
-Импорт ключа
+Key Import
 
 import(<<"---",_/binary>>=PEM) ->
   [{KeyType, DerKey, not_encrypted}] = public_key:pem_decode(PEM),
@@ -26,19 +26,19 @@ import(<<"---",_/binary>>=PEM) ->
       {pub, PubKey}
   end.
 
-Генерация ключа tpecdsa, подпись, проверка openssl
-K=tpecdsa:generate_priv(). 
-%Подпись
+Key generation using tpecdsa, the signing process, signature check using openssl
+K=tpecdsa:generate_priv().
+% signing
 file:write_file("/tmp/k1.sig",tpecdsa:sign(<<"test1">>,K)).
-%Эксрорт ключа
+% key export
 file:write_file("/tmp/k1.pub.pem",tpecdsa:export(tpecdsa:calc_pub(K,true),pem)).
 
-% echo -n 'test1' | openssl dgst -sha256 -verify /tmp/k1.pub.pem -signature /tmp/k1.sig 
+% echo -n 'test1' | openssl dgst -sha256 -verify /tmp/k1.pub.pem -signature /tmp/k1.sig
 Verified OK
 
 
-Генерация ключа OpenSSL, подпись, проверка tpecdsa
-% openssl ecparam -name secp256k1 -genkey -text -out /tmp/k2.priv.pem   
+Key generation using OpenSSL, the signing process, signature check using tpecdsa
+% openssl ecparam -name secp256k1 -genkey -text -out /tmp/k2.priv.pem
 Get pub
 % openssl ec -in /tmp/k2.priv.pem -pubout -out /tmp/k2.pub.pem
 Sign
@@ -54,11 +54,12 @@ Sign
 > tpecdsa:verify(<<"test2">>,K2Pub,SignatureK2).
 correct
 
-Для регистрации нужно сформировать сжатый публичный ключ (такой ключ, у
-которого имеется координата Y полностью, и четность коодинаты X), такой
-ключ без заголовка занимает 33 байта и первый байт равен 2 или 3 в 
-зависимости от четности координаты X
 
-Из приватного ключа, созданного на предыдушем этапе получаем сырой ключ
+To register, you need to generate a compressed public key (this key
+has the Y coordinate completely, and the parity of the X coordinate).
+The key without the header is consist of 33 bytes and the first byte is equal to 2 or 3
+(it's depence on the parity of the X coordinate)
+
+How to get raw key from your private key (from the previous step):
 openssl ec -in /tmp/k2.priv.pem -conv_form compressed -outform DER | dd bs=1 iseek=53 > /tmp/k2.raw.bin
 
