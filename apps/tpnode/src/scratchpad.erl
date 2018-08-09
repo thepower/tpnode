@@ -842,3 +842,47 @@ test_parse_cert() ->
   OTPCert = public_key:pkix_decode_cert(Der, otp),
   OTPCert#'OTPCertificate'.tbsCertificate#'OTPTBSCertificate'.validity.
 
+distribute(Module) ->
+  MD=Module:module_info(md5),
+  {Module,Code,_}=code:get_object_code(Module),
+  lists:map(
+    fun(Node) ->
+        NM=rpc:call(Node,Module,module_info,[md5]),
+        if(NM==MD) ->
+            {Node, same};
+          true ->
+            {Node,
+             NM,
+             rpc:call(Node,code,load_binary,[Module,"nowhere",Code]),
+             rpc:call(Node,Module,module_info,[md5])
+            }
+        end
+    end, nodes()).
+
+rd(Module) ->
+  Changed=r(Module),
+  if(Changed) ->
+      distribute(Module);
+    true ->
+      Changed
+  end.
+
+r(Module) ->
+  M0=Module:module_info(),
+  PO=proplists:get_value(compile,M0),
+  compile:file(
+    proplists:get_value(source,PO),
+    proplists:get_value(options,PO)
+   ),
+  code:purge(Module),
+  code:delete(Module),
+  M1=Module:module_info(),
+  Changed=proplists:get_value(md5,M0) =/= proplists:get_value(md5,M1),
+  error_logger:info_msg("Recompile ~s md5 ~p / ~p",
+                        [Module,
+                         proplists:get_value(md5,M0),
+                         proplists:get_value(md5,M1)
+                        ]),
+  error_logger:info_msg("Recompile ~s changed ~s",[Module,Changed]),
+  Changed.
+
