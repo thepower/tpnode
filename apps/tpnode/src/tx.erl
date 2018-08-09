@@ -181,6 +181,9 @@ construct_tx(#{
     sig=>[]
    }.
 
+unpack_body(#{sig:=<<>>}=Tx) ->
+  unpack_body(Tx#{sig:=[]});
+
 unpack_body(#{body:=Body}=Tx) ->
   {ok,#{"k":=IKind}=B}=msgpack:unpack(Body,[{spec,new},{unpack_str, as_list}]),
   {Ver, Kind}=decode_kind(IKind),
