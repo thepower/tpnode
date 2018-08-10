@@ -85,4 +85,229 @@ patch_sign_test() ->
      ?assertMatch(#{}, settings:get([chain, 0, <<"allowempty">>], Genesis)),
      ?assertMatch(0, settings:get([chain, 0, <<"allowempty">>], Patched))
     ].
+second_test() ->
+  State0=settings:new(),
+  P1=[
+      #{<<"t">>=><<"set">>, 
+        <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"base">>], 
+        <<"v">>=>trunc(1.0e3)},
+      #{<<"t">>=><<"set">>, 
+        <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"kb">>], 
+        <<"v">>=>trunc(1.0e9)},
+      #{<<"t">>=><<"set">>, 
+        <<"p">>=>[<<"current">>, <<"rewards">>, <<"c1n1">>], 
+        <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 1>>},
+      #{<<"t">>=><<"set">>, 
+        <<"p">>=>[<<"current">>, <<"rewards">>, <<"c1n2">>], 
+        <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 2>>},
+      #{<<"t">>=><<"set">>, 
+        <<"p">>=>[<<"current">>, <<"rewards">>, <<"c1n3">>], 
+        <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 3>>},
+      #{<<"t">>=><<"list_add">>, 
+        <<"p">>=>[<<"list1">>], 
+        <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 3>>},
+      #{<<"t">>=><<"list_add">>, 
+        <<"p">>=>[<<"list1">>], 
+        <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 1>>}
+     ],
+  State1=settings:patch(P1,State0),
+  P2a=[
+       #{<<"t">>=><<"delete">>, 
+         <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"base">>],
+         <<"v">>=>1
+        }
+      ],
+  P2b=[
+       #{<<"t">>=><<"delete">>, 
+         <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"base">>],
+         <<"v">>=>null
+        }
+      ],
+  P2=[
+       #{<<"t">>=><<"delete">>, 
+         <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"base">>],
+         <<"v">>=>1000
+        }
+      ],
+  P2c=[
+      #{<<"t">>=><<"delete">>, 
+        <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"base">>,<<"xxX">>],
+        <<"v">>=>1000
+       }
+     ],
+  P2d=[
+      #{<<"t">>=><<"delete">>, 
+        <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"base">>,<<"xxX">>],
+        <<"v">>=>null
+       }
+     ],
+
+    State2=settings:patch(P2,State1),
+  State2b=settings:patch(P2b,State1),
+  
+  P3a=[
+       #{<<"t">>=><<"compare">>, 
+         <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"kb">>],
+         <<"v">>=>100000
+        },
+       #{<<"t">>=><<"set">>, 
+         <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"kb">>],
+         <<"v">>=>200000
+        }
+      ],
+  P3b=[
+       #{<<"t">>=><<"member">>, 
+        <<"p">>=>[<<"list1">>],
+        <<"v">>=><<160, 0, 0, 0, 0, 0, 9, 1>>
+       },
+       #{<<"t">>=><<"set">>, 
+         <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"kb">>],
+         <<"v">>=>200000
+        }
+      ],
+  P3=[
+      #{<<"t">>=><<"exist">>, <<"p">>=>[<<"list1">>], <<"v">>=><<>> },
+      #{<<"t">>=><<"nonexist">>, <<"p">>=>[<<"list2">>], <<"v">>=><<>> },
+      #{<<"t">>=><<"member">>, 
+        <<"p">>=>[<<"list1">>],
+        <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 1>>
+       },
+      #{<<"t">>=><<"nonmember">>, 
+        <<"p">>=>[<<"list1">>],
+        <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 9>>
+       },
+      #{<<"t">>=><<"compare">>, 
+        <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"kb">>],
+        <<"v">>=>1000000000
+       },
+      #{<<"t">>=><<"set">>, 
+        <<"p">>=>[keys,<<"k1">>],
+        <<"v">>=><<1,2,3,4>>
+       },
+      #{<<"t">>=><<"set">>, 
+        <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"kb">>],
+        <<"v">>=>2000000
+       },
+      #{<<"t">>=><<"list_del">>, 
+        <<"p">>=>[<<"list1">>], 
+        <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 1>>},
+      #{<<"t">>=><<"list_add">>, 
+        <<"p">>=>[<<"list1">>], 
+        <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 9>>},
+      #{<<"t">>=><<"delete">>,
+        <<"p">>=>[<<"current">>,<<"rewards">>],
+        <<"v">>=>null}
+     ],
+  State3=settings:patch(P3,State2),
+  Res1=[
+        #{<<"p">> => [<<"keys">>,<<"k1">>],
+          <<"t">> => <<"set">>,
+          <<"v">> => <<1,2,3,4>>},
+        #{<<"p">> => [<<"current">>,<<"fee">>,<<"FTT">>,<<"kb">>],
+          <<"t">> => <<"set">>,<<"v">> => 2000000},
+        #{<<"p">> => [<<"list1">>],
+          <<"t">> => <<"list_add">>,
+          <<"v">> => <<160,0,0,0,0,0,1,3>>},
+        #{<<"p">> => [<<"list1">>],
+          <<"t">> => <<"list_add">>,
+          <<"v">> => <<160,0,0,0,0,0,1,9>>}],
+  Res2=[
+        #{<<"p">> => [keys,<<"k1">>],
+          <<"t">> => <<"set">>,
+          <<"v">> => <<1,2,3,4>>},
+        #{<<"p">> => [<<"current">>,<<"fee">>,<<"FTT">>,<<"kb">>],
+          <<"t">> => <<"set">>,<<"v">> => 2000000},
+        #{<<"p">> => [<<"list1">>],
+          <<"t">> => <<"list_add">>,
+          <<"v">> => <<160,0,0,0,0,0,1,3>>},
+        #{<<"p">> => [<<"list1">>],
+          <<"t">> => <<"list_add">>,
+          <<"v">> => <<160,0,0,0,0,0,1,9>>}],
+
+  [
+   ?assertMatch(1000,
+                settings:get(
+                  [<<"current">>,<<"fee">>,<<"FTT">>,<<"base">>],State1)),
+   ?assertMatch(<<160,0,0,0,0,0,1,3>>,
+                settings:get(
+                  [<<"current">>,<<"rewards">>,<<"c1n3">>],State1)),
+   ?assertMatch(#{},
+                settings:get(
+                  [<<"current">>,<<"rewards">>,<<"c1n5">>],State1)),
+   ?assertThrow({delete_val,[<<"current">>,<<"fee">>,<<"FTT">>,<<"base">>],1},
+               settings:patch(P2a,State1)),
+  ?assertThrow({non_map,[<<"current">>,<<"fee">>,<<"FTT">>,<<"base">>,<<"xxX">>]},
+               settings:patch(P2c,State1)),
+  ?assertThrow({non_map,[<<"current">>,<<"fee">>,<<"FTT">>,<<"base">>,<<"xxX">>]},
+               settings:patch(P2d,State1)),
+  ?assertMatch(#{},settings:get([<<"current">>,<<"fee">>,<<"FTT">>,<<"base">>],State2)),
+  ?assertMatch(#{},settings:get([<<"current">>,<<"fee">>,<<"FTT">>,<<"base">>],State2b)),
+  ?assertMatch(<<160,0,0,0,0,0,1,3>>,settings:get([<<"current">>,<<"rewards">>,<<"c1n3">>],State2)),
+
+  ?assertThrow({compare,_}, settings:patch(P3a,State2)),
+  ?assertThrow({member,_}, settings:patch(P3b,State2)),
+  ?assertThrow({non_value,_}, settings:patch(
+                                [
+                                 #{<<"t">>=><<"set">>, 
+                                   <<"p">>=>[<<"current">>, <<"fee">>],
+                                   <<"v">>=>2000000
+                                  } ],State2)),
+  ?assertThrow({non_list,_}, settings:patch(
+                               [
+                                #{<<"t">>=><<"list_add">>, 
+                                  <<"p">>=>[<<"current">>],
+                                  <<"v">>=>2000000
+                                 } ],State2)),
+  ?assertThrow({non_list,_}, settings:patch(
+                               [
+                                #{<<"t">>=><<"list_del">>, 
+                                  <<"p">>=>[<<"current">>],
+                                  <<"v">>=>2000000
+                                 } ],State2)),
+  ?assertThrow({non_list,_}, settings:patch(
+                               [
+                                #{<<"t">>=><<"member">>, 
+                                  <<"p">>=>[<<"current">>],
+                                  <<"v">>=>2000000
+                                 } ],State2)),
+  ?assertThrow({non_map,_}, settings:patch(
+                              [
+                               #{<<"t">>=><<"set">>, 
+                                 <<"p">>=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"kb">>, <<"abc">>],
+                                 <<"v">>=>2000000
+                                } ],State2)),
+  ?assertThrow({member,_}, settings:patch(
+                             [
+                              #{<<"t">>=><<"member">>, 
+                                <<"p">>=>[<<"list1">>], 
+                                <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 1>>}
+                             ],State3)),
+  ?assertThrow({exist,_}, settings:patch(
+                            [
+                             #{<<"t">>=><<"nonexist">>, 
+                               <<"p">>=>[<<"list1">>], 
+                               <<"v">>=><<>>}
+                            ],State3)),
+  ?assertThrow({exist,_}, settings:patch(
+                            [
+                             #{<<"t">>=><<"exist">>, 
+                               <<"p">>=>[<<"list2">>], 
+                               <<"v">>=><<>>}
+                            ],State3)),
+  ?assertThrow({member,_}, settings:patch(
+                             [
+                              #{<<"t">>=><<"nonmember">>, 
+                                <<"p">>=>[<<"list1">>], 
+                                <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 9>>}
+                             ],State3)),
+  ?assertThrow({action,_}, settings:patch(
+                             [
+                              #{<<"t">>=><<"zhopa">>, 
+                                <<"p">>=>[<<"list1">>], 
+                                <<"v">>=><<160, 0, 0, 0, 0, 0, 1, 9>>}
+                             ],State3)),
+  ?assertMatch(Res1,settings:get_patches(State3)),
+  ?assertMatch(Res2,settings:get_patches(State3,ets))
+  ].
+
 

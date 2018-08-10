@@ -3,14 +3,6 @@
 -export([new/0, set/3, patch/2, mp/1, dmp/1, get/2]).
 -export([sign/2, verify/1, verify/2, get_patches/1, get_patches/2]).
 
-%pack(#{patch:=_LPatch, sig:=Sigs}=Patch) when is_list(Sigs) ->
-%    msgpack:pack(Patch).
-%
-%unpack(Bin) ->
-%    msgpack:unpack(Bin).
-
-
-
 sign(Patch, PrivKey) when is_list(Patch) ->
     BinPatch=mp(Patch),
     sign(#{patch=>BinPatch, sig=>[]}, PrivKey);
@@ -194,20 +186,11 @@ patch1([#{<<"t">>:=Action, <<"p">>:=K, <<"v">>:=V}|Settings], M) ->
     M1=change(action(Action), K, V, M),
     patch1(Settings, M1).
 
-%patch({_TxID, MP}, M) when is_binary(MP)->
-%    {Patch, Sigs}=unpack(MP),
-%    patch(#{patch=>Patch,
-%            sig=>Sigs}, M);
+patch({_TxID, #{patches:=Patch, sig:=Sigs}}, M) ->
+    patch(#{patch=>Patch, sig=>Sigs}, M);
 
-patch({_TxID, #{patches:=Patch,
-               sig:=Sigs}}, M) ->
-    patch(#{patch=>Patch,
-            sig=>Sigs}, M);
-
-patch({_TxID, #{patch:=Patch,
-               sig:=Sigs}}, M) ->
-    patch(#{patch=>Patch,
-            sig=>Sigs}, M);
+patch({_TxID, #{patch:=Patch, sig:=Sigs}}, M) ->
+    patch(#{patch=>Patch, sig=>Sigs}, M);
 
 patch(#{patch:=Patch}, M) ->
     patch(Patch, M);
@@ -259,19 +242,19 @@ parse_settings([], _, _, Patches, _Mode) -> Patches;
 parse_settings([H|T], Settings, Path, Patches, Mode) ->
   NewPath = [H|Path],
   Item = maps:get(H, Settings),
-  NewPatches = if is_map(Item) ->
-       parse_settings(maps:keys(Item), Item, NewPath, Patches, Mode);
-     is_list(Item) ->
-       (lists:foldl(fun(Elem, Acc) ->
-                                   [#{<<"t">> => <<"list_add">>, 
-                                      <<"p">> => lists:reverse(NewPath), 
-                                      <<"v">> => Elem}|Acc]
-                                 end, Patches, Item));
-     not is_map(Item) and not is_list(Item) ->
-       [#{<<"t">> => <<"set">>, 
-          <<"p">> => lists:reverse(NewPath), 
-          <<"v">> => Item}|Patches]
-  end,
+  NewPatches = case Item of
+                 #{} ->
+                   parse_settings(maps:keys(Item), Item, NewPath, Patches, Mode);
+                 [_|_] ->
+                   lists:foldl(
+                     fun(Elem, Acc) ->
+                         [#{<<"t">> => <<"list_add">>, 
+                            <<"p">> => lists:reverse(NewPath), 
+                            <<"v">> => Elem}|Acc]
+                     end, Patches, Item);
+                 _ when not is_map(Item), not is_list(Item) ->
+                   [#{<<"t">> => <<"set">>, 
+                      <<"p">> => lists:reverse(NewPath), 
+                      <<"v">> => Item}|Patches]
+               end,
   parse_settings(T, Settings, Path, NewPatches, Mode).
-
-
