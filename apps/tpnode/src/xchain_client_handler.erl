@@ -26,8 +26,13 @@ handle_xchain(pong, _ConnPid, Sub) ->
 %%    lager:info("Got pong for ~p", [_ConnPid]),
     Sub;
 
-handle_xchain({outward_block, FromChain, ToChain, BinBlock}, _ConnPid, Sub) ->
-    lager:info("Got outward block from ~p to ~p", [FromChain, ToChain]),
+handle_xchain({<<"outward_block">>, FromChain, ToChain, BinBlock}, ConnPid, Sub) when
+    is_integer(ToChain), is_integer(FromChain), is_binary(BinBlock) ->
+  handle_xchain({outward_block, FromChain, ToChain, BinBlock}, ConnPid, Sub);
+
+handle_xchain({outward_block, FromChain, ToChain, BinBlock}, _ConnPid, Sub) when
+    is_integer(ToChain), is_integer(FromChain), is_binary(BinBlock) ->
+    lager:info("Got outward block from ~b to ~b", [FromChain, ToChain]),
     Block=block:unpack(BinBlock),
     try
         Filename="tmp/inward_block." ++ integer_to_list(FromChain) ++ ".txt",

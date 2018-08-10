@@ -835,6 +835,70 @@ try_process([{TxID, UnknownTx} |Rest],
         Acc#{failed=>[{TxID, 'unknown_type'}|Failed]}).
 
 try_process_inbound([{TxID,
+                      #{ver:=2,
+                        kind:=generic,
+                        to:=To,
+                        origin_block:=OriginBlock,
+                        origin_block_height:=OriginHeight,
+                        origin_block_hash:=OriginHash
+                       }=Tx}
+                   |Rest],
+                  SetState, Addresses, GetFun,
+                  #{success:=Success,
+                    failed:=Failed,
+                    emit:=Emit,
+                    settings:=Settings,
+                    pick_block:=PickBlock}=Acc) ->
+    lager:error("Check signature once again"),
+    try
+      EnsureSettings=fun(undefined) -> GetFun(settings);
+                        (SettingsReady) -> SettingsReady
+                     end,
+      RealSettings=EnsureSettings(SetState),
+
+      #{address:=_,block:=ChID,group:=_,type:=public}=naddress:parse(To),
+      lager:info("Orig Block ~p", [OriginBlock]),
+      lager:notice("Change chain number to actual ~p", [SetState]),
+      ChainPath=[<<"current">>, <<"sync_status">>, xchain:pack_chid(ChID)],
+      {_, ChainLastH}=case settings:get(ChainPath, SetState) of
+                        #{<<"block">> := LastBlk,
+                          <<"height">> := LastHeight} ->
+                          if(OriginHeight>LastHeight) -> ok;
+                            true -> throw({overdue, OriginBlock})
+                          end,
+                          {LastBlk, LastHeight};
+                        _ ->
+                          {<<0:64/big>>, 0}
+                      end,
+      lager:info("SyncState ~p", [ChainLastH]),
+
+      IncPtr=[#{<<"t">> => <<"set">>,
+                  <<"p">> => ChainPath ++ [<<"block">>],
+                  <<"v">> => OriginHash
+                 },
+                #{<<"t">> => <<"set">>,
+                  <<"p">> => ChainPath ++ [<<"height">>],
+                  <<"v">> => OriginHeight
+                 }
+               ],
+        PatchTxID= <<"sync", (xchain:pack_chid(ChID))/binary>>,
+        SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
+
+        {NewT, NewEmit, _GasUsed}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings),
+        NewAddresses=maps:put(To, NewT, Addresses),
+
+        try_process(Rest, SetState, NewAddresses, GetFun,
+                    Acc#{success=>[{TxID, Tx}|Success],
+                         emit=>Emit ++ NewEmit,
+                         pick_block=>maps:put(OriginBlock, 1, PickBlock),
+                         settings=>[SyncPatch|lists:keydelete(PatchTxID, 1, Settings)]
+                        })
+    catch throw:X ->
+              try_process(Rest, SetState, Addresses, GetFun,
+                          Acc#{failed=>[{TxID, X}|Failed]})
+    end;
+
+try_process_inbound([{TxID,
                     #{cur:=Cur, amount:=Amount, to:=To,
                       origin_block:=OriginBlock,
                       origin_block_height:=OriginHeight,
@@ -1419,7 +1483,13 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
           lists:foldl(
           fun({_, #{to:=T, cur:=Cur}}, AAcc) ->
               TB=bal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
-              maps:put(T, TB, AAcc)
+              maps:put(T, TB, AAcc);
+             ({_, #{ver:=2, kind:=generic, to:=T, payload:=P}}, AAcc) ->
+              lists:foldl(
+                fun(#{cur:=Cur}, AAcc1) ->
+                    TB=bal:fetch(T, Cur, false, maps:get(T, AAcc1, #{}), GetAddr),
+                    maps:put(T, TB, AAcc1)
+                end, AAcc, P)
           end, AAcc0, Txs),
           SAcc};
       ({_, #{patch:=_}}, {AAcc, SAcc}) ->

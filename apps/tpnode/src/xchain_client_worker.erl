@@ -3,14 +3,18 @@
 
 start_link(Sub) ->
   GetFun=fun(node_id) ->
-               nodekey:node_id();
-              (chain) ->
-               blockchain:chain();
-              ({apply_block,Block}) ->
-               txpool:inbound_block(Block);
-              ({last,_ChainNo}) ->
-               undefined
-           end,
+             nodekey:node_id();
+            (chain) ->
+             blockchain:chain();
+            ({apply_block,Block}) ->
+             txpool:inbound_block(Block);
+            ({last,ChainNo}) ->
+             blockchain:get_settings([
+                                      <<"current">>,
+                                      <<"sync_status">>,
+                                      xchain:pack_chid(ChainNo),
+                                      <<"block">>])
+         end,
   Pid=spawn(xchain_client_worker,run,[Sub#{parent=>self()}, GetFun]),
   link(Pid),
   {ok, Pid}.
@@ -52,7 +56,7 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
             _ -> 0
           end,
     {ok,UpgradeHdrs}=upgrade(Pid,Proto),
-    lager:debug("Conn upgrade ~p",[UpgradeHdrs]),
+    lager:info("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
     #{null:=<<"iam">>,
       <<"chain">>:=HisChain,
       <<"node_id">>:=_}=reg(Pid, Proto, GetFun),
@@ -86,12 +90,16 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
 
 ws_mode(Pid, #{parent:=Parent, proto:=Proto}=Sub, GetFun) ->
   receive
-    {'EXIT',_,_Reason} ->
-      lager:error("Linked process went down. Giving up...."),
-      Cmd = xchain:pack(#{null=><<"goodbye">>, <<"r">>=><<"noparent">>}, Proto),
+    {'EXIT',_,shutdown} ->
+      Cmd = xchain:pack(#{null=><<"goodbye">>, <<"r">>=><<"shutdown">>}, Proto),
       gun:ws_send(Pid, {binary, Cmd}),
       gun:close(Pid),
-      Parent ! {wrk_down, self(), noparent},
+      exit;
+    {'EXIT',_,Reason} ->
+      lager:error("Linked process went down ~p. Giving up....",[Reason]),
+      Cmd = xchain:pack(#{null=><<"goodbye">>, <<"r">>=><<"deadparent">>}, Proto),
+      gun:ws_send(Pid, {binary, Cmd}),
+      gun:close(Pid),
       exit;
     {state, CPid} ->
       CPid ! {Pid, Sub},
