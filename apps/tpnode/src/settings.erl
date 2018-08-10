@@ -2,6 +2,7 @@
 
 -export([new/0, set/3, patch/2, mp/1, dmp/1, get/2]).
 -export([sign/2, verify/1, verify/2, get_patches/1, get_patches/2]).
+-export([make_meta/2]).
 
 sign(Patch, PrivKey) when is_list(Patch) ->
     BinPatch=mp(Patch),
@@ -69,6 +70,54 @@ new() ->
 
 set(A, B, C) ->
     change(set, A, B, C).
+
+meta_path(set, Path) ->
+  {Pre,Post}=lists:split(length(Path)-1,Path),
+  Pre++[<<".">>]++Post;
+
+meta_path(list, Path) ->
+  {Pre,Post}=lists:split(length(Path)-1,Path),
+  Pre++[<<".">>]++Post.
+
+make_meta1([], _, Acc) ->
+  Acc;
+
+make_meta1([#{<<"t">>:=<<"list_",_/binary>>,<<"p">>:=Path,<<"v">>:=_}|Rest], MetaInfo, Acc) ->
+  Acc2=maps:fold(
+         fun(K,V,Acc1) ->
+             BasePath=meta_path(list,Path),
+             maps:put(BasePath++[K],V,Acc1)
+         end, Acc, MetaInfo),
+  make_meta1(Rest, MetaInfo, Acc2);
+
+make_meta1([#{<<"t">>:=<<"set">>,<<"p">>:=Path,<<"v">>:=_}|Rest], MetaInfo, Acc) ->
+  Acc2=maps:fold(
+         fun(K,V,Acc1) ->
+             BasePath=meta_path(set,Path),
+             maps:put(BasePath++[K],V,Acc1)
+         end, Acc, MetaInfo),
+  make_meta1(Rest, MetaInfo, Acc2);
+
+make_meta1([#{<<"t">>:=_,<<"p">>:=_,<<"v">>:=_}|Rest], MetaInfo, Acc) ->
+  make_meta1(Rest, MetaInfo, Acc).
+
+fixtype(X) when is_integer(X) -> X;
+fixtype(X) when is_binary(X) -> X;
+fixtype(X) when is_atom(X) -> atom_to_binary(X,utf8);
+fixtype(X) ->
+  throw({'bad_type',X}).
+
+make_meta(Patches, MetaInfo) ->
+    MI=maps:fold(
+       fun(K,V,Acc) ->
+           maps:put(fixtype(K),fixtype(V),Acc)
+       end, #{}, MetaInfo),
+  Map=make_meta1(Patches, MI, #{}),
+  maps:fold(
+    fun(Key,Val, Acc) ->
+        [#{<<"t">>=><<"set">>, <<"p">>=>Key, <<"v">>=>Val}|Acc]
+    end, [], Map).
+
 
 get([], M) -> M;
 get([Hd|Path], M) when is_list(Path) ->
@@ -182,22 +231,26 @@ change(Action, Path, Value, M) when is_list(Path) ->
 patch1([], M) -> M;
 
 patch1([#{<<"t">>:=Action, <<"p">>:=K, <<"v">>:=V}|Settings], M) ->
-    lager:debug("Settings ~s K ~p v ~p", [Action, K, V]),
     M1=change(action(Action), K, V, M),
     patch1(Settings, M1).
 
+%txv2
 patch({_TxID, #{patches:=Patch, sig:=Sigs}}, M) ->
     patch(#{patch=>Patch, sig=>Sigs}, M);
 
+%tvx1
 patch({_TxID, #{patch:=Patch, sig:=Sigs}}, M) ->
     patch(#{patch=>Patch, sig=>Sigs}, M);
 
+%txv1
 patch(#{patch:=Patch}, M) ->
     patch(Patch, M);
 
+%naked
 patch(Changes, M) when is_list(Changes) ->
   patch1(Changes, M);
 
+%packed
 patch(MP, M) when is_binary(MP) ->
     DMP=dmp(MP),
     patch1(DMP, M).
@@ -216,7 +269,6 @@ mp(Term) ->
 %mpk(Key) ->
 %    E1=binary:split(Key, <<":">>, [global]),
 %    mp(E1).
-
 
 action(<<"list_add">>) -> add;
 action(<<"list_del">>) -> remove;
