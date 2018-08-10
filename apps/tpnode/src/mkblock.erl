@@ -986,41 +986,58 @@ try_process_outbound([{TxID,
 
     PatchTxID= <<"out", (xchain:pack_chid(OutTo))/binary>>,
     {SS2, Set2}=case lists:keymember(PatchTxID, 1, Settings) of
-             true ->
-               {SetState, Settings};
-             false ->
-               ChainPath=[<<"current">>, <<"outward">>,
-                    xchain:pack_chid(OutTo)],
-               PCP=case settings:get(ChainPath, RealSettings) of
-                   #{<<"parent">>:=PP,
-                   <<"height">>:=HH} ->
-                     [
-                    #{<<"t">> =><<"set">>,
-                      <<"p">> => ChainPath ++ [<<"pre_parent">>],
-                      <<"v">> => PP
-                     },
-                    #{<<"t">> =><<"set">>,
-                      <<"p">> => ChainPath ++ [<<"pre_height">>],
-                      <<"v">> => HH
-                     }];
-                   _ ->
-                     []
-                 end,
-               IncPtr=[#{<<"t">> => <<"set">>,
-                   <<"p">> => ChainPath ++ [<<"parent">>],
-                   <<"v">> => ParentHash
-                  },
-                   #{<<"t">> => <<"set">>,
-                   <<"p">> => ChainPath ++ [<<"height">>],
-                   <<"v">> => MyHeight
-                  }
-                   |PCP ],
-               SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
-               {
-              settings:patch(SyncPatch, RealSettings),
-              [SyncPatch|Settings]
-               }
-           end,
+                  true ->
+                    {SetState, Settings};
+                  false ->
+                    ChainPath=[<<"current">>, <<"outward">>,
+                               xchain:pack_chid(OutTo)],
+                    PCP=case settings:get(ChainPath, RealSettings) of
+                          #{<<"parent">>:=PP,
+                            <<"height">>:=HH,
+                            <<".">>:=#{<<"height">>:=#{<<"ublk">>:=UBLK}}} ->
+                            [
+                             #{<<"t">> =><<"set">>,
+                               <<"p">> => ChainPath ++ [<<"pre_hash">>],
+                               <<"v">> => UBLK
+                              },
+                             #{<<"t">> =><<"set">>,
+                               <<"p">> => ChainPath ++ [<<"pre_parent">>],
+                               <<"v">> => PP
+                              },
+                             #{<<"t">> =><<"set">>,
+                               <<"p">> => ChainPath ++ [<<"pre_height">>],
+                               <<"v">> => HH
+                              }];
+                          #{<<"parent">>:=PP,
+                            <<"height">>:=HH} ->
+                            [
+                             #{<<"t">> =><<"set">>,
+                               <<"p">> => ChainPath ++ [<<"pre_parent">>],
+                               <<"v">> => PP
+                              },
+                             #{<<"t">> =><<"set">>,
+                               <<"p">> => ChainPath ++ [<<"pre_height">>],
+                               <<"v">> => HH
+                              }];
+                          _ ->
+                            []
+                        end,
+                    IncPtr=[
+                            #{<<"t">> => <<"set">>,
+                              <<"p">> => ChainPath ++ [<<"parent">>],
+                              <<"v">> => ParentHash
+                             },
+                            #{<<"t">> => <<"set">>,
+                              <<"p">> => ChainPath ++ [<<"height">>],
+                              <<"v">> => MyHeight
+                             }
+                            |PCP ],
+                    SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
+                    {
+                     settings:patch(SyncPatch, RealSettings),
+                     [SyncPatch|Settings]
+                    }
+                end,
     NewAddresses=maps:put(From, NewF, Addresses),
     try_process(Rest, SS2, NewAddresses, GetFun,
           savefee(GotFee,

@@ -2,7 +2,7 @@
 
 -export([new/0, set/3, patch/2, mp/1, dmp/1, get/2]).
 -export([sign/2, verify/1, verify/2, get_patches/1, get_patches/2]).
--export([make_meta/2]).
+-export([make_meta/2, clean_meta/1]).
 
 sign(Patch, PrivKey) when is_list(Patch) ->
     BinPatch=mp(Patch),
@@ -40,7 +40,7 @@ verify(#{patch:=LPatch, sig:=HSig}=Patch, VerFun) ->
                     Acc
                 end
             end, #{}, Valid),
-      ValidSig=if VerFun==undefined -> 
+      ValidSig=if VerFun==undefined ->
                     maps:values(Map);
                  is_function(VerFun) ->
                     maps:fold(
@@ -70,6 +70,15 @@ new() ->
 
 set(A, B, C) ->
     change(set, A, B, C).
+
+clean_meta(Set) when is_map(Set) ->
+  S1=maps:remove(<<".">>,Set),
+  maps:map(
+    fun(_,V) when is_map(V)->
+        clean_meta(V);
+       (_,V) ->
+        V
+    end, S1).
 
 meta_path(set, Path) ->
   {Pre,Post}=lists:split(length(Path)-1,Path),
@@ -300,13 +309,13 @@ parse_settings([H|T], Settings, Path, Patches, Mode) ->
                  [_|_] ->
                    lists:foldl(
                      fun(Elem, Acc) ->
-                         [#{<<"t">> => <<"list_add">>, 
-                            <<"p">> => lists:reverse(NewPath), 
+                         [#{<<"t">> => <<"list_add">>,
+                            <<"p">> => lists:reverse(NewPath),
                             <<"v">> => Elem}|Acc]
                      end, Patches, Item);
                  _ when not is_map(Item), not is_list(Item) ->
-                   [#{<<"t">> => <<"set">>, 
-                      <<"p">> => lists:reverse(NewPath), 
+                   [#{<<"t">> => <<"set">>,
+                      <<"p">> => lists:reverse(NewPath),
                       <<"v">> => Item}|Patches]
                end,
   parse_settings(T, Settings, Path, NewPatches, Mode).

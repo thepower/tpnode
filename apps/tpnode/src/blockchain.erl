@@ -429,7 +429,8 @@ handle_call({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
              %enough signs. Make block.
              {ok, LHash}=apply_ledger(check, MBlk),
              %NewTable=apply_bals(MBlk, Tbl),
-             Sets1=apply_block_conf(MBlk, Sets),
+             Sets1_pre=apply_block_conf(MBlk, Sets),
+             Sets1=apply_block_conf_meta(MBlk, Sets1_pre),
              lager:info("Ledger dst hash ~s, block ~s",
                         [hex:encode(LHash),
                          hex:encode(maps:get(ledger_hash, Header, <<0:256>>))
@@ -1152,25 +1153,35 @@ apply_ledger(Action, #{bals:=S, hash:=BlockHash}) ->
     lager:info("Apply ~p", [LR]),
     LR.
 
+apply_block_conf_meta(#{hash:=Hash}=Block, Conf0) ->
+  Meta=#{ublk=>Hash},
+  S=maps:get(settings, Block, []),
+  lists:foldl(
+    fun({_TxID, #{patch:=Body}}, Acc) -> %old patch
+        settings:patch(settings:make_meta(Body,Meta), Acc);
+       ({_TxID, #{patches:=Body,kind:=patch}}, Acc) -> %new patch
+        settings:patch(settings:make_meta(Body,Meta), Acc)
+    end, Conf0, S).
+
 apply_block_conf(Block, Conf0) ->
-    S=maps:get(settings, Block, []),
-    if S==[] -> ok;
-       true ->
-           file:write_file("tmp/applyconf.txt",
-                           io_lib:format("APPLY BLOCK CONF ~n~p.~n~n~p.~n~p.~n",
-                                         [Block, S, Conf0])
-                          )
-    end,
-    lists:foldl(
-      fun({_TxID, #{patch:=Body}}, Acc) -> %old patch
-              lager:notice("TODO: Must check sigs"),
-              %Hash=crypto:hash(sha256, Body),
-              settings:patch(Body, Acc);
-         ({_TxID, #{patches:=Body,kind:=patch}}, Acc) -> %new patch
-              lager:notice("TODO: Must check sigs"),
-              %Hash=crypto:hash(sha256, Body),
-              settings:patch(Body, Acc)
-      end, Conf0, S).
+  S=maps:get(settings, Block, []),
+  if S==[] -> ok;
+     true ->
+       file:write_file("tmp/applyconf.txt",
+                       io_lib:format("APPLY BLOCK CONF ~n~p.~n~n~p.~n~p.~n",
+                                     [Block, S, Conf0])
+                      )
+  end,
+  lists:foldl(
+    fun({_TxID, #{patch:=Body}}, Acc) -> %old patch
+        lager:notice("TODO: Must check sigs"),
+        %Hash=crypto:hash(sha256, Body),
+        settings:patch(Body, Acc);
+       ({_TxID, #{patches:=Body,kind:=patch}}, Acc) -> %new patch
+        lager:notice("TODO: Must check sigs"),
+        %Hash=crypto:hash(sha256, Body),
+        settings:patch(Body, Acc)
+    end, Conf0, S).
 
 blkid(<<X:8/binary, _/binary>>) ->
     bin2hex:dbin2hex(X).
