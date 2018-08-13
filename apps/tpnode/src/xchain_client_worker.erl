@@ -6,14 +6,16 @@ start_link(Sub) ->
              nodekey:node_id();
             (chain) ->
              blockchain:chain();
-            ({apply_block,Block}) ->
+            ({apply_block,#{hash:=_H}=Block}) ->
              txpool:inbound_block(Block);
             ({last,ChainNo}) ->
-             blockchain:get_settings([
+             Last=chainsettings:get_settings_by_path([
                                       <<"current">>,
                                       <<"sync_status">>,
                                       xchain:pack_chid(ChainNo),
-                                      <<"block">>])
+                                      <<"block">>]),
+             lager:info("Last known to ch ~b: ~p",[ChainNo,Last]),
+             Last
          end,
   Pid=spawn(xchain_client_worker,run,[Sub#{parent=>self()}, GetFun]),
   link(Pid),
@@ -24,11 +26,10 @@ start_link(Sub,test) ->
              nodekey:node_id();
             (chain) -> 5;
             ({apply_block,#{txs:=TL,header:=H}=_Block}) ->
-             io:format("TXS ~b HDR: ~p~n",[length(TL),maps:get(height,H)]),
-             {ok,<<"x">>};
+             io:format("TXS ~b Hei: ~p~n",[length(TL),maps:get(height,H)]),
+             ok;
             ({last, 4}) ->
-             <<70,145,201,163,89,206,171,17,192,231,231,17,15,61,24,125,228,102,251,
-               114,108,13,211,169,147,149,142,17,234,181,98,105>>;
+             hex:parse("A3366B6B16F58D684415EE150B055E9309578C954D0480CF25E796EB83D6FFEA");
             ({last,_ChainNo}) ->
              undefined;
             (Any) ->
@@ -56,22 +57,39 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
             _ -> 0
           end,
     {ok,UpgradeHdrs}=upgrade(Pid,Proto),
-    lager:info("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
+    lager:debug("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
     #{null:=<<"iam">>,
       <<"chain">>:=HisChain,
       <<"node_id">>:=_}=reg(Pid, Proto, GetFun),
-    MyLast=GetFun({last, HisChain}),
+    Known=GetFun({last, HisChain}),
     MyChain=GetFun(chain),
-    BlockList=tl(block_list(Pid, Proto, GetFun(chain), last, MyLast, [])),
+    BlockList=block_list(Pid, Proto, GetFun(chain), last, Known, []),
     lists:foldl(
-      fun({_Height, BlockParent},Acc) ->
-          #{null:=<<"owblock">>,
-            <<"ok">>:=true,
-            <<"block">>:=Blk}=pick_block(Pid, Proto, MyChain, BlockParent),
-          #{txs:=_TL,header:=#{height:=H}}=Block=block:unpack(Blk),
-          ok=GetFun({apply_block, Block}),
-          io:format("RB ~p~n",[H]),
-          Acc+1
+      fun({He,Ha},_) ->
+          io:format("Blk ~b hash ~s~n",[He,hex:encode(Ha)])
+      end, 0, BlockList),
+    lists:foldl(
+      fun(_,Acc) when is_atom(Acc) ->
+          Acc;
+         ({_Height, BlkID},0) when BlkID == Known ->
+          lager:info("Skip known block ~s",[hex:encode(BlkID)]),
+          0;
+         ({_Height, BlkID},_) when BlkID == Known ->
+          lager:info("Skip known block ~s",[hex:encode(BlkID)]),
+          error;
+         ({_Height, BlkID},Acc) ->
+          lager:info("Pick block ~s",[hex:encode(BlkID)]),
+          case pick_block(Pid, Proto, MyChain, BlkID) of
+            #{null:=<<"owblock">>,
+              <<"ok">>:=true,
+              <<"block">>:=Blk} ->
+              #{txs:=_TL,header:=_}=Block=block:unpack(Blk),
+              ok=GetFun({apply_block, Block}),
+              Acc+1;
+            #{null := <<"owblock">>,<<"ok">> := false} ->
+              lager:info("Fail block ~s",[hex:encode(BlkID)]),
+              fail
+          end
       end, 0, BlockList),
     [<<"subscribed">>,_]=make_ws_req(Pid, Proto,
                                      #{null=><<"subscribe">>,
@@ -146,34 +164,52 @@ pick_block(Pid, Proto, Chain, Parent) ->
                             <<"parent">>=>Parent
                            }).
 
+block_list(_, _, _, Last, Known, Acc) when Last==Known ->
+  Acc;
+
 block_list(Pid, Proto, Chain, Last, Known, Acc) ->
   Req=if Last==last ->
+           io:format("BL last~n",[]),
            #{null=><<"last_ptr">>, <<"chain">>=>Chain};
          true ->
-           #{null=><<"pre_ptr">>,  <<"chain">>=>Chain, <<"parent">>=>Last}
+           io:format("BL ~s~n",[hex:encode(Last)]),
+           #{null=><<"pre_ptr">>,  <<"chain">>=>Chain, <<"block">>=>Last}
     end,
   R=make_ws_req(Pid, Proto, Req),
   case R of
-      #{null := N,
+    #{null := N,
       <<"ok">> := true,
       <<"pointers">> := #{<<"height">> := H,
-                          <<"parent">> := P,
+                          <<"hash">> := P,
                           <<"pre_height">> := HH,
-                          <<"pre_parent">> := PP}} when N==<<"last_ptr">> orelse
-                                                        N==<<"pre_ptr">> ->
+                          <<"pre_hash">> := PP}} when N==<<"last_ptr">> orelse
+                                                      N==<<"pre_ptr">> ->
       if(PP==Known) ->
           [{HH,PP},{H,P}|Acc];
+        (P==Known) ->
+          [{H,P}|Acc];
         true ->
-          block_list(Pid, Proto, Chain, PP, Known, [{H,P}|Acc])
+          block_list(Pid, Proto, Chain, PP, Known, [{HH,PP},{H,P}|Acc])
+      end;
+    #{null := N,
+      <<"ok">> := true,
+      <<"pointers">> := #{<<"pre_height">> := HH,
+                          <<"pre_hash">> := PP}} when N==<<"last_ptr">> orelse
+                                                      N==<<"pre_ptr">> ->
+      if(PP==Known) ->
+          [{HH,PP}|Acc];
+        true ->
+          block_list(Pid, Proto, Chain, PP, Known, [{HH,PP}|Acc])
       end;
     #{null := N,
       <<"ok">> := true,
       <<"pointers">> := #{<<"height">> := H,
-                          <<"parent">> := P}} when N==<<"last_ptr">> orelse
-                                                   N==<<"pre_ptr">> ->
+                          <<"hash">> := P}} when N==<<"last_ptr">> orelse
+                                                 N==<<"pre_ptr">> ->
       [{H,P}|Acc];
     Any ->
       lager:info("Err ~p",[Any]),
+      lager:info("Acc is  ~p",[Acc]),
       Acc
   end.
 

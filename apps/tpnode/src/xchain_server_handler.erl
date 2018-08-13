@@ -13,16 +13,17 @@ handle_xchain(#{null:=<<"last_ptr">>,
                 <<"chain">>:=Chain}) ->
   ChainPath=[<<"current">>, <<"outward">>, xchain:pack_chid(Chain)],
   Last=chainsettings:get_settings_by_path(ChainPath),
+  H=settings:get([<<".">>,<<"height">>,<<"ublk">>],Last),
   #{ null=><<"last_ptr">>,
      chain=>blockchain:chain(),
-     pointers=>Last,
+     pointers=>maps:put(<<"hash">>, H, maps:remove(<<".">>,Last)),
      ok=>true };
 
 handle_xchain(#{null:=<<"pre_ptr">>,
                 <<"chain">>:=Chain,
-                <<"parent">>:=Parent}) ->
+                <<"block">>:=Parent}) ->
   try
-    Res=blockchain:rel(Parent,child),
+    Res=blockchain:rel(Parent,self),
     if is_map(Res) -> ok;
        is_atom(Res) ->
          throw({noblock, Res})
@@ -60,7 +61,7 @@ handle_xchain(#{null:=<<"pre_ptr">>,
 handle_xchain(#{null:=<<"owblock">>,
                 <<"chain">>:=Chain,
                 <<"parent">>:=Parent}) ->
-  Res=blockchain:rel(Parent,child),
+  Res=blockchain:rel(Parent,self),
   OutwardBlock=block:outward_chain(Res,Chain),
   case OutwardBlock of
     none ->

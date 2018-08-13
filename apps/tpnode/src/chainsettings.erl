@@ -1,6 +1,7 @@
 -module(chainsettings).
 
 -export([get/2,get/3]).
+-export([get_val/1,get_val/2]).
 -export([get_setting/1,
          is_our_node/1,
          settings_to_ets/1,
@@ -19,13 +20,19 @@ get_setting(Named) ->
   end.
 
 get_settings_by_path(GetPath) ->
-  lists:foldl(
-    fun([Path,Val,Act],Acc) ->
-        settings:patch([#{<<"t">>=>Act, <<"p">>=>Path, <<"v">>=>Val}], Acc)
-    end,
-    #{},
-    ets:match(blockchain,{GetPath++'$1','_','$3','$2'})
-   ).
+  R=ets:match(blockchain,{GetPath++'$1','_','$3','$2'}),
+  case R of
+    [[[],Val,<<"set">>]] ->
+      Val;
+    Any ->
+      lists:foldl(
+        fun([Path,Val,Act],Acc) ->
+            settings:patch([#{<<"t">>=>Act, <<"p">>=>Path, <<"v">>=>Val}], Acc)
+        end,
+        #{},
+        Any
+       )
+  end.
 
 settings_to_ets(NewSettings) ->
   Patches=settings:get_patches(NewSettings,ets),
@@ -58,6 +65,14 @@ settings_to_ets(NewSettings) ->
   ets:insert(blockchain,[{myname,MyName},{chainnodes,ChainNodes},{mychain,MyChain}]),
   NewSettings.
 
+get_val(Name) ->
+  get_val(Name, undefined).
+
+get_val(Name,Default) ->
+  Val=get_settings_by_path([<<"current">>,chain,Name]),
+  if is_integer(Val) -> Val;
+     true -> Default
+  end.
 
 get(Key, Settings) ->
   get(Key, Settings, fun() ->

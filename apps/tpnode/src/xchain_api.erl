@@ -48,21 +48,21 @@ h(<<"POST">>, [<<"ping">>], _Req) ->
 h(<<"OPTIONS">>, _, _Req) ->
   {200, [], ""};
 
-h(<<"GET">>, [<<"parent">>,BChain,<<"last">>], _Req) ->
+h(<<"GET">>, [<<"prev">>,BChain,<<"last">>], _Req) ->
   h(<<"GET">>, [<<"last">>,BChain], _Req);
 
-h(<<"GET">>, [<<"parent">>,BChain,SParent], _Req) ->
+h(<<"GET">>, [<<"prev">>,BChain,SBlkID], _Req) ->
   try
-    Parent=case SParent of
+    Blk=case SBlkID of
              <<"0x", BArr/binary>> ->
                hex:parse(BArr);
              <<_:32/binary>> ->
-               SParent;
+               SBlkID;
              Any ->
                base64:decode(Any)
            end,
     Chain=binary_to_integer(BChain),
-    Res=blockchain:rel(Parent,child),
+    Res=blockchain:rel(Blk,self),
     if is_map(Res) -> ok;
        is_atom(Res) ->
          throw({noblock, Res})
@@ -95,21 +95,25 @@ h(<<"GET">>, [<<"last">>,BChain], _Req) ->
   Chain=binary_to_integer(BChain),
   ChainPath=[<<"current">>, <<"outward">>, xchain:pack_chid(Chain)],
   Last=chainsettings:get_settings_by_path(ChainPath),
-  reply(200, #{ pointers=>Last,
+  H=settings:get([<<".">>,<<"height">>,<<"ublk">>],Last),
+  reply(200, #{ pointers=>maps:put(<<"hash">>,
+                                   H,
+                                   maps:remove(<<".">>,Last)
+                                  ),
                 chain=>blockchain:chain(),
                 ok=>true });
 
-h(<<"GET">>, [<<"owbyparent">>,BChain,SParent], _Req) ->
-  Parent=case SParent of
+h(<<"GET">>, [<<"owblock">>,BChain,SBlock], _Req) ->
+  Block=case SBlock of
            <<"0x", BArr/binary>> ->
              hex:parse(BArr);
            <<_:32/binary>> ->
-             SParent;
+             SBlock;
            Any ->
              base64:decode(Any)
          end,
   Chain=binary_to_integer(BChain),
-  Res=blockchain:rel(Parent,child),
+  Res=blockchain:rel(Block,self),
   OutwardBlock=block:outward_chain(Res,Chain),
   case OutwardBlock of
     none ->

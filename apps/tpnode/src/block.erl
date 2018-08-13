@@ -385,9 +385,15 @@ outward_mk(TxS, Block) ->
 
 outward([], Block, Acc) ->
   maps:map(
-    fun(_K, {Tx, Tp}) ->
-        MiniBlock=maps:with([hash, header, sign], Block),
-        MiniBlock#{ txs=>Tx, tx_proof=>Tp }
+    fun(Chain, {Tx, Tp}) ->
+        Settings=maps:get(settings, Block),
+        MiniBlock=maps:with([hash, header, sign, settings_proof], Block),
+        Patch=proplists:lookup(<<"outch:",(integer_to_binary(Chain))/binary>>, Settings),
+        NewSet=case Patch of
+                 {_,_} -> [Patch];
+                 none -> []
+               end,
+        MiniBlock#{ txs=>Tx, tx_proof=>Tp, settings=>NewSet }
     end,
     Acc);
 
@@ -413,10 +419,15 @@ outward_chain([], _Block, _Chain, {[], _}) ->
   none;
 
 outward_chain([], Block, Chain, {Tx, Tp}) ->
-  Set=maps:get(settings, Block),
-  CS=outward_ptrs(Set, Chain),
-  MiniBlock=maps:with([hash, header, sign], Block),
-  MB=MiniBlock#{ txs=>Tx, tx_proof=>Tp },
+  Settings=maps:get(settings, Block),
+  CS=outward_ptrs(Settings, Chain),
+  MiniBlock=maps:with([hash, header, sign, settings_proof], Block),
+  Patch=proplists:lookup(<<"outch:",(integer_to_binary(Chain))/binary>>, Settings),
+  NewSet=case Patch of
+           {_,_} -> [Patch];
+           none -> []
+         end,
+  MB=MiniBlock#{ txs=>Tx, tx_proof=>Tp, settings=>NewSet },
   case CS of
     #{<<"pre_height">>:=PH,
       <<"pre_parent">>:=PP} ->
@@ -459,10 +470,6 @@ outward_ptrs(Settings, Chain) ->
                      <<"ch:",(integer_to_binary(Chain))/binary>>]
                   )
   end.
-
-
-
-
 
 binarizetx([]) ->
   [];

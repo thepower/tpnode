@@ -10,6 +10,7 @@
 -export([get_settings/1, get_settings/2, get_settings/0,
      get_mysettings/1,
      apply_block_conf/2,
+     apply_block_conf_meta/2,
      apply_ledger/2,
      last/0, last/1, chain/0,
      backup/1, restore/1,
@@ -274,7 +275,7 @@ handle_call(lastsig, _From, #{myname:=MyName,
 
 handle_call({is_our_node, PubKey}, _From,
             #{chainnodes:=CN}=State) ->
-  lager:notice("Old blocking is_our_node called"),
+  lager:notice("Old blocking is_our_node called ~p",[_From]),
   Res=maps:get(PubKey, CN, false),
   {reply, Res, State};
 
@@ -311,35 +312,35 @@ handle_call(chainnodes, _From, State) ->
     {reply, CN, S1};
 
 handle_call({mysettings, chain}, _From, State) ->
-  lager:notice("Old blocking version mysettings was called"),
+  lager:notice("Old blocking version mysettings was called ~p",[_From]),
     #{mychain:=MyChain}=S1=mychain(State),
     {reply, MyChain, S1};
 
 handle_call({mysettings, Attr}, _From, State) ->
-  lager:notice("Old blocking version mysettings was called"),
+  lager:notice("Old blocking version mysettings was called ~p",[_From]),
   {reply, getset(Attr, State), State};
 
 handle_call(settings, _From, #{settings:=S}=State) ->
-  lager:notice("Old blocking version settings was called"),
+  lager:notice("Old blocking version settings was called ~p",[_From]),
     {reply, S, State};
 
 handle_call({settings, minsig}, _From, State) ->
-  lager:notice("Old blocking version settings was called"),
+  lager:notice("Old blocking version settings was called ~p",[_From]),
     Res=getset(minsig,State),
     {reply, Res, State};
 
 handle_call({settings, Path}, _From, #{settings:=Settings}=State) when is_list(Path) ->
-  lager:notice("Old blocking version settings was called"),
+  lager:notice("Old blocking version settings was called ~p",[_From]),
     Res=settings:get(Path, Settings),
     {reply, Res, State};
 
 handle_call({settings, chain, ChainID}, _From, #{settings:=Settings}=State) ->
-  lager:notice("DEPRECATED: FIX ME"),
+  lager:notice("DEPRECATED: FIX Me ~p",[_From]),
   Res=settings:get([chain, ChainID], Settings),
   {reply, Res, State};
 
 handle_call({settings, signature}, _From, #{settings:=Settings}=State) ->
-  lager:notice("Old blocking version settings was called"),
+  lager:notice("Old blocking version settings was called ~p",[_From]),
     Res=settings:get([keys], Settings),
     {reply, Res, State};
 

@@ -13,7 +13,7 @@
 -endif.
 
 -export([start_link/0]).
--export([generate_block/5, decode_tpic_txs/1]).
+-export([generate_block/5, decode_tpic_txs/1, sort_txs/1]).
 
 -type mkblock_acc() :: #{'emit':=[{_,_}],
                          'export':=list(),
@@ -410,7 +410,10 @@ try_process([], Settings, Addresses, GetFun,
                 {Addresses, []},
                 [ {tip, TipBal}, {fee, FeeBal} ]
                ),
-    lager:info("NewEmit ~p", [NewEmit]),
+    if NewEmit==[] -> ok;
+       true ->
+         lager:info("NewEmit ~p", [NewEmit])
+    end,
     Acc#{table=>Addresses2,
        emit=>Emit ++ NewEmit
       }
@@ -424,16 +427,106 @@ try_process([], Settings, Addresses, GetFun,
   end;
 
 %process inbound block
-try_process([{BlID, #{ hash:=BHash, txs:=TxList, header:=#{height:=BHeight} }}|Rest],
-            SetState, Addresses, GetFun, Acc) ->
-    try_process([ {TxID,
-                   Tx#{
-                     origin_block_hash=>BHash,
-                     origin_block_height=>BHeight,
-                     origin_block=>BlID
-                    }
-                  } || {TxID, Tx} <- TxList ] ++ Rest,
-                SetState, Addresses, GetFun, Acc);
+try_process([{BlID, #{ hash:=BHash,
+                       txs:=TxList,
+                       header:=#{chain:=ChID,height:=BHeight} }=Blk}|Rest],
+            SetState, Addresses, GetFun, #{
+                                   settings:=Settings,
+                                   failed:=Failed
+                                  }=Acc) ->
+  try
+    MyChain=GetFun(mychain),
+    OPatchTxID= <<"out", (xchain:pack_chid(MyChain))/binary>>,
+    P=proplists:get_value(OPatchTxID,maps:get(settings, Blk,[]), undefined),
+    ChainPath=[<<"current">>, <<"sync_status">>, xchain:pack_chid(ChID)],
+    {ChainLastHash, ChainLastHei}=case settings:get(ChainPath, SetState) of
+                                    #{<<"block">> := LastBlk,
+                                      <<"height">> := LastHeight} ->
+                                      if(BHeight>LastHeight) -> ok;
+                                        true -> throw({overdue, BHash})
+                                      end,
+                                      {LastBlk, LastHeight};
+                                    _ ->
+                                      {<<0:64/big>>, 0}
+                                  end,
+    lager:info("SyncState ~p", [ChainLastHei]),
+
+    IncPtr=[#{<<"t">> => <<"set">>,
+              <<"p">> => ChainPath ++ [<<"block">>],
+              <<"v">> => BHash
+             },
+            #{<<"t">> => <<"set">>,
+              <<"p">> => ChainPath ++ [<<"height">>],
+              <<"v">> => BHeight
+             }
+           ],
+    PatchTxID= <<"sync", (xchain:pack_chid(ChID))/binary>>,
+    SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
+    if P==undefined ->
+         lager:notice("Old block without settings"),
+         try_process([ {TxID,
+                        Tx#{
+                          origin_block_hash=>BHash,
+                          origin_block_height=>BHeight,
+                          origin_block=>BlID,
+                          origin_chain=>ChID
+                         }
+                       } || {TxID, Tx} <- TxList ] ++ Rest,
+                     SetState, Addresses, GetFun, Acc#{
+                                                    settings=>[SyncPatch|lists:keydelete(PatchTxID, 1, Settings)]
+                                                   });
+       true ->
+         IWS=settings:get([<<"current">>,<<"outward">>,xchain:pack_chid(MyChain)],settings:patch(P,#{})),
+         case IWS of
+           #{<<"pre_hash">> := <<0,0,0,0,0,0,0,0>>,<<"pre_height">> := 0} ->
+             lager:debug("New inbound block from ~b with patch ~p",[ChID,IWS]),
+             ok;
+           #{<<"pre_hash">> := ChainLastHash,<<"pre_height">> := ChainLastHei} ->
+             lager:debug("New inbound block from ~b with patch ~p",[ChID,IWS]),
+             ok;
+           #{<<"pre_hash">> := NeedHash ,<<"pre_height">> := PH} when PH>ChainLastHei ->
+             lager:debug("New inbound block from ~b with patch ~p, skipped_block",[ChID,IWS]),
+             throw({'block_skipped',NeedHash});
+           #{<<"pre_hash">> := _ ,<<"pre_height">> := PH} when PH<ChainLastHei ->
+             lager:debug("New inbound block from ~b with patch ~p, overdue",[ChID,IWS]),
+             throw({'overdue',BHash});
+           #{<<"pre_parent">> := _,<<"pre_height">> := LastHei} when LastHei==ChainLastHei;
+                                                                       ChainLastHei==0 ->
+             lager:notice("New inbound block with no hash, looking for parent from ~b with patch ~p",[ChID,IWS]),
+             lager:notice("Disable this after sync all chains!!!!"),
+             ok
+         end,
+
+         SS1=settings:patch(SyncPatch, SetState),
+         try_process([ {TxID,
+                        Tx#{
+                          origin_block_hash=>BHash,
+                          origin_block_height=>BHeight,
+                          origin_block=>BlID,
+                          origin_chain=>ChID
+                         }
+                       } || {TxID, Tx} <- TxList ] ++ Rest,
+                     SS1, Addresses, GetFun, Acc#{
+                                               settings=>[SyncPatch|lists:keydelete(PatchTxID, 1, Settings)]
+                                              })
+    end
+  catch throw:Ee ->
+          lager:info("Fail to process inbound ~p ~p", [BlID, Ee]),
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{
+                        failed=>[{BlID, Ee}|Failed]
+                       });
+        Ec:Ee ->
+          S=erlang:get_stacktrace(),
+          lager:info("Fail to process inbound block ~p ~p:~p",
+                     [BlID, Ec, Ee]),
+          lager:info("at ~p", [S]),
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{
+                        failed=>[{BlID, unknown}|Failed]
+                       })
+  end;
+
 
 %process settings
 try_process([{TxID,
@@ -516,7 +609,7 @@ try_process([{TxID, #{ver:=2,
                         failed=>[{TxID, Tx}|Failed]
                        })
   end;
- 
+
 
 
 try_process([{TxID,
@@ -840,14 +933,14 @@ try_process_inbound([{TxID,
                         to:=To,
                         origin_block:=OriginBlock,
                         origin_block_height:=OriginHeight,
-                        origin_block_hash:=OriginHash
+                        origin_block_hash:=OriginHash,
+                        origin_chain:=ChID
                        }=Tx}
                    |Rest],
                   SetState, Addresses, GetFun,
                   #{success:=Success,
                     failed:=Failed,
                     emit:=Emit,
-                    settings:=Settings,
                     pick_block:=PickBlock}=Acc) ->
     lager:error("Check signature once again"),
     try
@@ -856,42 +949,24 @@ try_process_inbound([{TxID,
                      end,
       RealSettings=EnsureSettings(SetState),
 
-      #{address:=_,block:=ChID,group:=_,type:=public}=naddress:parse(To),
       lager:info("Orig Block ~p", [OriginBlock]),
       lager:notice("Change chain number to actual ~p", [SetState]),
-      ChainPath=[<<"current">>, <<"sync_status">>, xchain:pack_chid(ChID)],
-      {_, ChainLastH}=case settings:get(ChainPath, SetState) of
-                        #{<<"block">> := LastBlk,
-                          <<"height">> := LastHeight} ->
-                          if(OriginHeight>LastHeight) -> ok;
-                            true -> throw({overdue, OriginBlock})
-                          end,
-                          {LastBlk, LastHeight};
-                        _ ->
-                          {<<0:64/big>>, 0}
-                      end,
-      lager:info("SyncState ~p", [ChainLastH]),
-
-      IncPtr=[#{<<"t">> => <<"set">>,
-                  <<"p">> => ChainPath ++ [<<"block">>],
-                  <<"v">> => OriginHash
-                 },
-                #{<<"t">> => <<"set">>,
-                  <<"p">> => ChainPath ++ [<<"height">>],
-                  <<"v">> => OriginHeight
-                 }
-               ],
-        PatchTxID= <<"sync", (xchain:pack_chid(ChID))/binary>>,
-        SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
-
         {NewT, NewEmit, _GasUsed}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings),
         NewAddresses=maps:put(To, NewT, Addresses),
-
+        TxExt=maps:get(extdata,Tx,#{}),
+        NewExt=TxExt#{
+          <<"orig_bhei">>=>OriginHeight,
+          <<"orig_bhash">>=>OriginHash,
+          <<"orig_chain">>=>ChID
+         },
+        FixTX=maps:without(
+                [origin_block,origin_block_height, origin_block_hash, origin_chain],
+                Tx#{extdata=>NewExt}
+               ),
         try_process(Rest, SetState, NewAddresses, GetFun,
-                    Acc#{success=>[{TxID, Tx}|Success],
+                    Acc#{success=>[{TxID, FixTX}|Success],
                          emit=>Emit ++ NewEmit,
-                         pick_block=>maps:put(OriginBlock, 1, PickBlock),
-                         settings=>[SyncPatch|lists:keydelete(PatchTxID, 1, Settings)]
+                         pick_block=>maps:put(OriginBlock, 1, PickBlock)
                         })
     catch throw:X ->
               try_process(Rest, SetState, Addresses, GetFun,
@@ -902,45 +977,18 @@ try_process_inbound([{TxID,
                     #{cur:=Cur, amount:=Amount, to:=To,
                       origin_block:=OriginBlock,
                       origin_block_height:=OriginHeight,
-                      origin_block_hash:=OriginHash
+                      origin_block_hash:=OriginHash,
+                      origin_chain:=ChID
                      }=Tx}
                    |Rest],
                   SetState, Addresses, GetFun,
                   #{success:=Success,
                     failed:=Failed,
-                    settings:=Settings,
                     pick_block:=PickBlock}=Acc) ->
-    lager:error("Check signature once again"),
+    lager:notice("Check signature once again"),
     TBal=maps:get(To, Addresses),
     try
-        ChID=2,
-        lager:info("Orig Block ~p", [OriginBlock]),
-        lager:notice("Change chain number to actual ~p", [SetState]),
-        ChainPath=[<<"current">>, <<"sync_status">>, xchain:pack_chid(ChID)],
-        {_, ChainLastH}=case settings:get(ChainPath, SetState) of
-                           #{<<"block">> := LastBlk,
-                             <<"height">> := LastHeight} ->
-                               if(OriginHeight>LastHeight) -> ok;
-                                 true -> throw({overdue, OriginBlock})
-                               end,
-                               {LastBlk, LastHeight};
-                           _ ->
-                               {<<0:64/big>>, 0}
-                       end,
-        lager:info("SyncState ~p", [ChainLastH]),
-
-        IncPtr=[#{<<"t">> => <<"set">>,
-                  <<"p">> => ChainPath ++ [<<"block">>],
-                  <<"v">> => OriginHash
-                 },
-                #{<<"t">> => <<"set">>,
-                  <<"p">> => ChainPath ++ [<<"height">>],
-                  <<"v">> => OriginHeight
-                 }
-               ],
-        PatchTxID= <<"sync", (xchain:pack_chid(ChID))/binary>>,
-        SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
-
+        lager:debug("Orig Block ~p", [OriginBlock]),
         if Amount >= 0 -> ok;
            true -> throw ('bad_amount')
         end,
@@ -952,10 +1000,19 @@ try_process_inbound([{TxID,
                            TBal)
                         ),
         NewAddresses=maps:put(To, NewT, Addresses),
+        TxExt=maps:get(extdata,Tx,#{}),
+        NewExt=TxExt#{
+                 <<"orig_bhei">>=>OriginHeight,
+                 <<"orig_bhash">>=>OriginHash,
+                 <<"orig_chain">>=>ChID
+                },
+        FixTX=maps:without(
+                [origin_block,origin_block_height, origin_block_hash, origin_chain],
+                Tx#{extdata=>NewExt}
+               ),
         try_process(Rest, SetState, NewAddresses, GetFun,
-                    Acc#{success=>[{TxID, Tx}|Success],
-                         pick_block=>maps:put(OriginBlock, 1, PickBlock),
-                         settings=>[SyncPatch|lists:keydelete(PatchTxID, 1, Settings)]
+                    Acc#{success=>[{TxID, FixTX}|Success],
+                         pick_block=>maps:put(OriginBlock, 1, PickBlock)
                         })
     catch throw:X ->
               try_process(Rest, SetState, Addresses, GetFun,
@@ -991,36 +1048,52 @@ try_process_outbound([{TxID,
                   false ->
                     ChainPath=[<<"current">>, <<"outward">>,
                                xchain:pack_chid(OutTo)],
-                    PCP=case settings:get(ChainPath, RealSettings) of
-                          #{<<"parent">>:=PP,
-                            <<"height">>:=HH,
-                            <<".">>:=#{<<"height">>:=#{<<"ublk">>:=UBLK}}} ->
+                    SyncSet=settings:get(ChainPath, RealSettings),
+                    PC1=case SyncSet of
+                          #{<<".">>:=#{<<"height">>:=#{<<"ublk">>:=UBLK}}} ->
                             [
                              #{<<"t">> =><<"set">>,
                                <<"p">> => ChainPath ++ [<<"pre_hash">>],
                                <<"v">> => UBLK
-                              },
-                             #{<<"t">> =><<"set">>,
-                               <<"p">> => ChainPath ++ [<<"pre_parent">>],
-                               <<"v">> => PP
-                              },
-                             #{<<"t">> =><<"set">>,
-                               <<"p">> => ChainPath ++ [<<"pre_height">>],
-                               <<"v">> => HH
-                              }];
-                          #{<<"parent">>:=PP,
-                            <<"height">>:=HH} ->
+                              }
+                            ];
+                          _ -> []
+                        end,
+                    PC2=case SyncSet of
+                          #{<<"parent">>:=PP} ->
                             [
                              #{<<"t">> =><<"set">>,
-                               <<"p">> => ChainPath ++ [<<"pre_parent">>],
-                               <<"v">> => PP
-                              },
+                              <<"p">> => ChainPath ++ [<<"pre_parent">>],
+                              <<"v">> => PP
+                             }
+                            ];
+                          _ ->
+                            []
+                        end,
+                    PC3=case SyncSet of
+                          #{<<"height">>:=HH} ->
+                            [
                              #{<<"t">> =><<"set">>,
                                <<"p">> => ChainPath ++ [<<"pre_height">>],
                                <<"v">> => HH
-                              }];
+                              }
+                            ];
                           _ ->
                             []
+                        end,
+                    PCP=if PC1==[] andalso PC2==[] andalso PC3==[] ->
+                             [
+                              #{<<"t">> =><<"set">>,
+                                <<"p">> => ChainPath ++ [<<"pre_hash">>],
+                                <<"v">> => <<0,0,0,0,0,0,0,0>>
+                               },
+                              #{<<"t">> =><<"set">>,
+                                <<"p">> => ChainPath ++ [<<"pre_height">>],
+                                <<"v">> => 0
+                               }
+                             ];
+                           true ->
+                             PC1++PC2++PC3
                         end,
                     IncPtr=[
                             #{<<"t">> => <<"set">>,
@@ -1471,14 +1544,28 @@ load_settings(State) ->
                  )
      }.
 
+sort_txs(PreTXL) ->
+  Order=fun({_ID,#{hash:=Hash,header:=#{height:=H}}}) ->
+            %sort inbound blocks by height
+            {H,Hash};
+           ({ID,_}) ->
+            {0,ID}
+        end,
+  SortFun=fun(A,B) ->
+              OA=Order(A),
+              OB=Order(B),
+              OA=<OB
+          end,
+  lists:sort(SortFun,lists:usort(PreTXL)).
+
 generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, ExtraData) ->
   %file:write_file("tmp/tx.txt", io_lib:format("~p.~n", [PreTXL])),
   _T1=erlang:system_time(),
-  TXL=lists:usort(PreTXL),
   _T2=erlang:system_time(),
+  TXL=sort_txs(PreTXL),
   XSettings=GetSettings(settings),
   Addrs0=lists:foldl(
-    fun(default, Acc) ->
+           fun(default, Acc) ->
         BinAddr=naddress:construct_private(0, 0),
         maps:put(BinAddr,
              bal:fetch(BinAddr, <<"ANY">>, true, bal:new(), GetAddr),
@@ -1495,7 +1582,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     end, #{}, [<<"feeaddr">>, <<"tipaddr">>, default]),
 
   Load=fun({_, #{hash:=_, header:=#{}, txs:=Txs}}, {AAcc0, SAcc}) ->
-         lager:info("TXs ~p", [Txs]),
+         lager:debug("TXs ~p", [Txs]),
          {
           lists:foldl(
           fun({_, #{to:=T, cur:=Cur}}, AAcc) ->
