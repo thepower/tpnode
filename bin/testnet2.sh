@@ -4,11 +4,28 @@ CHAIN4="test_c4n1 test_c4n2 test_c4n3"
 CHAIN5="test_c5n1 test_c5n2 test_c5n3"
 CHAIN6="test_c6n1 test_c6n2 test_c6n3"
 
+
+not_found() {
+    echo "'$1' command not found" >&2
+    kill $$
+}
+
+check_command() {
+    which $1 > /dev/null || not_found $1
+}
+
+check_command hostname
+
 HOST=`hostname -s`
 
 
 is_alive() {
     node=$1
+
+    check_command ps
+    check_command grep
+    check_command wc
+
     proc_cnt=`ps axuwww | grep erl_pipes | grep "${node}" | wc -l`
     result=`[ ${proc_cnt} -ge 1 ]`
     return $result
@@ -43,6 +60,10 @@ start_testnet() {
 node_pid() {
     node=$1
 
+    check_command ps
+    check_command grep
+    check_command awk
+
     pids=`ps axuwww | grep erl_pipes | grep "${node}" | awk '{print \$2;}'`
     pids_cnt=`echo ${pids}|wc -l`
 
@@ -56,6 +77,9 @@ node_pid() {
 
 stop_node() {
     node=$1
+
+    check_command kill
+
     echo stopping node ${node}
     pid=$(node_pid ${node})
 #    echo "pid is '${pid}'"
@@ -78,6 +102,8 @@ stop_testnet() {
 reset_node() {
     node=$1
 
+    check_command rm
+
     node_host="${node}@${HOST}"
     db_dir="db/db_${node_host}"
     ledger_dir="db/ledger_${node_host}"
@@ -97,6 +123,10 @@ reset_testnet() {
 }
 
 attach_testnet() {
+    check_command tmux
+    check_command grep
+    check_command wc
+
     echo "attaching to testnet"
 
     sessions_cnt=`tmux ls |grep testnet |wc -l`
@@ -118,6 +148,10 @@ attach_testnet() {
 }
 
 update_testnet() {
+    check_command wget
+    check_command sed
+    check_command uname
+    check_command tar
     stop_testnet
 
     ARCH=`uname -p | sed 's/86_//' | sed 's/aarch/arm/'`
@@ -131,6 +165,8 @@ update_testnet() {
 usage() {
     echo "usage: $0 start|stop|attach|reset|update"
 }
+
+
 
 if [ $# -ne 1 ]
 then
