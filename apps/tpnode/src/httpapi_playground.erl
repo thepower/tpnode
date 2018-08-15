@@ -1,6 +1,6 @@
 -module(httpapi_playground).
 -export([h/3]).
--import(tpnode_httpapi,[answer/1]).
+-import(tpnode_httpapi,[answer/1, answer/2]).
 
 h(<<"OPTIONS">>, _, _Req) ->
   {200, [], ""};
@@ -46,26 +46,43 @@ h(<<"POST">>, [<<"tx">>,<<"validate">>], Req) ->
            }
        end,
   Res2=try
-        #{body:=_}=Tx=tx:unpack(Bin),
-        Res1#{
-          tx=>Tx
-         }
-      catch _:_ ->
-              Res1#{
-                tx_error=><<"transaction can't be parsed">>
-               }
-      end,
+         #{body:=_}=Tx=tx:unpack(Bin),
+         Res1#{
+           tx=>Tx
+          }
+       catch Ec1:Ee1 ->
+               Res1#{
+                 tx_error=><<"transaction can't be parsed">>,
+                 ec=>Ec1,
+                 ee=>iolist_to_binary(io_lib:format("~p",[Ee1]))
+                }
+       end,
   Res=try
         T=maps:get(tx,Res2),
-        Res1#{
-          verify=>tx:verify(T)
-         }
+        case tx:verify(T) of
+          {ok, V} -> 
+            Res2#{
+              verify=>V
+             };
+          {error, Any} -> 
+            Res2#{
+              verify_error=>true,
+              verify=>Any
+             }
+        end
       catch _:_ ->
-              Res1#{
-                verify_error=><<"transaction can't be verified">>
+              Res2#{
+                verify_error=><<"transaction can't be verified">> 
                }
       end,
-  answer(Res);
+  EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+          Conf1=jsx_config:list_to_config(Conf),
+          jsx_parser:resume([{Type, hex:encode(Str)}|Tokens],
+                            State, Handler, Stack, Conf1)
+      end,
+  tpnode_httpapi:answer(Res,
+         #{jsx=>[ strict, {error_handler, EHF} ]}
+        );
 
 h(<<"POST">>, [<<"tx">>,<<"construct">>], Req) ->
   Body=apixiom:bodyjs(Req),

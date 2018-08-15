@@ -182,9 +182,21 @@ construct_tx(#{
    }.
 
 unpack_body(#{body:=Body}=Tx) ->
-  {ok,#{"k":=IKind}=B}=msgpack:unpack(Body,[{spec,new},{unpack_str, as_list}]),
-  {Ver, Kind}=decode_kind(IKind),
-  unpack_body(Tx#{ver=>Ver, kind=>Kind},B).
+  case msgpack:unpack(Body,[{spec,new},{unpack_str, as_list}]) of
+    {ok,#{"k":=IKind}=B} ->
+      {Ver, Kind}=decode_kind(IKind),
+      unpack_body(Tx#{ver=>Ver, kind=>Kind},B);
+    {error,{invalid_string,_}} ->
+      case msgpack:unpack(Body,[{spec,new},{unpack_str, as_binary}]) of
+        {ok,#{<<"k">>:=IKind}=B0} ->
+          {Ver, Kind}=decode_kind(IKind),
+          B=maps:fold(
+              fun(K,V,Acc) ->
+                  maps:put(unicode:characters_to_list(K),V,Acc)
+              end, #{}, B0),
+          unpack_body(Tx#{ver=>Ver, kind=>Kind},B)
+      end
+  end.
 
 unpack_body(#{ ver:=2,
               kind:=generic
@@ -233,6 +245,19 @@ unpack_body(#{ ver:=2,
     t=>Timestamp,
     keysh=>Hash,
     txext=>Extradata
+   };
+
+unpack_body(#{ ver:=2,
+              kind:=register
+             }=Tx,
+            #{ "t":=Timestamp,
+               "h":=Hash
+             }=_Unpacked) ->
+  Tx#{
+    ver=>2,
+    t=>Timestamp,
+    keysh=>Hash,
+    txext=>#{}
    };
 
 unpack_body(#{ ver:=2,

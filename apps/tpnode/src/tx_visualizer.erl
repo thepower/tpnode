@@ -201,6 +201,13 @@ show(Tx) ->
                if T==bin -> "ok";
                   true -> {error,"must be bin"}
                end;
+              (#{type:=T},[{mapv,<<"h">>}]) ->
+               if T==bin -> "ok";
+                  T==str -> {warning, "must be bin"};
+                  true -> {error,"must be bin"}
+               end;
+              (#{type:=T},[{mapv,<<"nonce">>}]) ->
+               "ok";
                (#{type:=T},[{mapv,<<"p">>}])->
                if T==arr -> "ok";
                   true -> {error, "payload must be array"}
