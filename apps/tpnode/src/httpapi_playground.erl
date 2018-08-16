@@ -57,17 +57,18 @@ h(<<"POST">>, [<<"tx">>,<<"validate">>], Req) ->
                  ee=>iolist_to_binary(io_lib:format("~p",[Ee1]))
                 }
        end,
-  Res=try
+  BinPacker=tpnode_httpapi:packer(Req,hex),
+  Res3=try
         T=maps:get(tx,Res2),
-        case tx:verify(T) of
+        case tx:verify(T, ['nocheck_ledger']) of
           {ok, V} -> 
             Res2#{
-              verify=>V
+              verify=>tpnode_httpapi:prettify_tx(V,BinPacker)
              };
           {error, Any} -> 
             Res2#{
               verify_error=>true,
-              verify=>Any
+              verify=>tpnode_httpapi:prettify_tx(Any,BinPacker)
              }
         end
       catch _:_ ->
@@ -75,11 +76,17 @@ h(<<"POST">>, [<<"tx">>,<<"validate">>], Req) ->
                 verify_error=><<"transaction can't be verified">> 
                }
       end,
+  Res=maps:put(tx,tpnode_httpapi:prettify_tx(maps:get(tx,Res3,#{}),BinPacker),Res3),
   EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
           Conf1=jsx_config:list_to_config(Conf),
           jsx_parser:resume([{Type, hex:encode(Str)}|Tokens],
                             State, Handler, Stack, Conf1)
       end,
+  maps:fold(
+    fun(K,V,_) ->
+        lager:info("~s Res ~p",[K,V]),
+        lager:info("~s Res ~s",[K,jsx:encode(V)])
+    end, [], Res),
   tpnode_httpapi:answer(Res,
          #{jsx=>[ strict, {error_handler, EHF} ]}
         );

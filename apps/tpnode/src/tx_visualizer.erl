@@ -206,7 +206,7 @@ show(Tx) ->
                   T==str -> {warning, "must be bin"};
                   true -> {error,"must be bin"}
                end;
-              (#{type:=T},[{mapv,<<"nonce">>}]) ->
+              (#{type:=_},[{mapv,<<"nonce">>}]) ->
                "ok";
                (#{type:=T},[{mapv,<<"p">>}])->
                if T==arr -> "ok";
