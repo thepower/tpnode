@@ -4,6 +4,7 @@
          prettify_block/2,
          prettify_block/1,
          prettify_tx/2,
+         packer/2,
          binjson/1]).
 
 -export([answer/0, answer/1, answer/2, err/1, err/2, err/3, err/4]).
@@ -774,7 +775,16 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
           fun(<<"addr">>,V2,Acc) ->
               [{<<"addr.txt">>,naddress:encode(V2)},
                {<<"addr">>,BinPacker(V2)} |Acc];
-             (K2,V2,Acc) ->
+              (K2,V2,Acc) ->
+              [{K2,V2}|Acc]
+          end, [], V1);
+       (txext, V1) ->
+        maps:fold(
+          fun(K2,V2,Acc) when is_list(K2), is_list(V2) ->
+              [{list_to_binary(K2),list_to_binary(V2)}|Acc];
+             (K2,V2,Acc) when is_list(K2) ->
+              [{list_to_binary(K2),V2}|Acc];
+              (K2,V2,Acc) when is_binary(K2) ->
               [{K2,V2}|Acc]
           end, [], V1);
        (sig, [_|_]=V1) ->
