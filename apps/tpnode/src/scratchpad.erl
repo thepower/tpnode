@@ -808,7 +808,7 @@ get_mp(URL) ->
 get_xchain_prev(_Url, _Ptr, _StopAtH, _Chain, Acc, 0) ->
   Acc;
 
-get_xchain_prev(_Url, _Ptr, StopAtH, _Chain, [{H,_}|_]=Acc, _Max) when StopAtH>=H ->
+get_xchain_prev(_Url, _Ptr, StopAtH, _Chain, [{H,_}|_]=Acc, _Max) when StopAtH==H ->
   Acc;
 
 get_xchain_prev(Url, Ptr, StopAtH, Chain, Acc, Max) ->
@@ -817,13 +817,12 @@ get_xchain_prev(Url, Ptr, StopAtH, Chain, Acc, Max) ->
            "0x"++binary_to_list(hex:encode(Ptr));
          "last"->"last"
        end,
-  MP=get_mp(Url++"/xchain/api/parent/"++
+  MP=get_mp(Url++"/xchain/api/prev/"++
          integer_to_list(Chain)++"/"++EPtr++".mp"),
   case MP of
-     #{<<"pointers">>:=#{<<"pre_parent">>:=PP,
-                    <<"parent">>:=P,
+    #{<<"pointers">>:=#{<<"pre_hash">>:=PH,
                         <<"height">>:=H}} ->
-      get_xchain_prev(Url, PP, StopAtH, Chain, [{H,P}|Acc], Max-1);
+      get_xchain_prev(Url, PH, StopAtH, Chain, [{H,PH}|Acc], Max-1);
     #{<<"pointers">>:=#{<<"parent">>:=P,
                         <<"height">>:=H}} ->
       [{H,P}|Acc];
@@ -870,8 +869,9 @@ rd(Module) ->
 r(Module) ->
   M0=Module:module_info(),
   PO=proplists:get_value(compile,M0),
-  compile:file(
-    proplists:get_value(source,PO),
+  SRC=proplists:get_value(source,PO),
+  RC=compile:file(
+    SRC,
     proplists:get_value(options,PO)
    ),
   code:purge(Module),
@@ -883,6 +883,8 @@ r(Module) ->
                          proplists:get_value(md5,M0),
                          proplists:get_value(md5,M1)
                         ]),
-  error_logger:info_msg("Recompile ~s changed ~s",[Module,Changed]),
-  Changed.
+  error_logger:info_msg("Recompile ~s from ~s changed ~s",[Module,SRC,Changed]),
+  {RC,
+   Changed
+  }.
 
