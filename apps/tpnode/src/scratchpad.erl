@@ -691,25 +691,34 @@ text_tx2reg() ->
   %  ].
   Packed.
 
-
-test_tx2() ->
+test_tx2b() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr=naddress:decode(<<"AA100000006710887143">>),
+  Seq=bal:get(seq,ledger:get(Addr)),
   T1=#{
     kind => generic,
-    from => <<128,0,32,0,2,0,0,3>>,
-    payload =>
-    [#{amount => 10,cur => <<"XXX">>,purpose => transfer},
-     #{amount => 20,cur => <<"FEE">>,purpose => srcfee}],
-    seq => 5,sign => #{},t => 1530106238743,
-    to => <<128,0,32,0,2,0,0,5>>,
-    ver => 2
+    t => os:system_time(millisecond),
+    seq => Seq+1,
+    from => Addr,
+    to => <<128,1,64,0,4,0,0,2>>,
+    ver => 2,
+    txext => #{
+      <<"message">> => <<"preved">>
+     },
+    payload => [
+                #{amount => 10,cur => <<"FTT">>,purpose => transfer}
+                %#{amount => 20,cur => <<"FTT">>,purpose => srcfee}
+               ]
    },
-  TXConstructed=tx:construct_tx(T1),
-  Packed=tx:pack(tx:sign(TXConstructed,Pvt1)),
-  txpool:new_tx(Packed).
+  TXConstructed=tx:sign(tx:construct_tx(T1),Pvt1),
+  {
+  TXConstructed,
+  txpool:new_tx(TXConstructed)
+  }.
 
-test_tx2b() ->
+
+test_tx2_xc() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr=naddress:decode(<<"AA100000006710887143">>),
@@ -784,6 +793,46 @@ patch_v2() ->
    txpool:new_tx(Patch)
   }.
 
+get_mp(URL) ->
+  {ok, {{_HTTP11, 200, _OK}, Headers, Body}}=
+  httpc:request(get, {URL, []}, [], [{body_format, binary}]),
+  case proplists:get_value("content-type",Headers) of
+    "application/msgpack" ->
+      {ok, Res}=msgpack:unpack(Body),
+      Res;
+    "application/json" -> jsx:decode(Body, [return_maps]);
+    ContentType ->
+      {ContentType, Body}
+  end.
+
+get_xchain_prev(_Url, _Ptr, _StopAtH, _Chain, Acc, 0) ->
+  Acc;
+
+get_xchain_prev(_Url, _Ptr, StopAtH, _Chain, [{H,_}|_]=Acc, _Max) when StopAtH==H ->
+  Acc;
+
+get_xchain_prev(Url, Ptr, StopAtH, Chain, Acc, Max) ->
+  EPtr=case Ptr of
+         <<_:32/binary>> ->
+           "0x"++binary_to_list(hex:encode(Ptr));
+         "last"->"last"
+       end,
+  MP=get_mp(Url++"/xchain/api/prev/"++
+         integer_to_list(Chain)++"/"++EPtr++".mp"),
+  case MP of
+    #{<<"pointers">>:=#{<<"pre_hash">>:=PH,
+                        <<"height">>:=H}} ->
+      get_xchain_prev(Url, PH, StopAtH, Chain, [{H,PH}|Acc], Max-1);
+    #{<<"pointers">>:=#{<<"parent">>:=P,
+                        <<"height">>:=H}} ->
+      [{H,P}|Acc];
+    Default ->
+      [Default|Acc]
+  end.
+
+get_xchain_blocks(Url,StopAtH,Chain,Max) ->
+  get_xchain_prev(Url,"last",StopAtH,Chain,[],Max).
+
 -include_lib("public_key/include/OTP-PUB-KEY.hrl").
 
 test_parse_cert() ->
@@ -791,4 +840,51 @@ test_parse_cert() ->
   [{'Certificate',Der,not_encrypted}|_]=public_key:pem_decode(PEM),
   OTPCert = public_key:pkix_decode_cert(Der, otp),
   OTPCert#'OTPCertificate'.tbsCertificate#'OTPTBSCertificate'.validity.
+
+distribute(Module) ->
+  MD=Module:module_info(md5),
+  {Module,Code,_}=code:get_object_code(Module),
+  lists:map(
+    fun(Node) ->
+        NM=rpc:call(Node,Module,module_info,[md5]),
+        if(NM==MD) ->
+            {Node, same};
+          true ->
+            {Node,
+             NM,
+             rpc:call(Node,code,load_binary,[Module,"nowhere",Code]),
+             rpc:call(Node,Module,module_info,[md5])
+            }
+        end
+    end, nodes()).
+
+rd(Module) ->
+  Changed=r(Module),
+  if(Changed) ->
+      distribute(Module);
+    true ->
+      Changed
+  end.
+
+r(Module) ->
+  M0=Module:module_info(),
+  PO=proplists:get_value(compile,M0),
+  SRC=proplists:get_value(source,PO),
+  RC=compile:file(
+    SRC,
+    proplists:get_value(options,PO)
+   ),
+  code:purge(Module),
+  code:delete(Module),
+  M1=Module:module_info(),
+  Changed=proplists:get_value(md5,M0) =/= proplists:get_value(md5,M1),
+  error_logger:info_msg("Recompile ~s md5 ~p / ~p",
+                        [Module,
+                         proplists:get_value(md5,M0),
+                         proplists:get_value(md5,M1)
+                        ]),
+  error_logger:info_msg("Recompile ~s from ~s changed ~s",[Module,SRC,Changed]),
+  {RC,
+   Changed
+  }.
 

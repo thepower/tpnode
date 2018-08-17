@@ -10,10 +10,12 @@
 -export([get_settings/1, get_settings/2, get_settings/0,
      get_mysettings/1,
      apply_block_conf/2,
+     apply_block_conf_meta/2,
      apply_ledger/2,
      last/0, last/1, chain/0,
      backup/1, restore/1,
-     chainstate/0]).
+     chainstate/0,
+     rel/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -32,6 +34,12 @@ start_link() ->
 chain() ->
   {ok, Chain} = chainsettings:get_setting(mychain),
   Chain.
+
+rel(Hash, Rel) when Rel==prev orelse Rel==child ->
+  gen_server:call(blockchain, {get_block, Hash, Rel});
+
+rel(Hash, self) ->
+  gen_server:call(blockchain, {get_block, Hash}).
 
 last(N) ->
     gen_server:call(blockchain, {last_block, N}).
@@ -267,7 +275,7 @@ handle_call(lastsig, _From, #{myname:=MyName,
 
 handle_call({is_our_node, PubKey}, _From,
             #{chainnodes:=CN}=State) ->
-  lager:notice("Old blocking is_our_node called"),
+  lager:notice("Old blocking is_our_node called ~p",[_From]),
   Res=maps:get(PubKey, CN, false),
   {reply, Res, State};
 
@@ -288,41 +296,51 @@ handle_call({get_block, BlockHash}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}=L
           end,
     {reply, Block, State};
 
+handle_call({get_block, BlockHash, Rel}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}}=State) ->
+  %lager:debug("Get block ~p", [BlockHash]),
+  H=if BlockHash==last ->
+         LBH;
+       true ->
+         BlockHash
+    end,
+  Res=block_rel(LDB, H, Rel),
+  {reply, Res, State};
+
 
 handle_call(chainnodes, _From, State) ->
     #{chainnodes:=CN}=S1=mychain(State),
     {reply, CN, S1};
 
 handle_call({mysettings, chain}, _From, State) ->
-  lager:notice("Old blocking version mysettings was called"),
+  lager:notice("Old blocking version mysettings was called ~p",[_From]),
     #{mychain:=MyChain}=S1=mychain(State),
     {reply, MyChain, S1};
 
 handle_call({mysettings, Attr}, _From, State) ->
-  lager:notice("Old blocking version mysettings was called"),
+  lager:notice("Old blocking version mysettings was called ~p",[_From]),
   {reply, getset(Attr, State), State};
 
 handle_call(settings, _From, #{settings:=S}=State) ->
-  lager:notice("Old blocking version settings was called"),
+  lager:notice("Old blocking version settings was called ~p",[_From]),
     {reply, S, State};
 
 handle_call({settings, minsig}, _From, State) ->
-  lager:notice("Old blocking version settings was called"),
+  lager:notice("Old blocking version settings was called ~p",[_From]),
     Res=getset(minsig,State),
     {reply, Res, State};
 
 handle_call({settings, Path}, _From, #{settings:=Settings}=State) when is_list(Path) ->
-  lager:notice("Old blocking version settings was called"),
+  lager:notice("Old blocking version settings was called ~p",[_From]),
     Res=settings:get(Path, Settings),
     {reply, Res, State};
 
 handle_call({settings, chain, ChainID}, _From, #{settings:=Settings}=State) ->
-  lager:notice("DEPRECATED: FIX ME"),
+  lager:notice("DEPRECATED: FIX Me ~p",[_From]),
   Res=settings:get([chain, ChainID], Settings),
   {reply, Res, State};
 
 handle_call({settings, signature}, _From, #{settings:=Settings}=State) ->
-  lager:notice("Old blocking version settings was called"),
+  lager:notice("Old blocking version settings was called ~p",[_From]),
     Res=settings:get([keys], Settings),
     {reply, Res, State};
 
@@ -412,7 +430,8 @@ handle_call({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
              %enough signs. Make block.
              {ok, LHash}=apply_ledger(check, MBlk),
              %NewTable=apply_bals(MBlk, Tbl),
-             Sets1=apply_block_conf(MBlk, Sets),
+             Sets1_pre=apply_block_conf(MBlk, Sets),
+             Sets1=apply_block_conf_meta(MBlk, Sets1_pre),
              lager:info("Ledger dst hash ~s, block ~s",
                         [hex:encode(LHash),
                          hex:encode(maps:get(ledger_hash, Header, <<0:256>>))
@@ -572,49 +591,32 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
                 %<<"self">> -> self;
                 _ -> self
             end,
-    R = case ldb:read_key(LDB, <<"block:", Hash/binary>>, undefined) of
-            undefined -> #{error=>noblock};
-            #{header:=#{}} = Block when MyRel == self ->
-                #{block => block:pack(Block)};
-            #{header:=#{}, child:=Child} = _Block when MyRel == child ->
-                case ldb:read_key(LDB, <<"block:", Child/binary>>, undefined) of
-                    undefined -> #{error=>havenochild};
-                    #{header:=#{}} = SBlock ->
-                        #{block=>block:pack(SBlock)}
-                end;
-            #{header:=#{}} = _Block when MyRel == child ->
-                #{error=>nochild};
-            #{header:=#{parent:=Parent}} = _Block when MyRel == prev ->
-                case ldb:read_key(LDB, <<"block:", Parent/binary>>, undefined) of
-                    undefined -> #{error=>havenoprev};
-                    #{header:=#{}} = SBlock ->
-                        #{block=>block:pack(SBlock)}
-                end;
-            #{header:=#{}} = _Block when MyRel == prev ->
-                #{error=>noprev};
-            _ ->
-                #{error => unknown}
-        end,
+    R=case block_rel(LDB, Hash, MyRel) of
+      Error when is_atom(Error) ->
+        #{error=> Error};
+      Blk when is_map(Blk) ->
+          #{block => block:pack(Blk)}
+    end,
     lager:info("I am asked for ~s for blk ~s: ~p",[MyRel,blkid(Hash),R]),
 
     case maps:is_key(block, R) of
-        false ->
-            tpic:cast(tpic, Origin,
-                msgpack:pack(
+      false ->
+        tpic:cast(tpic, Origin,
+                  msgpack:pack(
                     maps:merge(
-                        #{
-                            null=> <<"block">>,
-                            req=> #{<<"hash">> => Hash,
-                                <<"rel">> => MyRel}
-                        }, R))),
-            {noreply, State};
+                      #{
+                      null=> <<"block">>,
+                      req=> #{<<"hash">> => Hash,
+                              <<"rel">> => MyRel}
+                     }, R))),
+        {noreply, State};
 
-        true ->
-            #{block := BinBlock} = R,
-            BlockParts = block:split_packet(BinBlock),
-            Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => MyRel}},
-            send_block(tpic, Origin, Map, BlockParts),
-            {noreply, State}
+      true ->
+        #{block := BinBlock} = R,
+        BlockParts = block:split_packet(BinBlock),
+        Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => MyRel}},
+        send_block(tpic, Origin, Map, BlockParts),
+        {noreply, State}
     end;
 
 
@@ -1152,25 +1154,35 @@ apply_ledger(Action, #{bals:=S, hash:=BlockHash}) ->
     lager:info("Apply ~p", [LR]),
     LR.
 
+apply_block_conf_meta(#{hash:=Hash}=Block, Conf0) ->
+  Meta=#{ublk=>Hash},
+  S=maps:get(settings, Block, []),
+  lists:foldl(
+    fun({_TxID, #{patch:=Body}}, Acc) -> %old patch
+        settings:patch(settings:make_meta(Body,Meta), Acc);
+       ({_TxID, #{patches:=Body,kind:=patch}}, Acc) -> %new patch
+        settings:patch(settings:make_meta(Body,Meta), Acc)
+    end, Conf0, S).
+
 apply_block_conf(Block, Conf0) ->
-    S=maps:get(settings, Block, []),
-    if S==[] -> ok;
-       true ->
-           file:write_file("tmp/applyconf.txt",
-                           io_lib:format("APPLY BLOCK CONF ~n~p.~n~n~p.~n~p.~n",
-                                         [Block, S, Conf0])
-                          )
-    end,
-    lists:foldl(
-      fun({_TxID, #{patch:=Body}}, Acc) -> %old patch
-              lager:notice("TODO: Must check sigs"),
-              %Hash=crypto:hash(sha256, Body),
-              settings:patch(Body, Acc);
-         ({_TxID, #{patches:=Body,kind:=patch}}, Acc) -> %new patch
-              lager:notice("TODO: Must check sigs"),
-              %Hash=crypto:hash(sha256, Body),
-              settings:patch(Body, Acc)
-      end, Conf0, S).
+  S=maps:get(settings, Block, []),
+  if S==[] -> ok;
+     true ->
+       file:write_file("tmp/applyconf.txt",
+                       io_lib:format("APPLY BLOCK CONF ~n~p.~n~n~p.~n~p.~n",
+                                     [Block, S, Conf0])
+                      )
+  end,
+  lists:foldl(
+    fun({_TxID, #{patch:=Body}}, Acc) -> %old patch
+        lager:notice("TODO: Must check sigs"),
+        %Hash=crypto:hash(sha256, Body),
+        settings:patch(Body, Acc);
+       ({_TxID, #{patches:=Body,kind:=patch}}, Acc) -> %new patch
+        lager:notice("TODO: Must check sigs"),
+        %Hash=crypto:hash(sha256, Body),
+        settings:patch(Body, Acc)
+    end, Conf0, S).
 
 blkid(<<X:8/binary, _/binary>>) ->
     bin2hex:dbin2hex(X).
@@ -1414,5 +1426,33 @@ restore(Dir, N, Prev, C) ->
 
       ok=gen_server:call(blockchain,{new_block, Blk, self()}),
       restore(Dir, N+1, Hash, C+1)
+  end.
+
+block_rel(LDB,Hash,Rel) when Rel==prev orelse Rel==child orelse Rel==self ->
+  case ldb:read_key(LDB, <<"block:", Hash/binary>>, undefined) of
+    undefined ->
+      noblock;
+    #{header:=#{}} = Block when Rel == self ->
+      Block;
+    #{header:=#{}, child:=Child} = _Block when Rel == child ->
+      case ldb:read_key(LDB, <<"block:", Child/binary>>, undefined) of
+        undefined ->
+          havenochild;
+        #{header:=#{}} = SBlock ->
+          SBlock
+      end;
+    #{header:=#{}} = _Block when Rel == child ->
+      nochild;
+    #{header:=#{parent:=Parent}} = _Block when Rel == prev ->
+      case ldb:read_key(LDB, <<"block:", Parent/binary>>, undefined) of
+        undefined ->
+          havenoprev;
+        #{header:=#{}} = SBlock ->
+          SBlock
+      end;
+    #{header:=#{}} = _Block when Rel == prev ->
+      noprev;
+    _ ->
+      unknown
   end.
 

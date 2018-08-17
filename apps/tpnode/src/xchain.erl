@@ -4,20 +4,49 @@
 -module(xchain).
 
 %% API
--export([pack/1, unpack/1, pack_chid/1, childspec/0]).
+-export([pack/2, unpack/2, pack_chid/1, childspec/0]).
 
 
 % -----------
 
-pack(Term) ->
-    term_to_binary(Term).
+pack(Term, 0) ->
+    term_to_binary(Term);
+
+pack(Atom, 2) when is_atom(Atom) ->
+  pack(#{null=>atom_to_binary(Atom,utf8)},2);
+
+pack({node_id, MyNodeId, Channels}, 2) ->
+  pack(#{null=><<"node_id">>,
+    <<"node_id">>=>MyNodeId,
+    <<"channels">>=>Channels},2);
+
+pack({subscribe, Channel}, 2) ->
+  pack(#{null=><<"subscribe">>,
+    <<"channel">>=>Channel},2);
+
+pack({xdiscovery, Announce}, 2) ->
+  pack(#{null=><<"xdiscovery">>, <<"bin">>=>Announce},2);
+
+pack(Term, 2) when is_tuple(Term) ->
+  pack(tuple_to_list(Term),2);
+
+pack(Term, 2) ->
+    msgpack:pack(Term).
 
 % -----------
 
-unpack(Bin) when is_binary(Bin) ->
-    binary_to_term(Bin, [safe]);
+unpack(Bin,0) when is_binary(Bin) ->
+  binary_to_term(Bin, [safe]);
 
-unpack(Invalid) ->
+unpack(Bin,2) when is_binary(Bin) ->
+  {ok,Res}=msgpack:unpack(Bin),
+  if is_list(Res) ->
+       list_to_tuple(Res);
+     true ->
+       Res
+  end;
+
+unpack(Invalid, _) ->
     lager:info("xchain got invalid data for unpack ~p", [Invalid]),
     {}.
 
@@ -33,7 +62,7 @@ childspec() ->
         [
             {'_', [
                 {"/xchain/ws", xchain_server, []},
-                {"/", xchain_server, []},
+                {"/", xchain_server, []}, %deprecated
                 {"/xchain/api/[...]", apixiom, {xchain_api, #{}}}
             ]}
         ]),
