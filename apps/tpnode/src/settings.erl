@@ -88,6 +88,9 @@ meta_path(list, Path) ->
   {Pre,Post}=lists:split(length(Path)-1,Path),
   Pre++[<<".">>]++Post.
 
+make_meta1(Patch, MetaInfo, Acc) when is_binary(Patch) ->
+  make_meta1(dmp(Patch), MetaInfo, Acc);
+
 make_meta1([], _, Acc) ->
   Acc;
 
