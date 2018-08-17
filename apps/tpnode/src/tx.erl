@@ -206,7 +206,7 @@ unpack_body(#{body:=Body}=Tx) ->
   end.
 
 unpack_body(#{ ver:=2,
-              kind:=generic
+              kind:=GenericOrDeploy
              }=Tx,
             #{ "f":=From,
                "to":=To,
@@ -214,7 +214,8 @@ unpack_body(#{ ver:=2,
                "s":=Seq,
                "p":=Payload,
                "e":=Extradata
-             }=Unpacked) ->
+             }=Unpacked) when GenericOrDeploy == generic ; 
+                              GenericOrDeploy == deploy ->
   Amounts=lists:map(
        fun([Purpose, Cur, Amount]) ->
          #{amount=>Amount,
