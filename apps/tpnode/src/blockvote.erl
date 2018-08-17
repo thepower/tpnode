@@ -246,7 +246,7 @@ is_block_ready(BlockHash, State) ->
 
 load_settings(State) ->
     MyChain=blockchain:get_mysettings(chain),
-    MinSig=blockchain:get_mysettings(minsig),
+    MinSig=chainsettings:get_val(minsig,1000),
 	LastBlock=gen_server:call(blockchain, last_block),
     lager:info("BV My last block hash ~s",
                [bin2hex:dbin2hex(maps:get(hash, LastBlock))]),

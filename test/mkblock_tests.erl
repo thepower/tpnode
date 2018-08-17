@@ -1052,6 +1052,221 @@ test_getaddr(Addr) ->
        }
   end.
 
+xchain_test() ->
+  OurChain=5,
+  C1N1= <<1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+          1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>,
+  C1N2= <<1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+          2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2>>,
+  C2N1= <<2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+          1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>,
+  C2N2= <<2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+          2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2>>,
+  InitSet=#{
+        chains => [5, 6],
+        chain =>
+        #{5 => #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
+          6 => #{blocktime => 10, minsig => 1}
+         },
+        globals => #{<<"patchsigs">> => 2},
+        keys =>
+        #{
+          <<"node1">> => tpecdsa:calc_pub(C1N1,true),
+          <<"node2">> => tpecdsa:calc_pub(C1N2,true),
+          <<"node3">> => tpecdsa:calc_pub(C2N1,true),
+          <<"node4">> => tpecdsa:calc_pub(C2N2,true)
+         },
+        nodechain =>
+        #{
+          <<"node1">> => 5,
+          <<"node2">> => 5,
+          <<"node3">> => 6,
+          <<"node4">> => 6
+         },
+        <<"current">> => #{
+            <<"fee">> => #{
+                params=>#{
+                  <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>,
+                  <<"tipaddr">> => <<160, 0, 0, 0, 0, 0, 0, 2>>
+                 },
+                <<"TST">> => #{
+                    <<"base">> => 2,
+                    <<"baseextra">> => 64,
+                    <<"kb">> => 20
+                   },
+                <<"FTT">> => #{
+                    <<"base">> => 1,
+                    <<"baseextra">> => 64,
+                    <<"kb">> => 10
+                   }
+               }
+           }
+       },
+  put(ch5set,InitSet),
+  put(ch6set,InitSet),
+  GetSettings5=fun(mychain) -> OurChain;
+                 (settings) -> get(ch5set);
+                 ({endless, _Address, _Cur}) ->
+                  false;
+                 ({valid_timestamp, TS}) ->
+                  abs(os:system_time(millisecond)-TS)<3600000
+                  orelse
+                  abs(os:system_time(millisecond)-(TS-86400000))<3600000;
+                 (Other) ->
+                  error({bad_setting, Other})
+              end,
+  GetSettings6=fun(mychain) -> OurChain+1;
+                 (settings) -> get(ch6set);
+                 ({endless, _Address, _Cur}) ->
+                  false;
+                 ({valid_timestamp, TS}) ->
+                  abs(os:system_time(millisecond)-TS)<3600000
+                  orelse
+                  abs(os:system_time(millisecond)-(TS-86400000))<3600000;
+                 (Other) ->
+                  error({bad_setting, Other})
+              end,
+  GetAddr=fun test_getaddr/1,
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  ParentHash=crypto:hash(sha256, <<"parent">>),
+  SG=3,
+
+  TX1=tx:unpack(
+        tx:sign(
+          #{
+          from=>naddress:construct_public(SG, OurChain, 3),
+          to=>naddress:construct_public(1, OurChain+1, 1),
+          amount=>9,
+          cur=><<"FTT">>,
+          extradata=>jsx:encode(#{ fee=>1, feecur=><<"FTT">> }),
+          seq=>4,
+          timestamp=>os:system_time(millisecond)
+         }, Pvt1)
+       ),
+  TX2=tx:sign(
+        tx:construct_tx(
+          #{
+          ver=>2,
+          kind=>generic,
+          from=>naddress:construct_public(SG, OurChain, 3),
+          to=>naddress:construct_public(1, OurChain+1, 1),
+          payload=>[
+                    #{purpose=>transfer, amount=>10, cur=><<"FTT">>},
+                    #{purpose=>srcfee, amount=>1, cur=><<"FTT">> }
+                   ],
+          seq=>2,
+          t=>os:system_time(millisecond)
+         }), Pvt1),
+    #{block:=Block1,
+    failed:=Failed1}=mkblock:generate_block(
+                      [
+                       {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
+                      ],
+                      {1, ParentHash},
+                      GetSettings5,
+                      GetAddr,
+                      []),
+
+  Success1=proplists:get_keys(maps:get(txs, Block1)),
+  ?assertMatch([], lists:sort(Failed1)),
+  ?assertEqual([ <<"tx1">> ], lists:sort(Success1)),
+  ?assertEqual([ <<"tx1">> ],
+               proplists:get_keys(maps:get(tx_proof, Block1))
+              ),
+  ?assertEqual([ {<<"tx1">>, OurChain+1} ],
+               maps:get(outbound, Block1)
+              ),
+  SignedBlock1=block:sign(Block1, C1N1),
+  C5NS=
+  blockchain:apply_block_conf_meta(
+    SignedBlock1,
+    blockchain:apply_block_conf(
+      SignedBlock1, 
+      get(ch5set)
+     )
+   ),
+  put(ch5set, C5NS),
+  #{block:=Block2,
+    failed:=[]}=mkblock:generate_block(
+                      [
+                       {<<"tx2">>, maps:put(sigverify,#{valid=>1},TX2)}
+                      ],
+                      {2, maps:get(hash,Block1)},
+                      GetSettings5,
+                      GetAddr,
+                      []),
+  SignedBlock2=block:sign(Block2, C1N1),
+  FormatBS=fun(Block) ->
+               settings:patch(
+                 maps:get(patch,proplists:get_value(<<"outch:6">>,maps:get(settings,Block))),
+                 #{})
+           end,
+  #{hash:=OH1}=OBlk1=maps:get(OurChain+1, block:outward_mk(maps:get(outbound, SignedBlock1), SignedBlock1)),
+  #{hash:=OH2}=OBlk2=maps:get(OurChain+1, block:outward_mk(maps:get(outbound, SignedBlock2), SignedBlock2)),
+  HOH1=hex:encode(OH1),
+  #{block:=RBlock1,
+    failed:=[]}=mkblock:generate_block(
+                  [ {HOH1, OBlk1} ],
+                  {1, <<0,0,0,0, 0,0,0,0>>},
+                  GetSettings6,
+                  GetAddr,
+                  []),
+  HOH2=hex:encode(OH2),
+  #{failed:=[{HOH2, {block_skipped,OH1}}]}=mkblock:generate_block(
+                                             [ {HOH2, OBlk2} ],
+                                             {1, <<0,0,0,0, 0,0,0,0>>},
+                                             GetSettings6,
+                                             GetAddr,
+                                             []),
+  %io:format("BB ~p~n",[RBlock1bad]),
+  C6NS=
+  blockchain:apply_block_conf_meta(
+    RBlock1,
+    blockchain:apply_block_conf(
+      RBlock1, 
+      get(ch6set)
+     )
+   ),
+  put(ch6set, C6NS),
+  #{failed:=[{HOH1, {overdue,OH1}}]}=mkblock:generate_block(
+                                       [ {HOH1, OBlk1} ],
+                                       {2, maps:get(hash,RBlock1)},
+                                       GetSettings6,
+                                       GetAddr,
+                                       []),
+  #{block:=RBlock2,
+    failed:=[]}=mkblock:generate_block(
+                  [ {HOH2, OBlk2} ],
+                  {2, maps:get(hash,RBlock1)},
+                  GetSettings6,
+                  GetAddr,
+                  []),
+  put(ch6set,InitSet),
+  #{block:=_RBlock1and2,
+    failed:=[]}=mkblock:generate_block(
+                  [ {HOH1, OBlk1},
+                    {HOH2, OBlk2} ],
+                  {1, <<0,0,0,0, 0,0,0,0>>},
+                  GetSettings6,
+                  GetAddr,
+                  []),
+
+  FormatDBS=fun(Block) ->
+                settings:patch(
+                  maps:get(patch,proplists:get_value(<<"syncch:5">>,maps:get(settings,Block))),
+                  #{})
+            end,
+  TT=proplists:get_value(<<"tx2">>,maps:get(txs,RBlock2)),
+  {
+   FormatBS(OBlk1),
+   maps:get(hash,OBlk1),
+   FormatBS(OBlk2),
+   FormatDBS(RBlock1),
+   FormatDBS(RBlock2),
+   TT
+  }.
+
 xchain_inbound_test() ->
   BlockTx={bin2hex:dbin2hex(
                <<210, 136, 133, 138, 53, 233, 33, 79,
@@ -1069,6 +1284,7 @@ xchain_inbound_test() ->
                               225, 192, 179, 64, 42, 131, 107, 119,
                               228, 179, 70, 213, 97, 142, 22, 75>>,
                  height => 3,
+                 chain=>2,
                  ledger_hash => <<126, 177, 211, 108, 143, 33, 252, 102,
                                   28, 174, 183, 241, 224, 199, 53, 212,
                                   190, 109, 9, 102, 244, 128, 148, 2,
