@@ -1,25 +1,25 @@
 -module(vm).
--export([run/3, test1/0]).
+-export([run/3, test1/0, teststate/0]).
 
 test1() ->
   run(fun(Pid) ->
           Pid ! {run, 
                  testtx(),
-                 <<130,164,99,111,100,101,196,0,
-                   165,115,116,97,116,101,196,69,
-                   129,196,32,88,88, 88,88,88,
-                   88,88,88,88,88,88,88,88,
-                   88,88,88,88,88,88,88,88,
-                   88,88,88,88,88,88,88,88,
-                   88,88,88,196,32,89,89,89,
-                   89,89,89,89,89,89,89,89,
-                   89,89,89,89,89,89,89,89,
-                   89,89,89,89,89,89,89,89,
-                   89,89,89,89,89>>,
+                 teststate(), 
                  11111,
                  self()
                 }
-      end, "wasm", 2).
+      end, "wasm", 2),
+  receive {run_req, ReqNo} ->
+            receive {result, ResNo, Res, Delay} when ResNo == ReqNo ->
+                      lager:info("Contract delay ~p",[Delay/1000000]),
+                      Res
+            after 1000 ->
+                    no_result
+            end
+  after 5000 ->
+          no_request
+  end.
 
 
 run(Fun, VmType, VmVer) ->
@@ -32,9 +32,31 @@ run(Fun, VmType, VmVer) ->
   end.
 
 
+teststate() ->
+  msgpack:pack(
+    #{
+    %"code"=><<>>,
+    "state"=>msgpack:pack(#{
+               %<<"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA">> =>
+               %<<"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB">>,
+               %<<"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX">> =>
+               %<<"YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY">>
+              })
+   }).
+
 testtx() ->
-  tx:pack(#{body =>
-            base64:decode(<<"iKFrEqFmxAiAACAAAgAAA6FwkpMAo1hYWAqTAaNGRUUUonRvxAiAACAAAgAABaFzBaF0zwAAAWRBcFcXoWOSpGluaXSRzb6voWWBpGNvZGXFAukAYXNtAQAAAAEWBWABfwBgAn9/AGAAAX9gAX4BfmAAAAJMBANlbnYMX2ZpbGxfc3RydWN0AAADZW52Cl9wcmludF9zdHIAAANlbnYMc3RvcmFnZV9yZWFkAAEDZW52DXN0b3JhZ2Vfd3JpdGUAAQMHBgECAwMEAAQEAXAAAAUDAQABBykFBm1lbW9yeQIABG5hbWUABQRpbml0AAYDZ2V0AAgIZ2V0X2RhdGEACQkBAAqiAwajAQEEf0EAQQAoAgRBIGsiBTYCBCAFQRhqIgJC2rTp0qXLlq3aADcDACAFQRBqIgNC2rTp0qXLlq3aADcDACAFQQhqIgRC2rTp0qXLlq3aADcDACAFQtq06dKly5at2gA3AwAgASAFEAIgAEEYaiACKQMANwAAIABBEGogAykDADcAACAAQQhqIAQpAwA3AAAgACAFKQMANwAAQQAgBUEgajYCBAsEAEEQCzYBAX9BAEEAKAIEQSBrIgE2AgRBIBABQTBB0AAQAyABQTAQBCAAEAchAEEAIAFBIGo2AgQgAAsLACAAQoCAtPUNhAskAQF/QQBBACgCBEEgayIANgIEIABB8AAQBEEAIABBIGo2AgQLjQEBBH9BAEEAKAIEQSBrIgQ2AgQgBEEYaiIBQQApA6gBNwMAIARBEGoiAkEAKQOgATcDACAEQQhqIgNBACkDmAE3AwAgBEEAKQOQATcDACAEEAAgAEEYaiABKQMANwAAIABBEGogAikDADcAACAAQQhqIAMpAwA3AAAgACAEKQMANwAAQQAgBEEgajYCBAsLkQEFAEEQCwl0ZXN0IG5hbWUAQSALDFRFU1QgU1RSSU5HAABBMAsgQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUEAQdAACyBCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQgBBkAELIEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8A">>),
-            sig => [],
-            ver => 2}).
+  Tx=tx:construct_tx(
+       #{ver=>2,
+         kind=>deploy,
+         from=><<128,0,32,0,2,0,0,3>>,
+         seq=>5,
+         t=>1530106238743,
+         payload=>[
+                   #{amount=>10, cur=><<"XXX">>, purpose=>transfer },
+                   #{amount=>20, cur=><<"FEE">>, purpose=>srcfee }
+                  ],
+         call=>#{function=>"init",args=>[48815]},
+         txext=>#{"code"=>element(2,file:read_file("../wanode/test1.wasm"))}
+        }),
+  tx:pack(Tx).
 

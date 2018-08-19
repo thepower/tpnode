@@ -62,7 +62,7 @@ handle_call({pick, Lang, Ver, CPid}, _From,
         undefined ->
           {reply, {error, nofree}, State};
         {Pid, Params} ->
-          lager:info("Picked worker ~p",[Worker]),
+          lager:debug("Picked worker ~p",[Worker]),
           MR=erlang:monitor(process, CPid),
           Monitor2=maps:put(MR, {user, Pid}, Monitor),
           VmByType2=maps:put(Type, [{Pid,Params#{usedby=>CPid, mref=>MR}}|NA], VmByType),
@@ -87,7 +87,7 @@ handle_call({register, Pid, #{
   link(Pid),
   Monitor2=maps:put(MR, {worker, Type}, Monitor),
   VmByType2=maps:put(Type,[{Pid,#{}}|maps:get(Type,VmByType,[])],VmByType),
-  lager:info("Reg ~p ~p",[Pid,Type]),
+  lager:debug("Reg ~p ~p",[Pid,Type]),
   {reply, ok, State#{
                 vmbytype=>VmByType2,
                 vmtype=>maps:put(Pid,Type,VmType),
@@ -114,7 +114,7 @@ handle_info({'DOWN',Ref,process,Pid,_Reason},
       lager:notice("Down for unknown ref ~p",[Ref]),
       {noreply, State};
     {ok, {user, WPid}} ->
-      lager:info("Down user",[Pid]),
+      lager:debug("Down user",[Pid]),
       %Monitor2=maps:remove(Ref, Monitor),
       S1=return_worker(WPid, State),
       {noreply, S1};
@@ -127,7 +127,7 @@ handle_info({'DOWN',Ref,process,Pid,_Reason},
                    true ->
                      maps:put(Type,Workers,VmByType)
                 end,
-      lager:info("UnReg ~p ~p",[Pid,Type]),
+      lager:debug("UnReg ~p ~p",[Pid,Type]),
       {noreply, State#{
                   vmbytype=>VmByType2,
                   vmtype=>maps:remove(Pid,VmType),
@@ -151,7 +151,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 return_worker(WPid, #{ vmtype:=VmType,
                        monitor:=Mon,
-                      vmbytype:=VmByType}=State) ->
+                       vmbytype:=VmByType}=State) ->
   case maps:find(WPid, VmType) of
     {ok, Type} ->
       Workers=maps:get(Type,VmByType,[]),
@@ -159,14 +159,12 @@ return_worker(WPid, #{ vmtype:=VmType,
       Mon1=case maps:get(mref,WState,undefined) of
         undefined -> Mon;
         Ref ->
-          lager:info("demonitoring ~p",[Ref]),
           erlang:demonitor(Ref),
           maps:remove(Ref, Mon)
       end,
       Workers2=lists:keydelete(WPid,1,Workers),
       VmByType2=maps:put(Type,
-                         Workers2++[{WPid,
-                                     maps:without([usedby,mref],WState)}],
+                         [{WPid, maps:without([usedby,mref],WState)}|Workers2],
                          VmByType),
       State#{
         vmbytype=>VmByType2,

@@ -11,6 +11,11 @@
 -export([start_link/4, init/4, child_spec/1, loop/1]).
 -export([test_client/0]).
 
+-record(req,
+        {owner,
+         t1
+        }).
+
 child_spec(Port) ->
   ranch:child_spec(
     {wm_listener,Port}, ranch_tcp,
@@ -43,6 +48,10 @@ loop(#{socket:=Socket, transport:=Transport, reqs:=Reqs}=State) ->
       ?MODULE:loop(S1);
     {tcp_closed, Socket} ->
       lager:info("Client gone"),
+      maps:fold(
+        fun(ReqID,#req{owner=Owner},_Acc) ->
+            Owner ! {result, ReqID, error}
+        end, 0, Reqs),
       Transport:close(Socket);
     {run, Transaction, Ledger, Gas, From} ->
       Seq=maps:get(myseq, State, 0),
@@ -50,16 +59,17 @@ loop(#{socket:=Socket, transport:=Transport, reqs:=Reqs}=State) ->
                 "tx"=>Transaction,
                 "ledger"=>Ledger,
                 "gas"=>Gas}, State),
-      From ! {req, Seq},
-      lager:info("run tx ~p",[Seq]),
-      ?MODULE:loop(S1#{reqs=>maps:put(Seq,{From,erlang:system_time()},Reqs)});
+      From ! {run_req, Seq},
+      lager:debug("run tx ~p",[Seq]),
+      R=#req{owner=From,t1=erlang:system_time()},
+      ?MODULE:loop(S1#{reqs=>maps:put(Seq,R,Reqs)});
     Any ->
       lager:info("unknown message ~p",[Any]),
       ?MODULE:loop(State)
   end.
 
 handle_req(Seq, #{null:="hello"}=Request, State) ->
-  lager:info("Got seq ~b hello ~p",[Seq, Request]),
+  lager:debug("Got seq ~b hello ~p",[Seq, Request]),
   reply(Seq, Request, State),
   ok=gen_server:call(tpnode_vmsrv,{register, self(), Request}),
   State;
@@ -100,7 +110,7 @@ handle_res(Seq, Result, #{reqs:=Reqs}=State) ->
     error ->
       lager:info("Got res seq ~b payload ~p",[Seq, Result]),
       State;
-    {ok, {Pid, T1}} ->
+    {ok, #req{owner=Pid, t1=T1}} ->
       Pid ! {result, Seq, Result, erlang:system_time()-T1},
       State#{reqs=>maps:remove(Seq, Reqs)}
   end. 
@@ -113,7 +123,7 @@ reply(Seq, Payload, State) ->
   send(Seq bor 1, Payload, State).
 
 send(Seq, Payload, #{socket:=Socket, transport:=Transport}=State) when is_map(Payload) ->
-  lager:info("Sending seq ~b ~p",[Seq, Payload]),
+  lager:debug("Sending seq ~b ~p",[Seq, Payload]),
   Data=msgpack:pack(Payload),
   %lager:info("sending ~s",[base64:encode(Data)]),
   Transport:send(Socket, <<Seq:32/big,Data/binary>>),
