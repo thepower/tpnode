@@ -9,7 +9,7 @@
 -behaviour(ranch_protocol).
 
 -export([start_link/4, init/4, child_spec/1, loop/1]).
--export([test_client/0, testtx/0]).
+-export([test_client/0]).
 
 child_spec(Port) ->
   ranch:child_spec(
@@ -27,42 +27,58 @@ init(Ref, Socket, Transport, _Opts) ->
   ok = ranch:accept_ack(Ref),
   inet:setopts(Socket, [{active, once},{packet,4}]),
 %Transport:close(Socket),
-  loop(#{socket=>Socket, transport=>Transport}).
+  loop(#{socket=>Socket, transport=>Transport, myseq=>0, reqs=>#{}}).
 
-loop(#{socket:=Socket, transport:=Transport}=State) ->
+loop(#{socket:=Socket, transport:=Transport, reqs:=Reqs}=State) ->
   receive
     {tcp, Socket, <<Seq:32/big,Data/binary>>} ->
       {ok,Payload}=msgpack:unpack(Data),
-      handle(Seq, Payload, State),
+      S1=case Seq rem 2 of
+        0 ->
+          handle_req(Seq bsr 1, Payload, State);
+        1 ->
+          handle_res(Seq bsr 1, Payload, State)
+      end,
       inet:setopts(Socket, [{active, once}]),
-      ?MODULE:loop(State);
+      ?MODULE:loop(S1);
     {tcp_closed, Socket} ->
       lager:info("Client gone"),
       Transport:close(Socket);
+    {run, Transaction, Ledger, Gas, From} ->
+      Seq=maps:get(myseq, State, 0),
+      S1=req(#{null=>"exec",
+                "tx"=>Transaction,
+                "ledger"=>Ledger,
+                "gas"=>Gas}, State),
+      From ! {req, Seq},
+      lager:info("run tx ~p",[Seq]),
+      ?MODULE:loop(S1#{reqs=>maps:put(Seq,{From,erlang:system_time()},Reqs)});
     Any ->
       lager:info("unknown message ~p",[Any]),
       ?MODULE:loop(State)
   end.
 
-handle(Seq, #{null:="hello"}=Request, State) ->
+handle_req(Seq, #{null:="hello"}=Request, State) ->
   lager:info("Got seq ~b hello ~p",[Seq, Request]),
-  send(Seq bor 1, Request, State),
+  reply(Seq, Request, State),
+  ok=gen_server:call(tpnode_vmsrv,{register, self(), Request}),
+  State;
 
-  send(2, #{null=>"exec",
-            "gas" => 11111,
-            "ledger" => <<130,164,99,111,100,101,196,0,
-                          165,115,116,97,116,101,196,69,
-                          129,196,32,88,88, 88,88,88,
-                          88,88,88,88,88,88,88,88,
-                          88,88,88,88,88,88,88,88,
-                          88,88,88,88,88,88,88,88,
-                          88,88,88,196,32,89,89,89,
-                          89,89,89,89,89,89,89,89,
-                          89,89,89,89,89,89,89,89,
-                          89,89,89,89,89,89,89,89,
-                          89,89,89,89,89>>,
-            "tx" => testtx()
-           }, State);
+%  send(2, #{null=>"exec",
+%            "gas" => 11111,
+%            "ledger" => <<130,164,99,111,100,101,196,0,
+%                          165,115,116,97,116,101,196,69,
+%                          129,196,32,88,88, 88,88,88,
+%                          88,88,88,88,88,88,88,88,
+%                          88,88,88,88,88,88,88,88,
+%                          88,88,88,88,88,88,88,88,
+%                          88,88,88,196,32,89,89,89,
+%                          89,89,89,89,89,89,89,89,
+%                          89,89,89,89,89,89,89,89,
+%                          89,89,89,89,89,89,89,89,
+%                          89,89,89,89,89>>,
+%            "tx" => testtx()
+%           }, State);
 
             %      'ledger': dumps({'code': b'', 'state': dumps({b'X'*32: b'Y'*32})}),
             %      'tx': dumps({'ver': 2, 'body': dumps({
@@ -75,16 +91,33 @@ handle(Seq, #{null:="hello"}=Request, State) ->
             %        'c': ['init', [0xBEAF]],
             %        'e': {'code': bytearray(read('../rust/test1.wasm'))}
 
+handle_req(Seq, Request, State) ->
+  lager:info("Got req seq ~b payload ~p",[Seq, Request]),
+  State.
 
+handle_res(Seq, Result, #{reqs:=Reqs}=State) ->
+  case maps:find(Seq, Reqs) of
+    error ->
+      lager:info("Got res seq ~b payload ~p",[Seq, Result]),
+      State;
+    {ok, {Pid, T1}} ->
+      Pid ! {result, Seq, Result, erlang:system_time()-T1},
+      State#{reqs=>maps:remove(Seq, Reqs)}
+  end. 
 
-handle(Seq, Request, _State) ->
-  lager:info("Got seq ~b payload ~p",[Seq, Request]).
+req(Payload, #{myseq:=MS}=State) ->
+  Seq=MS bsl 1,
+  send(Seq, Payload, State#{myseq=>MS+1}).
 
-send(Seq, Payload, #{socket:=Socket, transport:=Transport}=_State) when is_map(Payload) ->
+reply(Seq, Payload, State) ->
+  send(Seq bor 1, Payload, State).
+
+send(Seq, Payload, #{socket:=Socket, transport:=Transport}=State) when is_map(Payload) ->
   lager:info("Sending seq ~b ~p",[Seq, Payload]),
   Data=msgpack:pack(Payload),
   %lager:info("sending ~s",[base64:encode(Data)]),
-  Transport:send(Socket, <<Seq:32/big,Data/binary>>).
+  Transport:send(Socket, <<Seq:32/big,Data/binary>>),
+  State.
 
 test_client() ->
   {ok, Socket} = gen_tcp:connect("127.0.0.1",5555,[{packet,4},binary]),
@@ -114,10 +147,4 @@ test_client_continue(Socket) ->
           io:format("Timeout2~n",[]),
           gen_tcp:close(Socket)
   end.
-
-testtx() ->
-  tx:pack(#{body =>
-            base64:decode(<<"iKFrEqFmxAiAACAAAgAAA6FwkpMAo1hYWAqTAaNGRUUUonRvxAiAACAAAgAABaFzBaF0zwAAAWRBcFcXoWOSpGluaXSRzb6voWWBpGNvZGXFAukAYXNtAQAAAAEWBWABfwBgAn9/AGAAAX9gAX4BfmAAAAJMBANlbnYMX2ZpbGxfc3RydWN0AAADZW52Cl9wcmludF9zdHIAAANlbnYMc3RvcmFnZV9yZWFkAAEDZW52DXN0b3JhZ2Vfd3JpdGUAAQMHBgECAwMEAAQEAXAAAAUDAQABBykFBm1lbW9yeQIABG5hbWUABQRpbml0AAYDZ2V0AAgIZ2V0X2RhdGEACQkBAAqiAwajAQEEf0EAQQAoAgRBIGsiBTYCBCAFQRhqIgJC2rTp0qXLlq3aADcDACAFQRBqIgNC2rTp0qXLlq3aADcDACAFQQhqIgRC2rTp0qXLlq3aADcDACAFQtq06dKly5at2gA3AwAgASAFEAIgAEEYaiACKQMANwAAIABBEGogAykDADcAACAAQQhqIAQpAwA3AAAgACAFKQMANwAAQQAgBUEgajYCBAsEAEEQCzYBAX9BAEEAKAIEQSBrIgE2AgRBIBABQTBB0AAQAyABQTAQBCAAEAchAEEAIAFBIGo2AgQgAAsLACAAQoCAtPUNhAskAQF/QQBBACgCBEEgayIANgIEIABB8AAQBEEAIABBIGo2AgQLjQEBBH9BAEEAKAIEQSBrIgQ2AgQgBEEYaiIBQQApA6gBNwMAIARBEGoiAkEAKQOgATcDACAEQQhqIgNBACkDmAE3AwAgBEEAKQOQATcDACAEEAAgAEEYaiABKQMANwAAIABBEGogAikDADcAACAAQQhqIAMpAwA3AAAgACAEKQMANwAAQQAgBEEgajYCBAsLkQEFAEEQCwl0ZXN0IG5hbWUAQSALDFRFU1QgU1RSSU5HAABBMAsgQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUEAQdAACyBCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQgBBkAELIEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8A">>),
-            sig => [],
-            ver => 2}).
 
