@@ -148,6 +148,43 @@ construct_tx(#{
 
 construct_tx(#{
   ver:=2,
+  kind:=deploy,
+  from:=F,
+  t:=Timestamp,
+  seq:=Seq,
+  payload:=Amounts
+ }=Tx0,_Params) ->
+  Tx=maps:with([ver,from,to,t,seq,payload,call,txext],Tx0),
+  A1=lists:map(
+       fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
+             is_integer(Amount), is_binary(Cur) ->
+           [encode_purpose(Purpose), to_list(Cur), Amount]
+       end, Amounts),
+  Ext=maps:get(txext, Tx, #{}),
+  true=is_map(Ext),
+  E0=#{
+    "k"=>encode_kind(2,deploy),
+    "f"=>F,
+    "t"=>Timestamp,
+    "s"=>Seq,
+    "p"=>A1,
+    "e"=>Ext
+   },
+  {E1,Tx1}=case maps:find(call,Tx) of
+             {ok, #{function:=Fun,args:=Args}} when is_list(Fun),
+                                                    is_list(Args) ->
+               {E0#{"c"=>[Fun,{array,Args}]},Tx};
+             error ->
+               {E0#{"c"=>["init",{array,[]}]}, maps:remove(call, Tx)}
+           end,
+  Tx1#{
+    kind=>deploy,
+    body=>msgpack:pack(E1,[{spec,new},{pack_str, from_list}]),
+    sig=>[]
+   };
+
+construct_tx(#{
+  ver:=2,
   kind:=generic,
   from:=F,
   to:=To,
@@ -227,6 +264,39 @@ unpack_body(#{ ver:=2,
     ver=>2,
     from=>From,
     to=>To,
+    t=>Timestamp,
+    seq=>Seq,
+    payload=>Amounts,
+    txext=>Extradata
+   },
+  case maps:is_key("c",Unpacked) of
+    false -> Decoded;
+    true ->
+      [Function, Args]=maps:get("c",Unpacked),
+      Decoded#{
+        call=>#{function=>Function, args=>Args}
+       }
+  end;
+
+unpack_body(#{ ver:=2,
+              kind:=deploy
+             }=Tx,
+            #{ "f":=From,
+               "t":=Timestamp,
+               "s":=Seq,
+               "p":=Payload,
+               "e":=Extradata
+             }=Unpacked) ->
+  Amounts=lists:map(
+       fun([Purpose, Cur, Amount]) ->
+         #{amount=>Amount,
+           cur=>to_binary(Cur),
+           purpose=>decode_purpose(Purpose)
+          }
+       end, Payload),
+  Decoded=Tx#{
+    ver=>2,
+    from=>From,
     t=>Timestamp,
     seq=>Seq,
     payload=>Amounts,
