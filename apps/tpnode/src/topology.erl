@@ -68,12 +68,12 @@ handle_info(timer, #{ticktimer:=Tmr, tickms:=Delay} = State) ->
   lists:foreach(
     fun
       ({N, #{authdata:=AD}}) ->
-        PK = proplists:get_value(pubkey, AD, <<>>),
-        lager:info("TOPO ~p: ~p", [N, PK]),
+        PubKey = proplists:get_value(pubkey, AD, <<>>),
+        lager:info("TOPO ~p: ~p", [N, PubKey]),
         tpic:cast(
           tpic,
           N,
-          {<<"beacon">>, beacon:create(PK)}
+          {<<"beacon">>, beacon:create(PubKey)}
         );
       (_) -> ok
     end,
