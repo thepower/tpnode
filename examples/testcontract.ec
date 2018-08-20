@@ -22,8 +22,7 @@ end,
 Kind=maps:get(kind, Tx),
 #{args := A,function := F}=maps:get(call, Tx, #{args => [],function => "default"}),
 
-io:format("Kind ~p F ~p a ~p",[Kind,F,A]),
-%io:format("Ledger ~p~n",[maps:keys(Ledger)]),
+%io:format("Ledger ~p~n",[maps:without([<<"code">>,<<"state">>],Ledger)]),
 %io:format("Tx ~p~n",[maps:without([body,sig],Tx)]),
 %io:format("Gas ~p~n",[Gas]),
 %io:format("Pid ~p~n",[self()]),
@@ -32,6 +31,6 @@ io:format("Kind ~p F ~p a ~p",[Kind,F,A]),
 Res=Run(Kind, F, A),
 
 
-io:format(" = ~p~n",[Res]),
+error_logger:info_msg("call ~s(~s, ~s, ~p)=~p",[testcontract,Kind,F,A,Res]),
 Res.
 

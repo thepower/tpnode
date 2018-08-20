@@ -291,22 +291,25 @@ extcontract_test() ->
             <<"node3">> => OurChain
              },
             <<"current">> => #{
-              <<"fee">> => #{
-                params=>#{
-                <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>,
-                <<"tipaddr">> => <<160, 0, 0, 0, 0, 0, 0, 2>>
-                 },
-                <<"TST">> => #{
-                  <<"base">> => 2,
-                  <<"baseextra">> => 64,
-                  <<"kb">> => 20
-                 },
-                <<"FTT">> => #{
-                  <<"base">> => 1,
-                  <<"baseextra">> => 64,
-                  <<"kb">> => 10
-                 }
-               },
+                <<"gas">> => #{
+                    <<"FTT">> => 10
+                   },
+                <<"fee">> => #{
+                    params=>#{
+                      <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>,
+                      <<"tipaddr">> => <<160, 0, 0, 0, 0, 0, 0, 2>>
+                     },
+                    <<"TST">> => #{
+                        <<"base">> => 2,
+                        <<"baseextra">> => 64,
+                        <<"kb">> => 20
+                       },
+                    <<"FTT">> => #{
+                        <<"base">> => 1,
+                        <<"baseextra">> => 64,
+                        <<"kb">> => 10
+                       }
+                   },
               <<"rewards">>=>#{
                 <<"c1n1">>=><<128, 1, 64, 0, OurChain, 0, 0, 101>>,
                 <<"c1n2">>=><<128, 1, 64, 0, OurChain, 0, 0, 102>>,
@@ -354,7 +357,9 @@ extcontract_test() ->
           from=>naddress:construct_public(SG, OurChain, 11),
           seq=>2,
           t=>os:system_time(millisecond),
-          payload=>[],
+          payload=>[
+                    #{purpose=>gas, amount=>10, cur=><<"FTT">>}
+                   ],
           call=>#{function=>"init",args=>[1024]},
           txext=>#{ "code"=> Code,
                     "vm" => "erltest"
@@ -367,14 +372,13 @@ extcontract_test() ->
           from=>naddress:construct_public(SG, OurChain, 3),
           to=>naddress:construct_public(SG, OurChain, 11),
           cur=><<"FTT">>,
-          call=>#{function=>"init",args=>[1024]},
+          call=>#{function=>"dec",args=>[512]},
           payload=>[
                     #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
                    ],
           seq=>2,
           t=>os:system_time(millisecond)
          }), Pvt1),
-  io:format("P ~p~n",[tx:get_payloads(TX4,transfer)]),
   #{block:=Block,
     emit:=Emit,
     failed:=Failed}=mkblock:generate_block(

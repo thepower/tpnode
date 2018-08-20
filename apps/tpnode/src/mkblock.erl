@@ -367,7 +367,7 @@ deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings) ->
                            #{cur=>Cur,
                            amount=>Summ,
                            to=>Addr},
-                           GetFun, Settings),
+                           GetFun, Settings, free),
                {NewT, TxAcc ++ NewTXL}
            end,
       {TBal, TXL},
@@ -1044,7 +1044,7 @@ try_process_inbound([{TxID,
 
       lager:info("Orig Block ~p", [OriginBlock]),
       lager:notice("Change chain number to actual ~p", [SetState]),
-        {NewT, NewEmit, _GasLeft}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings),
+        {NewT, NewEmit, _GasLeft}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings, Gas),
         NewAddresses=maps:put(To, NewT, Addresses),
         TxExt=maps:get(extdata,Tx,#{}),
         NewExt=TxExt#{
@@ -1246,7 +1246,7 @@ try_process_local([{TxID,
     RealSettings=EnsureSettings(SetState),
     {NewF, GotFee}=withdraw(maps:get(From, Addresses), Tx, GetFun, RealSettings),
     Addresses1=maps:put(From, NewF, Addresses),
-    {NewT, NewEmit, _GasLeft}=deposit(To, maps:get(To, Addresses1), Tx, GetFun, RealSettings),
+    {NewT, NewEmit, _GasLeft}=deposit(To, maps:get(To, Addresses1), Tx, GetFun, RealSettings, Gas),
     NewAddresses=maps:put(To, NewT, Addresses1),
 
     CI=tx:get_ext(<<"contract_issued">>, Tx),
@@ -1288,9 +1288,7 @@ savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
     tip=>bal:put_cur(Cur, Tip+bal:get_cur(Cur, TipBal), TipBal)
    }.
 
-deposit(Address, TBal0,
-        #{ver:=2}=Tx,
-        GetFun, _Settings) ->
+deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, _Settings, GasLimit) ->
   NewT=maps:remove(keep,
                    lists:foldl(
                      fun(#{amount:=Amount, cur:= Cur}, TBal) ->
@@ -1302,7 +1300,7 @@ deposit(Address, TBal0,
       {NewT, [], 0};
     VMType ->
       lager:info("Smartcontract ~p", [VMType]),
-      {L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, 1, GetFun),
+      {L1, TXs, GasLeft}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
       {L1, lists:map(
              fun(#{seq:=Seq}=ETx) ->
                  H=base64:encode(crypto:hash(sha, bal:get(state, TBal0))),
@@ -1312,12 +1310,12 @@ deposit(Address, TBal0,
                  {TxID,
                   tx:set_ext( <<"contract_issued">>, Address, ETx)
                  }
-             end, TXs), Gas}
+             end, TXs), GasLeft}
   end;
 
 deposit(Address, TBal,
     #{cur:=Cur, amount:=Amount}=Tx,
-    GetFun, _Settings) ->
+    GetFun, _Settings, GasLimit) ->
   NewTAmount=bal:get_cur(Cur, TBal) + Amount,
   NewT=maps:remove(keep,
            bal:put_cur( Cur, NewTAmount, TBal)
@@ -1327,7 +1325,7 @@ deposit(Address, TBal,
       {NewT, [], 0};
     VMType ->
       lager:info("Smartcontract ~p", [VMType]),
-      {L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, 1, GetFun),
+      {L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
       {L1, lists:map(
           fun(#{seq:=Seq}=ETx) ->
               H=base64:encode(crypto:hash(sha, bal:get(state, TBal))),

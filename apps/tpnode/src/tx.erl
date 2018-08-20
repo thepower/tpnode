@@ -210,9 +210,9 @@ construct_tx(#{
     "e"=>Ext
    },
   {E1,Tx1}=case maps:find(call,Tx) of
-             {ok, #{function:=Fun,args:=Args}} when is_binary(Fun),
+             {ok, #{function:=Fun,args:=Args}} when is_list(Fun),
                                                     is_list(Args) ->
-               {E0#{"c"=>[Fun,Args]},Tx};
+               {E0#{"c"=>[Fun,{array,Args}]},Tx};
              _ ->
                {E0, maps:remove(call, Tx)}
            end,
