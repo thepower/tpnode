@@ -267,6 +267,133 @@ alloc_addr_test() ->
                   }, Block)
     ].
 
+extcontract_test() ->
+  OurChain=150,
+  GetSettings=fun(mychain) -> OurChain;
+           (settings) ->
+            #{
+            chains => [OurChain],
+            chain =>
+            #{OurChain =>
+            #{blocktime => 5, minsig => 2, <<"allowempty">> => 0}
+             },
+            globals => #{<<"patchsigs">> => 2},
+            keys =>
+            #{
+            <<"node1">> => crypto:hash(sha256, <<"node1">>),
+            <<"node2">> => crypto:hash(sha256, <<"node2">>),
+            <<"node3">> => crypto:hash(sha256, <<"node3">>)
+             },
+            nodechain =>
+            #{
+            <<"node1">> => OurChain,
+            <<"node2">> => OurChain,
+            <<"node3">> => OurChain
+             },
+            <<"current">> => #{
+              <<"fee">> => #{
+                params=>#{
+                <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>,
+                <<"tipaddr">> => <<160, 0, 0, 0, 0, 0, 0, 2>>
+                 },
+                <<"TST">> => #{
+                  <<"base">> => 2,
+                  <<"baseextra">> => 64,
+                  <<"kb">> => 20
+                 },
+                <<"FTT">> => #{
+                  <<"base">> => 1,
+                  <<"baseextra">> => 64,
+                  <<"kb">> => 10
+                 }
+               },
+              <<"rewards">>=>#{
+                <<"c1n1">>=><<128, 1, 64, 0, OurChain, 0, 0, 101>>,
+                <<"c1n2">>=><<128, 1, 64, 0, OurChain, 0, 0, 102>>,
+                <<"c1n3">>=><<128, 1, 64, 0, OurChain, 0, 0, 103>>,
+                <<"node1">>=><<128, 1, 64, 0, OurChain, 0, 0, 101>>,
+                <<"node2">>=><<128, 1, 64, 0, OurChain, 0, 0, 102>>,
+                <<"node3">>=><<128, 1, 64, 0, OurChain, 0, 0, 103>>
+               }
+             }
+           };
+           ({endless, _Address, _Cur}) ->
+            false;
+           ({valid_timestamp, TS}) ->
+            abs(os:system_time(millisecond)-TS)<3600000
+            orelse
+            abs(os:system_time(millisecond)-(TS-86400000))<3600000;
+           ({get_block, Back}) when 20>=Back ->
+            FindBlock=fun FB(H, N) ->
+            case gen_server:call(blockchain, {get_block, H}) of
+              undefined ->
+                undefined;
+              #{header:=#{parent:=P}}=Blk ->
+                if N==0 ->
+                     maps:without([bals, txs], Blk);
+                   true ->
+                     FB(P, N-1)
+                end
+            end
+        end,
+            FindBlock(last, Back);
+           (Other) ->
+            error({bad_setting, Other})
+        end,
+    GetAddr=fun test_getaddr/1,
+
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+      248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+    ParentHash=crypto:hash(sha256, <<"parent">>),
+  SG=3,
+  {ok, Code}=file:read_file("./examples/testcontract.ec"),
+  TX3=tx:sign(
+        tx:construct_tx(#{
+          ver=>2,
+          kind=>deploy,
+          from=>naddress:construct_public(SG, OurChain, 11),
+          seq=>2,
+          t=>os:system_time(millisecond),
+          payload=>[],
+          call=>#{function=>"init",args=>[1024]},
+          txext=>#{ "code"=> Code,
+                    "vm" => "erltest"
+                  }
+         }), Pvt1),
+  TX4=tx:sign(
+        tx:construct_tx(#{
+          ver=>2,
+          kind=>generic,
+          from=>naddress:construct_public(SG, OurChain, 3),
+          to=>naddress:construct_public(SG, OurChain, 11),
+          cur=><<"FTT">>,
+          call=>#{function=>"init",args=>[1024]},
+          payload=>[
+                    #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                   ],
+          seq=>2,
+          t=>os:system_time(millisecond)
+         }), Pvt1),
+  io:format("P ~p~n",[tx:get_payloads(TX4,transfer)]),
+  #{block:=Block,
+    emit:=Emit,
+    failed:=Failed}=mkblock:generate_block(
+                      [
+                       {<<"3testdeploy">>, maps:put(sigverify,#{valid=>1},TX3)},
+                       {<<"4testexec">>, maps:put(sigverify,#{valid=>1},TX4)}
+                      ],
+                      {1, ParentHash},
+                      GetSettings,
+                      GetAddr,
+                      []),
+
+  Success=proplists:get_keys(maps:get(txs, Block)),
+  NewLedger=maps:without([<<160, 0, 0, 0, 0, 0, 0, 0>>,
+              <<160, 0, 0, 0, 0, 0, 0, 1>>,
+              <<160, 0, 0, 0, 0, 0, 0, 2>>], maps:get(bals, Block)),
+  { Success, Failed, Emit, NewLedger}.
+
+
 contract_test() ->
   OurChain=150,
   GetSettings=fun(mychain) -> OurChain;

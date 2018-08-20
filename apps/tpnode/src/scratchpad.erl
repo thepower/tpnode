@@ -888,3 +888,24 @@ r(Module) ->
    Changed
   }.
 
+to_str(Arg) when is_binary(Arg) ->
+    unicode:characters_to_list(Arg, utf8);
+to_str(Arg) when is_atom(Arg) ->
+    atom_to_list(Arg);
+to_str(Arg) when is_integer(Arg) ->
+    integer_to_list(Arg);
+to_str(Arg) when is_list(Arg) ->
+    Arg.
+
+eval(File, Bindings0) ->
+  {ok, Source} = file:read_file(File),
+  Bindings=maps:fold(
+             fun erl_eval:add_binding/3,
+             erl_eval:new_bindings(),
+             Bindings0),
+  SourceStr = to_str(Source),
+  {ok, Tokens, _} = erl_scan:string(SourceStr),
+  {ok, Parsed} = erl_parse:parse_exprs(Tokens),
+  {value, Result, _} = erl_eval:exprs(Parsed, Bindings),
+  Result.
+

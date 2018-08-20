@@ -20,57 +20,50 @@ test_erl() ->
              txext=>#{"code"=>element(2,file:read_file("./examples/testcontract.ec"))}
             })
         ),
-
-    ok=run(fun(Pid) ->
-               lager:info("Got worker ~p",[Pid]),
-               Pid ! {run, 
-                      Tx,
-                      msgpack:pack(#{}),
-                      11111,
-                      self()
-                     },
-               ok
-           end, "erltest", 1),
-    receive {run_req, ReqNo} ->
-              receive {result, ResNo, Res, Delay} when ResNo == ReqNo ->
-                        lager:info("Contract delay ~p ms",[Delay/1000000]),
-                        Res
-              after 1000 ->
-                      no_result
-              end
-    after 5000 ->
-            no_request
-    end
+    run(fun(Pid) ->
+            lager:info("Got worker ~p",[Pid]),
+            Pid ! {run,
+                   Tx,
+                   msgpack:pack(#{}),
+                   11111,
+                   self()
+                  },
+            ok
+        end, "erltest", 1)
   after
     SPid ! stop
   end.
 
-
 test_wasm() ->
   run(fun(Pid) ->
-          Pid ! {run, 
+          Pid ! {run,
                  testtx(),
-                 teststate(), 
+                 teststate(),
                  11111,
                  self()
                 }
-      end, "wasm", 2),
-  receive {run_req, ReqNo} ->
-            receive {result, ResNo, Res, Delay} when ResNo == ReqNo ->
-                      lager:info("Contract delay ~p ms",[Delay/1000000]),
-                      Res
-            after 1000 ->
-                    no_result
-            end
-  after 5000 ->
-          no_request
-  end.
-
+      end, "wasm", 2).
 
 run(Fun, VmType, VmVer) ->
   case gen_server:call(tpnode_vmsrv,{pick, VmType, VmVer, self()}) of
     {ok, Pid} ->
-      R=Fun(Pid),
+      Fun(Pid),
+      R=receive {run_req, ReqNo} ->
+                  receive {result, ResNo, Res} when ResNo == ReqNo ->
+                            case Res of
+                              {ok, Payload, Ext} ->
+                                lager:info("Contract ext ~p",[Ext]),
+                                {ok,Payload};
+                              {error, Err} ->
+                                lager:error("Error ~p",[Err]),
+                                {error, Err}
+                            end
+                  after 1000 ->
+                          no_result
+                  end
+        after 5000 ->
+                no_request
+        end,
       gen_server:cast(tpnode_vmsrv,{return,Pid}),
       R;
     Any -> Any

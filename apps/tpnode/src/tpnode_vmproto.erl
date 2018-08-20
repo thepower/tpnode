@@ -50,7 +50,7 @@ loop(#{socket:=Socket, transport:=Transport, reqs:=Reqs}=State) ->
       lager:info("Client gone"),
       maps:fold(
         fun(ReqID,#req{owner=Owner},_Acc) ->
-            Owner ! {result, ReqID, error}
+            Owner ! {result, ReqID, {error, vm_gone}}
         end, 0, Reqs),
       Transport:close(Socket);
     {run, Transaction, Ledger, Gas, From} ->
@@ -85,7 +85,7 @@ handle_res(Seq, Result, #{reqs:=Reqs}=State) ->
       State;
     {ok, #req{owner=Pid, t1=T1}} ->
       lager:debug("Got res seq ~b payload ~p",[Seq, Result]),
-      Pid ! {result, Seq, Result, erlang:system_time()-T1},
+      Pid ! {result, Seq, {ok, Result, #{t=>erlang:system_time()-T1}}},
       State#{reqs=>maps:remove(Seq, Reqs)}
   end. 
 

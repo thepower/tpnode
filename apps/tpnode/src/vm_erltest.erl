@@ -16,22 +16,21 @@ client(Host, Port) ->
 
 loop(#{socket:=Socket, transport:=Transport}=State) ->
   inet:setopts(Socket, [{active, once}]),
-  receive 
+  receive
     stop ->
       io:format("Stop requested~n",[]),
       Transport:close(Socket);
     {tcp, Socket, <<Seq:32/big,Data/binary>>} ->
       {ok,Payload}=msgpack:unpack(Data),
       S1=case Seq rem 2 of
-        0 ->
-          handle_req(Seq, Payload, State);
-        1 ->
-          handle_res(Seq bsr 1, Payload, State)
-      end,
+           0 ->
+             handle_req(Seq, Payload, State);
+           1 ->
+             handle_res(Seq bsr 1, Payload, State)
+         end,
       ?MODULE:loop(S1)
-  after 60000 -> 
-          io:format("Timeout. Stopping...~n",[]),
-          Transport:close(Socket)
+  after 60000 ->
+          ?MODULE:loop(State)
   end.
 
 handle_res(Seq, Payload, State) ->
@@ -44,9 +43,11 @@ handle_req(Seq, #{null:="exec",
                   "tx":=BTx}, State) ->
   T1=erlang:system_time(),
   Tx=tx:unpack(BTx),
-  Code=case maps:get(kind, Tx) of 
+  Code=case maps:get(kind, Tx) of
          deploy ->
-           maps:get("code",maps:get(txext,Tx))
+           maps:get("code",maps:get(txext,Tx));
+         generic ->
+           maps:get(<<"code">>,Ledger)
        end,
   %lager:info("Req ~b ~p",[Seq,maps:remove(body,Tx)]),
   Bindings=maps:fold(
@@ -58,17 +59,18 @@ handle_req(Seq, #{null:="exec",
                'Tx'=>Tx
               }
             ),
+  try
   T2=erlang:system_time(),
   Ret=eval(Code, Bindings),
   T3=erlang:system_time(),
   lager:info("Ret ~p",[Ret]),
   case Ret of
-    {ok, Ret, NewState, NewGas, NewTxs} ->
+    {ok, RetVal, NewState, NewGas, NewTxs} ->
       T4=erlang:system_time(),
       tpnode_vmproto:reply(Seq, #{
                              null => "exec",
                              "gas" => NewGas,
-                             "ret" => Ret,
+                             "ret" => RetVal,
                              "state" => NewState,
                              "txs" => NewTxs,
                              "dt"=>[T2-T1,T3-T2,T4-T3]
@@ -77,12 +79,28 @@ handle_req(Seq, #{null:="exec",
       T4=erlang:system_time(),
       tpnode_vmproto:reply(Seq,
                            #{
-                             null => "exec", 
+                             null => "exec",
                              "dt"=> [T2-T1,T3-T2,T4-T3],
-                             "gas" => Gas, 
-                             "ret" => "error" 
+                             "gas" => Gas,
+                             "ret" => "error"
                             },
                            State)
+  end
+  catch Ec:Ee ->
+          S=erlang:get_stacktrace(),
+          lager:error("Error ~p:~p", [Ec, Ee]),
+          lists:foreach(fun(SE) ->
+                            lager:error("@ ~p", [SE])
+                        end, S),
+
+          tpnode_vmproto:reply(Seq,
+                               #{
+                                 null => "exec",
+                                 "error"=> iolist_to_binary(
+                                             io_lib:format("crashed ~p:~p",[Ec,Ee])
+                                            )
+                                },
+                               State)
   end;
 
 handle_req(Seq, Payload, State) ->
@@ -95,6 +113,10 @@ eval(Source, Bindings) ->
   SourceStr = binary_to_list(Source),
   {ok, Tokens, _} = erl_scan:string(SourceStr),
   {ok, Parsed} = erl_parse:parse_exprs(Tokens),
-  {value, Result, _} = erl_eval:exprs(Parsed, Bindings),
-  Result.
+  case erl_eval:exprs(Parsed, Bindings) of
+    {value, Result, _} -> Result;
+    Any ->
+      lager:error("Error ~p",[Any]),
+      throw('eval_error')
+  end.
 
