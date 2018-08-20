@@ -13,14 +13,14 @@
 %% ------------------------------------------------------------------
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+  terminate/2, code_change/3]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+  gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -28,69 +28,73 @@ start_link() ->
 
 init(_Args) ->
 %    gen_server:cast(self(), settings),
-	Tickms=10000,
-    {ok, #{
-       ticktimer=>erlang:send_after(Tickms, self(), timer),
-       tickms=>Tickms,
-       prevtick=>0
-      }}.
+  Tickms = 10000,
+  {ok, #{
+    ticktimer => erlang:send_after(Tickms, self(), timer),
+    tickms => Tickms,
+    prevtick => 0
+  }}.
 
 handle_call(state, _From, State) ->
-    {reply, State, State};
+  {reply, State, State};
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+  {reply, ok, State}.
 
-handle_cast({tpic, _PeerID, <<16#be, _/binary>>=Payload}, State) ->
-	try
-		Beacon=beacon:check(Payload),
-		lager:info("TOPO ~p beacon ~p", [_PeerID, Beacon]),
-		{noreply, State}
-	catch _:_ ->
-			  {noreply, State}
-	end;
+handle_cast({tpic, _PeerID, <<16#be, _/binary>> = Payload}, State) ->
+  try
+    Beacon = beacon:check(Payload),
+    lager:info("TOPO ~p beacon ~p", [_PeerID, Beacon]),
+    {noreply, State}
+  catch _:_ ->
+    lager:error("TOPO ~p beacon check problem for payload ~p", [_PeerID, Payload]),
+    {noreply, State}
+  end;
+
 
 handle_cast({tpic, _PeerID, _Payload}, State) ->
-	lager:info("Bad TPIC received", []),
-	{noreply, State};
+  lager:error("Bad TPIC received from peer ~p", [_PeerID]),
+  {noreply, State};
 
 
 handle_cast(_Msg, State) ->
-    lager:info("Unknown cast ~p", [_Msg]),
-    {noreply, State}.
+  lager:info("Unknown cast ~p", [_Msg]),
+  {noreply, State}.
 
-handle_info(timer,
-            #{ticktimer:=Tmr, tickms:=Delay}=State) ->
-    T=erlang:system_time(microsecond),
-	catch erlang:cancel_timer(Tmr),
-	Peers=tpic:cast_prepare(tpic, <<"mkblock">>),
-	lists:foreach(fun({N, #{authdata:=AD}}) ->
-						  PK=proplists:get_value(pubkey, AD, <<>>),
-						  lager:info("TOPO ~p: ~p", [N, PK]),
-						  tpic:cast(tpic, N,
-									{<<"beacon">>,
-									 beacon:create(PK)
-									}
-								   );
-					 (_) -> ok
-				  end,
-				  Peers),
-
-    {noreply, State#{
-               ticktimer=>erlang:send_after(Delay, self(), ticktimer),
-               prevtick=>T
-              }
-    };
+handle_info(timer, #{ticktimer:=Tmr, tickms:=Delay} = State) ->
+  Now = erlang:system_time(microsecond),
+  catch erlang:cancel_timer(Tmr),
+  Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
+  lists:foreach(
+    fun
+      ({N, #{authdata:=AD}}) ->
+        PubKey = proplists:get_value(pubkey, AD, <<>>),
+        lager:info("TOPO ~p: ~p", [N, PubKey]),
+        tpic:cast(
+          tpic,
+          N,
+          {<<"beacon">>, beacon:create(PubKey)}
+        );
+      (_) -> ok
+    end,
+    Peers),
+  
+  {noreply,
+    State#{
+      ticktimer => erlang:send_after(Delay, self(), ticktimer),
+      prevtick => Now
+    }
+  };
 
 handle_info(_Info, State) ->
-    lager:info("Unknown info ~p", [_Info]),
-    {noreply, State}.
+  lager:info("Unknown info ~p", [_Info]),
+  {noreply, State}.
 
 terminate(_Reason, _State) ->
-    ok.
+  ok.
 
 code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+  {ok, State}.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
