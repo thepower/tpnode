@@ -612,9 +612,9 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
   Body=apixiom:bodyjs(Req),
   lager:debug("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
   BinTx=if Body == undefined ->
-           {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
-           ReqBody;
-           is_binary(Body) ->
+             {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
+             ReqBody;
+           is_map(Body) ->
              case maps:get(<<"tx">>, Body, undefined) of
                <<"0x", BArr/binary>> ->
                  hex:parse(BArr);
