@@ -715,8 +715,10 @@ try_process([{TxID, #{
     Bal=maps:get(Owner, Addresses),
     NewF1=bal:put(vm, VMType, Bal),
     NewF2=bal:put(code, Code, NewF1),
+    code:ensure_loaded(VM),
     A4=erlang:function_exported(VM,deploy,4),
     A6=erlang:function_exported(VM,deploy,6),
+    lager:info("A4 ~p A6 ~p",[A4,A6]),
     State1=try
              if A4 ->
                   case erlang:apply(VM, deploy, [Tx, Bal, 1, GetFun]) of
@@ -754,11 +756,6 @@ try_process([{TxID, #{
     NewF3=maps:remove(keep,
                       bal:put(state, State1, NewF2)
                      ),
-    lager:info("deploy for ~p ledger1 ~p ledger2 ~p",
-               [Owner,
-                Bal,
-                NewF3
-               ]),
 
     NewAddresses=maps:put(Owner, NewF3, Addresses),
 
@@ -773,57 +770,57 @@ try_process([{TxID, #{
                       Acc#{failed=>[{TxID, X}|Failed]})
   end;
 
-try_process([{TxID, #{deploy:=VMType, code:=Code, from:=Owner}=Tx} |Rest],
-            SetState, Addresses, GetFun,
-            #{failed:=Failed,
-              success:=Success}=Acc) ->
-  lager:notice("Old deploy. Ensure verified"),
-    try
-    VM=try
-         erlang:binary_to_existing_atom(<<"contract_", VMType/binary>>, utf8)
-       catch error:badarg ->
-           throw('unknown_vm')
-       end,
-
-        lager:info("Deploy contract ~s for ~s",
-                   [VM, naddress:encode(Owner)]),
-    State0=maps:get(state, Tx, <<>>),
-    Bal=maps:get(Owner, Addresses),
-    NewF1=bal:put(vm, VMType, Bal),
-    NewF2=bal:put(code, Code, NewF1),
-    State1=try
-           case erlang:apply(VM, deploy, [Owner, Bal, Code, State0, 1, GetFun]) of
-             {ok, NewS} ->
-               NewS;
-             {error, Error} ->
-               throw({'deploy_failed', Error});
-             _ ->
-               throw({'deploy_failed', other})
-           end
-         catch Ec:Ee ->
-             S=erlang:get_stacktrace(),
-             lager:error("Can't deploy ~p:~p @ ~p",
-                   [Ec, Ee, hd(S)]),
-             throw({'deploy_error', [Ec, Ee]})
-         end,
-    NewF3=maps:remove(keep,
-              bal:put(state, State1, NewF2)
-           ),
-    lager:info("deploy for ~p ledger1 ~p ledger2 ~p",
-           [Owner,
-          Bal,
-          NewF3
-           ]),
-
-        NewAddresses=maps:put(Owner, NewF3, Addresses),
-
-        try_process(Rest, SetState, NewAddresses, GetFun,
-                    Acc#{success=> [{TxID, Tx}|Success]})
-    catch throw:X ->
-              lager:info("Contract deploy failed ~p", [X]),
-              try_process(Rest, SetState, Addresses, GetFun,
-                          Acc#{failed=>[{TxID, X}|Failed]})
-    end;
+%try_process([{TxID, #{deploy:=VMType, code:=Code, from:=Owner}=Tx} |Rest],
+%            SetState, Addresses, GetFun,
+%            #{failed:=Failed,
+%              success:=Success}=Acc) ->
+%  lager:notice("Old deploy. Ensure verified"),
+%    try
+%    VM=try
+%         erlang:binary_to_existing_atom(<<"contract_", VMType/binary>>, utf8)
+%       catch error:badarg ->
+%           throw('unknown_vm')
+%       end,
+%
+%        lager:info("Deploy contract ~s for ~s",
+%                   [VM, naddress:encode(Owner)]),
+%    State0=maps:get(state, Tx, <<>>),
+%    Bal=maps:get(Owner, Addresses),
+%    NewF1=bal:put(vm, VMType, Bal),
+%    NewF2=bal:put(code, Code, NewF1),
+%    State1=try
+%           case erlang:apply(VM, deploy, [Owner, Bal, Code, State0, 1, GetFun]) of
+%             {ok, NewS} ->
+%               NewS;
+%             {error, Error} ->
+%               throw({'deploy_failed', Error});
+%             _ ->
+%               throw({'deploy_failed', other})
+%           end
+%         catch Ec:Ee ->
+%             S=erlang:get_stacktrace(),
+%             lager:error("Can't deploy ~p:~p @ ~p",
+%                   [Ec, Ee, hd(S)]),
+%             throw({'deploy_error', [Ec, Ee]})
+%         end,
+%    NewF3=maps:remove(keep,
+%              bal:put(state, State1, NewF2)
+%           ),
+%    lager:info("deploy for ~p ledger1 ~p ledger2 ~p",
+%           [Owner,
+%          Bal,
+%          NewF3
+%           ]),
+%
+%        NewAddresses=maps:put(Owner, NewF3, Addresses),
+%
+%        try_process(Rest, SetState, NewAddresses, GetFun,
+%                    Acc#{success=> [{TxID, Tx}|Success]})
+%    catch throw:X ->
+%              lager:info("Contract deploy failed ~p", [X]),
+%              try_process(Rest, SetState, Addresses, GetFun,
+%                          Acc#{failed=>[{TxID, X}|Failed]})
+%    end;
 
 try_process([{TxID, #{ver:=2,
                       kind:=register,
@@ -1127,6 +1124,7 @@ try_process_outbound([{TxID,
              parent:=ParentHash,
              height:=MyHeight
             }=Acc) ->
+  lager:info("Processing outbound ==[ ~s ]=======",[TxID]),
   lager:notice("TODO:Check signature once again"),
   lager:info("outbound to chain ~p ~p", [OutTo, To]),
   FBal=maps:get(From, Addresses),
@@ -1136,7 +1134,7 @@ try_process_outbound([{TxID,
 
   try
     RealSettings=EnsureSettings(SetState),
-    {NewF, GotFee, GotGas}=withdraw(FBal, Tx, GetFun, RealSettings),
+    {NewF, _GasF, GotFee, GotGas}=withdraw(FBal, Tx, GetFun, RealSettings),
     lager:info("Got gas ~p",[GotGas]),
 
     PatchTxID= <<"out", (xchain:pack_chid(OutTo))/binary>>,
@@ -1249,48 +1247,83 @@ try_process_local([{TxID,
                    end,
 
     RealSettings=EnsureSettings(SetState),
-    {NewF, GotFee, Gas}=withdraw(maps:get(From, Addresses), Tx, GetFun, RealSettings),
-    Addresses1=maps:put(From, NewF, Addresses),
-    {NewT, NewEmit, GasLeft}=deposit(To, maps:get(To, Addresses1), Tx, GetFun, RealSettings, Gas),
-    lager:info("Got gas ~p left ~p",[Gas,GasLeft]),
-    Addresses2=maps:put(To, NewT, Addresses1),
+    lager:info("Processing local =====[ ~s ]=======",[TxID]),
+    OrigF=maps:get(From, Addresses),
+    {NewF, GasF, GotFee, Gas}=withdraw(OrigF, Tx, GetFun, RealSettings),
+    try
+      Addresses1=maps:put(From, NewF, Addresses),
+      {NewT, NewEmit, GasLeft}=deposit(To, maps:get(To, Addresses1), Tx, GetFun, RealSettings, Gas),
+      lager:info("Local gas ~p -> ~p f ~p t ~p",[Gas, GasLeft, From, To]),
+      Addresses2=maps:put(To, NewT, Addresses1),
 
-    NewAddresses=if GasLeft==0 ->
-                      Addresses2;
-                    true ->
-                      Bal0=maps:get(From, Addresses2),
-                      Bal1=return_gas(Tx, GasLeft, RealSettings, Bal0),
-                      maps:put(From, Bal1, Addresses2)
-                 end,
+      NewAddresses=case GasLeft of
+                     {_, 0, _} ->
+                       Addresses2;
+                     {_, IGL, _} when IGL < 0 ->
+                       throw('insufficient_gas');
+                     {_, IGL, _} when IGL > 0 ->
+                       Bal0=maps:get(From, Addresses2),
+                       Bal1=return_gas(Tx, GasLeft, RealSettings, Bal0),
+                       maps:put(From, Bal1, Addresses2)
+                   end,
 
-    CI=tx:get_ext(<<"contract_issued">>, Tx),
-    Tx1=if CI=={ok, From} ->
-             #{extdata:=ED}=Tx,
-             Tx#{
-               extdata=> maps:with([<<"contract_issued">>], ED),
-               sig => #{}
-              };
-           true ->
-             Tx
-        end,
+      CI=tx:get_ext(<<"contract_issued">>, Tx),
+      Tx1=if CI=={ok, From} ->
+               #{extdata:=ED}=Tx,
+               Tx#{
+                 extdata=> maps:with([<<"contract_issued">>], ED),
+                 sig => #{}
+                };
+             true ->
+               Tx
+          end,
 
-    try_process(Rest, SetState, NewAddresses, GetFun,
-                savefee(GotFee,
-                        Acc#{
-                          success=>[{TxID, Tx1}|Success],
-                          emit=>Emit ++ NewEmit
-                         }
-                       )
-               )
-  catch error:{badkey,From} ->
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
-        error:{badkey,To} ->
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{failed=>[{TxID, no_dst_addr_loaded}|Failed]});
-        throw:X ->
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{failed=>[{TxID, X}|Failed]})
+      try_process(Rest, SetState, NewAddresses, GetFun,
+                  savegas(Gas, GasLeft,
+                          savefee(GotFee,
+                                  Acc#{
+                                    success=>[{TxID, Tx1}|Success],
+                                    emit=>Emit ++ NewEmit
+                                   }
+                                 )
+                         )
+                 )
+    catch 
+      throw:insufficient_gas ->
+        AddressesWoGas=maps:put(From, GasF, Addresses),
+        try_process(Rest, SetState, AddressesWoGas, GetFun,
+                    savegas(Gas, all,
+                            savefee(GotFee,
+                                    Acc#{failed=>[{TxID, insufficient_gas}|Failed]}
+                                   )
+                           )
+                   )
+
+    end
+  catch 
+    error:{badkey,From} ->
+      try_process(Rest, SetState, Addresses, GetFun,
+                  Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
+    error:{badkey,To} ->
+      try_process(Rest, SetState, Addresses, GetFun,
+                  Acc#{failed=>[{TxID, no_dst_addr_loaded}|Failed]});
+    throw:X ->
+      try_process(Rest, SetState, Addresses, GetFun,
+                  Acc#{failed=>[{TxID, X}|Failed]})
+  end.
+
+savegas({Cur, Amount1, Rate1}, all, Acc) ->
+  savegas({Cur, Amount1, Rate1}, {Cur, 0, Rate1}, Acc);
+
+savegas({Cur, Amount1, _}, {Cur, Amount2, _}, 
+        #{fee:=FeeBal}=Acc) ->
+  if Amount1-Amount2 > 0 ->
+       Acc#{
+         fee=>bal:put_cur(Cur, Amount1-Amount2 + 
+                          bal:get_cur(Cur, FeeBal), FeeBal)
+        };
+     true ->
+       Acc
   end.
 
 -spec savefee(GotFee :: {binary(),non_neg_integer(),non_neg_integer()},
@@ -1311,9 +1344,9 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, _Settings, GasLimit) ->
                      end, TBal0, tx:get_payloads(Tx,transfer))),
   case bal:get(vm, NewT) of
     undefined ->
-      {NewT, [], 0};
+      {NewT, [], GasLimit};
     VMType ->
-      lager:info("Smartcontract ~p", [VMType]),
+      lager:info("Smartcontract ~p gas ~p", [VMType, GasLimit]),
       {L1, TXs, GasLeft}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
       {L1, lists:map(
              fun(#{seq:=Seq}=ETx) ->
@@ -1336,7 +1369,7 @@ deposit(Address, TBal,
           ),
   case bal:get(vm, NewT) of
     undefined ->
-      {NewT, [], 0};
+      {NewT, [], GasLimit};
     VMType ->
       lager:info("Smartcontract ~p", [VMType]),
       {L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
@@ -1360,7 +1393,7 @@ withdraw(FBal0,
     Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
     IsContract=is_binary(bal:get(vm, FBal0)) andalso Contract_Issued=={ok, From},
 
-    lager:info("Withdraw ~p ~p", [IsContract, Tx]),
+    lager:info("Withdraw ~p ~p", [IsContract, maps:without([body,sig],Tx)]),
     if Timestamp==0 andalso IsContract ->
          ok;
        is_integer(Timestamp) ->
@@ -1374,28 +1407,26 @@ withdraw(FBal0,
     end,
     LD=bal:get(t, FBal0) div 86400000,
     CD=Timestamp div 86400000,
-    NoSK=if IsContract -> true;
-            true ->
-              case settings:get([<<"current">>, <<"nosk">>], Settings) of
-                1 -> true;
-                _ -> false
-              end
-         end,
-    if NoSK -> ok;
+    if IsContract -> ok;
        true ->
-         FSK=bal:get_cur(<<"SK">>, FBal0),
-         FSKUsed=if CD>LD ->
-                      0;
-                    true ->
-                      bal:get(usk, FBal0)
-                 end,
-         if FSK < 1 ->
-              case GetFun({endless, From, <<"SK">>}) of
-                true -> ok;
-                false -> throw('no_sk')
-              end;
-            FSKUsed >= FSK -> throw('sk_limit');
-            true -> ok
+         NoSK=settings:get([<<"current">>, <<"nosk">>], Settings)==1,
+         if NoSK -> ok;
+            true ->
+              FSK=bal:get_cur(<<"SK">>, FBal0),
+              FSKUsed=if CD>LD ->
+                           0;
+                         true ->
+                           bal:get(usk, FBal0)
+                      end,
+              lager:info("usk ~p SK ~p",[FSKUsed,FSK]),
+              if FSK < 1 ->
+                   case GetFun({endless, From, <<"SK">>}) of
+                     true -> ok;
+                     false -> throw('no_sk')
+                   end;
+                 FSKUsed >= FSK -> throw('sk_limit');
+                 true -> ok
+              end
          end
     end,
     CurFSeq=bal:get(seq, FBal0),
@@ -1418,26 +1449,46 @@ withdraw(FBal0,
        true -> throw ('bad_timestamp')
     end,
 
-    ToTransfer=tx:get_payloads(Tx,transfer),
+    {ForFee,GotFee}=if IsContract ->
+                         {[],{<<"NONE">>,0,0}};
+                       true ->
+                         GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
+                                       settings:get([
+                                                     <<"current">>,
+                                                     <<"fee">>,
+                                                     FeeCur], Settings);
+                                       ({params, Parameter}) ->
+                                       settings:get([<<"current">>,
+                                                     <<"fee">>,
+                                                     params,
+                                                     Parameter], Settings)
+                                   end,
+                         {FeeOK,Rate}=tx:rate(Tx, GetFeeFun),
+                         if FeeOK -> ok;
+                            true -> 
+                              #{cost:=MinCost}=Rate,
+                              throw ({'insufficient_fee', MinCost})
+                         end,
+                         #{cost:=FeeCost, cur:=FeeCur}=Rate,
+                         {[#{amount=>FeeCost, cur=>FeeCur}],{FeeCur,FeeCost,0}}
+                    end,
 
     {ForGas,GotGas}=lists:foldl(
-                        fun(Payload, {L,Sum}) ->
-                            case to_gas(Payload,Settings) of
-                              {ok, G} ->
-                                {
-                                 [Payload|L],
-                                 Sum+G
-                                };
-                              _ ->
-                                {L,Sum}
-                            end
-                        end, {[], 0}, 
-                        tx:get_payloads(Tx,gas)
-                       ),
-    Withdraw=ToTransfer++ForGas,
+                      fun(Payload, {[],{<<"NONE">>,0,_}}=Acc) ->
+                          case to_gas(Payload,Settings) of
+                            {ok, G} ->
+                              {[Payload], G};
+                            _ ->
+                              Acc
+                          end;
+                         (_,Res) -> Res
+                      end, {[], {<<"NONE">>,0,1}}, 
+                      tx:get_payloads(Tx,gas)
+                     ),
 
-    FBal1=lists:foldl(
-            fun(#{amount:=Amount, cur:= Cur}, FBal) ->
+    lager:info("Fee ~p Gas ~p", [GotFee,GotGas]),
+
+    TakeMoney=fun(#{amount:=Amount, cur:= Cur}, FBal) ->
                 if Amount >= 0 ->
                      ok;
                    true ->
@@ -1454,80 +1505,50 @@ withdraw(FBal0,
                                     throw ('insufficient_fund')
                                 end
                            end,
-                bal:mput(
-                  Cur,
-                  NewFAmount,
-                  Seq,
-                  Timestamp,
-                  FBal,
-                  if IsContract ->
-                       false;
-                     true ->
-                       if CD>LD -> reset;
-                          true -> true
-                       end
-                  end
-                 )
+                bal:put_cur(Cur, 
+                            NewFAmount,
+                            FBal)
+                
             end,
-            FBal0,
-            Withdraw
-           ),
-    NewBal=maps:remove(keep,FBal1),
-    GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
-                  settings:get([<<"current">>, <<"fee">>, FeeCur], Settings);
-                  ({params, Parameter}) ->
-                  settings:get([<<"current">>, <<"fee">>, params, Parameter], Settings)
-              end,
-    {FeeOK, #{cost:=MinCost}=Fee}=if IsContract ->
-                                       {true, #{cost=>0, tip=>0, cur=><<"NONE">>}};
-                                     true ->
-                                       Rate=tx:rate(Tx, GetFeeFun),
-                                       lager:info("Rate ~p", [Rate]),
-                                       Rate
-                                       %{true, #{cost=>0, tip=>0, cur=><<>>}}
-                                  end,
-    if FeeOK -> ok;
-       true -> throw ({'insufficient_fee', MinCost})
-    end,
-    #{cost:=FeeCost, tip:=Tip0, cur:=FeeCur}=Fee,
-    if FeeCost == 0 ->
-         {NewBal, {<<"NONE">>, 0, 0}, GotGas};
-       true ->
-         Tip=case GetFeeFun({params, <<"notip">>}) of
-               1 -> 0;
-               _ -> Tip0
-             end,
-         FeeAmount=FeeCost+Tip,
-         CurFFeeAmount=bal:get_cur(FeeCur, NewBal),
-         NewFFeeAmount=if CurFFeeAmount >= FeeAmount ->
-                            CurFFeeAmount - FeeAmount;
-                          true ->
-                            case GetFun({endless, From, FeeCur}) of
-                              true ->
-                                CurFFeeAmount - FeeAmount;
-                              false ->
-                                throw ('insufficient_fund_for_fee')
-                            end
-                       end,
-         NewBal2=bal:put_cur(FeeCur,
-                             NewFFeeAmount,
-                             NewBal
-                            ),
-         {NewBal2, {FeeCur, FeeCost, Tip}, GotGas}
-    end
+    ToTransfer=tx:get_payloads(Tx,transfer),
+
+    FBal1=maps:remove(keep,
+                      bal:mput(
+                        Seq,
+                        Timestamp,
+                        FBal0,
+                        if IsContract ->
+                             false;
+                           true ->
+                             if CD>LD -> reset;
+                                true -> true
+                             end
+                        end
+                       )),
+    FBalAfterGas=lists:foldl(TakeMoney,
+                      FBal1,
+                      ForGas++ForFee
+                     ),
+
+    NewBal=lists:foldl(TakeMoney,
+                      FBalAfterGas,
+                      ToTransfer
+                     ),
+
+    {NewBal, FBalAfterGas, GotFee, GotGas}
   catch error:Ee ->
           S=erlang:get_stacktrace(),
           lager:error("Withdrawal error ~p tx ~p",[Ee,Tx]),
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
                         end, S),
-
           throw('unknown_withdrawal_error')
   end;
 
 withdraw(FBal,
      #{cur:=Cur, seq:=Seq, timestamp:=Timestamp, amount:=Amount, from:=From}=Tx,
      GetFun, Settings) ->
+  lager:notice("Deprecated withdraw"),
   if Amount >= 0 ->
        ok;
      true ->
@@ -1605,20 +1626,22 @@ withdraw(FBal,
             end
          end,
   NewBal=maps:remove(keep,
-        bal:mput(
-          Cur,
-          NewFAmount,
-          Seq,
-          Timestamp,
-          FBal,
-          if IsContract ->
-             false;
-           true ->
-             if CD>LD -> reset;
-              true -> true
-             end
-          end
-         )
+                     bal:put_cur(
+                       Cur,
+                       NewFAmount,
+                       bal:mput(
+                         Seq,
+                         Timestamp,
+                         FBal,
+                         if IsContract ->
+                              false;
+                            true ->
+                              if CD>LD -> reset;
+                                 true -> true
+                              end
+                         end
+                        )
+                      )
          ),
   GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
             settings:get([<<"current">>, <<"fee">>, FeeCur], Settings);
@@ -1638,7 +1661,7 @@ withdraw(FBal,
   end,
   #{cost:=FeeCost, tip:=Tip0, cur:=FeeCur}=Fee,
   if FeeCost == 0 ->
-       {NewBal, {Cur, 0, 0}, 0};
+       {NewBal, FBal, {Cur, 0, 0}, {<<"NONE">>,0,1}};
      true ->
        Tip=case GetFeeFun({params, <<"notip">>}) of
            1 -> 0;
@@ -1660,7 +1683,7 @@ withdraw(FBal,
                  NewFFeeAmount,
                  NewBal
                 ),
-       {NewBal2, {FeeCur, FeeCost, Tip} ,0}
+       {NewBal2, FBal, {FeeCur, FeeCost, Tip} ,{<<"NONE">>,0,1}}
   end.
 
 sign(Blk, ED) when is_map(Blk) ->
@@ -1998,42 +2021,17 @@ to_gas(#{amount:=A, cur:=C}, Settings) ->
   Path=[<<"current">>, <<"gas">>, C],
   case settings:get(Path, Settings) of
     I when is_integer(I) ->
-      {ok, A*I};
+      {ok, {C, A, I}};
     _ ->
       error
   end.
 
-from_gas(Gas, #{amount:=A, cur:=C}, Settings) ->
-  Path=[<<"current">>, <<"gas">>, C],
-  case settings:get(Path, Settings) of
-    I when is_integer(I) andalso I>0 ->
-      CG=Gas div I,
-      if(CG > A) ->
-          {ok, {A, C}, Gas-(A*I)};
-        true ->
-          {ok, {CG, C}, Gas-(CG*I)}
-      end;
-    _ ->
-      error
+return_gas(_Tx, {GCur, GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
+  lager:debug("return_gas ~p left ~b",[GCur, GAmount]),
+  if(GAmount > 0) ->
+        B1=bal:get_cur(GCur,Bal0),
+        bal:put_cur(GCur, B1+GAmount, Bal0);
+    true ->
+      Bal0
   end.
-
-return_gas(Tx, GasLeft, Settings, Bal0) ->
-  {P1,_Left}=lists:foldl(
-              fun(Payload, {L,Left}) ->
-                  case from_gas(Left, Payload, Settings) of
-                    {ok, A, G} ->
-                      {[A|L],G};
-                    error ->
-                      {L,Left}
-                  end
-              end,
-              {[],GasLeft},
-              tx:get_payloads(Tx,gas)
-             ),
-  lager:debug("return_gas ~p left ~b",[P1, _Left]),
-  lists:foldl(
-    fun({Amount,Cur}, Acc) ->
-        B1=bal:get_cur(Cur,Acc),
-        bal:put_cur(Cur, B1+Amount, Acc)
-    end, Bal0, P1).
 

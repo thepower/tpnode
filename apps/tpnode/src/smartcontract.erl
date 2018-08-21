@@ -86,7 +86,12 @@ getters(VMType) ->
           error
   end.
 
-run(VMType, #{to:=To}=Tx, Ledger, GasLimit, GetFun) ->
+run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
+  GasLimit=GAmount*GRate,
+  Left=fun(GL) ->
+           lager:info("VM run gas ~p -> ~p",[GasLimit,GL]),
+           {GCur, GL div GRate, GRate}
+       end,
   VM=try
        erlang:binary_to_existing_atom(<<"contract_", VMType/binary>>, utf8)
      catch error:badarg ->
@@ -100,43 +105,46 @@ run(VMType, #{to:=To}=Tx, Ledger, GasLimit, GetFun) ->
       {ok, NewState, GasLeft, EmitTxs} when
           NewState==unchanged orelse is_binary(NewState) ->
         if NewState == unchanged ->
-             {Ledger, EmitTxs, GasLeft};
+             {Ledger, EmitTxs, Left(GasLeft)};
            true ->
              {
               bal:put(state, NewState, Ledger),
-              EmitTxs, GasLeft}
+              EmitTxs, Left(GasLeft)}
         end;
       {ok, NewState, GasLeft} when
           NewState==unchanged orelse is_binary(NewState) ->
         if NewState == unchanged ->
-             {Ledger, [], GasLeft};
+             {Ledger, [], Left(GasLeft)};
            true ->
              {
               bal:put(state, NewState, Ledger),
-              [], GasLeft}
+              [], Left(GasLeft)}
         end;
       {ok,#{null := "exec",
             "gas" := GasLeft,
             "state" := NewState,
             "txs" := EmitTxs}} ->
         if NewState == <<>> ->
-             {Ledger, EmitTxs, GasLeft};
+             {Ledger, EmitTxs, Left(GasLeft)};
            true ->
              {
               bal:put(state, NewState, Ledger),
-              EmitTxs, GasLeft}
+              EmitTxs, Left(GasLeft)}
         end;
       {error, Reason, GasLeft} ->
         %throw({'run_failed', Reason});
         lager:error("Contract error ~p", [Reason]),
-        {Ledger, [], GasLeft};
+        {Ledger, [], Left(GasLeft)};
       {error, Reason} ->
         throw({'run_failed', Reason});
       Any ->
         lager:error("Contract return error ~p", [Any]),
         throw({'run_failed', other})
     end
-  catch Ec:Ee ->
+  catch 
+    throw:insufficient_gas ->
+      throw(insufficient_gas);
+    Ec:Ee ->
           S=erlang:get_stacktrace(),
           lager:error("Can't run contract ~p:~p @ ~p",
                       [Ec, Ee, hd(S)]),

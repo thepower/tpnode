@@ -12,7 +12,11 @@ Run=fun
   (generic,"dec",[Val]) when is_integer(Val) ->
     <<S0:64/big>>=maps:get(<<"state">>, Ledger),
     S1=S0-Val,
-    {ok, "result", <<S1:64/big>>, Gas-1, []};
+    {ok, "result", <<S1:64/big>>, Gas-100, []};
+  (generic,"expensive",[Val]) when is_integer(Val) ->
+    <<S0:64/big>>=maps:get(<<"state">>, Ledger),
+    S1=S0-Val,
+    {ok, "result", <<S1:64/big>>, Gas-10000, []};
   (generic,_,_) ->
     <<S0:64/big>>=maps:get(<<"state">>, Ledger),
     S1=S0+1,

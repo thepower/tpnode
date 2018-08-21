@@ -7,8 +7,7 @@
          put_cur/3,
          get/2,
          put/3,
-         mput/5,
-         mput/6,
+         mput/4,
          pack/1,
          pack/2,
          unpack/1,
@@ -91,61 +90,50 @@ put_cur(Currency, Value, #{amount:=A}=Bal) ->
        }
   end.
 
--spec mput (Cur::binary(), Amount::integer(), Seq::non_neg_integer(),
-            T::non_neg_integer(), Bal::bal(), UseSK::boolean()|'reset') -> bal().
+-spec mput (Seq::non_neg_integer(), T::non_neg_integer(), 
+            Bal::bal(), UseSK::boolean()|'reset') -> bal().
 
-mput(Cur, Amount, Seq, T, Bal) ->
-  mput(Cur, Amount, Seq, T, Bal, false).
-
-mput(Cur, Amount, Seq, 0, #{amount:=A}=Bal, false) when is_integer(Amount),
-                                                        is_integer(Seq) ->
+mput(Seq, 0, Bal, false) when is_integer(Seq) ->
   Bal#{
-    changes=>[amount, seq, t|maps:get(changes, Bal, [])],
-    amount=>A#{Cur=>Amount},
+    changes=>[seq, t|maps:get(changes, Bal, [])],
     seq=>Seq
    };
 
-mput(Cur, Amount, Seq, T, #{amount:=A}=Bal, false) when is_integer(Amount),
-                                                        is_integer(Seq),
-                                                        is_integer(T),
-                                                        T > 1500000000000,
-                                                        T < 15000000000000 ->
+mput(Seq, T, Bal, false) when is_integer(Seq),
+                              is_integer(T),
+                              T > 1500000000000,
+                              T < 15000000000000 ->
   Bal#{
-    changes=>[amount, seq, t|maps:get(changes, Bal, [])],
-    amount=>A#{Cur=>Amount},
+    changes=>[seq, t|maps:get(changes, Bal, [])],
     seq=>Seq,
     t=>T
    };
 
-mput(Cur, Amount, Seq, T, #{amount:=A}=Bal, true) when is_integer(Amount),
-                                                       is_integer(Seq),
-                                                       is_integer(T),
-                                                       T > 1500000000000,
-                                                       T < 15000000000000 ->
+mput(Seq, T, Bal, true) when is_integer(Seq),
+                             is_integer(T),
+                             T > 1500000000000,
+                             T < 15000000000000 ->
   USK=maps:get(usk, Bal, 0),
   Bal#{
-    changes=>[amount, seq, t, usk|maps:get(changes, Bal, [])],
-    amount=>A#{Cur=>Amount},
+    changes=>[seq, t, usk|maps:get(changes, Bal, [])],
     seq=>Seq,
     t=>T,
     usk=>USK+1
    };
 
-mput(Cur, Amount, Seq, T, #{amount:=A}=Bal, reset) when is_integer(Amount),
-                                                        is_integer(Seq),
-                                                        is_integer(T),
-                                                        T > 1500000000000,
-                                                        T < 15000000000000 ->
+mput(Seq, T, Bal, reset) when is_integer(Seq),
+                              is_integer(T),
+                              T > 1500000000000,
+                              T < 15000000000000 ->
   Bal#{
-    changes=>[amount, seq, t, usk|maps:get(changes, Bal, [])],
-    amount=>A#{Cur=>Amount},
+    changes=>[seq, t, usk|maps:get(changes, Bal, [])],
     seq=>Seq,
     t=>T,
     usk=>1
    };
 
-mput(_Cur, _Amount, _Seq, T, _Bal, _) when T < 1500000000000 orelse
-                                           T > 15000000000000 ->
+mput(_Seq, T, _Bal, _) when T < 1500000000000 orelse
+                            T > 15000000000000 ->
   throw('bad_timestamp_format').
 
 -spec put (atom(), integer()|binary(), bal()) -> bal().
