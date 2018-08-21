@@ -611,11 +611,16 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
   Body=apixiom:bodyjs(Req),
   lager:debug("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
-  BinTx=case maps:get(<<"tx">>, Body, undefined) of
-          <<"0x", BArr/binary>> ->
-            hex:parse(BArr);
-          Any ->
-            base64:decode(Any)
+  BinTx=if Body == undefined ->
+           {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
+           ReqBody;
+           is_binary(Body) ->
+             case maps:get(<<"tx">>, Body, undefined) of
+               <<"0x", BArr/binary>> ->
+                 hex:parse(BArr);
+               Any ->
+                 base64:decode(Any)
+             end
         end,
   %lager:info_unsafe("New tx ~p", [BinTx]),
   case txpool:new_tx(BinTx) of
