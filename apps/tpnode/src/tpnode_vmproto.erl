@@ -18,7 +18,7 @@
 
 child_spec(Port) ->
   ranch:child_spec(
-    {wm_listener,Port}, ranch_tcp,
+    {wv_listener,Port}, ranch_tcp,
     [{port, Port}, {max_connections, 128}],
     ?MODULE,
     []

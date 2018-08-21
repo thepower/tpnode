@@ -15,7 +15,7 @@ deploy(Tx, Ledger, GasLimit, _GetFun) ->
                       GasLimit,
                       self()
                      }
-         end, "erltest", 1).
+         end, "erltest", 1, []).
 
 handle_tx(Tx, Ledger, GasLimit, _GetFun) ->
   vm:run(fun(VMPid) ->
@@ -25,7 +25,7 @@ handle_tx(Tx, Ledger, GasLimit, _GetFun) ->
                       GasLimit,
                       self()
                      }
-         end, "erltest", 1).
+         end, "erltest", 1, []).
   %{ok, unchanged, GasLimit}.
 
 getters() ->

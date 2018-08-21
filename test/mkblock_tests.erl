@@ -268,86 +268,90 @@ alloc_addr_test() ->
     ].
 
 extcontract_test() ->
-  OurChain=150,
-  GetSettings=fun(mychain) -> OurChain;
-           (settings) ->
-            #{
-            chains => [OurChain],
-            chain =>
-            #{OurChain =>
-            #{blocktime => 5, minsig => 2, <<"allowempty">> => 0}
-             },
-            globals => #{<<"patchsigs">> => 2},
-            keys =>
-            #{
-            <<"node1">> => crypto:hash(sha256, <<"node1">>),
-            <<"node2">> => crypto:hash(sha256, <<"node2">>),
-            <<"node3">> => crypto:hash(sha256, <<"node3">>)
-             },
-            nodechain =>
-            #{
-            <<"node1">> => OurChain,
-            <<"node2">> => OurChain,
-            <<"node3">> => OurChain
-             },
-            <<"current">> => #{
-                <<"gas">> => #{
-                    <<"FTT">> => 10
-                   },
-                <<"fee">> => #{
-                    params=>#{
-                      <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>,
-                      <<"tipaddr">> => <<160, 0, 0, 0, 0, 0, 0, 2>>
-                     },
-                    <<"TST">> => #{
-                        <<"base">> => 2,
-                        <<"baseextra">> => 64,
-                        <<"kb">> => 20
+  SPid=vm_erltest:run("127.0.0.1",5555),
+  timer:sleep(200),
+  try
+    OurChain=150,
+    GetSettings=fun(mychain) -> OurChain;
+                   (settings) ->
+                    #{
+                      chains => [OurChain],
+                      keys =>
+                      #{
+                        <<"node1">> => crypto:hash(sha256, <<"node1">>),
+                        <<"node2">> => crypto:hash(sha256, <<"node2">>),
+                        <<"node3">> => crypto:hash(sha256, <<"node3">>)
                        },
-                    <<"FTT">> => #{
-                        <<"base">> => 1,
-                        <<"baseextra">> => 64,
-                        <<"kb">> => 10
-                       }
-                   },
-              <<"rewards">>=>#{
-                <<"c1n1">>=><<128, 1, 64, 0, OurChain, 0, 0, 101>>,
-                <<"c1n2">>=><<128, 1, 64, 0, OurChain, 0, 0, 102>>,
-                <<"c1n3">>=><<128, 1, 64, 0, OurChain, 0, 0, 103>>,
-                <<"node1">>=><<128, 1, 64, 0, OurChain, 0, 0, 101>>,
-                <<"node2">>=><<128, 1, 64, 0, OurChain, 0, 0, 102>>,
-                <<"node3">>=><<128, 1, 64, 0, OurChain, 0, 0, 103>>
-               }
-             }
-           };
-           ({endless, _Address, _Cur}) ->
-            false;
-           ({valid_timestamp, TS}) ->
-            abs(os:system_time(millisecond)-TS)<3600000
-            orelse
-            abs(os:system_time(millisecond)-(TS-86400000))<3600000;
-           ({get_block, Back}) when 20>=Back ->
-            FindBlock=fun FB(H, N) ->
-            case gen_server:call(blockchain, {get_block, H}) of
-              undefined ->
-                undefined;
-              #{header:=#{parent:=P}}=Blk ->
-                if N==0 ->
-                     maps:without([bals, txs], Blk);
-                   true ->
-                     FB(P, N-1)
-                end
-            end
-        end,
-            FindBlock(last, Back);
+                      nodechain =>
+                      #{
+                        <<"node1">> => OurChain,
+                        <<"node2">> => OurChain,
+                        <<"node3">> => OurChain
+                       },
+                      <<"current">> => #{
+                          chain => #{
+                            blocktime => 5, 
+                            minsig => 2, 
+                            <<"allowempty">> => 0
+                           },
+                          <<"gas">> => #{
+                              <<"FTT">> => 10,
+                              <<"SK">> => 1000
+                             },
+                          <<"fee">> => #{
+                              params=>#{
+                                <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>,
+                                <<"tipaddr">> => <<160, 0, 0, 0, 0, 0, 0, 2>>
+                               },
+                              <<"TST">> => #{
+                                  <<"base">> => 2,
+                                  <<"baseextra">> => 64,
+                                  <<"kb">> => 20
+                                 },
+                              <<"FTT">> => #{
+                                  <<"base">> => 1,
+                                  <<"baseextra">> => 64,
+                                  <<"kb">> => 10
+                                 }
+                             },
+                          <<"rewards">>=>#{
+                              <<"c1n1">>=><<128, 1, 64, 0, OurChain, 0, 0, 101>>,
+                              <<"c1n2">>=><<128, 1, 64, 0, OurChain, 0, 0, 102>>,
+                              <<"c1n3">>=><<128, 1, 64, 0, OurChain, 0, 0, 103>>,
+                              <<"node1">>=><<128, 1, 64, 0, OurChain, 0, 0, 101>>,
+                              <<"node2">>=><<128, 1, 64, 0, OurChain, 0, 0, 102>>,
+                              <<"node3">>=><<128, 1, 64, 0, OurChain, 0, 0, 103>>
+                             }
+                         }
+                     };
+                   ({endless, _Address, _Cur}) ->
+                    false;
+                   ({valid_timestamp, TS}) ->
+                    abs(os:system_time(millisecond)-TS)<3600000
+                    orelse
+                    abs(os:system_time(millisecond)-(TS-86400000))<3600000;
+                   ({get_block, Back}) when 20>=Back ->
+                    FindBlock=fun FB(H, N) ->
+                    case gen_server:call(blockchain, {get_block, H}) of
+                      undefined ->
+                        undefined;
+                      #{header:=#{parent:=P}}=Blk ->
+                        if N==0 ->
+                             maps:without([bals, txs], Blk);
+                           true ->
+                             FB(P, N-1)
+                        end
+                    end
+                end,
+    FindBlock(last, Back);
            (Other) ->
             error({bad_setting, Other})
-        end,
-    GetAddr=fun test_getaddr/1,
+  end,
+  GetAddr=fun test_getaddr/1,
 
-    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
-      248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
-    ParentHash=crypto:hash(sha256, <<"parent">>),
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  ParentHash=crypto:hash(sha256, <<"parent">>),
   SG=3,
   {ok, Code}=file:read_file("./examples/testcontract.ec"),
   TX3=tx:sign(
@@ -374,6 +378,11 @@ extcontract_test() ->
           cur=><<"FTT">>,
           call=>#{function=>"dec",args=>[512]},
           payload=>[
+                    #{purpose=>transfer, amount=>1, cur=><<"FTT">>},
+                    #{purpose=>transfer, amount=>3, cur=><<"TST">>},
+                    #{purpose=>gas, amount=>10, cur=><<"TST">>}, %wont be used
+                    #{purpose=>gas, amount=>3, cur=><<"SK">>},
+                    #{purpose=>gas, amount=>10, cur=><<"FTT">>},
                     #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
                    ],
           seq=>2,
@@ -392,10 +401,28 @@ extcontract_test() ->
                       []),
 
   Success=proplists:get_keys(maps:get(txs, Block)),
-  NewLedger=maps:without([<<160, 0, 0, 0, 0, 0, 0, 0>>,
-              <<160, 0, 0, 0, 0, 0, 0, 1>>,
-              <<160, 0, 0, 0, 0, 0, 0, 2>>], maps:get(bals, Block)),
-  { Success, Failed, Emit, NewLedger}.
+  NewCallerLedger=maps:get(amount,
+                           maps:get(
+                             naddress:construct_public(SG, OurChain, 3), 
+                             maps:get(bals, Block)
+                            )
+                          ),
+  NewSCLedger=maps:get(
+                naddress:construct_public(SG, OurChain, 11), 
+                maps:get(bals, Block)
+               ),
+  %{ Emit, NewCallerLedger }
+  io:format("Emit ~p~n",[Emit]),
+  io:format("NCL  ~p~n",[NewCallerLedger]),
+  [
+  ?assertMatch([],Failed),
+  ?assertMatch([<<"4testexec">>,<<"3testdeploy">>],Success),
+  ?assertMatch(<<512:64/big>>,maps:get(state, NewSCLedger)),
+  ?assertMatch(#{<<"TST">>:=29, <<"FTT">>:=111},maps:get(amount, NewSCLedger))
+  ]
+after
+  SPid ! stop
+  end.
 
 
 contract_test() ->

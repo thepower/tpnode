@@ -18,7 +18,6 @@ loop(#{socket:=Socket, transport:=Transport}=State) ->
   inet:setopts(Socket, [{active, once}]),
   receive
     stop ->
-      io:format("Stop requested~n",[]),
       Transport:close(Socket);
     {tcp, Socket, <<Seq:32/big,Data/binary>>} ->
       {ok,Payload}=msgpack:unpack(Data),
@@ -63,7 +62,7 @@ handle_req(Seq, #{null:="exec",
   T2=erlang:system_time(),
   Ret=eval(Code, Bindings),
   T3=erlang:system_time(),
-  lager:info("Ret ~p",[Ret]),
+  lager:debug("Ret ~p",[Ret]),
   case Ret of
     {ok, RetVal, NewState, NewGas, NewTxs} ->
       T4=erlang:system_time(),

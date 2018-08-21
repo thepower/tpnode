@@ -14,6 +14,7 @@
 
 -export([start_link/0]).
 -export([generate_block/5, decode_tpic_txs/1, sort_txs/1]).
+-export([return_gas/4]).
 
 -type mkblock_acc() :: #{'emit':=[{_,_}],
                          'export':=list(),
@@ -739,7 +740,9 @@ try_process([{TxID, #{
                       throw({'deploy_failed', other})
                   end
              end
-           catch Ec:Ee ->
+           catch throw:{deploy_failed,Reason} ->
+                   throw({'deploy_error', Reason});
+                 Ec:Ee ->
                    S=erlang:get_stacktrace(),
                    lager:error("Can't deploy ~p:~p",
                                [Ec, Ee]),
@@ -786,8 +789,8 @@ try_process([{TxID, #{deploy:=VMType, code:=Code, from:=Owner}=Tx} |Rest],
                    [VM, naddress:encode(Owner)]),
     State0=maps:get(state, Tx, <<>>),
     Bal=maps:get(Owner, Addresses),
-        NewF1=bal:put(vm, VMType, Bal),
-        NewF2=bal:put(code, Code, NewF1),
+    NewF1=bal:put(vm, VMType, Bal),
+    NewF2=bal:put(code, Code, NewF1),
     State1=try
            case erlang:apply(VM, deploy, [Owner, Bal, Code, State0, 1, GetFun]) of
              {ok, NewS} ->
@@ -908,7 +911,7 @@ try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
             #{failed:=Failed,
               success:=Success,
               settings:=Settings }=Acc) ->
-  lager:notice("Ensure verified"),
+  lager:notice("Deprecated register method"),
   try
     RegSettings=settings:get([<<"current">>, <<"register">>], SetState),
     Diff=maps:get(<<"diff">>,RegSettings,0),
@@ -1044,26 +1047,27 @@ try_process_inbound([{TxID,
 
       lager:info("Orig Block ~p", [OriginBlock]),
       lager:notice("Change chain number to actual ~p", [SetState]),
-        {NewT, NewEmit, _GasLeft}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings, Gas),
-        NewAddresses=maps:put(To, NewT, Addresses),
-        TxExt=maps:get(extdata,Tx,#{}),
-        NewExt=TxExt#{
-          <<"orig_bhei">>=>OriginHeight,
-          <<"orig_bhash">>=>OriginHash,
-          <<"orig_chain">>=>ChID
-         },
-        FixTX=maps:without(
-                [origin_block,origin_block_height, origin_block_hash, origin_chain],
-                Tx#{extdata=>NewExt}
-               ),
-        try_process(Rest, SetState, NewAddresses, GetFun,
-                    Acc#{success=>[{TxID, FixTX}|Success],
-                         emit=>Emit ++ NewEmit,
-                         pick_block=>maps:put(OriginBlock, 1, PickBlock)
-                        })
+      Gas=100,
+      {NewT, NewEmit, _GasLeft}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings, Gas),
+      NewAddresses=maps:put(To, NewT, Addresses),
+      TxExt=maps:get(extdata,Tx,#{}),
+      NewExt=TxExt#{
+               <<"orig_bhei">>=>OriginHeight,
+               <<"orig_bhash">>=>OriginHash,
+               <<"orig_chain">>=>ChID
+              },
+      FixTX=maps:without(
+              [origin_block,origin_block_height, origin_block_hash, origin_chain],
+              Tx#{extdata=>NewExt}
+             ),
+      try_process(Rest, SetState, NewAddresses, GetFun,
+                  Acc#{success=>[{TxID, FixTX}|Success],
+                       emit=>Emit ++ NewEmit,
+                       pick_block=>maps:put(OriginBlock, 1, PickBlock)
+                      })
     catch throw:X ->
-              try_process(Rest, SetState, Addresses, GetFun,
-                          Acc#{failed=>[{TxID, X}|Failed]})
+            try_process(Rest, SetState, Addresses, GetFun,
+                        Acc#{failed=>[{TxID, X}|Failed]})
     end;
 
 try_process_inbound([{TxID,
@@ -1132,7 +1136,8 @@ try_process_outbound([{TxID,
 
   try
     RealSettings=EnsureSettings(SetState),
-    {NewF, GotFee}=withdraw(FBal, Tx, GetFun, RealSettings),
+    {NewF, GotFee, GotGas}=withdraw(FBal, Tx, GetFun, RealSettings),
+    lager:info("Got gas ~p",[GotGas]),
 
     PatchTxID= <<"out", (xchain:pack_chid(OutTo))/binary>>,
     {SS2, Set2}=case lists:keymember(PatchTxID, 1, Settings) of
@@ -1244,10 +1249,19 @@ try_process_local([{TxID,
                    end,
 
     RealSettings=EnsureSettings(SetState),
-    {NewF, GotFee}=withdraw(maps:get(From, Addresses), Tx, GetFun, RealSettings),
+    {NewF, GotFee, Gas}=withdraw(maps:get(From, Addresses), Tx, GetFun, RealSettings),
     Addresses1=maps:put(From, NewF, Addresses),
-    {NewT, NewEmit, _GasLeft}=deposit(To, maps:get(To, Addresses1), Tx, GetFun, RealSettings, Gas),
-    NewAddresses=maps:put(To, NewT, Addresses1),
+    {NewT, NewEmit, GasLeft}=deposit(To, maps:get(To, Addresses1), Tx, GetFun, RealSettings, Gas),
+    lager:info("Got gas ~p left ~p",[Gas,GasLeft]),
+    Addresses2=maps:put(To, NewT, Addresses1),
+
+    NewAddresses=if GasLeft==0 ->
+                      Addresses2;
+                    true ->
+                      Bal0=maps:get(From, Addresses2),
+                      Bal1=return_gas(Tx, GasLeft, RealSettings, Bal0),
+                      maps:put(From, Bal1, Addresses2)
+                 end,
 
     CI=tx:get_ext(<<"contract_issued">>, Tx),
     Tx1=if CI=={ok, From} ->
@@ -1404,6 +1418,24 @@ withdraw(FBal0,
        true -> throw ('bad_timestamp')
     end,
 
+    ToTransfer=tx:get_payloads(Tx,transfer),
+
+    {ForGas,GotGas}=lists:foldl(
+                        fun(Payload, {L,Sum}) ->
+                            case to_gas(Payload,Settings) of
+                              {ok, G} ->
+                                {
+                                 [Payload|L],
+                                 Sum+G
+                                };
+                              _ ->
+                                {L,Sum}
+                            end
+                        end, {[], 0}, 
+                        tx:get_payloads(Tx,gas)
+                       ),
+    Withdraw=ToTransfer++ForGas,
+
     FBal1=lists:foldl(
             fun(#{amount:=Amount, cur:= Cur}, FBal) ->
                 if Amount >= 0 ->
@@ -1438,7 +1470,7 @@ withdraw(FBal0,
                  )
             end,
             FBal0,
-            tx:get_payloads(Tx,transfer)
+            Withdraw
            ),
     NewBal=maps:remove(keep,FBal1),
     GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
@@ -1459,7 +1491,7 @@ withdraw(FBal0,
     end,
     #{cost:=FeeCost, tip:=Tip0, cur:=FeeCur}=Fee,
     if FeeCost == 0 ->
-         {NewBal, {<<"NONE">>, 0, 0}};
+         {NewBal, {<<"NONE">>, 0, 0}, GotGas};
        true ->
          Tip=case GetFeeFun({params, <<"notip">>}) of
                1 -> 0;
@@ -1481,7 +1513,7 @@ withdraw(FBal0,
                              NewFFeeAmount,
                              NewBal
                             ),
-         {NewBal2, {FeeCur, FeeCost, Tip}}
+         {NewBal2, {FeeCur, FeeCost, Tip}, GotGas}
     end
   catch error:Ee ->
           S=erlang:get_stacktrace(),
@@ -1606,7 +1638,7 @@ withdraw(FBal,
   end,
   #{cost:=FeeCost, tip:=Tip0, cur:=FeeCur}=Fee,
   if FeeCost == 0 ->
-       {NewBal, {Cur, 0, 0}};
+       {NewBal, {Cur, 0, 0}, 0};
      true ->
        Tip=case GetFeeFun({params, <<"notip">>}) of
            1 -> 0;
@@ -1628,7 +1660,7 @@ withdraw(FBal,
                  NewFFeeAmount,
                  NewBal
                 ),
-       {NewBal2, {FeeCur, FeeCost, Tip}}
+       {NewBal2, {FeeCur, FeeCost, Tip} ,0}
   end.
 
 sign(Blk, ED) when is_map(Blk) ->
@@ -1926,11 +1958,17 @@ cleanup_bals(NewBal0) ->
                 C1=bal:changes(V),
                 case (maps:size(C1)>0) of
                   true ->
-                    maps:put(K,
-                             maps:put(lastblk, maps:get(ublk, V), C1),
-                             BA);
+                    maps:remove(changes,
+                                maps:put(K,
+                                         maps:put(lastblk, 
+                                                  maps:get(ublk, V), 
+                                                  C1),
+                                         BA)
+                               );
                   false ->
-                    BA
+                    maps:remove(changes,
+                                BA
+                               )
                 end
             end
         end
@@ -1956,4 +1994,46 @@ ledger_hash(NewBal) ->
 to_bin(List) when is_list(List) -> list_to_binary(List);
 to_bin(Bin) when is_binary(Bin) -> Bin.
 
+to_gas(#{amount:=A, cur:=C}, Settings) ->
+  Path=[<<"current">>, <<"gas">>, C],
+  case settings:get(Path, Settings) of
+    I when is_integer(I) ->
+      {ok, A*I};
+    _ ->
+      error
+  end.
+
+from_gas(Gas, #{amount:=A, cur:=C}, Settings) ->
+  Path=[<<"current">>, <<"gas">>, C],
+  case settings:get(Path, Settings) of
+    I when is_integer(I) andalso I>0 ->
+      CG=Gas div I,
+      if(CG > A) ->
+          {ok, {A, C}, Gas-(A*I)};
+        true ->
+          {ok, {CG, C}, Gas-(CG*I)}
+      end;
+    _ ->
+      error
+  end.
+
+return_gas(Tx, GasLeft, Settings, Bal0) ->
+  {P1,_Left}=lists:foldl(
+              fun(Payload, {L,Left}) ->
+                  case from_gas(Left, Payload, Settings) of
+                    {ok, A, G} ->
+                      {[A|L],G};
+                    error ->
+                      {L,Left}
+                  end
+              end,
+              {[],GasLeft},
+              tx:get_payloads(Tx,gas)
+             ),
+  lager:debug("return_gas ~p left ~b",[P1, _Left]),
+  lists:foldl(
+    fun({Amount,Cur}, Acc) ->
+        B1=bal:get_cur(Cur,Acc),
+        bal:put_cur(Cur, B1+Amount, Acc)
+    end, Bal0, P1).
 

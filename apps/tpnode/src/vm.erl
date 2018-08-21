@@ -1,5 +1,5 @@
 -module(vm).
--export([run/3, test_erl/0, test_wasm/0, teststate/0]).
+-export([run/4, test_erl/0, test_wasm/0, teststate/0]).
 
 test_erl() ->
   SPid=vm_erltest:run("127.0.0.1",5555),
@@ -29,7 +29,7 @@ test_erl() ->
                    self()
                   },
             ok
-        end, "erltest", 1)
+        end, "erltest", 1, [])
   after
     SPid ! stop
   end.
@@ -42,9 +42,9 @@ test_wasm() ->
                  11111,
                  self()
                 }
-      end, "wasm", 2).
+      end, "wasm", 2, []).
 
-run(Fun, VmType, VmVer) ->
+run(Fun, VmType, VmVer, _Opts) ->
   case gen_server:call(tpnode_vmsrv,{pick, VmType, VmVer, self()}) of
     {ok, Pid} ->
       Fun(Pid),
