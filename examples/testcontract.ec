@@ -35,6 +35,6 @@ Kind=maps:get(kind, Tx),
 Res=Run(Kind, F, A),
 
 
-error_logger:info_msg("call ~s(~s, ~s, ~p)=~p",[testcontract,Kind,F,A,Res]),
+%error_logger:info_msg("call ~s(~s, ~s, ~p)=~p",[testcontract,Kind,F,A,Res]),
 Res.
 

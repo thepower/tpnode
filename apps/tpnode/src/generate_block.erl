@@ -1,7 +1,7 @@
 -module(generate_block).
 
--export([generate_block/5, sort_txs/1]).
--export([return_gas/4]).
+-export([generate_block/5, generate_block/6]).
+-export([return_gas/4, sort_txs/1]).
 
 
 -type mkblock_acc() :: #{'emit':=[{_,_}],
@@ -190,7 +190,9 @@ try_process([{BlID, #{ hash:=BHash,
           S=erlang:get_stacktrace(),
           lager:info("Fail to process inbound block ~p ~p:~p",
                      [BlID, Ec, Ee]),
-          lager:info("at ~p", [S]),
+          lists:foreach(fun(SE) ->
+                            lager:error("@ ~p", [SE])
+                        end, S),
           try_process(Rest, SetState, Addresses, GetFun,
                       Acc#{
                         failed=>[{BlID, unknown}|Failed]
@@ -692,6 +694,7 @@ try_process([{TxID, UnknownTx} |Rest],
 try_process_inbound([{TxID,
                       #{ver:=2,
                         kind:=generic,
+                        from:=From,
                         to:=To,
                         origin_block:=OriginBlock,
                         origin_block_height:=OriginHeight,
@@ -712,10 +715,21 @@ try_process_inbound([{TxID,
       RealSettings=EnsureSettings(SetState),
 
       lager:info("Orig Block ~p", [OriginBlock]),
-      lager:notice("Change chain number to actual ~p", [SetState]),
-      Gas=100,
-      {NewT, NewEmit, _GasLeft}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings, Gas),
-      NewAddresses=maps:put(To, NewT, Addresses),
+      Gas={<<"NONE">>,0,1},
+      {NewT, NewEmit, GasLeft}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings, Gas),
+      Addresses2=maps:put(To, NewT, Addresses),
+
+      NewAddresses=case GasLeft of
+                     {_, 0, _} ->
+                       Addresses2;
+                     {_, IGL, _} when IGL < 0 ->
+                       throw('insufficient_gas');
+                     {_, IGL, _} when IGL > 0 ->
+                       lager:notice("Return gas ~p to sender",[From]),
+                       Addresses2
+                   end,
+
+
       TxExt=maps:get(extdata,Tx,#{}),
       NewExt=TxExt#{
                <<"orig_bhei">>=>OriginHeight,
@@ -1016,6 +1030,10 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, _Settings, GasLimit) ->
       {NewT, [], GasLimit};
     VMType ->
       lager:info("Smartcontract ~p gas ~p", [VMType, GasLimit]),
+      lists:foreach(fun(SE) ->
+                        lager:error("@ ~p", [SE])
+                    end, [ VMType, Tx, NewT, GasLimit, GetFun]),
+
       {L1, TXs, GasLeft}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
       {L1, lists:map(
              fun(#{seq:=Seq}=ETx) ->
@@ -1370,6 +1388,10 @@ sort_txs(PreTXL) ->
   lists:sort(SortFun,lists:usort(PreTXL)).
 
 generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, ExtraData) ->
+  generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, ExtraData, []).
+
+generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, ExtraData, Options) ->
+  LedgerPid=proplists:get_value(ledger_pid,Options),
   %file:write_file("tmp/tx.txt", io_lib:format("~p.~n", [PreTXL])),
   _T1=erlang:system_time(),
   _T2=erlang:system_time(),
@@ -1392,77 +1414,60 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                end
            end, #{}, [<<"feeaddr">>, <<"tipaddr">>, default]),
 
-  Load=fun({_, #{hash:=_, header:=#{}, txs:=Txs}}, {AAcc0, SAcc}) ->
+  Load=fun({_, #{hash:=_, header:=#{}, txs:=Txs}}, AAcc0) ->
            lager:debug("TXs ~p", [Txs]),
-           {
             lists:foldl(
-              fun({_, #{to:=T, cur:=Cur}}, AAcc) ->
-                  TB=bal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
+              fun({_, #{to:=T, cur:=_}}, AAcc) ->
+                  TB=bal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
                   maps:put(T, TB, AAcc);
-                 ({_, #{ver:=2, kind:=generic, to:=T, payload:=P}}, AAcc) ->
-                  lists:foldl(
-                    fun(#{cur:=Cur}, AAcc1) ->
-                        TB=bal:fetch(T, Cur, false, maps:get(T, AAcc1, #{}), GetAddr),
-                        maps:put(T, TB, AAcc1)
-                    end, AAcc, P)
-              end, AAcc0, Txs),
-            SAcc};
-          ({_, #{patch:=_}}, {AAcc, SAcc}) ->
-           {AAcc, SAcc};
-          ({_, #{register:=_}}, {AAcc, SAcc}) ->
-           {AAcc, SAcc};
-          ({_, #{from:=F, portin:=_ToChain}}, {AAcc, SAcc}) ->
-           A1=case maps:get(F, AAcc, undefined) of
+                 ({_, #{ver:=2, kind:=generic, to:=T, payload:=_}}, AAcc) ->
+                  TB=bal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
+                  maps:put(T, TB, AAcc)
+              end, AAcc0, Txs);
+          ({_, #{patch:=_}}, AAcc) -> AAcc;
+          ({_, #{register:=_}}, AAcc) -> AAcc;
+%          ({_, #{from:=F, portin:=_ToChain}}, SAcc) ->
+%           case maps:get(F, AAcc, undefined) of
+%                undefined ->
+%                  AddrInfo1=GetAddr(F),
+%                  maps:put(F, AddrInfo1#{keep=>false}, AAcc);
+%                _ ->
+%                  AAcc
+%              end;
+%          ({_, #{from:=F, portout:=_ToChain}}, {AAcc, SAcc}) ->
+%           A1=case maps:get(F, AAcc, undefined) of
+%                undefined ->
+%                  AddrInfo1=GetAddr(F),
+%                  lager:info("Add address for portout ~p", [AddrInfo1]),
+%                  maps:put(F, AddrInfo1#{keep=>false}, AAcc);
+%                _ ->
+%                  AAcc
+%              end,
+%           {A1, SAcc};
+          ({_, #{from:=F, deploy:=_}}, AAcc) ->
+           case maps:get(F, AAcc, undefined) of
                 undefined ->
                   AddrInfo1=GetAddr(F),
                   maps:put(F, AddrInfo1#{keep=>false}, AAcc);
                 _ ->
                   AAcc
-              end,
-           {A1, SAcc};
-          ({_, #{from:=F, portout:=_ToChain}}, {AAcc, SAcc}) ->
-           A1=case maps:get(F, AAcc, undefined) of
-                undefined ->
-                  AddrInfo1=GetAddr(F),
-                  lager:info("Add address for portout ~p", [AddrInfo1]),
-                  maps:put(F, AddrInfo1#{keep=>false}, AAcc);
-                _ ->
-                  AAcc
-              end,
-           {A1, SAcc};
-          ({_, #{from:=F, deploy:=_}}, {AAcc, SAcc}) ->
-           A1=case maps:get(F, AAcc, undefined) of
-                undefined ->
-                  AddrInfo1=GetAddr(F),
-                  maps:put(F, AddrInfo1#{keep=>false}, AAcc);
-                _ ->
-                  AAcc
-              end,
-           {A1, SAcc};
-          ({_, #{ver:=2, to:=T, from:=F, payload:=P}}=_TX, {AAcc1, SAcc}) ->
-           AAcc2=lists:foldl(
-                   fun(#{cur:=Cur}, AAcc) ->
-                       FB=bal:fetch(F, Cur, true, maps:get(F, AAcc, #{}), GetAddr),
-                       TB=bal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
-                       maps:put(F, FB, maps:put(T, TB, AAcc))
-                   end, AAcc1, P),
-           {AAcc2, SAcc};
-          ({_, #{ver:=2, kind:=deploy, from:=F, payload:=P}}=_TX, {AAcc1, SAcc}) ->
-           AAcc2=lists:foldl(
-                   fun(#{cur:=Cur}, AAcc) ->
-                       FB=bal:fetch(F, Cur, true, maps:get(F, AAcc, #{}), GetAddr),
-                       maps:put(F, FB, AAcc)
-                   end, AAcc1, P),
-           {AAcc2, SAcc};
-          ({_, #{to:=T, from:=F, cur:=Cur}}, {AAcc, SAcc}) ->
+              end;
+          ({_TxID, #{ver:=2, to:=T, from:=F, payload:=_}}=_TX, AAcc) ->
+           FB=bal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
+           TB=bal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
+           maps:put(F, FB, maps:put(T, TB, AAcc));
+          ({_TxID, #{ver:=2, kind:=deploy, from:=F, payload:=_}}=_TX, AAcc) ->
+           FB=bal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
+           maps:put(F, FB, AAcc);
+          ({_, #{to:=T, from:=F, cur:=Cur}}, AAcc) ->
            FB=bal:fetch(F, Cur, true, maps:get(F, AAcc, #{}), GetAddr),
            TB=bal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
-           {maps:put(F, FB, maps:put(T, TB, AAcc)), SAcc};
-          ({_,_Any}, {AAcc, SAcc}) ->
+           maps:put(F, FB, maps:put(T, TB, AAcc));
+          ({_,_Any}, AAcc) ->
            lager:info("Can't load ~p",[_Any]),
-           {AAcc, SAcc}
+           AAcc
        end,
-  {Addrs, _}=lists:foldl(Load, {Addrs0, undefined}, TXL),
+  Addrs=lists:foldl(Load, Addrs0, TXL),
   lager:debug("MB Pre Setting ~p", [XSettings]),
   _T3=erlang:system_time(),
   #{failed:=Failed,
@@ -1520,7 +1525,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
 
   %lager:info("MB NewBal ~p", [NewBal]),
 
-  HedgerHash=ledger_hash(NewBal),
+  HedgerHash=ledger_hash(NewBal, LedgerPid),
   _T5=erlang:system_time(),
   Blk=block:mkblock(#{
         txs=>Success,
@@ -1646,7 +1651,7 @@ cleanup_bals(NewBal0) ->
     end, #{}, NewBal0).
 
 -ifdef(TEST).
-ledger_hash(NewBal) ->
+ledger_hash(NewBal, undefined) ->
   {ok, HedgerHash}=case whereis(ledger) of
                      undefined ->
                        %there is no ledger. Is it test?
@@ -1656,11 +1661,21 @@ ledger_hash(NewBal) ->
                      X when is_pid(X) ->
                        ledger:check(maps:to_list(NewBal))
                    end,
+  HedgerHash;
+
+ledger_hash(NewBal, Pid) ->
+  {ok, HedgerHash}=ledger:check(Pid,maps:to_list(NewBal)),
   HedgerHash.
+
 -else.
-ledger_hash(NewBal) ->
+ledger_hash(NewBal, undefined) ->
   {ok, HedgerHash}=ledger:check(maps:to_list(NewBal)),
+  HedgerHash;
+
+ledger_hash(NewBal, Pid) ->
+  {ok, HedgerHash}=ledger:check(Pid,maps:to_list(NewBal)),
   HedgerHash.
+
 -endif.
 to_bin(List) when is_list(List) -> list_to_binary(List);
 to_bin(Bin) when is_binary(Bin) -> Bin.

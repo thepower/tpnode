@@ -739,10 +739,10 @@ test_tx2_xc() ->
                ]
    },
   TXConstructed=tx:sign(tx:construct_tx(T1),Pvt1),
-  %{
-  TXConstructed.
-  %txpool:new_tx(TXConstructed)
-  %}.
+  {
+  TXConstructed,
+  txpool:new_tx(TXConstructed)
+  }.
 
 sign_patchv2(Patch) ->
   sign_patchv2(Patch, "c1*.config").
