@@ -43,6 +43,7 @@ init([]) ->
              <<"blockchain">>=>blockchain
             }
           },
+    VMPort=application:get_env(tpnode,vmport,50050),
 		Discovery=#{name=>discovery, services=>MandatoryServices},
     {ok, { {one_for_one, 5, 10},
            [
@@ -64,6 +65,7 @@ init([]) ->
             { tpnode_vmsrv, {tpnode_vmsrv, start_link, []}, permanent, 5000, worker, []}
            ]
             ++ xchain:childspec()
+            ++ tpnode_vmproto:childspec(VMPort)
             ++ tpnode_http:childspec()
          } }.
 

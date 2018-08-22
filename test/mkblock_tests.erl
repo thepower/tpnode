@@ -268,9 +268,9 @@ alloc_addr_test() ->
     ].
 
 extcontract_test() ->
-  Port=allocport(),
   Servers=case whereis(tpnode_vmsrv) of 
           undefined ->
+              Port=allocport(),
               application:ensure_all_started(ranch),
               {ok, Pid1} = tpnode_vmsrv:start_link(),
               {ok, Pid2} = ranch_listener_sup:start_link(
@@ -285,7 +285,8 @@ extcontract_test() ->
                fun()->exit(Pid2,normal) end,
                fun()->SPid ! stop end];
             _ -> 
-               SPid=vm_erltest:run("127.0.0.1",Port),
+              VMPort=application:get_env(tpnode,vmport,50050),
+              SPid=vm_erltest:run("127.0.0.1",VMPort),
               [
                fun()->SPid ! stop end
               ]

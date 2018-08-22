@@ -8,7 +8,7 @@
 
 -behaviour(ranch_protocol).
 
--export([start_link/4, init/4, child_spec/1, loop/1]).
+-export([start_link/4, init/4, childspec/1, loop/1]).
 -export([req/2, reply/3]).
 
 -record(req,
@@ -16,13 +16,15 @@
          t1
         }).
 
-child_spec(Port) ->
-  ranch:child_spec(
-    {wv_listener,Port}, ranch_tcp,
+childspec(Port) ->
+  [
+   ranch:child_spec(
+    {vm_listener,Port}, ranch_tcp,
     [{port, Port}, {max_connections, 128}],
     ?MODULE,
     []
-   ).
+   )
+  ].
 
 start_link(Ref, Socket, Transport, Opts) ->
   Pid = spawn_link(?MODULE, init, [Ref, Socket, Transport, Opts]),
