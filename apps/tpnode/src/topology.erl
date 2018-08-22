@@ -15,6 +15,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
   terminate/2, code_change/3]).
 
+-export([state/0]).
+
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -48,7 +50,9 @@ handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
 handle_cast({got_beacon2, _PeerID, <<16#be, _/binary>> = Payload}, State) ->
-  lager:info("TOPO ~p beacon relay ~p", [_PeerID, Payload]),
+  lager:info("TOPO got beacon relay from ~p : ~p", [_PeerID, Payload]),
+  Parsed = beacon:parse_relayed(Payload),
+  lager:info("TOPO parsed beacon relay: ~p", [Parsed]),
   {noreply, State};
 
 
@@ -58,7 +62,7 @@ handle_cast({got_beacon, _PeerID, <<16#be, _/binary>> = Payload}, #{beacon_cache
       false ->
         lager:info("TOPO can't verify beacon from ~p", [_PeerID]),
         {noreply, State};
-      #{from := From} = Beacon ->
+      Beacon ->
         lager:info("TOPO beacon from ~p: ~p", [_PeerID, Beacon]),
 
         {noreply, State#{
@@ -111,11 +115,12 @@ handle_info(timer_announce, #{timer_announce:=Tmr, tickms:=Delay} = State) ->
   };
 
 
-handle_info(timer_relay, #{timer_relay:=Tmr, tickms:=Delay} = State) ->
+handle_info(timer_relay, #{timer_relay:=Tmr, tickms:=Delay, beacon_cache:=Cache} = State) ->
   Now = erlang:system_time(microsecond),
   catch erlang:cancel_timer(Tmr),
   {noreply,
     State#{
+      beacon_cache => relay_beacons(Cache),
       timer_relay => erlang:send_after(Delay, self(), timer_relay),
       prev_relay => Now
     }
@@ -132,6 +137,11 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
+
+state() ->
+  gen_server:call(?MODULE, state).
+
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -146,7 +156,26 @@ add_beacon_to_cache(#{to:=Dest, from:=Origin} = _Beacon, Cache) when is_map(Cach
     case lists:member(Dest, Dests) of
       true ->
         Dests;
-      false ->
+      _ ->
         [Dest | Dests]
     end,
   maps:put(Origin, NewDests, Cache).
+
+
+relay_beacons(Cache) ->
+  Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
+  Payload = msgpack:pack(Cache),
+  lists:foreach(
+    fun
+      ({Peer, #{authdata:=AD}}) ->
+        lager:debug("TOPO sent cache to peer ~p", [Peer]),
+        DstNodePubKey = proplists:get_value(pubkey, AD, <<>>),
+        tpic:cast(
+          tpic,
+          Peer,
+          {<<"beacon2">>, beacon:relay(DstNodePubKey, Payload)}
+        );
+      (_) -> ok
+    end,
+    Peers),
+  #{}.
