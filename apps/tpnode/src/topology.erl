@@ -47,12 +47,12 @@ handle_call(state, _From, State) ->
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
-handle_cast({got_beacon2, _PeerID, <<16#be, _/binary>> = Payload}, #{beacon_cache := Cache} = State) ->
+handle_cast({got_beacon2, _PeerID, <<16#be, _/binary>> = Payload}, State) ->
   lager:info("TOPO ~p beacon relay ~p", [_PeerID, Payload]),
   {noreply, State};
 
 
-handle_cast({got_beacon, _PeerID, <<16#be, _/binary>> = Payload}, State) ->
+handle_cast({got_beacon, _PeerID, <<16#be, _/binary>> = Payload}, #{beacon_cache := Cache} = State) ->
   try
     case beacon:check(Payload) of
       false ->
@@ -60,8 +60,9 @@ handle_cast({got_beacon, _PeerID, <<16#be, _/binary>> = Payload}, State) ->
         {noreply, State};
       #{from := From} = Beacon ->
         lager:info("TOPO beacon from ~p: ~p", [_PeerID, Beacon]),
+
         {noreply, State#{
-          beacon_cache => maps:put()
+          beacon_cache => add_beacon_to_cache(Beacon, Cache)
         }}
     end
   catch _:_ ->
@@ -110,8 +111,6 @@ handle_info(timer_announce, #{timer_announce:=Tmr, tickms:=Delay} = State) ->
   };
 
 
-
-
 handle_info(timer_relay, #{timer_relay:=Tmr, tickms:=Delay} = State) ->
   Now = erlang:system_time(microsecond),
   catch erlang:cancel_timer(Tmr),
@@ -121,8 +120,6 @@ handle_info(timer_relay, #{timer_relay:=Tmr, tickms:=Delay} = State) ->
       prev_relay => Now
     }
   };
-
-
 
 
 handle_info(_Info, State) ->
@@ -139,3 +136,17 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+
+% beacon cache format:
+% #{ origin => [ list of destinations ]
+
+add_beacon_to_cache(#{to:=Dest, from:=Origin} = _Beacon, Cache) when is_map(Cache)->
+  Dests = maps:get(Origin, Cache, []),
+  NewDests =
+    case lists:member(Dest, Dests) of
+      true ->
+        Dests;
+      false ->
+        [Dest | Dests]
+    end,
+  maps:put(Origin, NewDests, Cache).
