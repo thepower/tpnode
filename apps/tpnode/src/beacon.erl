@@ -14,36 +14,36 @@ create(To, Timestamp, Priv) when is_binary(To) ->
 
 %% ------------------------------------------------------------------
 
-relay(To, Payload) when is_binary(To) andalso is_map(Payload) ->
+relay(To, Payload) when is_binary(To) andalso is_binary(Payload) ->
   Priv = nodekey:get_priv(),
   relay(To, Payload, Priv).
 
 relay(To, Payload, Priv) ->
-  BinPayload = msgpack:pack(Payload),
-  Bin = <<16#BC, (size(To)):8/integer, To/binary, BinPayload/binary>>,
+  Bin = <<16#BC, (size(To)):8/integer, To/binary, Payload/binary>>,
   pack_and_sign(Bin, Priv).
 
 %% ------------------------------------------------------------------
 
 parse_relayed(<<16#BC, ToLen:8/integer, Rest/binary>>) ->
-  <<To:ToLen/binary, BinPayload/binary>> = Rest,
-  case parse_relayed(BinPayload) of
-    error ->
-      error;
-    Parsed ->
-      maps:put(to, To, Parsed)
-  end;
+  <<To:ToLen/binary, Payload/binary>> = Rest,
+  {To, Payload};
 
 parse_relayed(<<16#BE, PayloadLen:8/integer, Rest/binary>> = _Arg) ->
-  <<Payload:PayloadLen/binary, Sig/binary>> = Rest,
-  HB = crypto:hash(sha256, Payload),
+  <<PayloadBin:PayloadLen/binary, Sig/binary>> = Rest,
+  HB = crypto:hash(sha256, PayloadBin),
   case bsig:checksig1(HB, Sig) of
     {true, #{extra:=Extra}} ->
-      From = proplists:get_value(pubkey, Extra),
-      #{
-        from=>From,
-        payload=>msgpack:unpack(Payload)
-      };
+      case parse_relayed(PayloadBin) of
+        {To, Payload} ->
+          From = proplists:get_value(pubkey, Extra),
+          #{
+            to => To,
+            from => From,
+            payload => Payload
+          };
+        _ ->
+          error
+      end;
     false ->
       error
   end.

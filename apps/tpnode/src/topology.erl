@@ -49,9 +49,22 @@ handle_call(state, _From, State) ->
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
-handle_cast({got_beacon2, _PeerID, <<16#be, _/binary>> = Payload}, State) ->
-  lager:info("TOPO got beacon relay from ~p : ~p", [_PeerID, Payload]),
-  Parsed = beacon:parse_relayed(Payload),
+handle_cast({got_beacon2, _PeerID, <<16#be, _/binary>> = PayloadBin}, State) ->
+  lager:info("TOPO got beacon relay from ~p : ~p", [_PeerID, PayloadBin]),
+  Parsed =
+    case beacon:parse_relayed(PayloadBin) of
+      #{payload:=Packed} ->
+        lager:info("TOPO packed beacon relay: ~p", [Packed]),
+        case msgpack:unpack(Packed, [{spec,new}]) of
+          {ok, Unpacked} ->
+            Unpacked;
+          Err ->
+            lager:error("can't unpack msgpack: ~p", [Err]),
+            error
+        end;
+      Err1 ->
+        Err1
+    end,
   lager:info("TOPO parsed beacon relay: ~p", [Parsed]),
   {noreply, State};
 
@@ -81,7 +94,7 @@ handle_cast({got_beacon, _PeerID, _Payload}, State) ->
 
 
 handle_cast({got_beacon2, _PeerID, _Payload}, State) ->
-  lager:error("Bad TPIC beacon received from peer ~p", [_PeerID]),
+  lager:error("Bad TPIC beacon relay received from peer ~p", [_PeerID]),
   {noreply, State};
 
 
@@ -164,7 +177,7 @@ add_beacon_to_cache(#{to:=Dest, from:=Origin} = _Beacon, Cache) when is_map(Cach
 
 relay_beacons(Cache) ->
   Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
-  Payload = msgpack:pack(Cache),
+  Payload = msgpack:pack(Cache, [{spec,new}]),
   lists:foreach(
     fun
       ({Peer, #{authdata:=AD}}) ->
