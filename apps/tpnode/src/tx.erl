@@ -1,6 +1,7 @@
 -module(tx).
 
--export([get_ext/2, set_ext/3, sign/2, verify/1, verify/2, pack/1, unpack/1]).
+-export([del_ext/2, get_ext/2, set_ext/3]).
+-export([sign/2, verify/1, verify/2, pack/1, unpack/1]).
 -export([txlist_hash/1, rate/2, mergesig/2]).
 -export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1,
          construct_tx/1,construct_tx/2, get_payload/2, get_payloads/2]).
@@ -58,6 +59,13 @@ set_ext(K, V, Tx) ->
   Tx#{
     extdata=>maps:put(K, V, Ed)
    }.
+
+del_ext(K, Tx) ->
+  Ed=maps:get(extdata, Tx, #{}),
+  Tx#{
+    extdata=>maps:remove(K, Ed)
+   }.
+
 
 
 -spec to_list(Arg :: binary() | list()) -> list().

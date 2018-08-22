@@ -714,8 +714,18 @@ try_process_inbound([{TxID,
                      end,
       RealSettings=EnsureSettings(SetState),
 
+      Gas=case tx:get_ext(<<"xc_gas">>, Tx) of
+            undefined -> {<<"NONE">>,0,1};
+            {ok, [GasCur, GasAmount]} ->
+              case to_gas(#{amount=>GasAmount,cur=>GasCur},SetState) of
+                {ok, G} ->
+                  G;
+                _ ->
+                  {<<"NONE">>,0,1}
+              end
+          end,
+
       lager:info("Orig Block ~p", [OriginBlock]),
-      Gas={<<"NONE">>,0,1},
       {NewT, NewEmit, GasLeft}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings, Gas),
       Addresses2=maps:put(To, NewT, Addresses),
 
@@ -728,7 +738,6 @@ try_process_inbound([{TxID,
                        lager:notice("Return gas ~p to sender",[From]),
                        Addresses2
                    end,
-
 
       TxExt=maps:get(extdata,Tx,#{}),
       NewExt=TxExt#{
@@ -891,11 +900,16 @@ try_process_outbound([{TxID,
                     }
                 end,
     NewAddresses=maps:put(From, NewF, Addresses),
+    Tx1=case GotGas of 
+          {_,0,_} -> tx:del_ext(<<"xc_gas">>, Tx);
+          {GasCur, GasAmount, _} ->
+            tx:set_ext(<<"xc_gas">>, [GasCur, GasAmount], Tx)
+        end,
     try_process(Rest, SS2, NewAddresses, GetFun,
           savefee(GotFee,
               Acc#{
                 settings=>Set2,
-                success=>[{TxID, Tx}|Success],
+                success=>[{TxID, Tx1}|Success],
                 outbound=>[{TxID, OutTo}|Outbound]
                })
            )
