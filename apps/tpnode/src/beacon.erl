@@ -6,7 +6,7 @@ create(To) ->
   Priv = nodekey:get_priv(),
   create(To, Now, Priv).
 
-create(To, Timestamp, Priv) ->
+create(To, Timestamp, Priv) when is_binary(To) ->
   Bin = <<Timestamp:64/big, To/binary>>,
   HB = crypto:hash(sha256, Bin),
   Sig = bsig:signhash(HB, [], Priv),
@@ -19,7 +19,8 @@ check(<<16#BE, PayloadLen:8/integer, Rest/binary>> = _Arg) ->
   case bsig:checksig1(HB, Sig) of
     {true, #{extra:=Extra}} ->
       SA = proplists:get_value(pubkey, Extra),
-      #{to=>Address,
+      #{
+        to=>Address,
         from=>SA,
         timestamp=>Timestamp
       };

@@ -55,6 +55,7 @@ init([]) ->
             { txpool, {txpool, start_link, []}, permanent, 5000, worker, []},
             { txstatus, {txstatus, start_link, [txstatus]}, permanent, 5000, worker, []},
             { tpic_sctp, {tpic_sctp, start_link, [TPIC]}, permanent, 5000, worker, []},
+            { topology, {topology, start_link, []}, permanent, 5000, worker, []},
             { ledger, {ledger, start_link, []}, permanent, 5000, worker, []},
             { discovery, {discovery, start_link, [Discovery]}, permanent, 5000, worker, []},
             { tpnode_announcer, {tpnode_announcer, start_link, [#{}]}, permanent, 5000, worker, []},

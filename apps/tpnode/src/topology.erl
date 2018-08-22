@@ -28,11 +28,17 @@ start_link() ->
 
 init(_Args) ->
 %    gen_server:cast(self(), settings),
-  Tickms = 10000,
+  TickMs = 10000, % announce interval
+%%  InitialTick = (rand:uniform(10) + 10) * 1000, % initial tick is in period from 10 to 20 seconds from node start
+  InitialTick = 1000, % TODO: remove this debug
+  InitialRelayTick = (rand:uniform(10) * 1000) + InitialTick, % initial relay tick is occurs later up to 10 seconds after InitialTick
   {ok, #{
-    ticktimer => erlang:send_after(Tickms, self(), timer),
-    tickms => Tickms,
-    prevtick => 0
+    timer_announce => erlang:send_after(InitialTick, self(), timer_announce),
+    timer_relay => erlang:send_after(InitialRelayTick, self(), timer_relay),
+    tickms => TickMs,
+    prev_announce => 0,
+    prev_relay => 0,
+    beacon_cache => #{}
   }}.
 
 handle_call(state, _From, State) ->
@@ -41,19 +47,36 @@ handle_call(state, _From, State) ->
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
-handle_cast({tpic, _PeerID, <<16#be, _/binary>> = Payload}, State) ->
+handle_cast({got_beacon2, _PeerID, <<16#be, _/binary>> = Payload}, #{beacon_cache := Cache} = State) ->
+  lager:info("TOPO ~p beacon relay ~p", [_PeerID, Payload]),
+  {noreply, State};
+
+
+handle_cast({got_beacon, _PeerID, <<16#be, _/binary>> = Payload}, State) ->
   try
-    Beacon = beacon:check(Payload),
-    lager:info("TOPO ~p beacon ~p", [_PeerID, Beacon]),
-    {noreply, State}
+    case beacon:check(Payload) of
+      false ->
+        lager:info("TOPO can't verify beacon from ~p", [_PeerID]),
+        {noreply, State};
+      #{from := From} = Beacon ->
+        lager:info("TOPO beacon from ~p: ~p", [_PeerID, Beacon]),
+        {noreply, State#{
+          beacon_cache => maps:put()
+        }}
+    end
   catch _:_ ->
     lager:error("TOPO ~p beacon check problem for payload ~p", [_PeerID, Payload]),
     {noreply, State}
   end;
 
 
-handle_cast({tpic, _PeerID, _Payload}, State) ->
-  lager:error("Bad TPIC received from peer ~p", [_PeerID]),
+handle_cast({got_beacon, _PeerID, _Payload}, State) ->
+  lager:error("Bad TPIC beacon received from peer ~p", [_PeerID]),
+  {noreply, State};
+
+
+handle_cast({got_beacon2, _PeerID, _Payload}, State) ->
+  lager:error("Bad TPIC beacon received from peer ~p", [_PeerID]),
   {noreply, State};
 
 
@@ -61,19 +84,19 @@ handle_cast(_Msg, State) ->
   lager:info("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
-handle_info(timer, #{ticktimer:=Tmr, tickms:=Delay} = State) ->
+handle_info(timer_announce, #{timer_announce:=Tmr, tickms:=Delay} = State) ->
   Now = erlang:system_time(microsecond),
   catch erlang:cancel_timer(Tmr),
   Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
   lists:foreach(
     fun
-      ({N, #{authdata:=AD}}) ->
-        PubKey = proplists:get_value(pubkey, AD, <<>>),
-        lager:info("TOPO ~p: ~p", [N, PubKey]),
+      ({Peer, #{authdata:=AD}}) ->
+        DstNodePubKey = proplists:get_value(pubkey, AD, <<>>),
+        lager:info("TOPO sent ~p: ~p", [Peer, DstNodePubKey]),
         tpic:cast(
           tpic,
-          N,
-          {<<"beacon">>, beacon:create(PubKey)}
+          Peer,
+          {<<"beacon">>, beacon:create(DstNodePubKey)}
         );
       (_) -> ok
     end,
@@ -81,10 +104,26 @@ handle_info(timer, #{ticktimer:=Tmr, tickms:=Delay} = State) ->
   
   {noreply,
     State#{
-      ticktimer => erlang:send_after(Delay, self(), ticktimer),
-      prevtick => Now
+      timer_announce => erlang:send_after(Delay, self(), timer_announce),
+      prev_announce => Now
     }
   };
+
+
+
+
+handle_info(timer_relay, #{timer_relay:=Tmr, tickms:=Delay} = State) ->
+  Now = erlang:system_time(microsecond),
+  catch erlang:cancel_timer(Tmr),
+  {noreply,
+    State#{
+      timer_relay => erlang:send_after(Delay, self(), timer_relay),
+      prev_relay => Now
+    }
+  };
+
+
+
 
 handle_info(_Info, State) ->
   lager:info("Unknown info ~p", [_Info]),
