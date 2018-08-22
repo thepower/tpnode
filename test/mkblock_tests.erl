@@ -62,7 +62,7 @@ tx2_patch_test() ->
   ParentHash=crypto:hash(sha256, <<"parent">>),
   GetAddr=fun test_getaddr/1,
   R1=#{block:=Block,
-    failed:=Failed}=mkblock:generate_block(
+    failed:=Failed}=generate_block:generate_block(
                       [{<<"tx1">>, TX0}],
                       {1, ParentHash},
                       GetSettings,
@@ -131,7 +131,7 @@ tx2_test() ->
   TXConstructed=tx:sign(tx:construct_tx(T1),Pvt1),
   {ok,TX0}=tx:verify(TXConstructed,[nocheck_ledger]),
   #{block:=Block,
-    failed:=Failed}=mkblock:generate_block(
+    failed:=Failed}=generate_block:generate_block(
                       [{<<"tx1">>, TX0}],
                       {1, ParentHash},
                       GetSettings,
@@ -194,7 +194,7 @@ alloc_addr2_test() ->
      },
     {ok,TX0}=tx:verify(tx:sign(tx:construct_tx(T1,[{pow_diff,8}]),Pvt1)),
     #{block:=Block,
-      failed:=Failed}=mkblock:generate_block(
+      failed:=Failed}=generate_block:generate_block(
             [{<<"alloc_tx1_id">>, TX0}],
             {1, ParentHash},
             GetSettings,
@@ -251,7 +251,7 @@ alloc_addr_test() ->
 
     TX0=tx:unpack( tx:pack( #{ type=>register, register=>Pub1 })),
     #{block:=Block,
-      failed:=Failed}=mkblock:generate_block(
+      failed:=Failed}=generate_block:generate_block(
             [{<<"alloc_tx1_id">>, TX0},
              {<<"alloc_tx2_id">>, TX0}],
             {1, ParentHash},
@@ -268,7 +268,28 @@ alloc_addr_test() ->
     ].
 
 extcontract_test() ->
-  SPid=vm_erltest:run("127.0.0.1",5555),
+  Port=allocport(),
+  Servers=case whereis(tpnode_vmsrv) of 
+          undefined ->
+              application:ensure_all_started(ranch),
+              {ok, Pid1} = tpnode_vmsrv:start_link(),
+              {ok, Pid2} = ranch_listener_sup:start_link(
+                             {vm_listener,Port},
+                             10,
+                             ranch_tcp,
+                             [{port,Port},{max_connections,128}],
+                             tpnode_vmproto,[]),
+              timer:sleep(300),
+              SPid=vm_erltest:run("127.0.0.1",Port),
+              [fun()->gen_server:stop(Pid1) end,
+               fun()->exit(Pid2,normal) end,
+               fun()->SPid ! stop end];
+            _ -> 
+               SPid=vm_erltest:run("127.0.0.1",Port),
+              [
+               fun()->SPid ! stop end
+              ]
+          end,
   timer:sleep(200),
   try
     OurChain=150,
@@ -405,7 +426,7 @@ extcontract_test() ->
          }), Pvt1),
   #{block:=Block,
     emit:=Emit,
-    failed:=Failed}=mkblock:generate_block(
+    failed:=Failed}=generate_block:generate_block(
                       [
                        {<<"3testdeploy">>, maps:put(sigverify,#{valid=>1},TX3)},
                        {<<"4testexec">>, maps:put(sigverify,#{valid=>1},TX4)},
@@ -445,7 +466,10 @@ extcontract_test() ->
   ?assertMatch(#{<<"SK">>:=1, <<"FTT">>:=103},Fee)
   ]
 after
-  SPid ! stop
+  lists:foreach(
+    fun(TermFun) ->
+        TermFun()
+    end, Servers)
   end.
 
 
@@ -589,7 +613,7 @@ contract_test() ->
      ),
   #{block:=Block,
     emit:=Emit,
-    failed:=Failed}=mkblock:generate_block(
+    failed:=Failed}=generate_block:generate_block(
             [
              %{<<"0bad">>, _TX0},
              %{<<"1feedeploy">>, _TX1},
@@ -693,7 +717,7 @@ mkblock_tx2_self_test() ->
           ver => 2}
          ), Pvt1),
   #{block:=Block,
-    failed:=_Failed}=mkblock:generate_block(
+    failed:=_Failed}=generate_block:generate_block(
             [
              {<<"0interchain">>, maps:put(sigverify,#{valid=>1},TX0)},
              {<<"1invalid">>, maps:put(sigverify,#{valid=>1},TX1)}
@@ -916,7 +940,7 @@ mkblock_tx2_test() ->
 %          t=>os:system_time(millisecond)+86400000
 %         }), Pvt1),
   #{block:=Block,
-    failed:=Failed}=mkblock:generate_block(
+    failed:=Failed}=generate_block:generate_block(
             [
              {<<"1interchain">>, maps:put(sigverify,#{valid=>1},TX1)},
              {<<"2invalid">>, maps:put(sigverify,#{valid=>1},TX2)},
@@ -1160,7 +1184,7 @@ mkblock_test() ->
        }, Pvt1)
      ),
   #{block:=Block,
-    failed:=Failed}=mkblock:generate_block(
+    failed:=Failed}=generate_block:generate_block(
             [
              {<<"1interchain">>, maps:put(sigverify,#{valid=>1},TX0)},
              {<<"2invalid">>, maps:put(sigverify,#{valid=>1},TX1)},
@@ -1341,7 +1365,7 @@ xchain_test() ->
           t=>os:system_time(millisecond)
          }), Pvt1),
     #{block:=Block1,
-    failed:=Failed1}=mkblock:generate_block(
+    failed:=Failed1}=generate_block:generate_block(
                       [
                        {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
                       ],
@@ -1370,7 +1394,7 @@ xchain_test() ->
    ),
   put(ch5set, C5NS),
   #{block:=Block2,
-    failed:=[]}=mkblock:generate_block(
+    failed:=[]}=generate_block:generate_block(
                       [
                        {<<"tx2">>, maps:put(sigverify,#{valid=>1},TX2)}
                       ],
@@ -1388,14 +1412,14 @@ xchain_test() ->
   #{hash:=OH2}=OBlk2=maps:get(OurChain+1, block:outward_mk(maps:get(outbound, SignedBlock2), SignedBlock2)),
   HOH1=hex:encode(OH1),
   #{block:=RBlock1,
-    failed:=[]}=mkblock:generate_block(
+    failed:=[]}=generate_block:generate_block(
                   [ {HOH1, OBlk1} ],
                   {1, <<0,0,0,0, 0,0,0,0>>},
                   GetSettings6,
                   GetAddr,
                   []),
   HOH2=hex:encode(OH2),
-  #{failed:=[{HOH2, {block_skipped,OH1}}]}=mkblock:generate_block(
+  #{failed:=[{HOH2, {block_skipped,OH1}}]}=generate_block:generate_block(
                                              [ {HOH2, OBlk2} ],
                                              {1, <<0,0,0,0, 0,0,0,0>>},
                                              GetSettings6,
@@ -1411,14 +1435,14 @@ xchain_test() ->
      )
    ),
   put(ch6set, C6NS),
-  #{failed:=[{HOH1, {overdue,OH1}}]}=mkblock:generate_block(
+  #{failed:=[{HOH1, {overdue,OH1}}]}=generate_block:generate_block(
                                        [ {HOH1, OBlk1} ],
                                        {2, maps:get(hash,RBlock1)},
                                        GetSettings6,
                                        GetAddr,
                                        []),
   #{block:=RBlock2,
-    failed:=[]}=mkblock:generate_block(
+    failed:=[]}=generate_block:generate_block(
                   [ {HOH2, OBlk2} ],
                   {2, maps:get(hash,RBlock1)},
                   GetSettings6,
@@ -1426,7 +1450,7 @@ xchain_test() ->
                   []),
   put(ch6set,InitSet),
   #{block:=_RBlock1and2,
-    failed:=[]}=mkblock:generate_block(
+    failed:=[]}=generate_block:generate_block(
                   [ {HOH1, OBlk1},
                     {HOH2, OBlk2} ],
                   {1, <<0,0,0,0, 0,0,0,0>>},
@@ -1626,7 +1650,7 @@ xchain_inbound_test() ->
 
     #{block:=#{hash:=NewHash,
                header:=#{height:=NewHeight}}=Block,
-      failed:=Failed}=mkblock:generate_block(
+      failed:=Failed}=generate_block:generate_block(
                         [BlockTx],
                         {1, ParentHash},
                         GetSettings,
@@ -1647,7 +1671,7 @@ xchain_inbound_test() ->
                         error({bad_setting, Other})
                 end,
     #{block:=Block2,
-      failed:=Failed2}=mkblock:generate_block(
+      failed:=Failed2}=generate_block:generate_block(
                          [BlockTx],
                          {NewHeight, NewHash},
                          GetSettings2,
@@ -1667,4 +1691,10 @@ xchain_inbound_test() ->
     ?assertMatch([], maps:get(txs, Block2)),
     ?assertMatch([{_, {overdue, _}}], Failed2)
     ].
+
+allocport() ->
+  {ok,S}=gen_tcp:listen(0,[]),
+  {ok,{_,CPort}}=inet:sockname(S),
+  gen_tcp:close(S),
+  CPort.
 
