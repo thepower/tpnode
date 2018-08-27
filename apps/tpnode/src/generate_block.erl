@@ -394,13 +394,22 @@ try_process([{TxID, #{
              if A4 ->
                   case erlang:apply(VM, deploy, [Tx, Bal, 1, GetFun]) of
                     {ok, #{null:="exec",
+                           "err":=Err}} ->
+                      try
+                        AErr=erlang:list_to_existing_atom(Err),
+                        throw(AErr)
+                      catch error:badarg ->
+                        throw(Err)
+                      end;
+                    {ok, #{null:="exec",
                            "state":=St2,
                            "gas":=_GasLeft
                           }} ->
                       St2;
                     {error, Error} ->
                       throw({'deploy_failed', Error});
-                    _ ->
+                    _Any ->
+                      lager:error("Deploy error ~p",[_Any]),
                       throw({'deploy_failed', other})
                   end;
                 A6 ->
@@ -409,7 +418,8 @@ try_process([{TxID, #{
                       NewS;
                     {error, Error} ->
                       throw({'deploy_failed', Error});
-                    _ ->
+                    _Any ->
+                      lager:error("Deploy error ~p",[_Any]),
                       throw({'deploy_failed', other})
                   end
              end
