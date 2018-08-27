@@ -180,6 +180,7 @@ block_list(Pid, Proto, Chain, Last, Known, Acc) ->
            #{null=><<"pre_ptr">>,  <<"chain">>=>Chain, <<"block">>=>Last}
     end,
   R=make_ws_req(Pid, Proto, Req),
+  lager:debug("Got block_list resp ~p",[R]),
   case R of
     #{null := N,
       <<"ok">> := true,
