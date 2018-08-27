@@ -187,8 +187,10 @@ block_list(Pid, Proto, Chain, Last, Known, Acc) ->
       <<"pointers">> := #{<<"height">> := H,
                           <<"hash">> := P,
                           <<"pre_height">> := HH,
-                          <<"pre_hash">> := PP}} when N==<<"last_ptr">> orelse
-                                                      N==<<"pre_ptr">> ->
+                          <<"pre_hash">> := PP}} 
+      when is_binary(P) 
+           andalso 
+           (N==<<"last_ptr">> orelse N==<<"pre_ptr">>) ->
       if(PP==Known) ->
           [{HH,PP},{H,P}|Acc];
         (P==Known) ->
@@ -209,8 +211,10 @@ block_list(Pid, Proto, Chain, Last, Known, Acc) ->
     #{null := N,
       <<"ok">> := true,
       <<"pointers">> := #{<<"height">> := H,
-                          <<"hash">> := P}} when N==<<"last_ptr">> orelse
-                                                 N==<<"pre_ptr">> ->
+                          <<"hash">> := P}} 
+      when is_binary(P) 
+           andalso 
+           (N==<<"last_ptr">> orelse N==<<"pre_ptr">>) ->
       [{H,P}|Acc];
     Any ->
       lager:info("Err ~p",[Any]),
