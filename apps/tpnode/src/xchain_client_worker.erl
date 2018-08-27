@@ -48,7 +48,8 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
     {ok, Pid} = gun:open(Ip, Port),
     receive
       {gun_up, Pid, http} -> ok
-    after 10000 ->
+    after 20000 ->
+            gun:close(Pid),
             throw('up_timeout')
     end,
     Proto=case sync_get_decode(Pid, "/xchain/api/compat.mp") of
