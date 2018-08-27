@@ -103,7 +103,11 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
   catch Ec:Ee ->
           Parent ! {wrk_down, self(), error},
           S=erlang:get_stacktrace(),
-          lager:error("xchain client error ~p:~p @ ~p",[Ec,Ee,hd(S)])
+          lager:error("xchain client error ~p:~p",[Ec,Ee]),
+          lists:foreach(
+            fun(SE) ->
+                lager:error("@ ~p", [SE])
+            end, S)
   end.
 
 ws_mode(Pid, #{parent:=Parent, proto:=Proto}=Sub, GetFun) ->
