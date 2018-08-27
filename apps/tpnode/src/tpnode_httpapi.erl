@@ -143,6 +143,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
     #{ result => <<"ok">>,
       status => #{
         nodeid=>nodekey:node_id(),
+        nodename=>nodekey:node_name(),
         public_key=>BinPacker(nodekey:get_pub()),
         blockchain=>#{
           chain=>Chain,
