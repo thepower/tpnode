@@ -39,6 +39,7 @@ init(Ref, Socket, Transport, _Opts) ->
 loop(#{socket:=Socket, transport:=Transport, reqs:=Reqs}=State) ->
   receive
     {tcp, Socket, <<Seq:32/big,Data/binary>>} ->
+      %lager:info("Got seq ~b payload ~p",[Seq,Data]),
       {ok,Payload}=msgpack:unpack(Data),
       S1=case Seq rem 2 of
         0 ->
@@ -101,7 +102,12 @@ reply(Seq, Payload, State) ->
 send(Seq, Payload, #{socket:=Socket, transport:=Transport}=State) when is_map(Payload) ->
   lager:debug("Sending seq ~b : ~p",[Seq, Payload]),
   Data=msgpack:pack(Payload),
-  %lager:info("sending ~s",[base64:encode(Data)]),
+  if is_binary(Data) ->
+       ok;
+     true ->
+       lager:error("Can't encode ~p",[Payload]),
+       throw('badarg')
+  end,
   Transport:send(Socket, <<Seq:32/big,Data/binary>>),
   State.
 
