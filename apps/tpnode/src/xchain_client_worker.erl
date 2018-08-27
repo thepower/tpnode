@@ -66,7 +66,7 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
     BlockList=block_list(Pid, Proto, GetFun(chain), last, Known, []),
     lists:foldl(
       fun({He,Ha},_) ->
-          io:format("Blk ~b hash ~s~n",[He,hex:encode(Ha)])
+          lager:info("Blk ~b hash ~p~n",[He,Ha])
       end, 0, BlockList),
     lists:foldl(
       fun(_,Acc) when is_atom(Acc) ->
@@ -169,10 +169,10 @@ block_list(_, _, _, Last, Known, Acc) when Last==Known ->
 
 block_list(Pid, Proto, Chain, Last, Known, Acc) ->
   Req=if Last==last ->
-           io:format("BL last~n",[]),
+           lager:info("BL last~n",[]),
            #{null=><<"last_ptr">>, <<"chain">>=>Chain};
          true ->
-           io:format("BL ~s~n",[hex:encode(Last)]),
+           lager:info("BL ~p~n",[Last]),
            #{null=><<"pre_ptr">>,  <<"chain">>=>Chain, <<"block">>=>Last}
     end,
   R=make_ws_req(Pid, Proto, Req),
