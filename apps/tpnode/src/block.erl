@@ -95,7 +95,9 @@ prepack(Block) ->
          );
        (failed, Txs) ->
         lists:map(
-          fun({TxID, T}) ->
+          fun({TxID, #{<<"ext">>:=Arr}=T}) when is_list(Arr) ->
+              [TxID, T#{<<"ext">>=>{array, Arr}}];
+             ({TxID, T}) ->
               [TxID, T]
           end, Txs
          );
@@ -430,8 +432,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
   HeaderItems=[{txroot, TxRoot},
                {balroot, BalsRoot},
                {ledger_hash, LH},
-               {setroot, SettingsRoot},
-               {other, <<1,2,3>>}
+               {setroot, SettingsRoot}
                |FailRoot],
   {BHeader, Hdr}=build_header2(HeaderItems, Parent, H, Chain),
 %  io:format("mHI ~p~n", [Hdr]),
@@ -636,6 +637,10 @@ outward_ptrs(Settings, Chain) ->
                   )
   end.
 
+to_binary(L) when is_atom(L) -> atom_to_binary(L,utf8);
+to_binary(L) when is_list(L) -> list_to_binary(L);
+to_binary(L) when is_binary(L) -> L.
+
 prepare_fail(Fail) ->
   lists:map(
     fun({TxID, A}) when is_atom(A) ->
@@ -643,7 +648,7 @@ prepare_fail(Fail) ->
         {TxID, R};
        ({TxID, T}) when is_tuple(T) ->
         [E|L]=tuple_to_list(T),
-        R=#{ <<"reason">>=> E, <<"ext">>=>{array,L} },
+        R=#{ <<"reason">>=> to_binary(E), <<"ext">>=>L },
         {TxID, R};
        ({TxID, T}) when is_binary(T) ->
         {TxID, T};

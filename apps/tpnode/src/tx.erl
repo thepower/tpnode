@@ -396,12 +396,12 @@ verify(Tx) ->
   {ok, tx()} | 'bad_sig'.
 
 verify(#{
-  kind:=generic,
+  kind:=GenericOrDeploy,
   from:=From,
   body:=Body,
   sig:=LSigs,
   ver:=2
- }=Tx, Opts) ->
+ }=Tx, Opts) when GenericOrDeploy==generic; GenericOrDeploy==deploy ->
   CI=get_ext(<<"contract_issued">>, Tx),
   Res=case checkaddr(From) of
         {true, _IAddr} when CI=={ok, From} ->

@@ -909,3 +909,82 @@ eval(File, Bindings0) ->
   {value, Result, _} = erl_eval:exprs(Parsed, Bindings),
   Result.
 
+contract_deploy() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr=naddress:decode(<<"AA100000006710887143">>),
+  Seq=bal:get(seq,ledger:get(Addr)),
+
+  {ok, Code}=file:read_file("./examples/testcontract.wasm"),
+  TX=tx:sign(
+       tx:construct_tx(#{
+         ver=>2,
+         kind=>deploy,
+         from=>Addr,
+         seq=>Seq+1,
+         t=>os:system_time(millisecond),
+         payload=>[
+                   #{purpose=>srcfee, amount=>200100, cur=><<"FTT">>},
+                   #{purpose=>gas, amount=>500, cur=><<"FTT">>}
+                  ],
+         call=>#{function=>"init",args=>[16]},
+         txext=>#{ "code"=> Code,
+                   "vm" => "wasm"
+                 }
+        }), Pvt1),
+  {
+   TX,
+   txpool:new_tx(TX)
+  }.
+
+contract_run() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr=naddress:decode(<<"AA100000006710887143">>),
+  Seq=bal:get(seq,ledger:get(Addr)),
+  TX=tx:sign(
+       tx:construct_tx(#{
+         ver=>2,
+         kind=>generic,
+         from=>Addr,
+         to=>Addr,
+         call=>#{function=>"dec",args=>[1]},
+         payload=>[
+                   #{purpose=>gas, amount=>3, cur=><<"SK">>}, %will be used 1
+                   #{purpose=>srcfee, amount=>100, cur=><<"FTT">>}
+                  ],
+         seq=>Seq+1,
+         t=>os:system_time(millisecond)
+        }), Pvt1),
+  {
+   TX,
+   txpool:new_tx(TX)
+  }.
+
+
+contract_patch_gas() ->
+  Patch=sign_patchv2(
+          tx:construct_tx(
+            #{kind=>patch,
+              ver=>2,
+              patches=>
+              [
+               #{t=>set, p=>[<<"current">>, <<"fee">>, params, <<"feeaddr">>], v=><<160,0,0,0,0,0,0,1>>},
+               #{t=>set, p=>[<<"current">>, <<"fee">>, params, <<"tipaddr">>], v=><<160,0,0,0,0,0,0,1>>},
+               #{t=>set, p=>[<<"current">>, <<"fee">>, params, <<"notip">>], v=>1},
+               #{t=>set, p=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"base">>], v=>trunc(1.0e2)},
+               #{t=>set, p=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"baseextra">>], v=>64},
+               #{t=>set, p=>[<<"current">>, <<"fee">>, <<"FTT">>, <<"kb">>], v=>trunc(1.0e3)},
+               #{t=>set, p=>[<<"current">>, <<"gas">>, <<"FTT">>], v=>10000 },
+               #{t=>set, p=>[<<"current">>, <<"gas">>, <<"SK">>], v=>100000 }
+              ]
+             }
+           )
+         ),
+  {
+   Patch,
+   tx:verify(Patch),
+   tx:unpack(tx:pack(Patch)),
+   txpool:new_tx(Patch)
+  }.
+
