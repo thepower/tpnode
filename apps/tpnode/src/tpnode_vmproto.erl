@@ -56,6 +56,10 @@ loop(#{socket:=Socket, transport:=Transport, reqs:=Reqs}=State) ->
             Owner ! {result, ReqID, {error, vm_gone}}
         end, 0, Reqs),
       Transport:close(Socket);
+    {ping, From} ->
+      From ! {run_req, 0},
+      From ! {result, 0, pong},
+      ?MODULE:loop(State);
     {run, Transaction, Ledger, Gas, From} ->
       Seq=maps:get(myseq, State, 0),
       S1=req(#{null=>"exec",
@@ -103,6 +107,8 @@ send(Seq, Payload, #{socket:=Socket, transport:=Transport}=State) when is_map(Pa
   lager:debug("Sending seq ~b : ~p",[Seq, Payload]),
   Data=msgpack:pack(Payload),
   if is_binary(Data) ->
+       F=lists:flatten(io_lib:format("log/vmproto_req_~w.bin",[Seq])),
+       file:write_file(F,Data),
        ok;
      true ->
        lager:error("Can't encode ~p",[Payload]),

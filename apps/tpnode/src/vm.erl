@@ -95,6 +95,8 @@ run(Fun, VmType, VmVer, _Opts) ->
       R=receive {run_req, ReqNo} ->
                   receive {result, ResNo, Res} when ResNo == ReqNo ->
                             case Res of
+                              pong ->
+                                {ok, pong};
                               {ok, Payload, Ext} ->
                                 lager:info("Contract ext ~p",[Ext]),
                                 {ok,Payload};

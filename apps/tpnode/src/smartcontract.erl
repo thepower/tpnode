@@ -131,6 +131,15 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
               bal:put(state, NewState, Ledger),
               EmitTxs, Left(GasLeft)}
         end;
+      {ok,#{null := "exec",
+            "gas" := _GasLeft,
+            "err":=SReason}} ->
+        lager:error("Contract error ~p", [SReason]),
+        try
+          throw(list_to_existing_atom(SReason))
+        catch error:badarg ->
+                throw({'run_failed', SReason})
+        end;
       {error, Reason, GasLeft} ->
         %throw({'run_failed', Reason});
         lager:error("Contract error ~p", [Reason]),
@@ -142,9 +151,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
         throw({'run_failed', other})
     end
   catch 
-    throw:insufficient_gas ->
-      throw(insufficient_gas);
-    Ec:Ee ->
+    Ec:Ee when Ec=/=throw ->
           S=erlang:get_stacktrace(),
           lager:error("Can't run contract ~p:~p @ ~p",
                       [Ec, Ee, hd(S)]),

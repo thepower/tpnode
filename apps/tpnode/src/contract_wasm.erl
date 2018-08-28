@@ -11,7 +11,7 @@ deploy(Tx, Ledger, GasLimit, _GetFun) ->
   vm:run(fun(VMPid) ->
              VMPid ! {run, 
                       tx:pack(Tx),
-                      Ledger,
+                      bal:pack(Ledger),
                       GasLimit,
                       self()
                      }
@@ -21,7 +21,7 @@ handle_tx(Tx, Ledger, GasLimit, _GetFun) ->
   vm:run(fun(VMPid) ->
              VMPid ! {run, 
                       tx:pack(Tx),
-                      Ledger,
+                      bal:pack(Ledger),
                       GasLimit,
                       self()
                      }

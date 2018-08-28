@@ -5,6 +5,10 @@ Run=fun
     {ok, "result", <<InitVal:64/big>>, Gas-1, []};
   (deploy,"init",_) ->
     {ok, "result", <<0:64/big>>, Gas-1, []};
+  (deploy,"expensive",_) ->
+    {ok, "result", <<0:64/big>>, Gas-10000, []};
+  (deploy,_,_) ->
+    throw('error');
   (generic,"inc",[Val]) when is_integer(Val) ->
     <<S0:64/big>>=maps:get(<<"state">>, Ledger),
     S1=S0+Val,

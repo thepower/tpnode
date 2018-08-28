@@ -2,13 +2,31 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+ledgersum(Ledger) when is_list(Ledger) ->
+  lists:foldl(
+    fun({_Addr, #{amount:=A}},Acc) ->
+        maps:fold(
+          fun(Cur, Val, Ac1) ->
+              maps:put(Cur,maps:get(Cur,Ac1,0)+Val,Ac1)
+          end, Acc, A)
+    end, #{}, Ledger);
+
+ledgersum(Ledger) when is_map(Ledger) ->
+  maps:fold(
+    fun(_Addr, #{amount:=A},Acc) ->
+        maps:fold(
+          fun(Cur, Val, Ac1) ->
+              maps:put(Cur,maps:get(Cur,Ac1,0)+Val,Ac1)
+          end, Acc, A)
+    end, #{}, Ledger).
+
 allocport() ->
   {ok,S}=gen_tcp:listen(0,[]),
   {ok,{_,CPort}}=inet:sockname(S),
   gen_tcp:close(S),
   CPort.
 
-extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
+extcontract_template(OurChain, TxList, Ledger, CheckFun, Workers) ->
   Servers=case whereis(tpnode_vmsrv) of 
             undefined ->
               Port=allocport(),
@@ -21,16 +39,21 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                              [{port,Port},{max_connections,128}],
                              tpnode_vmproto,[]),
               timer:sleep(300),
-              SPid=vm_erltest:run("127.0.0.1",Port),
               [fun()->gen_server:stop(Pid1) end,
-               fun()->exit(Pid2,normal) end,
-               fun()->SPid ! stop end];
+               fun()->exit(Pid2,normal) end
+               | [ 
+                  begin
+                    SPid=vm_erltest:run("127.0.0.1",Port),
+                    fun()->SPid ! stop end
+                  end || _ <- lists:seq(1,Workers) ] 
+              ];
             _ -> 
               VMPort=application:get_env(tpnode,vmport,50050),
-              SPid=vm_erltest:run("127.0.0.1",VMPort),
-              [
-               fun()->SPid ! stop end
-              ]
+              [ 
+               begin
+                 SPid=vm_erltest:run("127.0.0.1",VMPort),
+                 fun()->SPid ! stop end
+               end || _ <- lists:seq(1,Workers) ]
           end,
   timer:sleep(200),
   try
@@ -119,7 +142,6 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
 
     ParentHash=crypto:hash(sha256, <<"parent">>),
 
-
     CheckFun(generate_block:generate_block(
                TxList
                ,
@@ -139,6 +161,151 @@ after
     end, Servers)
   end.
 
+extcontract_baddeploy1_test() ->
+  OurChain=150,
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr1=naddress:construct_public(1, OurChain, 1),
+  {ok, Code}=file:read_file("./examples/testcontract.ec"),
+  TX3=tx:sign(
+        tx:construct_tx(#{
+          ver=>2,
+          kind=>deploy,
+          from=>Addr1,
+          seq=>2,
+          t=>os:system_time(millisecond),
+          payload=>[
+                    #{purpose=>gas, amount=>10, cur=><<"FTT">>},
+                    #{purpose=>srcfee, amount=>20, cur=><<"FTT">>}
+                   ],
+          call=>#{function=>"init",args=>[1024]},
+          txext=>#{ "code"=> Code,
+                    "vm" => "erltest"
+                  }
+         }), Pvt1),
+  TxList=[ {<<"3testdeploy">>, maps:put(sigverify,#{valid=>1},TX3)} ],
+  Ledger=[ {Addr1, #{amount => #{ <<"FTT">> => 100, <<"SK">> => 100 }} } ],
+  TestFun=fun(#{block:=Block,
+                emit:=_Emit,
+                failed:=Failed}) ->
+              Fee=maps:get(amount,
+                           maps:get(
+                             <<160, 0, 0, 0, 0, 0, 0, 1>>,
+                             maps:get(bals, Block)
+                            )
+                          ),
+              Sum1=ledgersum(Ledger),
+              Sum2=ledgersum(maps:get(bals, Block)),
+              [
+               ?assertEqual(Sum1,Sum2),
+               ?assertMatch([{<<"3testdeploy">>,noworkers}],Failed),
+               ?assertEqual(#{},Fee)
+              ]
+          end,
+  extcontract_template(OurChain, TxList, Ledger, TestFun, 0).
+
+
+extcontract_baddeploy2_test() ->
+  OurChain=150,
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr1=naddress:construct_public(1, OurChain, 1),
+  {ok, Code}=file:read_file("./examples/testcontract.ec"),
+  TX3=tx:sign(
+        tx:construct_tx(#{
+          ver=>2,
+          kind=>deploy,
+          from=>Addr1,
+          seq=>2,
+          t=>os:system_time(millisecond),
+          payload=>[
+                    #{purpose=>gas, amount=>6, cur=><<"FTT">>},
+                    #{purpose=>srcfee, amount=>14, cur=><<"FTT">>}
+                   ],
+          call=>#{function=>"expensive",args=>[1024]},
+          txext=>#{ "code"=> Code,
+                    "vm" => "erltest"
+                  }
+         }), Pvt1),
+  TxList=[ {<<"3testdeploy">>, maps:put(sigverify,#{valid=>1},TX3)} ],
+  Ledger=[ {Addr1, #{amount => #{ <<"FTT">> => 100, <<"SK">> => 100 }} } ],
+  TestFun=fun(#{block:=#{bals:=Bals}=Block,
+                failed:=Failed}) ->
+%              io:format("Fail ~p~n",[Failed]),
+              Fee=maps:get(amount,
+                           maps:get(
+                             <<160, 0, 0, 0, 0, 0, 0, 1>>,
+                             maps:get(bals, Block)
+                            )
+                          ),
+%              io:format("Bals ~p~n",[ maps:map( fun(_,#{amount:=V}) -> V end, Bals)]),
+%              io:format("~p~n",[maps:get(Addr1,Bals)]),
+              Sum1=ledgersum(Ledger),
+              Sum2=ledgersum(Bals),
+              [
+               ?assertEqual(Sum1,Sum2),
+               ?assertMatch([{<<"3testdeploy">>,insufficient_gas}],Failed),
+               ?assertEqual(#{<<"FTT">>=>20},Fee)
+              ]
+          end,
+  extcontract_template(OurChain, TxList, Ledger, TestFun, 1).
+
+
+extcontract_deploy_test() ->
+  OurChain=150,
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr1=naddress:construct_public(1, OurChain, 1),
+  {ok, Code}=file:read_file("./examples/testcontract.ec"),
+  TX3=tx:sign(
+        tx:construct_tx(#{
+          ver=>2,
+          kind=>deploy,
+          from=>Addr1,
+          seq=>2,
+          t=>os:system_time(millisecond),
+          payload=>[
+                    #{purpose=>gas, amount=>10, cur=><<"FTT">>},
+                    #{purpose=>srcfee, amount=>20, cur=><<"FTT">>}
+                   ],
+          call=>#{function=>"init",args=>[512]},
+          txext=>#{ "code"=> Code,
+                    "vm" => "erltest"
+                  }
+         }), Pvt1),
+  TxList=[
+          {<<"3testdeploy">>, maps:put(sigverify,#{valid=>1},TX3)}
+         ],
+  Ledger=[
+          {Addr1,
+           #{amount => #{ <<"FTT">> => 100, <<"SK">> => 100 }}
+          }
+         ],
+  TestFun=fun(#{block:=#{bals:=Bals}=Block,
+                failed:=_Failed}) ->
+%              Success=proplists:get_keys(maps:get(txs, Block)),
+              NewSCLedger=maps:get(
+                            Addr1,
+                            maps:get(bals, Block)
+                           ),
+              Fee=maps:get(amount,
+                           maps:get(
+                             <<160, 0, 0, 0, 0, 0, 0, 1>>,
+                             maps:get(bals, Block)
+                            )
+                          ),
+%              io:format("Fee  ~p~n",[Fee]),
+%              io:format("Bals ~p~n",[ maps:map( fun(_,#{amount:=V}) -> V end, Bals)]),
+              Sum1=ledgersum(Ledger),
+              Sum2=ledgersum(Bals),
+              [
+               ?assertEqual(Sum1,Sum2),
+               ?assertMatch(<<512:64/big>>,maps:get(state, NewSCLedger)),
+               ?assertMatch(#{<<"FTT">>:=100-15},maps:get(amount, NewSCLedger)),
+               ?assertMatch(#{<<"FTT">>:=15},Fee)
+              ]
+          end,
+  extcontract_template(OurChain, TxList, Ledger, TestFun, 1).
 
 extcontract_test() ->
   OurChain=150,
@@ -156,7 +323,8 @@ extcontract_test() ->
           seq=>2,
           t=>os:system_time(millisecond),
           payload=>[
-                    #{purpose=>gas, amount=>10, cur=><<"FTT">>}
+                    #{purpose=>gas, amount=>10, cur=><<"FTT">>},
+                    #{purpose=>srcfee, amount=>20, cur=><<"FTT">>}
                    ],
           call=>#{function=>"init",args=>[1024]},
           txext=>#{ "code"=> Code,
@@ -202,41 +370,9 @@ extcontract_test() ->
           {<<"4testexec">>, maps:put(sigverify,#{valid=>1},TX4)},
           {<<"5willfail">>, maps:put(sigverify,#{valid=>1},TX5)}
          ],
-  TestFun=fun(#{block:=Block,
-                emit:=Emit,
-                failed:=Failed}) ->
-              Success=proplists:get_keys(maps:get(txs, Block)),
-              NewCallerLedger=maps:get(amount,
-                                       maps:get(
-                                         Addr2,
-                                         maps:get(bals, Block)
-                                        )
-                                      ),
-              NewSCLedger=maps:get(
-                            Addr1,
-                            maps:get(bals, Block)
-                           ),
-              %{ Emit, NewCallerLedger }
-              io:format("Emit ~p~n",[Emit]),
-              io:format("NCL  ~p~n",[NewCallerLedger]),
-              Fee=maps:get(amount,
-                           maps:get(
-                             <<160, 0, 0, 0, 0, 0, 0, 1>>,
-                             maps:get(bals, Block)
-                            )
-                          ),
-              io:format("Fee  ~p~n",[Fee]),
-              [
-               ?assertMatch([{<<"5willfail">>,insufficient_gas}],Failed),
-               ?assertMatch([<<"4testexec">>,<<"3testdeploy">>],Success),
-               ?assertMatch(<<512:64/big>>,maps:get(state, NewSCLedger)),
-               ?assertMatch(#{<<"TST">>:=29, <<"FTT">>:=11},maps:get(amount, NewSCLedger)),
-               ?assertMatch(#{<<"SK">>:=1, <<"FTT">>:=3},Fee)
-              ]
-          end,
   Ledger=[
           {Addr1,
-           #{amount => #{ <<"FTT">> => 10, <<"SK">> => 3, <<"TST">> => 26 }}
+           #{amount => #{ <<"FTT">> => 100, <<"SK">> => 3, <<"TST">> => 26 }}
           },
           {Addr2,
            #{amount => #{ <<"FTT">> => 10, <<"SK">> => 3, <<"TST">> => 26 }}
@@ -244,8 +380,34 @@ extcontract_test() ->
           {Addr3,
            #{amount => #{ <<"FTT">> => 10, <<"SK">> => 2, <<"TST">> => 26 }}
           }
-         ],
-  extcontract_template(OurChain, TxList, Ledger, TestFun).
+         ],  
+  TestFun=fun(#{block:=#{bals:=Bals}=Block,
+                %emit:=Emit,
+                failed:=Failed}) ->
+              Success=proplists:get_keys(maps:get(txs, Block)),
+              NewSCLedger=maps:get(
+                            Addr1,
+                            maps:get(bals, Block)
+                           ),
+              Fee=maps:get(amount,
+                           maps:get(
+                             <<160, 0, 0, 0, 0, 0, 0, 1>>,
+                             maps:get(bals, Block)
+                            )
+                          ),
+              io:format("Fee  ~p~n",[Fee]),
+              Sum1=ledgersum(Ledger),
+              Sum2=ledgersum(Bals),
+              [
+               ?assertEqual(Sum1,Sum2),
+               ?assertMatch([{<<"5willfail">>,insufficient_gas}],Failed),
+               ?assertMatch([<<"4testexec">>,<<"3testdeploy">>],Success),
+               ?assertMatch(<<512:64/big>>,maps:get(state, NewSCLedger)),
+               ?assertMatch(#{<<"SK">>:=1, <<"FTT">>:=18},Fee)
+              ]
+          end,
+
+  extcontract_template(OurChain, TxList, Ledger, TestFun, 1).
 
 xchain_test_callingblock() ->
   Chain1=1,
@@ -438,5 +600,5 @@ xchain_test() ->
        {<<"inward">>, xchain_test_callingblock()},
        {<<"1testdeploy">>, maps:put(sigverify,#{valid=>1},TX1)}
       ],
-  extcontract_template(Chain1, TxL, Ledger1, TestFun).
+  extcontract_template(Chain1, TxL, Ledger1, TestFun, 1).
 

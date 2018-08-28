@@ -2,7 +2,7 @@
 -export([blkid/1]).
 -export([mkblock2/1, mkblock/1, binarizetx/1, extract/1, outward_mk/2, outward_mk/1]).
 -export([verify/1, outward_verify/1, sign/2, sign/3, sigverify/2]).
--export([prepack/1]).
+-export([prepack/1, binarizefail/1]).
 -export([pack/1, unpack/1]).
 -export([packsig/1, unpacksig/1]).
 -export([split_packet/2, split_packet/1, glue_packet/1]).
@@ -127,7 +127,7 @@ unpack(Block) when is_binary(Block) ->
   Atoms=[hash, outbound, header, settings, txs, sign, bals,
          balroot, ledger_hash, height, parent, txroot, tx_proof,
          amount, lastblk, seq, t, child, setroot,
-         inbound_blocks, chain, extdata, roots],
+         inbound_blocks, chain, extdata, roots, failed],
   case msgpack:unpack(Block, [{known_atoms, Atoms}]) of
     {ok, Hash} ->
       maps:map(
@@ -159,7 +159,7 @@ unpack(Block) when is_binary(Block) ->
           (failed, TXs) ->
             lists:map(
               fun([TxID, Tx]) ->
-                  {TxID, msgpack:unpack(Tx)}
+                  {TxID, Tx}
               end, TXs);
           (txs, TXs) ->
             lists:map(
@@ -267,7 +267,7 @@ verify(#{ header:=#{parent:=Parent,
         BalsBin=bals2bin(Bals),
         BalsMT=gb_merkle_trees:from_list(BalsBin),
         NewHash=gb_merkle_trees:root_hash(BalsMT),
-        if (NewHash =/= Hash) -> lager:notice("balroot mismatch");
+        if (NewHash =/= Hash) -> lager:notice("bal root mismatch");
           true -> ok
         end,
         {balroot, NewHash};
@@ -276,42 +276,44 @@ verify(#{ header:=#{parent:=Parent,
         BSettings=binarize_settings(Settings),
         SettingsMT=gb_merkle_trees:from_list(BSettings),
         NewHash=gb_merkle_trees:root_hash(SettingsMT),
-        if (NewHash =/= Hash) -> lager:notice("setroot mismatch");
+        if (NewHash =/= Hash) -> lager:notice("set root mismatch");
            true -> ok
         end,
         {setroot, NewHash};
-      ({txsroot, Hash}) ->
+      ({txroot, Hash}) ->
         Txs=maps:get(txs, Blk, []),
         BTxs=binarizetx(Txs),
         TxMT=gb_merkle_trees:from_list(BTxs),
         NewHash=gb_merkle_trees:root_hash(TxMT),
-        if (NewHash =/= Hash) -> lager:notice("txsroot mismatch");
+        if (NewHash =/= Hash) -> lager:notice("txs root mismatch");
           true -> ok
         end,
-        {txsroot, NewHash};
+        {txroot, NewHash};
       ({failed, Hash}) ->
         Fail=maps:get(failed, Blk, []),
         NewHash=if Fail==[] ->
                       undefined;
                     true ->
-                      FailMT=gb_merkle_trees:from_list(Fail),
-                      gb_merkle_trees:root_hash(FailMT)
+                     FailMT=gb_merkle_trees:from_list(binarizefail(Fail)),
+                     gb_merkle_trees:root_hash(FailMT)
                  end,
-        if (NewHash =/= Hash) -> lager:notice("txsroot mismatch");
+        if (NewHash =/= Hash) -> lager:notice("failed root mismatch");
            true -> ok
         end,
-        {txsroot, NewHash};
+        {failed, NewHash};
+      ({ledger_hash, Hash}) ->
+        {ledger_hash, Hash};
       ({Key, Value}) ->
-        lager:notice("Unknown root ~s",[Key]),
+        lager:notice("Unknown root ~p",[Key]),
         {Key, Value}
     end, Roots0),
 
-  {BHeader, #{roots:=NewRoots}}=build_header2(Roots, Parent, H, Chain),
-  io:format("vHI ~p~n", [NewRoots]),
+  {BHeader, #{roots:=_NewRoots}}=build_header2(Roots, Parent, H, Chain),
+%  io:format("vHI ~p~n", [NewRoots]),
 
   Hash=crypto:hash(sha256, BHeader),
-  io:format("H1 ~s ~nH2 ~s~n~n", [bin2hex:dbin2hex(Hash),
-                               bin2hex:dbin2hex(HdrHash)]),
+%  io:format("H1 ~s ~nH2 ~s~n~n", [bin2hex:dbin2hex(Hash),
+%                               bin2hex:dbin2hex(HdrHash)]),
   if Hash =/= HdrHash ->
        lager:notice("Block hash mismatch"),
        false;
@@ -414,27 +416,12 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
   BalsRoot=gb_merkle_trees:root_hash(BalsMT),
   SettingsRoot=gb_merkle_trees:root_hash(SettingsMT),
 
-  FailedTxs=case maps:find(failed, Req) of
-              error ->
-                [];
-              {ok, FailList} ->
-                lists:map(
-                  fun({TxID, #{}=Tx}) ->
-                      BTx=tx:pack(Tx),
-                      {TxID, BTx};
-                     ({TxID, A}) when is_atom(A) ->
-                      {TxID, msgpack:pack(#{reason=>atom_to_binary(A,utf8)})};
-                     ({TxID, T}) when is_tuple(T) ->
-                      {TxID, msgpack:pack(#{
-                               reason=> tuple_to_list(T)
-                              })
-                      }
-                  end, FailList)
-            end,
-  FailRoot=if FailedTxs==[] ->
+  Failed=prepare_fail(maps:get(failed, Req,[])),
+  FTxs=binarizefail(Failed),
+  FailRoot=if FTxs==[] ->
                 [];
               true ->
-                FailMT=gb_merkle_trees:from_list(FailedTxs),
+                FailMT=gb_merkle_trees:from_list(FTxs),
                 [{failed,gb_merkle_trees:root_hash(FailMT)}]
            end,
 
@@ -445,7 +432,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
                {other, <<1,2,3>>}
                |FailRoot],
   {BHeader, Hdr}=build_header2(HeaderItems, Parent, H, Chain),
-  io:format("mHI ~p~n", [Hdr]),
+%  io:format("mHI ~p~n", [Hdr]),
 
   Block=#{header=>Hdr,
           hash=>crypto:hash(sha256, BHeader),
@@ -480,12 +467,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
     List3 ->
       maps:put(extdata, List3, Block2)
   end,
-  Block4=if FailedTxs==[] ->
-              Block3;
-            true ->
-              maps:put(failed, FailedTxs, Block3)
-         end,
-  Block4.
+  maps:put(failed, Failed, Block3).
 
 
 mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }=Req) ->
@@ -651,6 +633,34 @@ outward_ptrs(Settings, Chain) ->
                      <<"ch:",(integer_to_binary(Chain))/binary>>]
                   )
   end.
+
+prepare_fail(Fail) ->
+  lists:map(
+    fun({TxID, A}) when is_atom(A) ->
+        R=#{<<"reason">>=>atom_to_binary(A,utf8)},
+        {TxID, R};
+       ({TxID, T}) when is_tuple(T) ->
+        [E|L]=tuple_to_list(T),
+        R=#{ <<"reason">>=> E, <<"ext">>=>L },
+        {TxID, R};
+       ({TxID, T}) when is_binary(T) ->
+        {TxID, T};
+       ({TxID, #{}=Tx}) ->
+        {TxID, Tx}
+    end, Fail).
+
+binarizefail(Fail) ->
+  lists:map(
+    fun({TxID, T}) when is_binary(T) ->
+        {TxID, T};
+       ({TxID, #{ver:=2}=Tx}) ->
+        BTx=tx:pack(Tx),
+        {TxID, BTx};
+       ({TxID, #{<<"reason">>:=_}=Any}) ->
+        BTx=msgpack:pack(Any,[{spec,new},{pack_str,from_binary}]),
+        {TxID, BTx}
+    end, Fail).
+
 
 binarizetx([]) ->
   [];

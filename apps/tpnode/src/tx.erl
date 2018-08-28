@@ -579,6 +579,15 @@ txlist_hash(List) ->
                                      [Id, tx:pack(Tx)|Acc]
                                  end, [], lists:keysort(1, List)))).
 
+get_payload(#{ver:=2, kind:=deploy, payload:=Payload}=_Tx, Purpose) ->
+  lists:foldl(
+    fun(#{amount:=_,cur:=_,purpose:=P1}=A, undefined) when P1==Purpose ->
+        A;
+       (_,A) ->
+        A
+    end, undefined, Payload);
+
+
 get_payload(#{ver:=2, kind:=generic, payload:=Payload}=_Tx, Purpose) ->
   lists:foldl(
     fun(#{amount:=_,cur:=_,purpose:=P1}=A, undefined) when P1==Purpose ->
@@ -587,6 +596,11 @@ get_payload(#{ver:=2, kind:=generic, payload:=Payload}=_Tx, Purpose) ->
         A
     end, undefined, Payload).
 
+get_payloads(#{ver:=2, kind:=deploy, payload:=Payload}=_Tx, Purpose) ->
+  lists:filter(
+    fun(#{amount:=_,cur:=_,purpose:=P1}) ->
+        P1==Purpose
+    end, Payload);
 
 get_payloads(#{ver:=2, kind:=generic, payload:=Payload}=_Tx, Purpose) ->
   lists:filter(
@@ -634,6 +648,33 @@ rate(#{ver:=2, kind:=generic}=Tx, GetRateFun) ->
         end
     end
   catch _:_ -> throw('cant_calculate_fee')
+  end;
+
+rate(#{ver:=2, kind:=deploy}=Tx, GetRateFun) ->
+  try
+    case get_payload(Tx, srcfee) of
+      #{cur:=Cur, amount:=TxAmount} ->
+        rate2(Tx, Cur, TxAmount, GetRateFun);
+      _ ->
+        case GetRateFun({params, <<"feeaddr">>}) of
+          X when is_binary(X) ->
+            {false, #{ cost=>null } };
+          _ ->
+            {true, #{ cost=>0, tip => 0, cur=><<"NONE">> }}
+        end
+    end
+  catch Ec:Ee -> 
+          file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n", 
+                                                         [
+                                                          Tx,
+                                                          erlang:term_to_binary(GetRateFun)
+                                                         ])]),
+          S=erlang:get_stacktrace(),
+          lager:error("Calc fee error ~p tx ~p",[{Ec,Ee},Tx]),
+          lists:foreach(fun(SE) ->
+                            lager:error("@ ~p", [SE])
+                        end, S),
+          throw('cant_calculate_fee')
   end;
 
 

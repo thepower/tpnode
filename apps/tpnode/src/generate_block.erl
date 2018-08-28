@@ -359,7 +359,6 @@ try_process([{TxID, #{
               success:=Success}=Acc) ->
   try
     Verify=try
-             %TODO: If it contract issued tx check for minsig
              #{sigverify:=#{valid:=SigValid}}=Tx,
              SigValid>0
            catch _:_ ->
@@ -379,76 +378,101 @@ try_process([{TxID, #{
        catch error:badarg ->
                throw('unknown_vm')
        end,
-
-    lager:info("Deploy contract ~s for ~s",
-               [VM, naddress:encode(Owner)]),
-    State0=maps:get(state, Tx, <<>>),
-    Bal=maps:get(Owner, Addresses),
-    NewF1=bal:put(vm, VMType, Bal),
-    NewF2=bal:put(code, Code, NewF1),
     code:ensure_loaded(VM),
     A4=erlang:function_exported(VM,deploy,4),
     A6=erlang:function_exported(VM,deploy,6),
-    lager:info("A4 ~p A6 ~p",[A4,A6]),
-    State1=try
-             if A4 ->
-                  case erlang:apply(VM, deploy, [Tx, Bal, 1, GetFun]) of
-                    {ok, #{null:="exec",
-                           "err":=Err}} ->
-                      try
-                        AErr=erlang:list_to_existing_atom(Err),
-                        throw(AErr)
-                      catch error:badarg ->
-                        throw(Err)
-                      end;
-                    {ok, #{null:="exec",
-                           "state":=St2,
-                           "gas":=_GasLeft
-                          }} ->
-                      St2;
-                    {error, Error} ->
-                      throw({'deploy_failed', Error});
-                    _Any ->
-                      lager:error("Deploy error ~p",[_Any]),
-                      throw({'deploy_failed', other})
-                  end;
-                A6 ->
-                  case erlang:apply(VM, deploy, [Owner, Bal, Code, State0, 1, GetFun]) of
-                    {ok, NewS} ->
-                      NewS;
-                    {error, Error} ->
-                      throw({'deploy_failed', Error});
-                    _Any ->
-                      lager:error("Deploy error ~p",[_Any]),
-                      throw({'deploy_failed', other})
-                  end
-             end
-           catch throw:{deploy_failed,Reason} ->
-                   throw({'deploy_error', Reason});
-                 Ec:Ee ->
-                   S=erlang:get_stacktrace(),
-                   lager:error("Can't deploy ~p:~p",
-                               [Ec, Ee]),
-                   lists:foreach(fun(SE) ->
-                                     lager:error("@ ~p", [SE])
-                                 end, S),
-                   throw({'deploy_error', [Ec, Ee]})
+
+    State0=maps:get(state, Tx, <<>>),
+    Bal=maps:get(Owner, Addresses),
+    {NewF, GasF, GotFee, {GCur,GAmount,GRate}=Gas}=withdraw(Bal, Tx, GetFun, SetState),
+
+
+    try
+      NewF1=bal:put(vm, VMType, NewF),
+      NewF2=bal:put(code, Code, NewF1),
+      lager:info("Deploy contract ~s for ~s gas ~w",
+                 [VM, naddress:encode(Owner), {GCur,GAmount,GRate}]),
+      lager:info("A4 ~p A6 ~p",[A4,A6]),
+      IGas=GAmount*GRate,
+      Left=fun(GL) ->
+               lager:info("VM run gas ~p -> ~p",[IGas,GL]),
+               {GCur, GL div GRate, GRate}
            end,
-    NewF3=maps:remove(keep,
-                      bal:put(state, State1, NewF2)
-                     ),
+      {St1,GasLeft}=if A4 ->
+                         case erlang:apply(VM, deploy, [Tx, Bal, IGas, GetFun]) of
+                           {ok, #{null:="exec",
+                                  "err":=Err}} ->
+                             try
+                               AErr=erlang:list_to_existing_atom(Err),
+                               throw(AErr)
+                             catch error:badarg ->
+                                     throw(Err)
+                             end;
+                           {ok, #{null:="exec", "state":=St2, "gas":=IGasLeft }} ->
+                             {St2, Left(IGasLeft)};
+                           {error, Error} ->
+                             throw(Error);
+                           _Any ->
+                             lager:error("Deploy error ~p",[_Any]),
+                             throw(other_error)
+                         end;
+                       A6 ->
+                         case erlang:apply(VM, deploy, [Owner, Bal, Code, State0, 1, GetFun]) of
+                           {ok, NewS} ->
+                             {NewS, Left(0)};
+                           {error, Error} ->
+                             throw({'deploy_error', Error});
+                           _Any ->
+                             lager:error("Deploy error ~p",[_Any]),
+                             throw({'deploy_error', other})
+                         end
+                    end,
+      NewF3=maps:remove(keep,
+                        bal:put(state, St1, NewF2)
+                       ),
 
-    NewAddresses=maps:put(Owner, NewF3, Addresses),
+      NewAddresses=case GasLeft of
+                     {_, 0, _} ->
+                       maps:put(Owner, NewF3, Addresses);
+                     {_, IGL, _} when IGL < 0 ->
+                       throw('insufficient_gas');
+                     {_, IGL, _} when IGL > 0 ->
+                       XBal1=return_gas(Tx, GasLeft, SetState, NewF3),
+                       maps:put(Owner, XBal1, Addresses)
+                   end,
 
-    try_process(Rest, SetState, NewAddresses, GetFun,
-                Acc#{success=> [{TxID, Tx}|Success]})
+      %    NewAddresses=maps:put(Owner, NewF3, Addresses),
+
+      try_process(Rest, SetState, NewAddresses, GetFun,
+                  savegas(Gas, GasLeft,
+                          savefee(GotFee,
+                                  Acc#{success=> [{TxID, Tx}|Success]}
+                                 )
+                         ))
+    catch throw:insufficient_gas=ThrowReason ->
+            NewAddressesG=maps:put(Owner, GasF, Addresses),
+            try_process(Rest, SetState, NewAddressesG, GetFun,
+                        savegas(Gas, all,
+                                savefee(GotFee,
+                                        Acc#{failed=> [{TxID, ThrowReason}|Failed]}
+                                       )
+                               ))
+    end
   catch error:{badkey,Owner} ->
           try_process(Rest, SetState, Addresses, GetFun,
                       Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
         throw:X ->
           lager:info("Contract deploy failed ~p", [X]),
           try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{failed=>[{TxID, X}|Failed]})
+                      Acc#{failed=>[{TxID, X}|Failed]});
+        Ec:Ee ->
+          S=erlang:get_stacktrace(),
+          lager:info("Contract deploy failed ~p:~p", [Ec,Ee]),
+          lists:foreach(fun(SE) ->
+                            lager:error("@ ~p", [SE])
+                        end, S),
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{failed=>[{TxID, other}|Failed]})
   end;
 
 %try_process([{TxID, #{deploy:=VMType, code:=Code, from:=Owner}=Tx} |Rest],
@@ -1024,6 +1048,7 @@ savegas({Cur, Amount1, Rate1}, all, Acc) ->
 
 savegas({Cur, Amount1, _}, {Cur, Amount2, _}, 
         #{fee:=FeeBal}=Acc) ->
+  lager:info("save gas ~s ~w ~w",[Cur,Amount1, Amount2]),
   if Amount1-Amount2 > 0 ->
        Acc#{
          fee=>bal:put_cur(Cur, Amount1-Amount2 + 
@@ -1054,10 +1079,6 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, _Settings, GasLimit) ->
       {NewT, [], GasLimit};
     VMType ->
       lager:info("Smartcontract ~p gas ~p", [VMType, GasLimit]),
-      lists:foreach(fun(SE) ->
-                        lager:error("@ ~p", [SE])
-                    end, [ VMType, Tx, NewT, GasLimit, GetFun]),
-
       {L1, TXs, GasLeft}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
       {L1, lists:map(
              fun(#{seq:=Seq}=ETx) ->
@@ -1129,7 +1150,7 @@ withdraw(FBal0,
                          true ->
                            bal:get(usk, FBal0)
                       end,
-              lager:info("usk ~p SK ~p",[FSKUsed,FSK]),
+              lager:debug("usk ~p SK ~p",[FSKUsed,FSK]),
               if FSK < 1 ->
                    case GetFun({endless, From, <<"SK">>}) of
                      true -> ok;
@@ -1551,7 +1572,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
 
   HedgerHash=ledger_hash(NewBal, LedgerPid),
   _T5=erlang:system_time(),
-  Blk=block:mkblock2(#{
+  Blk=block:mkblock(#{
         txs=>Success,
         parent=>Parent_Hash,
         mychain=>GetSettings(mychain),
@@ -1569,7 +1590,6 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                           end, [], maps:keys(PickBlocks)),
         extdata=>ExtraData
        }),
-
 
   % TODO: Remove after testing
   % Verify myself
