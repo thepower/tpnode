@@ -43,7 +43,14 @@ init([]) ->
              <<"blockchain">>=>blockchain
             }
           },
-    VMPort=application:get_env(tpnode,vmport,50050),
+    VMPort=case application:get_env(tpnode,vmport,undefined) of
+             XPort when is_integer(XPort) ->
+               XPort;
+             _ ->
+               XPort=utils:alloc_tcp_port(),
+               application:set_env(tpnode,vmport,XPort),
+               XPort
+           end,
 		Discovery=#{name=>discovery, services=>MandatoryServices},
     {ok, { {one_for_one, 5, 10},
            [
