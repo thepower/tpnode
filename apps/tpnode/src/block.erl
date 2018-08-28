@@ -417,7 +417,9 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
   SettingsRoot=gb_merkle_trees:root_hash(SettingsMT),
 
   Failed=prepare_fail(maps:get(failed, Req,[])),
+  %io:format("Fail1 ~p~n",[Failed]),
   FTxs=binarizefail(Failed),
+  %io:format("Fail2 ~p~n",[FTxs]),
   FailRoot=if FTxs==[] ->
                 [];
               true ->
@@ -641,7 +643,7 @@ prepare_fail(Fail) ->
         {TxID, R};
        ({TxID, T}) when is_tuple(T) ->
         [E|L]=tuple_to_list(T),
-        R=#{ <<"reason">>=> E, <<"ext">>=>L },
+        R=#{ <<"reason">>=> E, <<"ext">>=>{array,L} },
         {TxID, R};
        ({TxID, T}) when is_binary(T) ->
         {TxID, T};
@@ -657,7 +659,8 @@ binarizefail(Fail) ->
         BTx=tx:pack(Tx),
         {TxID, BTx};
        ({TxID, #{<<"reason">>:=_}=Any}) ->
-        BTx=msgpack:pack(Any,[{spec,new},{pack_str,from_binary}]),
+        %io:format("Binarize ~p~n",[Any]),
+        BTx=msgpack:pack(Any,[{spec,new},{pack_str,from_list}]),
         {TxID, BTx}
     end, Fail).
 
