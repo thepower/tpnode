@@ -1,5 +1,5 @@
 -module(beacon).
--export([create/1, check/1, relay/2, parse_relayed/1]).
+-export([create/1, check/2, relay/2, parse_relayed/1]).
 
 %% ------------------------------------------------------------------
 
@@ -39,7 +39,7 @@ parse_relayed(<<16#BE, PayloadLen:8/integer, Rest/binary>> = _Arg) ->
           #{
             to => To,
             from => From,
-            payload => Payload
+            collection => Payload
           };
         _ ->
           error
@@ -58,18 +58,20 @@ pack_and_sign(Bin, Priv) ->
 
 %% ------------------------------------------------------------------
 
-check(<<16#BE, PayloadLen:8/integer, Rest/binary>> = _Arg) ->
+check(<<16#BE, PayloadLen:8/integer, Rest/binary>> = _Arg, Validator) ->
   <<Payload:PayloadLen/binary, Sig/binary>> = Rest,
   <<Timestamp:64/big, Address/binary>> = Payload,
   HB = crypto:hash(sha256, Payload),
   case bsig:checksig1(HB, Sig) of
     {true, #{extra:=Extra}} ->
       SA = proplists:get_value(pubkey, Extra),
-      #{
-        to=>Address,
-        from=>SA,
-        timestamp=>Timestamp
-      };
+      Beacon =
+        #{
+          to => Address,
+          from => SA,
+          timestamp => Timestamp
+        },
+      Validator(Beacon);
     false ->
       error
   end.
