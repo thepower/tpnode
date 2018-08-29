@@ -868,7 +868,7 @@ handle_info({bbyb_sync, Hash}, #{
         false ->
           lager:error("No block part arrived, broken sync ~p", [R]), erlang:send_after(10000, self(), runsync),
           {noreply, State#{
-            sync_candidates => tl(Candidates)
+            sync_candidates => skip_candidate(Candidates)
           }};
         true -> lager:debug("block found in received bbyb sync data"),
           try #{block := BlockPart} = R,
@@ -887,7 +887,7 @@ handle_info({bbyb_sync, Hash}, #{
                   erlang:send_after(1000, self(), runsync),
                   lager:info("block ~s no child, sync done? Try after 1 sec again", [blkid(NewH)]),
                   {noreply, State#{
-                    sync_candidates => tl(Candidates)
+                    sync_candidates => skip_candidate(Candidates)
                   }}
               end;
             false ->
@@ -899,7 +899,7 @@ handle_info({bbyb_sync, Hash}, #{
                 ]),
               erlang:send_after(10000, self(), runsync),
               {noreply, State#{
-                sync_candidates => tl(Candidates)
+                sync_candidates => skip_candidate(Candidates)
               }} end
           catch throw:broken_sync ->
             lager:notice("Broken sync"),
@@ -909,7 +909,7 @@ handle_info({bbyb_sync, Hash}, #{
     _ ->
       lager:error("bbyb no response"), erlang:send_after(10000, self(), runsync),
       {noreply, State#{
-        sync_candidates => tl(Candidates)
+        sync_candidates => skip_candidate(Candidates)
       }}
   end;
 
@@ -1456,3 +1456,16 @@ block_rel(LDB,Hash,Rel) when Rel==prev orelse Rel==child orelse Rel==self ->
       unknown
   end.
 
+%% ------------------------------------------------------------------
+
+% removes one sync candidate from the list of sync candidates
+skip_candidate([])->
+  [];
+
+skip_candidate(default)->
+  [];
+  
+skip_candidate(Candidates) when is_list(Candidates) ->
+  tl(Candidates).
+
+%% ------------------------------------------------------------------

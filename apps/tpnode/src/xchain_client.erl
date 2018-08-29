@@ -80,13 +80,23 @@ handle_cast(_Msg, State) ->
   lager:error("xchain client unknown cast ~p", [_Msg]),
   {noreply, State}.
 
+handle_info({wrk_up, ConnPid, NodeID}, #{subs:=Subs} = State) ->
+  lager:notice("xchain client got nodeid from server for pid ~p: ~p",
+               [ConnPid, NodeID]),
+  {noreply, State#{
+              subs => update_sub(
+                        fun(_,Sub) ->
+                            maps:put(nodeid, NodeID, Sub)
+                        end, ConnPid, Subs)
+             }};
+
 handle_info({wrk_down, ConnPid, Reason}, #{subs:=Subs} = State) ->
   lager:notice("xchain client got close from server for pid ~p: ~p",
                [ConnPid, Reason]),
   {noreply, State#{
               subs => update_sub(
                         fun(_,Sub) ->
-                            maps:remove(worker,Sub)
+                            maps:without([worker,nodeid],Sub)
                         end, ConnPid, Subs)
              }};
 
@@ -148,13 +158,11 @@ add_sub(#{address:=IP,port:=Port}=Subscribe, Subs) ->
   end.
 
 get_peers(Subs) ->
-  Parser =
-  fun(_PeerKey, #{channels:=Channels, node_id:=NodeId, ws_mode:=true} = _PeerInfo, Acc) ->
-      maps:put(NodeId, maps:keys(Channels), Acc);
-
-     (_PeerKey, _PeerInfo, Acc) ->
-      Acc
-  end,
+  Parser = fun(_PeerKey, #{worker:=_W, nodeid:=NodeID}, Acc) ->
+               maps:put(NodeID, [], Acc);
+              (_PeerKey, _PeerInfo, Acc) ->
+               Acc
+           end,
   maps:fold(Parser, #{}, Subs).
 
 relay_discovery(_Announce, AnnounceBin, Subs) ->

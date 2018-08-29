@@ -250,6 +250,21 @@ unpack_body(#{body:=Body}=Tx) ->
       end
   end.
 
+unpack_addr(<<_:64/big>>=From,_) -> From;
+unpack_addr([_,_,_,_,_,_,_,_]=From,_) -> list_to_binary(From);
+unpack_addr(_,T) -> throw(T).
+
+unpack_timestamp(Time) when is_integer(Time) -> Time;
+unpack_timestamp(_Time) -> throw(bad_timestamp).
+
+unpack_seq(Int) when is_integer(Int) -> Int;
+unpack_seq(_Int) -> throw(bad_seq).
+
+%TODO: remove this temporary fix
+unpack_txext(<<>>) -> #{};
+unpack_txext(Map) when is_map(Map) -> Map;
+unpack_txext(_Any) -> throw(bad_ext).
+
 unpack_body(#{ ver:=2,
               kind:=GenericOrDeploy
              }=Tx,
@@ -270,12 +285,12 @@ unpack_body(#{ ver:=2,
        end, Payload),
   Decoded=Tx#{
     ver=>2,
-    from=>From,
-    to=>To,
-    t=>Timestamp,
-    seq=>Seq,
+    from=>unpack_addr(From,bad_from),
+    to=>unpack_addr(To,bad_to),
+    t=>unpack_timestamp(Timestamp),
+    seq=>unpack_seq(Seq),
     payload=>Amounts,
-    txext=>Extradata
+    txext=>unpack_txext(Extradata)
    },
   case maps:is_key("c",Unpacked) of
     false -> Decoded;
@@ -304,11 +319,11 @@ unpack_body(#{ ver:=2,
        end, Payload),
   Decoded=Tx#{
     ver=>2,
-    from=>From,
-    t=>Timestamp,
-    seq=>Seq,
+    from=>unpack_addr(From,bad_from),
+    t=>unpack_timestamp(Timestamp),
+    seq=>unpack_seq(Seq),
     payload=>Amounts,
-    txext=>Extradata
+    txext=>unpack_txext(Extradata)
    },
   case maps:is_key("c",Unpacked) of
     false -> Decoded;
@@ -328,9 +343,9 @@ unpack_body(#{ ver:=2,
              }=_Unpacked) ->
   Tx#{
     ver=>2,
-    t=>Timestamp,
+    t=>unpack_timestamp(Timestamp),
     keysh=>Hash,
-    txext=>Extradata
+    txext=>unpack_txext(Extradata)
    };
 
 unpack_body(#{ ver:=2,
@@ -341,7 +356,7 @@ unpack_body(#{ ver:=2,
              }=_Unpacked) ->
   Tx#{
     ver=>2,
-    t=>Timestamp,
+    t=>unpack_timestamp(Timestamp),
     keysh=>Hash,
     txext=>#{}
    };
@@ -355,7 +370,7 @@ unpack_body(#{ ver:=2,
   Tx#{
     ver=>2,
     patches=>Patches,
-    txext=>Extradata
+    txext=>unpack_txext(Extradata)
    };
 
 unpack_body(#{ver:=Ver, kind:=Kind},_Unpacked) ->

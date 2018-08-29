@@ -84,9 +84,11 @@ handle_xchain(#{null:=<<"owblock">>,
 
 handle_xchain(#{null:=<<"node_id">>,
                 <<"node_id">>:=RemoteNodeId,
-                <<"chain">>:=_RemoteChain}) ->
+                <<"chain">>:=RemoteChain}) ->
   try
     lager:info("Got nodeid ~p",[RemoteNodeId]),
+    gen_server:cast(xchain_dispatcher,
+                    {register_peer, self(), RemoteNodeId, RemoteChain}),
     #{null=><<"iam">>, 
       <<"node_id">>=>nodekey:node_id(),
       <<"chain">>=>blockchain:chain()

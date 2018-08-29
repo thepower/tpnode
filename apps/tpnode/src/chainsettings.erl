@@ -68,6 +68,19 @@ settings_to_ets(NewSettings) ->
 get_val(Name) ->
   get_val(Name, undefined).
 
+get_val(Name, Default) when Name==minsig; Name==patchsig ->
+  Val=get_settings_by_path([<<"current">>,chain,Name]),
+  if is_integer(Val) -> Val;
+     true ->
+       case ets:lookup(blockchain,chainnodes) of
+         [{chainnodes,Map}] ->
+           lager:error("No ~s specified!!!!!",[Name]),
+           (maps:size(Map) div 2)+1;
+         _ ->
+           Default
+       end
+  end;
+
 get_val(Name,Default) ->
   Val=get_settings_by_path([<<"current">>,chain,Name]),
   if is_integer(Val) -> Val;
@@ -111,7 +124,7 @@ get(Name, Sets, GetChain) ->
   if is_integer(MinSig) -> MinSig;
      true ->
        MinSig_old=settings:get([chain,GetChain(),Name], Sets),
-       if is_integer(MinSig_old) -> 
+       if is_integer(MinSig_old) ->
             lager:info("Got setting ~p from deprecated place",[Name]),
             MinSig_old;
           true -> undefined

@@ -89,17 +89,15 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 get_peers(PidInfo) ->
-    Parser =
-        fun(_ConnPid, PeerInfo, Acc) ->
-            maps:merge(Acc, PeerInfo)
-        end,
-
-    try
-        maps:fold(Parser, #{}, PidInfo)
-    catch
-        Ec:Ee ->
-            iolist_to_binary(io_lib:format("~p:~p", [Ec, Ee]))
-    end.
+  Parser = fun(_ConnPid, PeerInfo, Acc) ->
+               maps:merge(Acc, PeerInfo)
+           end,
+  try
+    maps:fold(Parser, #{}, PidInfo)
+  catch
+    Ec:Ee ->
+      iolist_to_binary(io_lib:format("~p:~p", [Ec, Ee]))
+  end.
 
 register_peer({Pid, RemoteNodeId, RemoteChannels}, #{pid_info:=PidInfo} = State) ->
     lager:info("xchain dispatcher register remote node ~p ~p ~p", [Pid, RemoteNodeId, RemoteChannels]),

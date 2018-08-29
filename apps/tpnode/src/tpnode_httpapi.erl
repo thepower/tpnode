@@ -143,6 +143,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
     #{ result => <<"ok">>,
       status => #{
         nodeid=>nodekey:node_id(),
+        nodename=>nodekey:node_name(),
         public_key=>BinPacker(nodekey:get_pub()),
         blockchain=>#{
           chain=>Chain,
@@ -611,11 +612,16 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
   Body=apixiom:bodyjs(Req),
   lager:debug("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
-  BinTx=case maps:get(<<"tx">>, Body, undefined) of
-          <<"0x", BArr/binary>> ->
-            hex:parse(BArr);
-          Any ->
-            base64:decode(Any)
+  BinTx=if Body == undefined ->
+             {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
+             ReqBody;
+           is_map(Body) ->
+             case maps:get(<<"tx">>, Body, undefined) of
+               <<"0x", BArr/binary>> ->
+                 hex:parse(BArr);
+               Any ->
+                 base64:decode(Any)
+             end
         end,
   %lager:info_unsafe("New tx ~p", [BinTx]),
   case txpool:new_tx(BinTx) of
@@ -778,6 +784,8 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
               (K2,V2,Acc) ->
               [{K2,V2}|Acc]
           end, [], V1);
+       (txext, <<>>) -> %TODO: remove this temporary fix
+        #{};
        (txext, V1) ->
         maps:fold(
           fun(K2,V2,Acc) when is_list(K2), is_list(V2) ->
