@@ -8,7 +8,6 @@
 %% for make decision on data from the received collections. The state of the network goes to
 %% the ETS storage after the third round.
 
-
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -118,7 +117,9 @@ handle_cast({got_beacon2, _PeerID, <<16#be, _/binary>> = PayloadBin}, #{collecti
   end;
 
 % handle single beacon from another node (round 1 receive)
-handle_cast({got_beacon, _PeerID, <<16#be, _/binary>> = Payload}, #{beacon_cache := Collection} = State) ->
+handle_cast(
+  {got_beacon, _PeerID, <<16#be, _/binary>> = Payload},
+  #{beacon_cache := Collection, collection_cache := Collection2} = State) ->
   try
     {Me, BeaconTtl, Now} = get_beacon_settings(State),
     
@@ -138,15 +139,21 @@ handle_cast({got_beacon, _PeerID, <<16#be, _/binary>> = Payload}, #{beacon_cache
       end,
     
     case beacon:check(Payload, Validator) of
-      false ->
-        lager:info("TOPO can't verify beacon from ~p", [_PeerID]),
-        {noreply, State};
-      Beacon ->
+      #{from := BeaconOrigin, to := Me, timestamp := BeaconTimestamp} = Beacon ->
         lager:info("TOPO beacon from ~p: ~p", [_PeerID, Beacon]),
         
         {noreply, State#{
-          beacon_cache => add_beacon_to_cache(Beacon, Collection)
-        }}
+          beacon_cache => add_beacon_to_cache(Beacon, Collection),
+  
+          % also add this beacon to collection of collections
+          % Collection2 = #{ {Origin, Round1From1} => timestamp1, {Origin, Round1From1} => timestamp2 }
+          % {Origin, Collection} = {Round1To, #{Round1From1 => timestamp1, Round1From2 => timestamp2}}
+          collection_cache =>
+            add_collection_to_cache({Me, #{BeaconOrigin => BeaconTimestamp}}, Collection2)
+        }};
+      _ ->
+        lager:info("TOPO can't verify beacon from ~p", [_PeerID]),
+        {noreply, State}
     end
   catch
     Ec:Ee ->
@@ -174,10 +181,11 @@ handle_cast(_Msg, State) ->
 
 
 % make network topology decision (round 3)
-handle_info(timer_decide, #{timer_decide:=Tmr, tickms:=Delay, collection_cache:=Cache} = State) ->
+handle_info(timer_decide,
+  #{timer_decide:=Tmr, tickms:=Delay, collection_cache:=Cache} = State) ->
   catch erlang:cancel_timer(Tmr),
   {_Me, BeaconTtl, Now} = get_beacon_settings(State),
-
+  
   % Cache = #{ {Origin, Round1From1} => timestamp1, {Origin, Round1From1} => timestamp2 }
   Worker =
     fun
@@ -200,7 +208,14 @@ handle_info(timer_decide, #{timer_decide:=Tmr, tickms:=Delay, collection_cache:=
     end,
   {Matrix, NewCache} = maps:fold(Worker, {#{}, #{}}, Cache),
   
-  lager:info("TOPO: decision matrix ~p", [Matrix]),
+  lager:info("TOPO: decision matrix ~p", [
+    maps:fold(
+      fun(N1,Nodes2,Acc) ->
+        maps:put(chainsettings:is_our_node(N1),[chainsettings:is_our_node(N2) || N2<-Nodes2],Acc)
+      end,
+      #{},
+      Matrix)
+  ]),
   lager:info("TOPO: decision matrix list ~p", [ maps:to_list(Matrix) ]),
   
   NetworkState = bron_kerbosch:max_clique(maps:to_list(Matrix)),
