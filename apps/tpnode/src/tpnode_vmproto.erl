@@ -8,13 +8,24 @@
 
 -behaviour(ranch_protocol).
 
--export([start_link/4, init/4, childspec/1, loop/1]).
+-export([start_link/4, init/4, childspec/1, childspec/2, loop/1]).
 -export([req/2, reply/3]).
 
 -record(req,
         {owner,
          t1
         }).
+
+childspec(Host, Port) ->
+  [
+   ranch:child_spec(
+    {vm_listener,Port}, ranch_tcp,
+    [{port, Port}, {max_connections, 128}, {ip, Host}],
+    ?MODULE,
+    []
+   )
+  ].
+
 
 childspec(Port) ->
   [

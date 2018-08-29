@@ -43,6 +43,16 @@ init([]) ->
              <<"blockchain">>=>blockchain
             }
           },
+    VMHost=case application:get_env(tpnode,vmaddr,undefined) of
+             XHost when is_list(XHost) ->
+               {ok,Tuple}=inet:parse_address(XHost),
+               Tuple;
+             _ ->
+               XHost="127.0.0.1",
+               application:set_env(tpnode,vmaddr,XHost),
+               {ok,Tuple}=inet:parse_address(XHost),
+               Tuple
+           end,
     VMPort=case application:get_env(tpnode,vmport,undefined) of
              XPort when is_integer(XPort) ->
                XPort;
@@ -72,7 +82,7 @@ init([]) ->
             { tpnode_vmsrv, {tpnode_vmsrv, start_link, []}, permanent, 5000, worker, []}
            ]
             ++ xchain:childspec()
-            ++ tpnode_vmproto:childspec(VMPort)
+            ++ tpnode_vmproto:childspec(VMHost, VMPort)
             ++ tpnode_http:childspec()
          } }.
 
