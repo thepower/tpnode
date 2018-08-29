@@ -27,7 +27,7 @@ init([]) ->
     application:ensure_all_started(tinymq),
     code:ensure_loaded(tpic_checkauth),
     tpnode:reload(),
-  
+
     % we'll register this services-without-pid on discovery starting up
     MandatoryServices = [ api ],
 
@@ -61,28 +61,66 @@ init([]) ->
                application:set_env(tpnode,vmport,XPort),
                XPort
            end,
+    VM_CS=case application:get_env(tpnode,run_wanode,true) of
+            true ->
+              [{ wasm_vm, {vm_wasm, start_link, []}, permanent, 5000, worker, []}];
+            _ ->
+              []
+          end,
+
 		Discovery=#{name=>discovery, services=>MandatoryServices},
-    {ok, { {one_for_one, 5, 10},
-           [
-            { rdb_dispatcher, {rdb_dispatcher, start_link, []}, permanent, 5000, worker, []},
-            { blockchain, {blockchain, start_link, []}, permanent, 5000, worker, []},
-            { blockvote, {blockvote, start_link, []}, permanent, 5000, worker, []},
-            { ws_dispatcher, {tpnode_ws_dispatcher, start_link, []}, permanent, 5000, worker, []},
-            { synchronizer, {synchronizer, start_link, []}, permanent, 5000, worker, []},
-            { mkblock, {mkblock, start_link, []}, permanent, 5000, worker, []},
-            { txpool, {txpool, start_link, []}, permanent, 5000, worker, []},
-            { txstatus, {txstatus, start_link, [txstatus]}, permanent, 5000, worker, []},
-            { tpic_sctp, {tpic_sctp, start_link, [TPIC]}, permanent, 5000, worker, []},
-            { ledger, {ledger, start_link, []}, permanent, 5000, worker, []},
-            { discovery, {discovery, start_link, [Discovery]}, permanent, 5000, worker, []},
-            { tpnode_announcer, {tpnode_announcer, start_link, [#{}]}, permanent, 5000, worker, []},
-            { xchain_client, {xchain_client, start_link, [#{}]}, permanent, 5000, worker, []},
-            { xchain_dispatcher, {xchain_dispatcher, start_link, []}, permanent, 5000, worker, []},
-            { tpnode_cert, {tpnode_cert, start_link, []}, permanent, 5000, worker, []},
-            { tpnode_vmsrv, {tpnode_vmsrv, start_link, []}, permanent, 5000, worker, []}
-           ]
+    Childs=[
+            { rdb_dispatcher, {rdb_dispatcher, start_link, []},
+              permanent, 5000, worker, []},
+
+            { blockchain, {blockchain, start_link, []},
+              permanent, 5000, worker, []},
+
+            { blockvote, {blockvote, start_link, []},
+              permanent, 5000, worker, []},
+
+            { ws_dispatcher, {tpnode_ws_dispatcher, start_link, []},
+              permanent, 5000, worker, []},
+
+            { synchronizer, {synchronizer, start_link, []},
+              permanent, 5000, worker, []},
+
+            { mkblock, {mkblock, start_link, []},
+              permanent, 5000, worker, []},
+
+            { txpool, {txpool, start_link, []},
+              permanent, 5000, worker, []},
+
+            { txstatus, {txstatus, start_link, [txstatus]},
+              permanent, 5000, worker, []},
+
+            { tpic_sctp, {tpic_sctp, start_link, [TPIC]},
+              permanent, 5000, worker, []},
+
+            { ledger, {ledger, start_link, []},
+              permanent, 5000, worker, []},
+
+            { discovery, {discovery, start_link, [Discovery]},
+              permanent, 5000, worker, []},
+
+            { tpnode_announcer, {tpnode_announcer, start_link, [#{}]},
+              permanent, 5000, worker, []},
+
+            { xchain_client, {xchain_client, start_link, [#{}]},
+              permanent, 5000, worker, []},
+
+            { xchain_dispatcher, {xchain_dispatcher, start_link, []},
+              permanent, 5000, worker, []},
+
+            { tpnode_cert, {tpnode_cert, start_link, []},
+              permanent, 5000, worker, []},
+
+            { tpnode_vmsrv, {tpnode_vmsrv, start_link, []},
+              permanent, 5000, worker, []}
+
+           ] ++ VM_CS
             ++ xchain:childspec()
             ++ tpnode_vmproto:childspec(VMHost, VMPort)
-            ++ tpnode_http:childspec()
-         } }.
+            ++ tpnode_http:childspec(),
+    {ok, { {one_for_one, 5, 10}, Childs } }.
 

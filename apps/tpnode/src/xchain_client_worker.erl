@@ -169,10 +169,10 @@ block_list(_, _, _, Last, Known, Acc) when Last==Known ->
 
 block_list(Pid, Proto, Chain, Last, Known, Acc) ->
   Req=if Last==last ->
-           io:format("BL last~n",[]),
+           lager:debug("Blocklist last",[]),
            #{null=><<"last_ptr">>, <<"chain">>=>Chain};
          true ->
-           io:format("BL ~s~n",[hex:encode(Last)]),
+           lager:debug("Blocklist ~s",[hex:encode(Last)]),
            #{null=><<"pre_ptr">>,  <<"chain">>=>Chain, <<"block">>=>Last}
     end,
   R=make_ws_req(Pid, Proto, Req),
