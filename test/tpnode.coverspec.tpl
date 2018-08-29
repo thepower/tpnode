@@ -12,7 +12,7 @@
   ledger_sync,mkblock,mkblock_benchmark,mkpatches,
   naddress,nodekey,rdb_dispatcher,scratchpad,settings,
   smartcontract,smartcontract2,smartcontract_scratchpad,
-  synchronizer,test_sync,timetop,topology,tpecdsa,
+  synchronizer,test_sync,topology,tpecdsa,
   tpic_checkauth,tpnode,tpnode_announcer,tpnode_bridge,
   tpnode_cert,tpnode_http,tpnode_httpapi,
   tpnode_registry,tpnode_sup,tpnode_tpic_handler,
