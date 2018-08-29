@@ -35,12 +35,17 @@ parse_relayed(<<16#BE, PayloadLen:8/integer, Rest/binary>> = _Arg) ->
     {true, #{extra:=Extra}} ->
       case parse_relayed(PayloadBin) of
         {To, Payload} ->
-          From = proplists:get_value(pubkey, Extra),
-          #{
-            to => To,
-            from => From,
-            collection => Payload
-          };
+          Origin = proplists:get_value(pubkey, Extra),
+          case chainsettings:is_our_node(Origin) of
+            false ->
+              error;
+            _NodeName ->
+              #{
+                to => To,
+                from => Origin,
+                collection => Payload
+              }
+          end;
         _ ->
           error
       end;
@@ -58,20 +63,26 @@ pack_and_sign(Bin, Priv) ->
 
 %% ------------------------------------------------------------------
 
-check(<<16#BE, PayloadLen:8/integer, Rest/binary>> = _Arg, Validator) ->
+check(<<16#BE, PayloadLen:8/integer, Rest/binary>> = Bin, Validator) ->
   <<Payload:PayloadLen/binary, Sig/binary>> = Rest,
   <<Timestamp:64/big, Address/binary>> = Payload,
   HB = crypto:hash(sha256, Payload),
   case bsig:checksig1(HB, Sig) of
     {true, #{extra:=Extra}} ->
-      SA = proplists:get_value(pubkey, Extra),
-      Beacon =
-        #{
-          to => Address,
-          from => SA,
-          timestamp => Timestamp
-        },
-      Validator(Beacon);
+      Origin = proplists:get_value(pubkey, Extra),
+      case chainsettings:is_our_node(Origin) of
+        false ->
+          error;
+        _NodeName ->
+          Beacon =
+            #{
+              to => Address,
+              from => Origin,
+              timestamp => Timestamp,
+              bin => Bin
+            },
+          Validator(Beacon)
+      end;
     false ->
       error
   end.

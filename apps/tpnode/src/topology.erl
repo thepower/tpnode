@@ -210,17 +210,17 @@ handle_info(timer_decide,
   
   lager:info("TOPO: decision matrix ~p", [
     maps:fold(
-      fun(N1,Nodes2,Acc) ->
-        maps:put(chainsettings:is_our_node(N1),[chainsettings:is_our_node(N2) || N2<-Nodes2],Acc)
+      fun(N1, Nodes2, Acc) ->
+        maps:put(chainsettings:is_our_node(N1), [chainsettings:is_our_node(N2) || N2 <- Nodes2], Acc)
       end,
       #{},
       Matrix)
   ]),
-  lager:info("TOPO: decision matrix list ~p", [ maps:to_list(Matrix) ]),
+%%  lager:info("TOPO: decision matrix list ~p", [maps:to_list(Matrix)]),
   
   NetworkState = bron_kerbosch:max_clique(maps:to_list(Matrix)),
   
-  lager:info("TOPO: network state ~p", [ NetworkState ]),
+  lager:info("TOPO: network state ~p", [[chainsettings:is_our_node(N3) || N3 <- NetworkState] ]),
   
   {noreply,
     State#{
