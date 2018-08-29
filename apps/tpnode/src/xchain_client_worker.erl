@@ -48,7 +48,8 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
     {ok, Pid} = gun:open(Ip, Port),
     receive
       {gun_up, Pid, http} -> ok
-    after 10000 ->
+    after 20000 ->
+            gun:close(Pid),
             throw('up_timeout')
     end,
     Proto=case sync_get_decode(Pid, "/xchain/api/compat.mp") of
@@ -60,13 +61,14 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
     lager:debug("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
     #{null:=<<"iam">>,
       <<"chain">>:=HisChain,
-      <<"node_id">>:=_}=reg(Pid, Proto, GetFun),
+      <<"node_id">>:=NodeID}=reg(Pid, Proto, GetFun),
+    Parent ! {wrk_up, self(), NodeID},
     Known=GetFun({last, HisChain}),
     MyChain=GetFun(chain),
     BlockList=block_list(Pid, Proto, GetFun(chain), last, Known, []),
     lists:foldl(
       fun({He,Ha},_) ->
-          io:format("Blk ~b hash ~s~n",[He,hex:encode(Ha)])
+          lager:info("Blk ~b hash ~p~n",[He,Ha])
       end, 0, BlockList),
     lists:foldl(
       fun(_,Acc) when is_atom(Acc) ->
@@ -103,7 +105,11 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
   catch Ec:Ee ->
           Parent ! {wrk_down, self(), error},
           S=erlang:get_stacktrace(),
-          lager:error("xchain client error ~p:~p @ ~p",[Ec,Ee,hd(S)])
+          lager:error("xchain client error ~p:~p",[Ec,Ee]),
+          lists:foreach(
+            fun(SE) ->
+                lager:error("@ ~p", [SE])
+            end, S)
   end.
 
 ws_mode(Pid, #{parent:=Parent, proto:=Proto}=Sub, GetFun) ->
@@ -169,21 +175,24 @@ block_list(_, _, _, Last, Known, Acc) when Last==Known ->
 
 block_list(Pid, Proto, Chain, Last, Known, Acc) ->
   Req=if Last==last ->
-           io:format("BL last~n",[]),
+           lager:info("BL last~n",[]),
            #{null=><<"last_ptr">>, <<"chain">>=>Chain};
          true ->
-           io:format("BL ~s~n",[hex:encode(Last)]),
+           lager:info("BL ~p~n",[Last]),
            #{null=><<"pre_ptr">>,  <<"chain">>=>Chain, <<"block">>=>Last}
     end,
   R=make_ws_req(Pid, Proto, Req),
+  lager:debug("Got block_list resp ~p",[R]),
   case R of
     #{null := N,
       <<"ok">> := true,
       <<"pointers">> := #{<<"height">> := H,
                           <<"hash">> := P,
                           <<"pre_height">> := HH,
-                          <<"pre_hash">> := PP}} when N==<<"last_ptr">> orelse
-                                                      N==<<"pre_ptr">> ->
+                          <<"pre_hash">> := PP}} 
+      when is_binary(P) 
+           andalso 
+           (N==<<"last_ptr">> orelse N==<<"pre_ptr">>) ->
       if(PP==Known) ->
           [{HH,PP},{H,P}|Acc];
         (P==Known) ->
@@ -204,8 +213,10 @@ block_list(Pid, Proto, Chain, Last, Known, Acc) ->
     #{null := N,
       <<"ok">> := true,
       <<"pointers">> := #{<<"height">> := H,
-                          <<"hash">> := P}} when N==<<"last_ptr">> orelse
-                                                 N==<<"pre_ptr">> ->
+                          <<"hash">> := P}} 
+      when is_binary(P) 
+           andalso 
+           (N==<<"last_ptr">> orelse N==<<"pre_ptr">>) ->
       [{H,P}|Acc];
     Any ->
       lager:info("Err ~p",[Any]),
