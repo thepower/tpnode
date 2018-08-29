@@ -1572,7 +1572,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
 
   HedgerHash=ledger_hash(NewBal, LedgerPid),
   _T5=erlang:system_time(),
-  Blk=block:mkblock2(#{
+  Blk=block:mkblock(#{
         txs=>Success,
         parent=>Parent_Hash,
         mychain=>GetSettings(mychain),
