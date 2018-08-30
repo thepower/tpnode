@@ -19,6 +19,10 @@
  {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
  {<<"gun">>,{pkg,<<"gun">>,<<"1.0.0-pre.4b">>},0},
  {<<"jiffy">>,{pkg,<<"jiffy">>,<<"0.14.7">>},1},
+ {<<"jsx">>,
+  {git,"https://github.com/cleverfox/jsx.git",
+       {ref,"362f0b4aa9d982a33dcb3e7d8ced80ec755b64a1"}},
+  0},
  {<<"lager">>,{pkg,<<"lager">>,<<"3.5.2">>},0},
  {<<"letsencrypt">>,
   {git,"https://github.com/gbour/letsencrypt-erlang.git",
@@ -54,6 +58,10 @@
  {<<"tpic">>,
   {git,"ssh://git@git.wtf-rg.com:15616/thepower/tpic.git",
        {ref,"2fbf23b089f7dc83ad1662673eb40ba251f525d0"}},
+  0},
+ {<<"wanode">>,
+  {git,"git@git.thepower.io:dss/wanode.git",
+       {ref,"65d63f65391212b3dc60d580ab9583f5ec9338de"}},
   0},
  {<<"yamerl">>,{pkg,<<"yamerl">>,<<"0.4.0">>},1}]}.
 [
