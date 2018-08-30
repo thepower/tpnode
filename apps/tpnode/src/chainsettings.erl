@@ -4,8 +4,24 @@
 -export([get_val/1,get_val/2]).
 -export([get_setting/1,
          is_our_node/1,
+         is_our_node/2,
          settings_to_ets/1,
          get_settings_by_path/1]).
+
+is_our_node(PubKey, Settings) ->
+  KeyDB=maps:get(keys, Settings, #{}),
+  NodeChain=maps:get(nodechain, Settings, #{}),
+  ChainNodes0=maps:fold(
+                fun(Name, XPubKey, Acc) ->
+                    maps:put(XPubKey, Name, Acc)
+                end, #{}, KeyDB),
+  MyName=maps:get(nodekey:get_pub(), ChainNodes0, undefined),
+  MyChain=maps:get(MyName, NodeChain, 0),
+  ChainNodes=maps:filter(
+               fun(_PubKey, Name) ->
+                   maps:get(Name, NodeChain, 0) == MyChain
+               end, ChainNodes0),
+  maps:get(PubKey, ChainNodes, false).
 
 is_our_node(PubKey) ->
   {ok, NMap} = chainsettings:get_setting(chainnodes),
@@ -89,7 +105,7 @@ get_val(Name,Default) ->
 
 get(Key, Settings) ->
   get(Key, Settings, fun() ->
-               {Chain, _}=gen_server:call(blockchain, last_block_height, -1),
+               {Chain, _}=gen_server:call(blockchain, last_block_height),
                true=is_integer(Chain),
                Chain
            end).

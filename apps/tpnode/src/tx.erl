@@ -500,10 +500,20 @@ verify(#{
   body:=Body,
   sig:=LSigs,
   ver:=2
- }=Tx, _Opts) ->
-  Res=bsig:checksig(Body, LSigs),
+ }=Tx, Opts) ->
+  CheckFun=case lists:keyfind(settings,1,Opts) of
+             {_,Sets} ->
+               fun(PubKey,_) ->
+                   chainsettings:is_our_node(PubKey, Sets) =/= false
+               end;
+             false ->
+               fun(PubKey,_) ->
+                   chainsettings:is_our_node(PubKey) =/= false
+               end
+           end,
+  Res=bsig:checksig(Body, LSigs, CheckFun),
   case Res of
-    {0, _} ->
+    {[], _} ->
       bad_sig;
     {Valid, Invalid} when length(Valid)>0 ->
       {ok, Tx#{

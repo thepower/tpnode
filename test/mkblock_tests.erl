@@ -13,6 +13,12 @@ tx2_patch_test() ->
   Pvt4= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 4, 4>>,
 
+  case application:get_env(tpnode, privkey) of
+    {ok, _} -> ok;
+    undefined ->
+      application:set_env(tpnode, privkey, Pvt4)
+  end,
+
   GetSettings=
   fun(mychain) ->
       2;
@@ -48,8 +54,20 @@ tx2_patch_test() ->
       ver=>2,
       patches=>
       [
-       #{t=>set, 
+       #{t=>set,
          p=>[<<"current">>, <<"testbranch">>, <<"test1">>],
+         v=>os:system_time(seconds)
+        }
+      ]
+     }
+   ),
+  Tx2=tx:construct_tx(
+    #{kind=>patch,
+      ver=>2,
+      patches=>
+      [
+       #{t=>set,
+         p=>[<<"current">>, <<"testbranch">>, <<"test2">>],
          v=>os:system_time(seconds)
         }
       ]
@@ -59,17 +77,25 @@ tx2_patch_test() ->
     fun(Key, Acc) ->
         tx:sign(Acc, Key)
     end, Tx, [Pvt1, Pvt2, Pvt3, Pvt4]),
-  {ok,TX0}=tx:verify(SignTx),
+  SignTx2=lists:foldl(
+    fun(Key, Acc) ->
+        tx:sign(Acc, Key)
+    end, Tx2, [<<100:256/big>>,<<200:256/big>>,<<300:256/big>>,Pvt4]),
+  {ok,TX0}=tx:verify(SignTx,[{settings,GetSettings(settings)}]),
+  {ok,TX1}=tx:verify(SignTx2,[{settings,GetSettings(settings)}]),
   ParentHash=crypto:hash(sha256, <<"parent">>),
   GetAddr=fun test_getaddr/1,
-  R1=#{block:=Block,
+  #{block:=_Block,
     failed:=Failed}=generate_block:generate_block(
-                      [{<<"tx1">>, TX0}],
+                      [{<<"tx0">>, TX0},
+                       {<<"tx1">>, TX1}],
                       {1, ParentHash},
                       GetSettings,
                       GetAddr,
                       []),
-  {Failed,Block,maps:keys(R1)}.
+  [
+   ?assertEqual([{<<"tx1">>,{patchsig,3}}],Failed)
+  ].
   %[
   % ?assertEqual([], Failed),
   % ?assertMatch(#{
@@ -531,9 +557,9 @@ mkblock_tx2_self_test() ->
         io:format("Bal ~p: ~p~n", [K,V])
     end, maps:to_list(NewBals)),
   FinalBals=#{
-    naddress:construct_public(1, OurChain, 3) => 
+    naddress:construct_public(1, OurChain, 3) =>
     #{<<"FTT">> => 119,<<"SK">> => 1,<<"TST">> => 26},
-    naddress:construct_public(SG, OurChain, 3) => 
+    naddress:construct_public(SG, OurChain, 3) =>
     #{<<"FTT">> => 99,<<"SK">> => 3,<<"TST">> => 26},
     <<160,0,0,0,0,0,0,0>> => #{<<"FTT">> => 100,<<"TST">> => 100},
     <<160,0,0,0,0,0,0,1>> => #{<<"FTT">> => 102,<<"TST">> => 100}
@@ -1183,7 +1209,7 @@ xchain_test() ->
   blockchain:apply_block_conf_meta(
     SignedBlock1,
     blockchain:apply_block_conf(
-      SignedBlock1, 
+      SignedBlock1,
       get(ch5set)
      )
    ),
@@ -1225,7 +1251,7 @@ xchain_test() ->
   blockchain:apply_block_conf_meta(
     RBlock1,
     blockchain:apply_block_conf(
-      RBlock1, 
+      RBlock1,
       get(ch6set)
      )
    ),
