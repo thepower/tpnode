@@ -56,7 +56,7 @@ parse_relayed(<<16#BE, PayloadLen:8/integer, Rest/binary>> = Bin) ->
 
 %% ------------------------------------------------------------------
 
-pack_and_sign(Bin, Priv) ->
+pack_and_sign(Bin, Priv) when is_binary(Bin) andalso is_binary(Priv) ->
   HB = crypto:hash(sha256, Bin),
   Sig = bsig:signhash(HB, [], Priv),
   <<16#BE, (size(Bin)):8/integer, Bin/binary, Sig/binary>>.

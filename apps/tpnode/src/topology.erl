@@ -58,7 +58,7 @@ init(_Args) ->
     prev_announce => 0,   % timestamp of last single beacon announce (round 1 send)
     prev_relay => 0,      % timestamp of last collection announce (round 2 send)
     prev_decide => 0,      % timestamp of last network topology decision (round 3)
-    beacon_cache => #{},  % beacon collection (round 1 receive, round 2 send)
+    beacon_cache => #{},  % beacon collection (round 1 receive, round 2 send), format: #{ origin => {timestamp, binary_beacon_from_round1} }
     collection_cache => #{} % collection of beacon collections (round 2 receive, round 3)
   }}.
 
@@ -76,6 +76,18 @@ handle_cast(
   try
     lager:info("TOPO got beacon relay from ~p : ~p", [_PeerID, PayloadBin]),
     {Me, BeaconTtl, Now} = get_beacon_settings(State),
+
+    BeaconValidator =
+      fun
+        (#{timestamp := TimeStamp} = _Beacon) when TimeStamp < (Now - BeaconTtl) ->
+          lager:error("TOPO: collection validator: too old beacon with timestamp: ~p ~p ~p", [TimeStamp, (Now - BeaconTtl), _Beacon]),
+          error;
+        (Beacon) when is_map(Beacon) ->
+          Beacon;
+        (_Invalid) ->
+          lager:error("invalid beacon: ~p", [_Invalid]),
+          error
+      end,
     
     CollectionValidator =
       fun
@@ -104,26 +116,20 @@ handle_cast(
           case chainsettings:is_our_node(From) of
             false ->
               lager:error("TOPO got beacon collection from wrong node: ~p, ~p", [From, Packed]),
-              throw(pass);
+              error;
             _ ->
-              ok
-          end,
-          
-          case msgpack:unpack(Packed, [{spec, new}]) of
-            {ok, Unpacked} ->
-              lager:info("TOPO: before validate: ~p", [Unpacked]),
-              % Unpacked = #{Round1From1 => timestamp1, Round1From2 => timestamp2}
-              ValidatedCollection = CollectionValidator(Unpacked),
-              % From = Round2From = Round1To
-              % {Round1To, #{Round1From1 => timestamp1, Round1From2 => timestamp2}}
-              {From, ValidatedCollection};
-            Err ->
-              lager:error("can't unpack msgpack: ~p", [Err]),
-              error
+              case unpack_collection_bin(Packed, BeaconValidator, CollectionValidator) of
+                error ->
+                  error;
+                ValidatedCollection ->
+                  % From = Round2From = Round1To
+                  % ValidatedCollection = #{Round1From1 => timestamp1, Round1From2 => timestamp2}
+                  {From, ValidatedCollection}
+              end
           end;
-        Err1 ->
-          lager:error("TOPO unmatched parse_relayed: ~p", [Err1]),
-          Err1
+        _Err1 ->
+          lager:error("TOPO unmatched parse_relayed: ~p", [_Err1]),
+          error
       end,
     lager:info("TOPO parsed beacon collection: ~p", [Collection]),
     {noreply, State#{
@@ -286,9 +292,20 @@ handle_info(timer_announce, #{timer_announce:=Tmr, tickms:=Delay} = State) ->
 handle_info(timer_relay, #{timer_relay:=Tmr, tickms:=Delay, beacon_cache:=Cache} = State) ->
   Now = erlang:system_time(second),
   catch erlang:cancel_timer(Tmr),
+  Collection =
+    maps:fold(
+      fun
+        (_Origin,{_Timestamp, BinBeacon}, Acc) ->
+          [BinBeacon | Acc];
+        (_Origin, _Invalid, Acc) ->
+          Acc
+      end,
+      [],
+      Cache
+    ),
   {noreply,
     State#{
-      beacon_cache => relay_beacons(Cache),
+      beacon_cache => relay_beacons(Collection),
       timer_relay => erlang:send_after(Delay, self(), timer_relay),
       prev_relay => Now
     }
@@ -317,9 +334,18 @@ state() ->
 
 % adds one beacon to collection (round 1 receive)
 % beacon collection format:
-% #{ origin => timestamp }
-add_beacon_to_cache(#{timestamp:=Timestamp, from:=Origin} = _Beacon, Collection) when is_map(Collection) ->
-  add_or_update_item(Origin, Timestamp, Collection);
+% #{ origin => {timestamp, binary_beacon_from_round1} }
+add_beacon_to_cache(#{timestamp:=Timestamp, from:=Origin, bin:=Bin} = _Beacon, Collection) when is_map(Collection) ->
+%%  add_or_update_item(Origin, Timestamp, Collection);
+  case maps:find(Origin, Collection) of
+    error ->
+      maps:put(Origin, {Timestamp, Bin}, Collection); % new item
+    {ok, {OldTimestamp, _}} when OldTimestamp < Timestamp ->
+      maps:put(Origin, {Timestamp, Bin}, Collection); % update old item
+    {ok, _} ->
+      Collection % don't touch anything
+  end;
+
 
 add_beacon_to_cache(_Beacon, _Collection) ->
   lager:error("invalid beacon: ~p", [_Beacon]).
@@ -348,7 +374,10 @@ add_collection_to_cache(_Invalid, Cache) ->
 %% ------------------------------------------------------------------
 
 % relays beacon collection to all peers (round 2 send)
-relay_beacons(Collection) ->
+relay_beacons([]) ->
+  #{};
+
+relay_beacons(Collection) when is_list(Collection) ->
   Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
   Payload = msgpack:pack(Collection, [{spec, new}]),
   lists:foreach(
@@ -395,6 +424,36 @@ add_or_update_item(Key, Timestamp, Collection) when is_map(Collection) ->
     {ok, _} ->
       Collection % don't touch anything
   end.
+
+
+%% ------------------------------------------------------------------
+
+unpack_collection_bin(Packed, BeaconValidator, CollectionValidator) when is_binary(Packed) ->
+  case msgpack:unpack(Packed, [{spec, new}]) of
+    {ok, BinBeacons} ->
+      lager:debug("TOPO: bin beacons: ~p", [BinBeacons]),
+      
+      Worker =
+        fun
+          (Beacon, Acc) when is_binary(Beacon)->
+            case beacon:check(Beacon, BeaconValidator) of
+              #{from := Round1From, timestamp := Round1Timestamp} ->
+                maps:put(Round1From, Round1Timestamp, Acc);
+              _ ->
+                Acc
+            end;
+          (_, Acc) ->
+            Acc
+        end,
+      % Collection = #{Round1From1 => timestamp1, Round1From2 => timestamp2}
+      Collection = lists:foldl(Worker, #{}, BinBeacons),
+      CollectionValidator(Collection);
+    Err ->
+      lager:error("can't unpack msgpack: ~p", [Err]),
+      error
+  end.
+
+
 
 
 %% ------------------------------------------------------------------
