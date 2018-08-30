@@ -14,13 +14,16 @@
 
 -export([start_link/0]).
 
+-export([state/0]).
+
+-export([get_node/1]).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--export([state/0]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -34,6 +37,9 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
+  Table = ets:new(?MODULE, [named_table, protected, bag, {read_concurrency, true}]),
+  lager:info("Table created: ~p", [Table]),
+  
 %    gen_server:cast(self(), settings),
   TickMs = 10000, % announce interval
 %%  InitialTick = (rand:uniform(10) + 10) * 1000, % initial tick is in period from 10 to 20 seconds from node start
@@ -63,7 +69,10 @@ handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
 % handle beacon collection from another node (round 2 receive)
-handle_cast({got_beacon2, _PeerID, <<16#be, _/binary>> = PayloadBin}, #{collection_cache:=Cache}=State) ->
+handle_cast(
+  {got_beacon2, _PeerID, <<16#be, _/binary>> = PayloadBin},
+  #{collection_cache:=Cache} = State) ->
+  
   try
     lager:info("TOPO got beacon relay from ~p : ~p", [_PeerID, PayloadBin]),
     {Me, BeaconTtl, Now} = get_beacon_settings(State),
@@ -72,8 +81,13 @@ handle_cast({got_beacon2, _PeerID, <<16#be, _/binary>> = PayloadBin}, #{collecti
       fun
         (Col4Validate) when is_map(Col4Validate) ->
           maps:filter(
-            fun(_Origin, Timestamp) ->
-              (Timestamp >= (Now - BeaconTtl))
+            fun
+              % filter expired
+              (_Origin, Timestamp) when (Timestamp < (Now - BeaconTtl)) ->
+                false;
+              % filter nodes from other chains
+              (Origin, _Timestamp) ->
+                (chainsettings:is_our_node(Origin) =/= false)
             end,
             Col4Validate
           );
@@ -86,7 +100,15 @@ handle_cast({got_beacon2, _PeerID, <<16#be, _/binary>> = PayloadBin}, #{collecti
     Collection =
       case beacon:parse_relayed(PayloadBin) of
         #{collection:=Packed, from:=From, to:=Me} ->
-          lager:info("TOPO packed beacon relay: ~p", [Packed]),
+%%          lager:info("TOPO packed beacon relay: ~p", [Packed]),
+          case chainsettings:is_our_node(From) of
+            false ->
+              lager:error("TOPO got beacon collection from wrong node: ~p, ~p", [From, Packed]),
+              throw(pass);
+            _ ->
+              ok
+          end,
+          
           case msgpack:unpack(Packed, [{spec, new}]) of
             {ok, Unpacked} ->
               lager:info("TOPO: before validate: ~p", [Unpacked]),
@@ -108,6 +130,8 @@ handle_cast({got_beacon2, _PeerID, <<16#be, _/binary>> = PayloadBin}, #{collecti
       collection_cache => add_collection_to_cache(Collection, Cache)
     }}
   catch
+    pass ->
+      {noreply, State};
     Ec:Ee ->
       StackTrace = erlang:get_stacktrace(),
       EcEe = iolist_to_binary(io_lib:format("~p:~p", [Ec, Ee])),
@@ -219,8 +243,9 @@ handle_info(timer_decide,
 %%  lager:info("TOPO: decision matrix list ~p", [maps:to_list(Matrix)]),
   
   NetworkState = bron_kerbosch:max_clique(maps:to_list(Matrix)),
-  
   lager:info("TOPO: network state ~p", [[chainsettings:is_our_node(N3) || N3 <- NetworkState] ]),
+
+  nodes_to_ets(NetworkState),
   
   {noreply,
     State#{
@@ -370,3 +395,29 @@ add_or_update_item(Key, Timestamp, Collection) when is_map(Collection) ->
     {ok, _} ->
       Collection % don't touch anything
   end.
+
+
+%% ------------------------------------------------------------------
+
+nodes_to_ets(Nodes) when is_list(Nodes) ->
+  Ver = os:system_time(seconds),
+  ets:insert(?MODULE, [{Node, Ver} || Node <- Nodes]),
+  ets:select_delete(
+    ?MODULE,
+    [{{'_', '$1'}, [{'<', '$1', Ver}], [true]}]
+  ),
+  ok.
+
+%% ------------------------------------------------------------------
+
+get_node(Node) ->
+  case ets:lookup(?MODULE, Node) of
+    [{Node, Value}] ->
+      {ok, Value};
+    [] ->
+      error
+  end.
+
+
+
+

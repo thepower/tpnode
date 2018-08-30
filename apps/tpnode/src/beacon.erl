@@ -28,7 +28,7 @@ parse_relayed(<<16#BC, ToLen:8/integer, Rest/binary>>) ->
   <<To:ToLen/binary, Payload/binary>> = Rest,
   {To, Payload};
 
-parse_relayed(<<16#BE, PayloadLen:8/integer, Rest/binary>> = _Arg) ->
+parse_relayed(<<16#BE, PayloadLen:8/integer, Rest/binary>> = Bin) ->
   <<PayloadBin:PayloadLen/binary, Sig/binary>> = Rest,
   HB = crypto:hash(sha256, PayloadBin),
   case bsig:checksig1(HB, Sig) of
@@ -43,7 +43,8 @@ parse_relayed(<<16#BE, PayloadLen:8/integer, Rest/binary>> = _Arg) ->
               #{
                 to => To,
                 from => Origin,
-                collection => Payload
+                collection => Payload,
+                bin => Bin
               }
           end;
         _ ->
