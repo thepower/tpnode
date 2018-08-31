@@ -607,37 +607,39 @@ instant_sync_test(_Config) ->
   gen_server:call(Pid, '_flush'),
   
   Hash2=rpc:call(get_node(<<"test_c4n1">>),ledger,check,[[]]),
+  Hash2=rpc:call(get_node(<<"test_c4n1">>),ledger,check,[[]]),
 
   ledger_sync:run_target(TPIC, Handler, Pid, undefined),
 
-  R=inst_sync_wait_more(),
-  ?assertEqual(ok,R),
+  {ok, #{blk:=BinBlk}}=inst_sync_wait_more(#{}),
+  #{header:=#{ledger_hash:=Hash0}}=block:unpack(BinBlk),
   Hash1=ledger:check(Pid,[]),
   io:format("Hash ~p ~p~n",[Hash1,Hash2]),
   ?assertMatch({ok,_},Hash1),
   ?assertMatch({ok,_},Hash2),
+  ?assertEqual(Hash1,{ok,Hash0}),
   ?assertEqual(Hash1,Hash2),
   gen_server:cast(Pid, terminate),
   done.
   
 
-inst_sync_wait_more() ->
+inst_sync_wait_more(A) ->
   receive
-    {inst_sync, block, _} ->
+    {inst_sync, block, Blk} ->
       io:format("Block~n"),
-      inst_sync_wait_more();
+      inst_sync_wait_more(A#{blk=>Blk});
     {inst_sync, settings} ->
       io:format("settings~n"),
-      inst_sync_wait_more();
+      inst_sync_wait_more(A);
     {inst_sync, ledger} ->
       io:format("Ledger~n"),
-      inst_sync_wait_more();
+      inst_sync_wait_more(A);
     {inst_sync, settings, _} ->
       io:format("Settings~n"),
-      inst_sync_wait_more();
+      inst_sync_wait_more(A);
     {inst_sync, done, Res} ->
       io:format("Done ~p~n", [Res]),
-      ok;
+      {ok,A};
     Any ->
       io:format("error: ~p~n", [Any]),
       {error, Any}
