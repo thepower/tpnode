@@ -19,16 +19,16 @@ relay(To, Payload) when is_binary(To) andalso is_binary(Payload) ->
   relay(To, Payload, Priv).
 
 relay(To, Payload, Priv) ->
-  Bin = <<16#BC, (size(To)):8/integer, To/binary, Payload/binary>>,
-  pack_and_sign(Bin, Priv).
+  Bin = <<16#BC, (size(To)):32/integer, To/binary, Payload/binary>>,
+  pack_and_sign(Bin, Priv, 32).
 
 %% ------------------------------------------------------------------
 
-parse_relayed(<<16#BC, ToLen:8/integer, Rest/binary>>) ->
+parse_relayed(<<16#BC, ToLen:32/integer, Rest/binary>>) ->
   <<To:ToLen/binary, Payload/binary>> = Rest,
   {To, Payload};
 
-parse_relayed(<<16#BE, PayloadLen:8/integer, Rest/binary>> = Bin) ->
+parse_relayed(<<16#BE, PayloadLen:32/integer, Rest/binary>> = Bin) ->
   <<PayloadBin:PayloadLen/binary, Sig/binary>> = Rest,
   HB = crypto:hash(sha256, PayloadBin),
   case bsig:checksig1(HB, Sig) of
@@ -56,10 +56,13 @@ parse_relayed(<<16#BE, PayloadLen:8/integer, Rest/binary>> = Bin) ->
 
 %% ------------------------------------------------------------------
 
-pack_and_sign(Bin, Priv) when is_binary(Bin) andalso is_binary(Priv) ->
+pack_and_sign(Bin, Priv) ->
+  pack_and_sign(Bin, Priv, 8).
+
+pack_and_sign(Bin, Priv, SizeLen) when is_binary(Bin) andalso is_binary(Priv) ->
   HB = crypto:hash(sha256, Bin),
   Sig = bsig:signhash(HB, [], Priv),
-  <<16#BE, (size(Bin)):8/integer, Bin/binary, Sig/binary>>.
+  <<16#BE, (size(Bin)):SizeLen/integer, Bin/binary, Sig/binary>>.
 
 
 %% ------------------------------------------------------------------
