@@ -182,7 +182,7 @@ get_hostname() ->
 
 
 get_port() ->
-  application:get_env(tpnode, rpcsport, unknown).
+  tpnode_http:get_ssl_port(unknown).
 
 
 is_ssl_configured() ->
@@ -409,8 +409,9 @@ ensure_ssl_started() ->
 
 spawn_ssl() ->
   Hostname = get_hostname(),
-  Pids = case Hostname of
-    unknown ->
+  Pids = case is_ssl_configured() of
+    false ->
+      lager:debug("ssl api unconfigured"),
       [];
     _ ->
       lager:info("enable ssl api"),
