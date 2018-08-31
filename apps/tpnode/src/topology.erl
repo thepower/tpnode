@@ -36,9 +36,29 @@ start_link() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init(_Args) ->
+
+init_common() ->
   Table = ets:new(?MODULE, [named_table, protected, bag, {read_concurrency, true}]),
-  lager:info("Table created: ~p", [Table]),
+  lager:info("Table created: ~p", [Table]).
+
+init(_Args, tests) ->
+  init_common(),
+  {ok, #{
+    tickms => 30,     % tick interval for all 3 rounds
+    beacon_ttl => 30,     % beacon ttl in seconds for each round validators
+    node_pub_key => nodekey:get_pub(),  % cached own node id
+    prev_announce => 0,   % timestamp of last single beacon announce (round 1 send)
+    prev_relay => 0,      % timestamp of last collection announce (round 2 send)
+    prev_decide => 0,      % timestamp of last network topology decision (round 3)
+    beacon_cache => #{},  % beacon collection (round 1 receive, round 2 send), format: #{ origin => {timestamp, binary_beacon_from_round1} }
+    collection_cache => #{} % collection of beacon collections (round 2 receive, round 3)
+  }}.
+  
+
+
+
+init(_Args) ->
+  init_common(),
   
 %    gen_server:cast(self(), settings),
   TickMs = 10000, % announce interval
@@ -75,7 +95,7 @@ handle_cast(
   
   try
     lager:info("TOPO got beacon relay from ~p : ~p", [_PeerID, PayloadBin]),
-    {Me, BeaconTtl, Now} = get_beacon_settings(State),
+    {Me, BeaconTtl, Now} = get_beacon_settings(State, round2),
 
     BeaconValidator =
       fun
@@ -217,7 +237,7 @@ handle_cast(_Msg, State) ->
 handle_info(timer_decide,
   #{timer_decide:=Tmr, tickms:=Delay, collection_cache:=Cache} = State) ->
   catch erlang:cancel_timer(Tmr),
-  {_Me, BeaconTtl, Now} = get_beacon_settings(State),
+  {_Me, BeaconTtl, Now} = get_beacon_settings(State, round3),
   
   % Cache = #{ {Origin, Round1From1} => timestamp1, {Origin, Round1From1} => timestamp2 }
   Worker =
@@ -400,6 +420,14 @@ relay_beacons(Collection) when is_list(Collection) ->
 
 
 %% ------------------------------------------------------------------
+
+get_beacon_settings(State, round2) ->
+  {Me, BeaconTtl, Now} = get_beacon_settings(State),
+  {Me, BeaconTtl * 2 + 2, Now};
+
+get_beacon_settings(State, round3) ->
+  {Me, BeaconTtl, Now} = get_beacon_settings(State),
+  {Me, BeaconTtl * 3 + 3, Now}.
 
 get_beacon_settings(State) ->
   Me = case maps:get(node_pub_key, State, unknown) of
