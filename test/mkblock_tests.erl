@@ -1,6 +1,7 @@
 -module(mkblock_tests).
 
 -include_lib("eunit/include/eunit.hrl").
+-export([test_getaddr/1]).
 
 tx2_patch_test() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
@@ -11,6 +12,12 @@ tx2_patch_test() ->
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 3, 3>>,
   Pvt4= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 4, 4>>,
+
+  case application:get_env(tpnode, privkey) of
+    {ok, _} -> ok;
+    undefined ->
+      application:set_env(tpnode, privkey, Pvt4)
+  end,
 
   GetSettings=
   fun(mychain) ->
@@ -47,8 +54,20 @@ tx2_patch_test() ->
       ver=>2,
       patches=>
       [
-       #{t=>set, 
+       #{t=>set,
          p=>[<<"current">>, <<"testbranch">>, <<"test1">>],
+         v=>os:system_time(seconds)
+        }
+      ]
+     }
+   ),
+  Tx2=tx:construct_tx(
+    #{kind=>patch,
+      ver=>2,
+      patches=>
+      [
+       #{t=>set,
+         p=>[<<"current">>, <<"testbranch">>, <<"test2">>],
          v=>os:system_time(seconds)
         }
       ]
@@ -58,17 +77,25 @@ tx2_patch_test() ->
     fun(Key, Acc) ->
         tx:sign(Acc, Key)
     end, Tx, [Pvt1, Pvt2, Pvt3, Pvt4]),
-  {ok,TX0}=tx:verify(SignTx),
+  SignTx2=lists:foldl(
+    fun(Key, Acc) ->
+        tx:sign(Acc, Key)
+    end, Tx2, [<<100:256/big>>,<<200:256/big>>,<<300:256/big>>,Pvt4]),
+  {ok,TX0}=tx:verify(SignTx,[{settings,GetSettings(settings)}]),
+  {ok,TX1}=tx:verify(SignTx2,[{settings,GetSettings(settings)}]),
   ParentHash=crypto:hash(sha256, <<"parent">>),
   GetAddr=fun test_getaddr/1,
-  R1=#{block:=Block,
-    failed:=Failed}=mkblock:generate_block(
-                      [{<<"tx1">>, TX0}],
+  #{block:=_Block,
+    failed:=Failed}=generate_block:generate_block(
+                      [{<<"tx0">>, TX0},
+                       {<<"tx1">>, TX1}],
                       {1, ParentHash},
                       GetSettings,
                       GetAddr,
                       []),
-  {Failed,Block,maps:keys(R1)}.
+  [
+   ?assertEqual([{<<"tx1">>,{patchsig,3}}],Failed)
+  ].
   %[
   % ?assertEqual([], Failed),
   % ?assertMatch(#{
@@ -131,7 +158,7 @@ tx2_test() ->
   TXConstructed=tx:sign(tx:construct_tx(T1),Pvt1),
   {ok,TX0}=tx:verify(TXConstructed,[nocheck_ledger]),
   #{block:=Block,
-    failed:=Failed}=mkblock:generate_block(
+    failed:=Failed}=generate_block:generate_block(
                       [{<<"tx1">>, TX0}],
                       {1, ParentHash},
                       GetSettings,
@@ -194,7 +221,7 @@ alloc_addr2_test() ->
      },
     {ok,TX0}=tx:verify(tx:sign(tx:construct_tx(T1,[{pow_diff,8}]),Pvt1)),
     #{block:=Block,
-      failed:=Failed}=mkblock:generate_block(
+      failed:=Failed}=generate_block:generate_block(
             [{<<"alloc_tx1_id">>, TX0}],
             {1, ParentHash},
             GetSettings,
@@ -251,7 +278,7 @@ alloc_addr_test() ->
 
     TX0=tx:unpack( tx:pack( #{ type=>register, register=>Pub1 })),
     #{block:=Block,
-      failed:=Failed}=mkblock:generate_block(
+      failed:=Failed}=generate_block:generate_block(
             [{<<"alloc_tx1_id">>, TX0},
              {<<"alloc_tx2_id">>, TX0}],
             {1, ParentHash},
@@ -407,7 +434,7 @@ contract_test() ->
      ),
   #{block:=Block,
     emit:=Emit,
-    failed:=Failed}=mkblock:generate_block(
+    failed:=Failed}=generate_block:generate_block(
             [
              %{<<"0bad">>, _TX0},
              %{<<"1feedeploy">>, _TX1},
@@ -511,7 +538,7 @@ mkblock_tx2_self_test() ->
           ver => 2}
          ), Pvt1),
   #{block:=Block,
-    failed:=_Failed}=mkblock:generate_block(
+    failed:=_Failed}=generate_block:generate_block(
             [
              {<<"0interchain">>, maps:put(sigverify,#{valid=>1},TX0)},
              {<<"1invalid">>, maps:put(sigverify,#{valid=>1},TX1)}
@@ -530,12 +557,12 @@ mkblock_tx2_self_test() ->
         io:format("Bal ~p: ~p~n", [K,V])
     end, maps:to_list(NewBals)),
   FinalBals=#{
-    naddress:construct_public(1, OurChain, 3) => 
-      #{<<"FTT">> => 119,<<"SK">> => 1,<<"TST">> => 26},
-    naddress:construct_public(SG, OurChain, 3) => 
-      #{<<"FTT">> => 98,<<"SK">> => 3,<<"TST">> => 26},
+    naddress:construct_public(1, OurChain, 3) =>
+    #{<<"FTT">> => 119,<<"SK">> => 1,<<"TST">> => 26},
+    naddress:construct_public(SG, OurChain, 3) =>
+    #{<<"FTT">> => 99,<<"SK">> => 3,<<"TST">> => 26},
     <<160,0,0,0,0,0,0,0>> => #{<<"FTT">> => 100,<<"TST">> => 100},
-    <<160,0,0,0,0,0,0,1>> => #{<<"FTT">> => 103,<<"TST">> => 100}
+    <<160,0,0,0,0,0,0,1>> => #{<<"FTT">> => 102,<<"TST">> => 100}
    },
   maps:fold(
     fun(Addr, Bal, Acc) ->
@@ -545,69 +572,69 @@ mkblock_tx2_self_test() ->
 
 
 mkblock_tx2_test() ->
-    OurChain=5,
+  OurChain=5,
   GetSettings=fun(mychain) ->
-            OurChain;
-           (settings) ->
+                  OurChain;
+                 (settings) ->
                   #{
-              chains => [0, 1],
-              chain =>
-              #{0 =>
-                #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
-                1 =>
-                #{blocktime => 10, minsig => 1}
-               },
-              globals => #{<<"patchsigs">> => 2},
-              keys =>
-              #{
-                <<"node1">> => crypto:hash(sha256, <<"node1">>),
-                <<"node2">> => crypto:hash(sha256, <<"node2">>),
-                <<"node3">> => crypto:hash(sha256, <<"node3">>),
-                <<"node4">> => crypto:hash(sha256, <<"node4">>)
-               },
-              nodechain =>
-              #{
-                <<"node1">> => 0,
-                <<"node2">> => 0,
-                <<"node3">> => 0,
-                <<"node4">> => 1
-               },
-              <<"current">> => #{
-                  <<"fee">> => #{
-                      params=>#{
-                        <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>,
-                        <<"tipaddr">> => <<160, 0, 0, 0, 0, 0, 0, 2>>
-                       },
-                      <<"TST">> => #{
-                          <<"base">> => 2,
-                          <<"baseextra">> => 64,
-                          <<"kb">> => 20
-                         },
-                      <<"FTT">> => #{
-                          <<"base">> => 1,
-                          <<"baseextra">> => 64,
-                          <<"kb">> => 10
-                         }
-                     }
-                 }
-             };
-           ({endless, _Address, _Cur}) ->
-            false;
-           ({valid_timestamp, TS}) ->
-            abs(os:system_time(millisecond)-TS)<3600000
-            orelse
-            abs(os:system_time(millisecond)-(TS-86400000))<3600000;
-           (Other) ->
-            error({bad_setting, Other})
-        end,
-    GetAddr=fun test_getaddr/1,
+                    chains => [0, 1],
+                    chain =>
+                    #{0 =>
+                      #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
+                      1 =>
+                      #{blocktime => 10, minsig => 1}
+                     },
+                    globals => #{<<"patchsigs">> => 2},
+                    keys =>
+                    #{
+                      <<"node1">> => crypto:hash(sha256, <<"node1">>),
+                      <<"node2">> => crypto:hash(sha256, <<"node2">>),
+                      <<"node3">> => crypto:hash(sha256, <<"node3">>),
+                      <<"node4">> => crypto:hash(sha256, <<"node4">>)
+                     },
+                    nodechain =>
+                    #{
+                      <<"node1">> => 0,
+                      <<"node2">> => 0,
+                      <<"node3">> => 0,
+                      <<"node4">> => 1
+                     },
+                    <<"current">> => #{
+                        <<"fee">> => #{
+                            params=>#{
+                              <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>,
+                              <<"tipaddr">> => <<160, 0, 0, 0, 0, 0, 0, 2>>
+                             },
+                            <<"TST">> => #{
+                                <<"base">> => 2,
+                                <<"baseextra">> => 64,
+                                <<"kb">> => 20
+                               },
+                            <<"FTT">> => #{
+                                <<"base">> => 1,
+                                <<"baseextra">> => 64,
+                                <<"kb">> => 10
+                               }
+                           }
+                       }
+                   };
+                 ({endless, _Address, _Cur}) ->
+                  false;
+                 ({valid_timestamp, TS}) ->
+                  abs(os:system_time(millisecond)-TS)<3600000
+                  orelse
+                  abs(os:system_time(millisecond)-(TS-86400000))<3600000;
+                 (Other) ->
+                  error({bad_setting, Other})
+              end,
+  GetAddr=fun test_getaddr/1,
 
-    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
-      248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
-    ParentHash=crypto:hash(sha256, <<"parent">>),
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  ParentHash=crypto:hash(sha256, <<"parent">>),
   SG=3,
 
-  TX0=tx:sign(
+  TX1=tx:sign(
         tx:construct_tx(
           #{
           ver=>2,
@@ -621,7 +648,7 @@ mkblock_tx2_test() ->
           seq=>2,
           t=>os:system_time(millisecond)
          }), Pvt1),
-  TX1=tx:sign(
+  TX2=tx:sign(
         tx:construct_tx(
           #{
           from => naddress:construct_public(SG, OurChain, 3),
@@ -634,7 +661,7 @@ mkblock_tx2_test() ->
           to => naddress:construct_public(1, OurChain, 8),
           ver => 2}
          ), Pvt1),
-  TX2=tx:sign(
+  TX3=tx:sign(
         tx:construct_tx(
           #{
           from=>naddress:construct_public(SG, OurChain, 3),
@@ -647,7 +674,7 @@ mkblock_tx2_test() ->
           seq=>4,
           t=>os:system_time(millisecond)
          }), Pvt1),
-  TX3=tx:sign(
+  TX4=tx:sign(
         tx:construct_tx(
           #{
           from=>naddress:construct_public(SG, OurChain, 3),
@@ -660,7 +687,7 @@ mkblock_tx2_test() ->
           seq=>5,
           t=>os:system_time(millisecond)
          }), Pvt1),
-  TX4=tx:sign(
+  TX5=tx:sign(
         tx:construct_tx(
           #{
           from=>naddress:construct_public(0, OurChain, 3),
@@ -673,7 +700,7 @@ mkblock_tx2_test() ->
           seq=>6,
           t=>os:system_time(millisecond)
          }), Pvt1),
-  TX5=tx:sign(
+  TX6=tx:sign(
         tx:construct_tx(
           #{
           from=>naddress:construct_public(SG, OurChain, 3),
@@ -686,7 +713,7 @@ mkblock_tx2_test() ->
           seq=>7,
           t=>os:system_time(millisecond)
          }), Pvt1),
-  TX6=tx:sign(
+  TX7=tx:sign(
         tx:construct_tx(
           #{
           from=>naddress:construct_public(SG, OurChain, 3),
@@ -699,7 +726,7 @@ mkblock_tx2_test() ->
           seq=>8,
           t=>os:system_time(millisecond)+86400000
          }), Pvt1),
-  TX7=tx:sign(
+  TX8=tx:sign(
         tx:construct_tx(
           #{
           from=>naddress:construct_public(SG, OurChain, 3),
@@ -720,31 +747,31 @@ mkblock_tx2_test() ->
           seq=>9,
           t=>os:system_time(millisecond)+86400000
          }), Pvt1),
-  TX8=tx:sign(
-        tx:construct_tx(
-          #{
-          from=>naddress:construct_public(SG, OurChain, 3),
-          to=>naddress:construct_public(1, OurChain, 3),
-          kind=>generic,
-          ver=>2,
-          payload =>
-          [#{amount => 1,cur => <<"FTT">>,purpose => transfer},
-           #{amount => 200,cur => <<"FTT">>,purpose => srcfee}],
-          seq=>9,
-          t=>os:system_time(millisecond)+86400000
-         }), Pvt1),
+%  TX9=tx:sign(
+%        tx:construct_tx(
+%          #{
+%          from=>naddress:construct_public(SG, OurChain, 3),
+%          to=>naddress:construct_public(1, OurChain, 3),
+%          kind=>generic,
+%          ver=>2,
+%          payload =>
+%          [#{amount => 1,cur => <<"FTT">>,purpose => transfer},
+%           #{amount => 200,cur => <<"FTT">>,purpose => srcfee}],
+%          seq=>9,
+%          t=>os:system_time(millisecond)+86400000
+%         }), Pvt1),
   #{block:=Block,
-    failed:=Failed}=mkblock:generate_block(
+    failed:=Failed}=generate_block:generate_block(
             [
-             {<<"1interchain">>, maps:put(sigverify,#{valid=>1},TX0)},
-             {<<"2invalid">>, maps:put(sigverify,#{valid=>1},TX1)},
-             {<<"3crosschain">>, maps:put(sigverify,#{valid=>1},TX2)},
-             {<<"4crosschain">>, maps:put(sigverify,#{valid=>1},TX3)},
-             {<<"5nosk">>, maps:put(sigverify,#{valid=>1},TX4)},
-             {<<"6sklim">>, maps:put(sigverify,#{valid=>1},TX5)},
-             {<<"7nextday">>, maps:put(sigverify,#{valid=>1},TX6)},
-             {<<"8nofee">>, maps:put(sigverify,#{valid=>1},TX7)},
-             {<<"9nofee">>, maps:put(sigverify,#{valid=>1},TX8)}
+             {<<"1interchain">>, maps:put(sigverify,#{valid=>1},TX1)},
+             {<<"2invalid">>, maps:put(sigverify,#{valid=>1},TX2)},
+             {<<"3crosschain">>, maps:put(sigverify,#{valid=>1},TX3)},
+             {<<"4crosschain">>, maps:put(sigverify,#{valid=>1},TX4)},
+             {<<"5nosk">>, maps:put(sigverify,#{valid=>1},TX5)},
+             {<<"6sklim">>, maps:put(sigverify,#{valid=>1},TX6)},
+             {<<"7nextday">>, maps:put(sigverify,#{valid=>1},TX7)},
+             {<<"8nofee">>, maps:put(sigverify,#{valid=>1},TX8)}
+             %{<<"9nofee">>, maps:put(sigverify,#{valid=>1},TX9)}
             ],
             {1, ParentHash},
             GetSettings,
@@ -755,8 +782,8 @@ mkblock_tx2_test() ->
   ?assertMatch([{<<"2invalid">>, insufficient_fund},
           {<<"5nosk">>, no_sk},
           {<<"6sklim">>, sk_limit},
-          {<<"8nofee">>, {insufficient_fee, 2}},
-          {<<"9nofee">>, insufficient_fund_for_fee}
+          {<<"8nofee">>, {insufficient_fee, 2}}
+          %{<<"9nofee">>, insufficient_fund_for_fee}
          ], lists:sort(Failed)),
   ?assertEqual([
           <<"1interchain">>,
@@ -788,10 +815,10 @@ mkblock_tx2_test() ->
     <<128,0,32,0,5,0,0,8>> => #{amount => #{<<"FTT">> => 110,<<"SK">> => 1,<<"TST">> => 26}},
     <<128,0,32,0,7,0,0,1>> => #{amount => #{<<"FTT">> => 110,<<"SK">> => 1,<<"TST">> => 26}},
     <<128,0,32,0,7,0,0,2>> => #{amount => #{<<"FTT">> => 110,<<"SK">> => 1,<<"TST">> => 26}},
-    <<128,0,96,0,5,0,0,3>> => #{amount => #{<<"FTT">> => 84,<<"SK">> => 3,<<"TST">> => 23}},
+    <<128,0,96,0,5,0,0,3>> => #{amount => #{<<"FTT">> => 85,<<"SK">> => 3,<<"TST">> => 24}},
     <<160,0,0,0,0,0,0,0>> => #{amount => #{<<"FTT">> => 100,<<"TST">> => 100}},
     <<160,0,0,0,0,0,0,1>> => #{amount => #{<<"FTT">> => 103,<<"TST">> => 102}},
-    <<160,0,0,0,0,0,0,2>> => #{amount => #{<<"FTT">> => 101,<<"TST">> => 101}}},
+    <<160,0,0,0,0,0,0,2>> => #{amount => #{<<"FTT">> => 100,<<"TST">> => 100}}},
   maps:fold(
     fun(Addr, #{amount:=Bal}, Acc) ->
         [?assertMatch(#{Addr := #{amount:=Bal}}, maps:with([Addr],NewBals))|Acc]
@@ -978,7 +1005,7 @@ mkblock_test() ->
        }, Pvt1)
      ),
   #{block:=Block,
-    failed:=Failed}=mkblock:generate_block(
+    failed:=Failed}=generate_block:generate_block(
             [
              {<<"1interchain">>, maps:put(sigverify,#{valid=>1},TX0)},
              {<<"2invalid">>, maps:put(sigverify,#{valid=>1},TX1)},
@@ -1159,7 +1186,7 @@ xchain_test() ->
           t=>os:system_time(millisecond)
          }), Pvt1),
     #{block:=Block1,
-    failed:=Failed1}=mkblock:generate_block(
+    failed:=Failed1}=generate_block:generate_block(
                       [
                        {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
                       ],
@@ -1182,13 +1209,13 @@ xchain_test() ->
   blockchain:apply_block_conf_meta(
     SignedBlock1,
     blockchain:apply_block_conf(
-      SignedBlock1, 
+      SignedBlock1,
       get(ch5set)
      )
    ),
   put(ch5set, C5NS),
   #{block:=Block2,
-    failed:=[]}=mkblock:generate_block(
+    failed:=[]}=generate_block:generate_block(
                       [
                        {<<"tx2">>, maps:put(sigverify,#{valid=>1},TX2)}
                       ],
@@ -1206,14 +1233,14 @@ xchain_test() ->
   #{hash:=OH2}=OBlk2=maps:get(OurChain+1, block:outward_mk(maps:get(outbound, SignedBlock2), SignedBlock2)),
   HOH1=hex:encode(OH1),
   #{block:=RBlock1,
-    failed:=[]}=mkblock:generate_block(
+    failed:=[]}=generate_block:generate_block(
                   [ {HOH1, OBlk1} ],
                   {1, <<0,0,0,0, 0,0,0,0>>},
                   GetSettings6,
                   GetAddr,
                   []),
   HOH2=hex:encode(OH2),
-  #{failed:=[{HOH2, {block_skipped,OH1}}]}=mkblock:generate_block(
+  #{failed:=[{HOH2, {block_skipped,OH1}}]}=generate_block:generate_block(
                                              [ {HOH2, OBlk2} ],
                                              {1, <<0,0,0,0, 0,0,0,0>>},
                                              GetSettings6,
@@ -1224,19 +1251,19 @@ xchain_test() ->
   blockchain:apply_block_conf_meta(
     RBlock1,
     blockchain:apply_block_conf(
-      RBlock1, 
+      RBlock1,
       get(ch6set)
      )
    ),
   put(ch6set, C6NS),
-  #{failed:=[{HOH1, {overdue,OH1}}]}=mkblock:generate_block(
+  #{failed:=[{HOH1, {overdue,OH1}}]}=generate_block:generate_block(
                                        [ {HOH1, OBlk1} ],
                                        {2, maps:get(hash,RBlock1)},
                                        GetSettings6,
                                        GetAddr,
                                        []),
   #{block:=RBlock2,
-    failed:=[]}=mkblock:generate_block(
+    failed:=[]}=generate_block:generate_block(
                   [ {HOH2, OBlk2} ],
                   {2, maps:get(hash,RBlock1)},
                   GetSettings6,
@@ -1244,7 +1271,7 @@ xchain_test() ->
                   []),
   put(ch6set,InitSet),
   #{block:=_RBlock1and2,
-    failed:=[]}=mkblock:generate_block(
+    failed:=[]}=generate_block:generate_block(
                   [ {HOH1, OBlk1},
                     {HOH2, OBlk2} ],
                   {1, <<0,0,0,0, 0,0,0,0>>},
@@ -1444,7 +1471,7 @@ xchain_inbound_test() ->
 
     #{block:=#{hash:=NewHash,
                header:=#{height:=NewHeight}}=Block,
-      failed:=Failed}=mkblock:generate_block(
+      failed:=Failed}=generate_block:generate_block(
                         [BlockTx],
                         {1, ParentHash},
                         GetSettings,
@@ -1465,7 +1492,7 @@ xchain_inbound_test() ->
                         error({bad_setting, Other})
                 end,
     #{block:=Block2,
-      failed:=Failed2}=mkblock:generate_block(
+      failed:=Failed2}=generate_block:generate_block(
                          [BlockTx],
                          {NewHeight, NewHash},
                          GetSettings2,

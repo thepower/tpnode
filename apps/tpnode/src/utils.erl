@@ -1,7 +1,12 @@
 -module(utils).
 
--export([make_binary/1, make_list/1, apply_macro/2]).
+-export([alloc_tcp_port/0,make_binary/1, make_list/1, apply_macro/2]).
 
+alloc_tcp_port() ->
+  {ok,S}=gen_tcp:listen(0,[]),
+  {ok,{_,CPort}}=inet:sockname(S),
+  gen_tcp:close(S),
+  CPort.
 
 %% -------------------------------------------------------------------------------------
 

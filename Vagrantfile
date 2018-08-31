@@ -43,7 +43,7 @@ Vagrant.configure("2") do |config|
 
   config.vm.provision "shell", inline: <<-SHELL
     sudo apt update
-    sudo apt install -y build-essential clang libsctp-dev libncurses5-dev mc curl libssl-dev automake autoconf jq tmux htop
+    sudo apt install -y build-essential clang libsctp-dev libncurses5-dev mc curl libssl-dev automake autoconf jq tmux htop cmake
 
     # setup timezone
     echo 'Etc/UTC' > /etc/timezone

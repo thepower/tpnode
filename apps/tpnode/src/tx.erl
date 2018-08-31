@@ -1,9 +1,10 @@
 -module(tx).
 
--export([get_ext/2, set_ext/3, sign/2, verify/1, verify/2, pack/1, unpack/1]).
+-export([del_ext/2, get_ext/2, set_ext/3]).
+-export([sign/2, verify/1, verify/2, pack/1, unpack/1]).
 -export([txlist_hash/1, rate/2, mergesig/2]).
 -export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1,
-         construct_tx/1,construct_tx/2, get_payload/2]).
+         construct_tx/1,construct_tx/2, get_payload/2, get_payloads/2]).
 -export([hashdiff/1,upgrade/1]).
 
 -include("apps/tpnode/include/tx_const.hrl").
@@ -58,6 +59,13 @@ set_ext(K, V, Tx) ->
   Tx#{
     extdata=>maps:put(K, V, Ed)
    }.
+
+del_ext(K, Tx) ->
+  Ed=maps:get(extdata, Tx, #{}),
+  Tx#{
+    extdata=>maps:remove(K, Ed)
+   }.
+
 
 
 -spec to_list(Arg :: binary() | list()) -> list().
@@ -148,6 +156,43 @@ construct_tx(#{
 
 construct_tx(#{
   ver:=2,
+  kind:=deploy,
+  from:=F,
+  t:=Timestamp,
+  seq:=Seq,
+  payload:=Amounts
+ }=Tx0,_Params) ->
+  Tx=maps:with([ver,from,to,t,seq,payload,call,txext],Tx0),
+  A1=lists:map(
+       fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
+             is_integer(Amount), is_binary(Cur) ->
+           [encode_purpose(Purpose), to_list(Cur), Amount]
+       end, Amounts),
+  Ext=maps:get(txext, Tx, #{}),
+  true=is_map(Ext),
+  E0=#{
+    "k"=>encode_kind(2,deploy),
+    "f"=>F,
+    "t"=>Timestamp,
+    "s"=>Seq,
+    "p"=>A1,
+    "e"=>Ext
+   },
+  {E1,Tx1}=case maps:find(call,Tx) of
+             {ok, #{function:=Fun,args:=Args}} when is_list(Fun),
+                                                    is_list(Args) ->
+               {E0#{"c"=>[Fun,{array,Args}]},Tx};
+             error ->
+               {E0#{"c"=>["init",{array,[]}]}, maps:remove(call, Tx)}
+           end,
+  Tx1#{
+    kind=>deploy,
+    body=>msgpack:pack(E1,[{spec,new},{pack_str, from_list}]),
+    sig=>[]
+   };
+
+construct_tx(#{
+  ver:=2,
   kind:=generic,
   from:=F,
   to:=To,
@@ -173,9 +218,9 @@ construct_tx(#{
     "e"=>Ext
    },
   {E1,Tx1}=case maps:find(call,Tx) of
-             {ok, #{function:=Fun,args:=Args}} when is_binary(Fun),
+             {ok, #{function:=Fun,args:=Args}} when is_list(Fun),
                                                     is_list(Args) ->
-               {E0#{"c"=>[Fun,Args]},Tx};
+               {E0#{"c"=>[Fun,{array,Args}]},Tx};
              _ ->
                {E0, maps:remove(call, Tx)}
            end,
@@ -366,12 +411,12 @@ verify(Tx) ->
   {ok, tx()} | 'bad_sig'.
 
 verify(#{
-  kind:=generic,
+  kind:=GenericOrDeploy,
   from:=From,
   body:=Body,
   sig:=LSigs,
   ver:=2
- }=Tx, Opts) ->
+ }=Tx, Opts) when GenericOrDeploy==generic; GenericOrDeploy==deploy ->
   CI=get_ext(<<"contract_issued">>, Tx),
   Res=case checkaddr(From) of
         {true, _IAddr} when CI=={ok, From} ->
@@ -455,10 +500,20 @@ verify(#{
   body:=Body,
   sig:=LSigs,
   ver:=2
- }=Tx, _Opts) ->
-  Res=bsig:checksig(Body, LSigs),
+ }=Tx, Opts) ->
+  CheckFun=case lists:keyfind(settings,1,Opts) of
+             {_,Sets} ->
+               fun(PubKey,_) ->
+                   chainsettings:is_our_node(PubKey, Sets) =/= false
+               end;
+             false ->
+               fun(PubKey,_) ->
+                   chainsettings:is_our_node(PubKey) =/= false
+               end
+           end,
+  Res=bsig:checksig(Body, LSigs, CheckFun),
   case Res of
-    {0, _} ->
+    {[], _} ->
       bad_sig;
     {Valid, Invalid} when length(Valid)>0 ->
       {ok, Tx#{
@@ -549,6 +604,15 @@ txlist_hash(List) ->
                                      [Id, tx:pack(Tx)|Acc]
                                  end, [], lists:keysort(1, List)))).
 
+get_payload(#{ver:=2, kind:=deploy, payload:=Payload}=_Tx, Purpose) ->
+  lists:foldl(
+    fun(#{amount:=_,cur:=_,purpose:=P1}=A, undefined) when P1==Purpose ->
+        A;
+       (_,A) ->
+        A
+    end, undefined, Payload);
+
+
 get_payload(#{ver:=2, kind:=generic, payload:=Payload}=_Tx, Purpose) ->
   lists:foldl(
     fun(#{amount:=_,cur:=_,purpose:=P1}=A, undefined) when P1==Purpose ->
@@ -556,6 +620,18 @@ get_payload(#{ver:=2, kind:=generic, payload:=Payload}=_Tx, Purpose) ->
        (_,A) ->
         A
     end, undefined, Payload).
+
+get_payloads(#{ver:=2, kind:=deploy, payload:=Payload}=_Tx, Purpose) ->
+  lists:filter(
+    fun(#{amount:=_,cur:=_,purpose:=P1}) ->
+        P1==Purpose
+    end, Payload);
+
+get_payloads(#{ver:=2, kind:=generic, payload:=Payload}=_Tx, Purpose) ->
+  lists:filter(
+    fun(#{amount:=_,cur:=_,purpose:=P1}) ->
+        P1==Purpose
+    end, Payload).
 
 
 rate1(#{extradata:=ED}, Cur, TxAmount, GetRateFun) ->
@@ -597,6 +673,33 @@ rate(#{ver:=2, kind:=generic}=Tx, GetRateFun) ->
         end
     end
   catch _:_ -> throw('cant_calculate_fee')
+  end;
+
+rate(#{ver:=2, kind:=deploy}=Tx, GetRateFun) ->
+  try
+    case get_payload(Tx, srcfee) of
+      #{cur:=Cur, amount:=TxAmount} ->
+        rate2(Tx, Cur, TxAmount, GetRateFun);
+      _ ->
+        case GetRateFun({params, <<"feeaddr">>}) of
+          X when is_binary(X) ->
+            {false, #{ cost=>null } };
+          _ ->
+            {true, #{ cost=>0, tip => 0, cur=><<"NONE">> }}
+        end
+    end
+  catch Ec:Ee -> 
+          file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n", 
+                                                         [
+                                                          Tx,
+                                                          erlang:term_to_binary(GetRateFun)
+                                                         ])]),
+          S=erlang:get_stacktrace(),
+          lager:error("Calc fee error ~p tx ~p",[{Ec,Ee},Tx]),
+          lists:foreach(fun(SE) ->
+                            lager:error("@ ~p", [SE])
+                        end, S),
+          throw('cant_calculate_fee')
   end;
 
 

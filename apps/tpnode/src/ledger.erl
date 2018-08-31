@@ -350,29 +350,31 @@ deploy4test(LedgerInit, TestFun) ->
 					 {ok, P1}=rdb_dispatcher:start_link(),
 					 P1
 			 end,
-	Ledger=case whereis(ledger4test) of
-			   P when is_pid(P) -> false;
-			   undefined ->
-				   {ok, P}=ledger:start_link(
-							[{filename, "db/ledger_txtest"},
-               {name, ledger4test}]
-						   ),
-				   gen_server:call(P, '_flush'),
-				   gen_server:call(P, {put, LedgerInit}),
-				   P
-		   end,
+  DBPath="db/ledger_txtest",
+  Ledger=case whereis(ledger4test) of
+           P when is_pid(P) -> false;
+           undefined ->
+             {ok, P}=ledger:start_link(
+                       [{filename, DBPath},
+                        {name, ledger4test}]
+                      ),
+             gen_server:call(P, '_flush'),
+             gen_server:call(P, {put, LedgerInit}),
+             P
+         end,
 
-	Res=try
-			TestFun(Ledger)
-		after
-				  if Ledger == false -> ok;
-					 true -> gen_server:stop(Ledger, normal, 3000)
-				  end,
-				  if NeedStop==false -> ok;
-					 true -> gen_server:stop(NeedStop, normal, 3000)
-				  end
-		end,
-	Res.
+  Res=try
+        TestFun(Ledger)
+      after
+        if Ledger == false -> ok;
+           true -> gen_server:stop(Ledger, normal, 3000),
+                   gen_server:call(rdb_dispatcher,{close, DBPath})
+        end,
+        if NeedStop==false -> ok;
+           true -> gen_server:stop(NeedStop, normal, 3000)
+        end
+      end,
+  Res.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
