@@ -1,6 +1,17 @@
 #!/bin/sh
 
+# reset the testnet
 ./bin/testnet.sh reset
+
+# remove old logs
+rm -rf ./log
+mkdir ./log
+touch ./log/.keepme
+
+rm -rf ./_build/test/logs
+mkdir -p ./_build/test/logs
+
+# run tests
 make cover
 export rc=$?
 
@@ -14,6 +25,7 @@ then
     tar cfj log/test_ledger_bckups.tar.bz2 /tmp/ledger_bckups/
 fi
 
+# cleanup
 rm -rf /tmp/ledger_bckups/
 
 exit $rc
