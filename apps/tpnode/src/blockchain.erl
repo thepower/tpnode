@@ -1425,7 +1425,11 @@ restore(Dir, N, Prev, C) ->
                                                                          Prev==Parent ->
 
       ok=gen_server:call(blockchain,{new_block, Blk, self()}),
-      restore(Dir, N+1, Hash, C+1)
+      restore(Dir, N+1, Hash, C+1);
+    {ok, [#{header:=Header}]} ->
+      lager:error("Block in ~s (~p) is invalid for parent ~p",
+                  [P,Header,Prev]),
+      {done, N-1, C}
   end.
 
 block_rel(LDB,Hash,Rel) when Rel==prev orelse Rel==child orelse Rel==self ->
