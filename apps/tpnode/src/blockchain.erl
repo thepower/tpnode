@@ -118,6 +118,7 @@ init(_Args) ->
     Conf=load_sets(LDB, LastBlock),
     lager:info("My last block hash ~s",
                [bin2hex:dbin2hex(LastBlockHash)]),
+
     Res=mychain(#{
           nodeid=>NodeID,
           ldb=>LDB,
@@ -313,7 +314,8 @@ handle_call(restoreset, _From, #{ldb:=LDB}=State) ->
   notify_settings(),
     {reply, S1, State#{settings=>chainsettings:settings_to_ets(S1)}};
 
-handle_call({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
+handle_call({new_block, #{hash:=BlockHash,
+                         header:=#{height:=Hei}=Header}=Blk, PID}=_Message,
             _From,
             #{candidates:=Candidates, ldb:=LDB0,
               settings:=Sets,
@@ -330,7 +332,7 @@ handle_call({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
 
   lager:info("New block (~p/~p) hash ~s (~s/~s)",
              [
-              maps:get(height, maps:get(header, Blk)),
+              Hei,
               maps:get(height, maps:get(header, LastBlock)),
               blkid(BlockHash),
               blkid(Parent),
@@ -347,14 +349,11 @@ handle_call({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
       false ->
         T1=erlang:system_time(),
         file:write_file("tmp/bad_block_" ++
-                        integer_to_list(maps:get(height,
-                                                 maps:get(header, Blk)
-                                                )) ++ ".txt",
+                        integer_to_list(maps:get(height, Header)) ++ ".txt",
                         io_lib:format("~p.~n", [Blk])
                        ),
         lager:info("Got bad block from ~p New block ~w arrived ~s, verify (~.3f ms)",
-                   [FromNode, maps:get(height, maps:get(header, Blk)),
-                    blkid(BlockHash), (T1-T0)/1000000]),
+                   [FromNode, Hei, blkid(BlockHash), (T1-T0)/1000000]),
         throw(ignore);
       {true, {Success, _}} ->
         T1=erlang:system_time(),
@@ -485,6 +484,7 @@ handle_call({new_block, #{hash:=BlockHash}=Blk, PID}=_Message,
                                   end, S)
                         end
                     end, 0, block:outward_mk(MBlk)),
+                  gen_server:cast(txpool,{new_height, Hei}),
 
                   {reply, ok, State#{
                               prevblock=> NewLastBlock,

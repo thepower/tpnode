@@ -16,6 +16,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-export([encode_int/1,decode_int/1]).
+-export([decode_txid/1]).
+
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -37,6 +40,7 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
+  erlang:send_after(1000, self(), getlb),
   {ok, #{
      queue=>queue:new(),
      nodeid=>nodekey:node_id(),
@@ -55,9 +59,9 @@ handle_call({portout, #{
                public_key:=HPub,
                signature:=HSig
               }
-            }, _From, #{nodeid:=Node, queue:=Queue}=State) ->
+            }, _From, #{queue:=Queue}=State) ->
     lager:notice("TODO: Check keys"),
-    TxID=generate_txid(Node),
+    TxID=generate_txid(State),
     {reply,
      {ok, TxID},
      State#{
@@ -76,8 +80,8 @@ handle_call({portout, #{
 
 handle_call({register, #{
                register:=_
-              }=Patch}, _From, #{nodeid:=Node, queue:=Queue}=State) ->
-    TxID=generate_txid(Node),
+              }=Patch}, _From, #{queue:=Queue}=State) ->
+    TxID=generate_txid(State),
     {reply,
      {ok, TxID},
      State#{
@@ -89,10 +93,10 @@ handle_call({register, #{
 handle_call({patch, #{
                patch:=_,
                sig:=_
-              }=Patch}, _From, #{nodeid:=Node, queue:=Queue}=State) ->
+              }=Patch}, _From, #{queue:=Queue}=State) ->
     case settings:verify(Patch) of
         {ok, #{ sigverify:=#{valid:=[_|_]} }} ->
-            TxID=generate_txid(Node),
+            TxID=generate_txid(State),
             {reply,
              {ok, TxID},
              State#{
@@ -111,11 +115,11 @@ handle_call({push_etx, [{_, _}|_]=Lst}, _From, #{queue:=Queue}=State) ->
      queue=>lists:foldl( fun queue:in_r/2, Queue, Lst)
     }};
 
-handle_call({new_tx, BinTx}, _From, #{nodeid:=Node, queue:=Queue}=State) ->
+handle_call({new_tx, BinTx}, _From, #{queue:=Queue}=State) ->
     try
         case tx:verify(BinTx) of
             {ok, Tx} ->
-                TxID=generate_txid(Node),
+                TxID=generate_txid(State),
                 {reply, {ok, TxID}, State#{
                                       queue=>queue:in({TxID, Tx}, Queue)
                                      }};
@@ -131,11 +135,17 @@ handle_call({new_tx, BinTx}, _From, #{nodeid:=Node, queue:=Queue}=State) ->
               {reply, {error, {Ec, Ee}}, State}
     end;
 
+handle_call(txid, _From, State) ->
+  {reply, generate_txid(State), State};
+
 handle_call(status, _From, #{nodeid:=Node, queue:=Queue}=State) ->
   {reply, {Node, queue:len(Queue)}, State};
 
 handle_call(_Request, _From, State) ->
     {reply, unknown_request, State}.
+
+handle_cast({new_height, H}, State) ->
+    {noreply, State#{height=>H}};
 
 handle_cast(settings, State) ->
     {noreply, load_settings(State)};
@@ -247,6 +257,10 @@ handle_cast(_Msg, State) ->
     lager:info("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
+handle_info(getlb, State) ->
+  {_Chain,Height}=gen_server:call(blockchain,last_block_height),
+  {noreply, State#{height=>Height}};
+
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -260,10 +274,65 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-generate_txid(Node) ->
-    Timestamp=bin2hex:dbin2hex(binary:encode_unsigned(os:system_time())),
-    Number=bin2hex:dbin2hex(binary:encode_unsigned(erlang:unique_integer([positive]))),
-    iolist_to_binary([Timestamp, "-", Node, "-", Number]).
+decode_int(<<0:1/big,X:7/big,Rest/binary>>) -> 
+  {X,Rest};
+decode_int(<<2:2/big,X:14/big,Rest/binary>>) -> 
+  {X,Rest};
+decode_int(<<6:3/big,X:29/big,Rest/binary>>) -> 
+  {X,Rest};
+decode_int(<<14:4/big,X:60/big,Rest/binary>>) -> 
+  {X,Rest};
+decode_int(<<15:4/big,S:4/big,BX:S/binary,Rest/binary>>) -> 
+  {binary:decode_unsigned(BX),Rest}.
+
+encode_int(X) when X<128 ->
+  <<X:8/integer>>;
+encode_int(X) when X<16384 ->
+  <<2:2/big,X:14/big>>;
+encode_int(X) when X<536870912 ->
+  <<6:3/big,X:29/big>>;
+encode_int(X) when X<1152921504606846977 ->
+  <<14:4/big,X:60/big>>;
+encode_int(X) ->
+  B=binary:encode_unsigned(X),
+  true=(size(B)<15),
+  <<15:4/big,(size(B)):4/big,B/binary>>.
+
+
+decode_ints(Bin) ->
+  case decode_int(Bin) of
+    {Int, <<>>} ->
+      [Int];
+    {Int, Rest} ->
+     [Int|decode_ints(Rest)]
+  end.
+
+decode_txid(Txta) ->
+  [N0,N1]=binary:split(Txta,<<"-">>),
+  Bin=base58:decode(N0),
+  {N1, decode_ints(Bin)}.
+
+generate_txid(#{mychain:=MyChain}=State) ->
+  LBH=case maps:find(height, State) of
+        error ->
+          {_Chain,H1}=gen_server:call(blockchain,last_block_height),
+          H1;
+        {ok, H1} ->
+          H1
+      end,
+  T=os:system_time(),
+%  N=erlang:unique_integer([positive]),
+  P=nodekey:node_name(),
+  %  Timestamp=base58:encode(binary:encode_unsigned(os:system_time())),
+  %  Number=base58:encode(binary:encode_unsigned(erlang:unique_integer([positive]))),
+  %  iolist_to_binary([Timestamp, "-", Node, "-", Number]).
+  I=base58:encode(
+      iolist_to_binary(
+        [encode_int(MyChain),
+         encode_int(LBH),
+         encode_int(T) ])),
+  <<I/binary,"-",P/binary>>.
+%<<MyChain:32/big,T:64/big,P/binary>>.
 
 pullx(0, Q, Acc) ->
     {Q, Acc};
