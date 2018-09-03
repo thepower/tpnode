@@ -245,15 +245,15 @@ is_block_ready(BlockHash, State) ->
 	end.
 
 load_settings(State) ->
-    MyChain=blockchain:get_mysettings(chain),
-    MinSig=chainsettings:get_val(minsig,1000),
-	LastBlock=gen_server:call(blockchain, last_block),
-    lager:info("BV My last block hash ~s",
-               [bin2hex:dbin2hex(maps:get(hash, LastBlock))]),
-    State#{
-      mychain=>MyChain,
-      minsig=>MinSig,
-      lastblock=>LastBlock
-     }.
+  {ok, MyChain} = chainsettings:get_setting(mychain),
+  MinSig=chainsettings:get_val(minsig,1000),
+  LastBlock=gen_server:call(blockchain, last_block),
+  lager:info("BV My last block hash ~s",
+             [bin2hex:dbin2hex(maps:get(hash, LastBlock))]),
+  State#{
+    mychain=>MyChain,
+    minsig=>MinSig,
+    lastblock=>LastBlock
+   }.
 
 

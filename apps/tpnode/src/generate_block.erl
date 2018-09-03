@@ -331,7 +331,7 @@ try_process([{TxID,
            OffChain -> throw('offchain');
            true -> ok
         end,
-        ValidChains=blockchain:get_settings([chains]),
+        ValidChains=chainsettings:by_path([chains]),
         case lists:member(PortTo, ValidChains) of
             true ->
                 ok;

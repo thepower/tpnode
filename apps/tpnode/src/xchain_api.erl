@@ -94,7 +94,7 @@ h(<<"GET">>, [<<"prev">>,BChain,SBlkID], _Req) ->
 h(<<"GET">>, [<<"last">>,BChain], _Req) ->
   Chain=binary_to_integer(BChain),
   ChainPath=[<<"current">>, <<"outward">>, xchain:pack_chid(Chain)],
-  Last=chainsettings:get_settings_by_path(ChainPath),
+  Last=chainsettings:by_path(ChainPath),
   H=settings:get([<<".">>,<<"height">>,<<"ublk">>],Last),
   reply(200, #{ pointers=>maps:put(<<"hash">>,
                                    H,

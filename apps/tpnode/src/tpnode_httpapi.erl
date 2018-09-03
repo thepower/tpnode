@@ -481,7 +481,7 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   end;
 
 h(<<"GET">>, [<<"settings">>], _Req) ->
-  Settings=settings:clean_meta(blockchain:get_settings()),
+  Settings=settings:clean_meta(chainsettings:by_path([])),
   EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
           Conf1=jsx_config:list_to_config(Conf),
           jsx_parser:resume([{Type, base64:encode(Str)}|Tokens],

@@ -7,15 +7,13 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
--export([get_settings/1, get_settings/2, get_settings/0,
-     get_mysettings/1,
-     apply_block_conf/2,
-     apply_block_conf_meta/2,
-     apply_ledger/2,
-     last/0, last/1, chain/0,
-     backup/1, restore/1,
-     chainstate/0,
-     rel/2]).
+-export([apply_block_conf/2,
+         apply_block_conf_meta/2,
+         apply_ledger/2,
+         last/0, last/1, chain/0,
+         backup/1, restore/1,
+         chainstate/0,
+         rel/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -273,12 +271,6 @@ handle_call(lastsig, _From, #{myname:=MyName,
             origin=>MyName,
             signed=>SS}, State};
 
-handle_call({is_our_node, PubKey}, _From,
-            #{chainnodes:=CN}=State) ->
-  lager:notice("Old blocking is_our_node called ~p",[_From]),
-  Res=maps:get(PubKey, CN, false),
-  {reply, Res, State};
-
 handle_call({last_block, N}, _From, #{ldb:=LDB}=State) ->
     {reply, rewind(LDB,N), State};
 
@@ -305,44 +297,6 @@ handle_call({get_block, BlockHash, Rel}, _From, #{ldb:=LDB, lastblock:=#{hash:=L
     end,
   Res=block_rel(LDB, H, Rel),
   {reply, Res, State};
-
-
-handle_call(chainnodes, _From, State) ->
-    #{chainnodes:=CN}=S1=mychain(State),
-    {reply, CN, S1};
-
-handle_call({mysettings, chain}, _From, State) ->
-  lager:notice("Old blocking version mysettings was called ~p",[_From]),
-    #{mychain:=MyChain}=S1=mychain(State),
-    {reply, MyChain, S1};
-
-handle_call({mysettings, Attr}, _From, State) ->
-  lager:notice("Old blocking version mysettings was called ~p",[_From]),
-  {reply, getset(Attr, State), State};
-
-handle_call(settings, _From, #{settings:=S}=State) ->
-  lager:notice("Old blocking version settings was called ~p",[_From]),
-    {reply, S, State};
-
-handle_call({settings, minsig}, _From, State) ->
-  lager:notice("Old blocking version settings was called ~p",[_From]),
-    Res=getset(minsig,State),
-    {reply, Res, State};
-
-handle_call({settings, Path}, _From, #{settings:=Settings}=State) when is_list(Path) ->
-  lager:notice("Old blocking version settings was called ~p",[_From]),
-    Res=settings:get(Path, Settings),
-    {reply, Res, State};
-
-handle_call({settings, chain, ChainID}, _From, #{settings:=Settings}=State) ->
-  lager:notice("DEPRECATED: FIX Me ~p",[_From]),
-  Res=settings:get([chain, ChainID], Settings),
-  {reply, Res, State};
-
-handle_call({settings, signature}, _From, #{settings:=Settings}=State) ->
-  lager:notice("Old blocking version settings was called ~p",[_From]),
-    Res=settings:get([keys], Settings),
-    {reply, Res, State};
 
 handle_call(state, _From, State) ->
     {reply, State, State};
@@ -1281,40 +1235,6 @@ foldl(Fun, Acc0, LDB, BlkId) ->
             catch throw:finish ->
                       Acc0
             end
-    end.
-
-get_settings() ->
-    gen_server:call(blockchain, settings).
-
-get_settings(P) ->
-  gen_server:call(blockchain, {settings, P}).
-
-default_setting(blocktime) -> 30;
-default_setting(<<"allowempty">>) -> 1;
-default_setting(minsig) -> 1000; %avoid running with broken settings
-default_setting(_) -> undefined.
-
-get_mysettings(Param) ->
-    case gen_server:call(blockchain, {mysettings, Param}) of
-        undefined -> default_setting(Param);
-        Any -> Any
-    end.
-
-get_settings(blocktime, Default) ->
-  S=erlang:get_stacktrace(),
-  lager:notice("DEPRECATED here ~p", [S]),
-    case gen_server:call(blockchain, {mysettings, blocktime}) of
-        undefined -> Default;
-        Any when is_integer(Any) -> Any;
-        _ -> Default
-    end;
-
-get_settings(Param, Default) ->
-  S=erlang:get_stacktrace(),
-  lager:notice("DEPRECATED here ~p", [S]),
-    case gen_server:call(blockchain, {mysettings, Param}) of
-        undefined -> Default;
-        Any -> Any
     end.
 
 notify_settings() ->

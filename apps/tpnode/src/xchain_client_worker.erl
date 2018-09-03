@@ -9,11 +9,11 @@ start_link(Sub) ->
             ({apply_block,#{hash:=_H}=Block}) ->
              txpool:inbound_block(Block);
             ({last,ChainNo}) ->
-             Last=chainsettings:get_settings_by_path([
-                                      <<"current">>,
-                                      <<"sync_status">>,
-                                      xchain:pack_chid(ChainNo),
-                                      <<"block">>]),
+             Last=chainsettings:by_path([
+                                         <<"current">>,
+                                         <<"sync_status">>,
+                                         xchain:pack_chid(ChainNo),
+                                         <<"block">>]),
              lager:info("Last known to ch ~b: ~p",[ChainNo,Last]),
              Last
          end,

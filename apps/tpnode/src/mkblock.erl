@@ -205,26 +205,12 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
     PropsFun=fun(mychain) ->
                  MyChain;
                 (settings) ->
-                 blockchain:get_settings();
+                 chainsettings:by_path([]);
                 ({valid_timestamp, TS}) ->
                  abs(os:system_time(millisecond)-TS)<3600000;
                 ({endless, From, Cur}) ->
                  EndlessPath=[<<"current">>, <<"endless">>, From, Cur],
-                 case blockchain:get_settings(EndlessPath) of
-                   true -> true;
-                   _ ->
-                     % TODO 2018-05-01: Replace this code with false
-                     Endless=lists:member(
-                               From,
-                               application:get_env(tpnode, endless, [])
-                              ),
-                     if Endless ->
-                          lager:notice("Deprecated: issue tokens by address in config");
-                        true ->
-                          ok
-                     end,
-                     Endless
-                 end;
+                 chainsettings:by_path(EndlessPath)==true;
                 ({get_block, Back}) when 32>=Back ->
                  FindBlock=fun FB(H, N) ->
                  case gen_server:call(blockchain, {get_block, H}) of
@@ -341,7 +327,7 @@ sign(Blk, ED) when is_map(Blk) ->
 load_settings(State) ->
     OldSettings=maps:get(settings, State, #{}),
     MyChain=blockchain:chain(),
-    AE=blockchain:get_mysettings(allowempty),
+    AE=chainsettings:get_val(<<"allowempty">>),
     State#{
       settings=>maps:merge(
                   OldSettings,

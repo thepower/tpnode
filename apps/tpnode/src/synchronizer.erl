@@ -187,18 +187,18 @@ median(List) ->
 
 
 load_settings(State) ->
-    BlockTime=blockchain:get_mysettings(blocktime),
-    MyChain=blockchain:get_mysettings(chain),
-	BCReady=try
-                gen_server:call(blockchain, ready, 50)
-            catch Ec:Ee ->
-                      lager:error("SYNC BC is not ready err ~p:~p ", [Ec, Ee]),
-                      false
-            end,
-    State#{
-      tickms=>BlockTime*1000,
-      mychain=>MyChain,
-      bcready=>BCReady
-     }.
+  {ok, MyChain} = chainsettings:get_setting(mychain),
+  BlockTime=chainsettings:get_val(blocktime),
+  BCReady=try
+            gen_server:call(blockchain, ready, 50)
+          catch Ec:Ee ->
+                  lager:error("SYNC BC is not ready err ~p:~p ", [Ec, Ee]),
+                  false
+          end,
+  State#{
+    tickms=>BlockTime*1000,
+    mychain=>MyChain,
+    bcready=>BCReady
+   }.
 
 

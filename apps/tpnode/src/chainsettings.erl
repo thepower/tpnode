@@ -6,7 +6,7 @@
          is_our_node/1,
          is_our_node/2,
          settings_to_ets/1,
-         get_settings_by_path/1]).
+         all/0, by_path/1]).
 
 is_our_node(PubKey, Settings) ->
   KeyDB=maps:get(keys, Settings, #{}),
@@ -35,7 +35,17 @@ get_setting(Named) ->
       error
   end.
 
-get_settings_by_path(GetPath) ->
+all() ->
+  R=ets:match(blockchain,{'$1','_','$3','$2'}),
+  lists:foldl(
+    fun([Path,Val,Act],Acc) ->
+        settings:patch([#{<<"t">>=>Act, <<"p">>=>Path, <<"v">>=>Val}], Acc)
+    end,
+    #{},
+    R
+   ).
+
+by_path(GetPath) ->
   R=ets:match(blockchain,{GetPath++'$1','_','$3','$2'}),
   case R of
     [[[],Val,<<"set">>]] ->
@@ -85,7 +95,7 @@ get_val(Name) ->
   get_val(Name, undefined).
 
 get_val(Name, Default) when Name==minsig; Name==patchsig ->
-  Val=get_settings_by_path([<<"current">>,chain,Name]),
+  Val=by_path([<<"current">>,chain,Name]),
   if is_integer(Val) -> Val;
      true ->
        case ets:lookup(blockchain,chainnodes) of
@@ -98,7 +108,7 @@ get_val(Name, Default) when Name==minsig; Name==patchsig ->
   end;
 
 get_val(Name,Default) ->
-  Val=get_settings_by_path([<<"current">>,chain,Name]),
+  Val=by_path([<<"current">>,chain,Name]),
   if is_integer(Val) -> Val;
      true -> Default
   end.
