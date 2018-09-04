@@ -16,7 +16,7 @@
 
 -export([state/0]).
 
--export([get_node/1]).
+-export([get_node/1, get_node/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -24,6 +24,13 @@
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
+%%-ifndef(TEST).
+%%-define(TEST, 1).
+%%-endif.
+%%
+%%-ifdef(TEST).
+%%-export([init/2]).
+%%-endif.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -37,28 +44,36 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 
-init_common() ->
-  Table = ets:new(?MODULE, [named_table, protected, bag, {read_concurrency, true}]),
+init_common(EtsTableName) ->
+  Table = ets:new(EtsTableName, [named_table, protected, bag, {read_concurrency, true}]),
   lager:info("Table created: ~p", [Table]).
 
-init(_Args, tests) ->
-  init_common(),
-  {ok, #{
-    tickms => 30,     % tick interval for all 3 rounds
-    beacon_ttl => 30,     % beacon ttl in seconds for each round validators
-    node_pub_key => nodekey:get_pub(),  % cached own node id
-    prev_announce => 0,   % timestamp of last single beacon announce (round 1 send)
-    prev_relay => 0,      % timestamp of last collection announce (round 2 send)
-    prev_decide => 0,      % timestamp of last network topology decision (round 3)
-    beacon_cache => #{},  % beacon collection (round 1 receive, round 2 send), format: #{ origin => {timestamp, binary_beacon_from_round1} }
-    collection_cache => #{} % collection of beacon collections (round 2 receive, round 3)
-  }}.
+%%init(_Args, tests) ->
+%%  init_common(),
+%%  {ok, #{
+%%    tickms => 30,     % tick interval for all 3 rounds
+%%    beacon_ttl => 30,     % beacon ttl in seconds for each round validators
+%%    node_pub_key => nodekey:get_pub(),  % cached own node id
+%%    prev_announce => 0,   % timestamp of last single beacon announce (round 1 send)
+%%    prev_relay => 0,      % timestamp of last collection announce (round 2 send)
+%%    prev_decide => 0,      % timestamp of last network topology decision (round 3)
+%%    beacon_cache => #{},  % beacon collection (round 1 receive, round 2 send), format: #{ origin => {timestamp, binary_beacon_from_round1} }
+%%    collection_cache => #{} % collection of beacon collections (round 2 receive, round 3)
+%%  }}.
+%%
+
+
+
+init(Args) ->
+  EtsTableName =
+    case Args of
+      ArgsMap when is_map(ArgsMap) ->
+        maps:get(ets_table_name, ArgsMap, ?MODULE);
+      _ ->
+        ?MODULE
+    end,
   
-
-
-
-init(_Args) ->
-  init_common(),
+  init_common(EtsTableName),
   
 %    gen_server:cast(self(), settings),
   TickMs = 10000, % announce interval
@@ -69,6 +84,7 @@ init(_Args) ->
 %%  InitialDecideTick = (rand:uniform(10) * 1000) + InitialRelayTick, % initial decide tick is occurs later up to 10 seconds after InitialRelayTick
   InitialDecideTick = 3000, % TODO: remove this debug
   {ok, #{
+    ets_table_name => EtsTableName,
     timer_announce => erlang:send_after(InitialTick, self(), timer_announce), % announcer (round 1 send)
     timer_relay => erlang:send_after(InitialRelayTick, self(), timer_relay),  % collection announce (round 2 send)
     timer_decide => erlang:send_after(InitialDecideTick, self(), timer_decide),  % collection announce (round 2 send)
@@ -173,6 +189,7 @@ handle_cast(
 handle_cast(
   {got_beacon, _PeerID, <<16#be, _/binary>> = Payload},
   #{beacon_cache := Collection, collection_cache := Collection2} = State) ->
+  
   try
     {Me, BeaconTtl, Now} = get_beacon_settings(State),
     
@@ -235,7 +252,10 @@ handle_cast(_Msg, State) ->
 
 % make network topology decision (round 3)
 handle_info(timer_decide,
-  #{timer_decide:=Tmr, tickms:=Delay, collection_cache:=Cache} = State) ->
+  #{timer_decide:=Tmr,
+    tickms:=Delay,
+    collection_cache:=Cache,
+    ets_table_name:=EtsTableName} = State) ->
   catch erlang:cancel_timer(Tmr),
   {_Me, BeaconTtl, Now} = get_beacon_settings(State, round3),
   
@@ -274,7 +294,7 @@ handle_info(timer_decide,
   NetworkState = bron_kerbosch:max_clique(maps:to_list(Matrix)),
   lager:info("TOPO: network state ~p", [[chainsettings:is_our_node(N3) || N3 <- NetworkState] ]),
 
-  nodes_to_ets(NetworkState),
+  nodes_to_ets(NetworkState, EtsTableName),
   
   {noreply,
     State#{
@@ -388,6 +408,7 @@ add_collection_to_cache({Origin, Collection}, Cache) when is_map(Collection) and
         Key = {Origin, NodeId},
         add_or_update_item(Key, Timestamp, CacheIn)
     end,
+  
   maps:fold(Updater, Cache, Collection);
 
 add_collection_to_cache(_Invalid, Cache) ->
@@ -489,11 +510,14 @@ unpack_collection_bin(Packed, BeaconValidator, CollectionValidator) when is_bina
 
 %% ------------------------------------------------------------------
 
-nodes_to_ets(Nodes) when is_list(Nodes) ->
+%%nodes_to_ets(Nodes) when is_list(Nodes) ->
+%%  nodes_to_ets(Nodes, ?MODULE).
+
+nodes_to_ets(Nodes, EtsTableName) when is_list(Nodes) ->
   Ver = os:system_time(seconds),
-  ets:insert(?MODULE, [{Node, Ver} || Node <- Nodes]),
+  ets:insert(EtsTableName, [{Node, Ver} || Node <- Nodes]),
   ets:select_delete(
-    ?MODULE,
+    EtsTableName,
     [{{'_', '$1'}, [{'<', '$1', Ver}], [true]}]
   ),
   ok.
@@ -501,9 +525,13 @@ nodes_to_ets(Nodes) when is_list(Nodes) ->
 %% ------------------------------------------------------------------
 
 get_node(Node) ->
-  case ets:lookup(?MODULE, Node) of
-    [{Node, Value}] ->
-      {ok, Value};
+  get_node(Node, ?MODULE).
+
+
+get_node(Node, EtsTableName) ->
+  case ets:lookup(EtsTableName, Node) of
+    [{Node, TimestampVer}] ->
+      {ok, TimestampVer};
     [] ->
       error
   end.
