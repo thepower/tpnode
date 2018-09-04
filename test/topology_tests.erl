@@ -23,7 +23,7 @@ get_node_names() ->
   Nodes = get_nodes(),
   maps:keys(Nodes).
 
-single_beacon_create_and_parse_test() ->
+success_path_test() ->
   % init emulator
   init_emulator(),
   % send beacons round1
@@ -37,58 +37,50 @@ single_beacon_create_and_parse_test() ->
   ),
   
   % receive beacons round1
-  process_packets(
-    fun({_Service, _Payload} = Data) ->
-      send_cast(Data),
-%%      State = get_state(),
-%%      error_logger:info_msg("current node state ~p ~n", [State])
-      ok
-    end
+  process_packets(fun send_cast/1),
+  
+  % send collections round2
+  lists:foreach(
+    fun(NodeName) ->
+      switch_node(NodeName),
+      send_info(timer_relay)
+    end,
+    Nodes
+  ),
+
+  % receive collections round2
+  process_packets(fun send_cast/1),
+
+  % make decision round3
+  lists:foreach(
+    fun(NodeName) ->
+      switch_node(NodeName),
+      send_info(timer_decide)
+    end,
+    Nodes
   ),
   
-%%  error_logger:info_msg("emulator state out ~p ~n", [get()]),
-  show_states(),
+%%  show_states(),
   
-%%  % send collections round2
-%%  lists:foreach(
-%%    fun(NodeName) ->
-%%      switch_node(NodeName),
-%%      send_info(timer_relay)
-%%    end,
-%%    Nodes
-%%  ),
-%%
-%%  % receive collections round2
-%%  process_packets(fun send_cast/1),
-%%
-%%  % make decision round3
-%%  lists:foreach(
-%%    fun(NodeName) ->
-%%      switch_node(NodeName),
-%%      send_info(timer_decide)
-%%    end,
-%%    Nodes
-%%  ),
-%%
-%%  % check matrix
-%%  lists:foreach(
-%%    fun(NodeName) ->
-%%      switch_node(NodeName),
-%%      % all nodes should be in matrix
-%%      lists:foreach(
-%%        fun(NodeName1) ->
-%%          EtsTableName = NodeName,
-%%          Status = topology:get_node(NodeName1, EtsTableName),
-%%          error_logger:info_msg("Node ~p request ~p state ~p", [NodeName, NodeName1, Status])
-%%
-%%%%          ?assertNotEqual(error, Status)
-%%        end,
-%%        Nodes
-%%      )
-%%    end,
-%%    Nodes
-%%  ),
-%%
+  % check matrix
+  lists:foreach(
+    fun(NodeName) ->
+      switch_node(NodeName),
+      % all nodes should be in matrix
+      lists:foreach(
+        fun(NodeName1) ->
+          EtsTableName = NodeName,
+          Status = topology:get_node(get_pub(NodeName1), EtsTableName),
+%%          error_logger:info_msg("Node ~p request ~p state ~p", [NodeName, NodeName1, Status]),
+          ?assertNotEqual(error, Status),
+          ?assertMatch({ok, _}, Status)
+        end,
+        Nodes
+      )
+    end,
+    Nodes
+  ),
+
   
   % cleanup
   unmeck_all().
@@ -198,7 +190,7 @@ tpic_cast_prepare(tpic, <<"mkblock">>) ->
 % ------------------------------------------------------------------------
 
 tpic_cast(tpic, Peer, Payload) ->
-  error_logger:info_msg("send to ~p payload ~p", [Peer, Payload]),
+%%  error_logger:info_msg("send to ~p payload ~p", [Peer, Payload]),
   send_packet(Peer, Payload).
 
 % ------------------------------------------------------------------------
@@ -207,9 +199,9 @@ get_state() ->
   #{current_node := NodeName, states := States} = get(emulator_state),
   maps:get(NodeName, States, #{}).
 
-get_state(NodeName) ->
-  #{states := States} = get(emulator_state),
-  maps:get(NodeName, States, #{}).
+%%get_state(NodeName) ->
+%%  #{states := States} = get(emulator_state),
+%%  maps:get(NodeName, States, #{}).
 
 % ------------------------------------------------------------------------
 
@@ -242,8 +234,16 @@ get_current_pub() ->
 
 % ------------------------------------------------------------------------
 
+get_pub(NodeName) ->
+  Nodes = get_nodes(),
+  Priv = maps:get(NodeName, Nodes),
+  tpecdsa:calc_pub(Priv, true).
+
+
+% ------------------------------------------------------------------------
+
 switch_node(NewNode) ->
-  application:unset_env(tpnode, pubkey),
+%%  application:unset_env(tpnode, pubkey),
   EmulatorState = get(emulator_state),
   put(emulator_state, EmulatorState#{ current_node => NewNode }).
 
@@ -290,7 +290,7 @@ send_packet(NodeName, Payload) ->
 % ------------------------------------------------------------------------
 
 process_packets(Receiver) ->
-  #{net := Net} = EmulatorState = get(emulator_state),
+  #{net := Net} = get(emulator_state),
   NewNet =
     maps:map(
       fun(NodeName, Queue) ->
@@ -301,6 +301,7 @@ process_packets(Receiver) ->
       end,
       Net
     ),
+  EmulatorState = get(emulator_state),
   put(
     emulator_state,
     EmulatorState#{ net => NewNet }
@@ -333,14 +334,14 @@ send_info(Payload) ->
 
 % ------------------------------------------------------------------------
 
-show_states() ->
-  lists:foreach(
-    fun(NodeName) ->
-      State = get_state(NodeName),
-      error_logger:info_msg("state ~p ~n ~p", [NodeName, State])
-    end,
-    get_node_names()
-  ).
+%%show_states() ->
+%%  lists:foreach(
+%%    fun(NodeName) ->
+%%      State = get_state(NodeName),
+%%      error_logger:info_msg("state ~p ~n ~p", [NodeName, State])
+%%    end,
+%%    get_node_names()
+%%  ).
 
 % ------------------------------------------------------------------------
 
