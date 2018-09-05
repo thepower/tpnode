@@ -23,9 +23,16 @@ handle_tpic(From, _, <<"tping">>, Payload, _State) ->
                           (atom_to_binary(node(), utf8))/binary>>),
   ok;
 
+% beacon announce
 handle_tpic(From, mkblock, <<"beacon">>, Beacon, _State) ->
-  lager:info("Beacon ~p", [Beacon]),
-  gen_server:cast(topology, {tpic, From, Beacon}),
+  lager:debug("Beacon ~p", [Beacon]),
+  gen_server:cast(topology, {got_beacon, From, Beacon}),
+  ok;
+
+% relayed beacon announce
+handle_tpic(From, mkblock, <<"beacon2">>, Beacon, _State) ->
+  lager:debug("Beacon2 ~p", [Beacon]),
+  gen_server:cast(topology, {got_beacon2, From, Beacon}),
   ok;
 
 handle_tpic(_From, mkblock, <<>>, Payload, #{authdata:=AD}=_State) ->

@@ -97,6 +97,9 @@ init([]) ->
             { tpic_sctp, {tpic_sctp, start_link, [TPIC]},
               permanent, 5000, worker, []},
 
+            { topology, {topology, start_link, []},
+              permanent, 5000, worker, []},
+      
             { ledger, {ledger, start_link, []},
               permanent, 5000, worker, []},
 

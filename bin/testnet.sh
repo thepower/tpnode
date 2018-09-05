@@ -3,7 +3,7 @@
 CHAIN4="test_c4n1 test_c4n2 test_c4n3"
 CHAIN5="test_c5n1 test_c5n2 test_c5n3"
 CHAIN6="test_c6n1 test_c6n2 test_c6n3"
-# SYNC = 0 — no sync, SYNC = 1 — add -s sync to command line
+# SYNC = 0 — no sync, SYNC = 1 — add -s sync to command line for c4n1 node
 SYNC=0
 
 HOST=`hostname -s`
@@ -21,8 +21,7 @@ start_node() {
     node=$2
 
     sync_str=""
-
-    if [ $SYNC -eq 1 ]
+    if [ $SYNC -eq 1 -a ${node} = "test_c4n1" ]
     then
         sync_str="-s sync"
     fi
@@ -33,6 +32,7 @@ start_node() {
     else
         echo starting node $node
         export TPNODE_RESTORE=${dir}
+
         erl -config "${dir}/${node}.config" -sname ${node} -detached -noshell -pa _build/test/lib/*/ebin +SDcpu 2:2: -s lager ${sync_str} -s tpnode
     fi
 
