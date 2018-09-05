@@ -19,9 +19,87 @@ get_nodes() ->
       240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 5, 5>>
   }.
 
+% ------------------------------------------------------------------------
+
 get_node_names() ->
   Nodes = get_nodes(),
   maps:keys(Nodes).
+
+% ------------------------------------------------------------------------
+
+packet_loss_test() ->
+  % init emulator
+  init_emulator(),
+
+  % send beacons round1
+  Nodes = get_node_names(),
+  lists:foreach(
+    fun(NodeName) ->
+      switch_node(NodeName),
+      send_info(timer_announce)
+    end,
+    Nodes
+  ),
+
+  % drop packets for the first node on the list
+  BrokenTo = hd(Nodes),
+  
+%%  _Dropped = drop_packets(BrokenTo, 1),
+  [{BrokenFrom, _}] = drop_packets(BrokenTo, 1),
+  
+  % receive beacons round1
+  process_packets(fun send_cast/1),
+  
+  % send collections round2
+  lists:foreach(
+    fun(NodeName) ->
+      switch_node(NodeName),
+      send_info(timer_relay)
+    end,
+    Nodes
+  ),
+  
+  % receive collections round2
+  process_packets(fun send_cast/1),
+  
+  % make decision round3
+  lists:foreach(
+    fun(NodeName) ->
+      switch_node(NodeName),
+      send_info(timer_decide)
+    end,
+    Nodes
+  ),
+  
+  % at this point the network should think that BrokenFrom haven't full connectivity
+%%  error_logger:info_msg("Broken node: ~p", [BrokenFrom]),
+  
+  % check matrix
+  lists:foreach(
+    fun(NodeName) ->
+      switch_node(NodeName),
+      lists:foreach(
+        fun(NodeName1) ->
+          EtsTableName = NodeName,
+          Status = topology:get_node(get_pub(NodeName1), EtsTableName),
+%%          error_logger:info_msg("Node ~p request ~p state ~p", [NodeName, NodeName1, Status]),
+          if
+            NodeName1 =:= BrokenFrom ->
+              ?assertEqual(error, Status);   % node haven't full connectivity
+            true ->
+              ?assertMatch({ok, _}, Status)  % node have full connectivity
+          end
+        end,
+        Nodes
+      )
+    end,
+    Nodes
+  ),
+  
+  % cleanup
+  cleanup_emulator().
+
+% ------------------------------------------------------------------------
 
 success_path_test() ->
   % init emulator
@@ -47,10 +125,10 @@ success_path_test() ->
     end,
     Nodes
   ),
-
+  
   % receive collections round2
   process_packets(fun send_cast/1),
-
+  
   % make decision round3
   lists:foreach(
     fun(NodeName) ->
@@ -59,7 +137,7 @@ success_path_test() ->
     end,
     Nodes
   ),
-  
+
 %%  show_states(),
   
   % check matrix
@@ -80,31 +158,48 @@ success_path_test() ->
     end,
     Nodes
   ),
-
   
   % cleanup
-  unmeck_all().
+  cleanup_emulator().
 
 
+% ------------------------------------------------------------------------
+
+drop_packets(BrokenTo, PacketsCount) ->
+  #{net:= Net} = EmulatorState = get(emulator_state),
+  
+  PacketQueue =  maps:get(BrokenTo, Net, []),
+  {NewPacketQueue, AllSkippedPackets, _} =
+    lists:foldl(
+      fun
+        ({_From, _} = Packet, {NewQueue, SkippedPackets, SkippedCount})
+          when (SkippedCount < PacketsCount) ->
+%%            error_logger:info_msg("Skip packet from ~p to ~p", [_From, BrokenTo]),
+            {NewQueue, SkippedPackets ++ [Packet], SkippedCount+1};
+        (Packet, {NewQueue, SkippedPackets, SkippedCount}) ->
+          {NewQueue ++ [Packet], SkippedPackets, SkippedCount}
+      end,
+      {[], [], 0},
+      PacketQueue
+    ),
+  
+  NewNet = maps:put(BrokenTo, NewPacketQueue, Net),
+
+%%  error_logger:info_msg("Skipped packets: ~p", [AllSkippedPackets]),
+  
+  put(emulator_state, EmulatorState#{ net => NewNet }),
+  AllSkippedPackets.
+
+% ------------------------------------------------------------------------
 
 unmeck_all() ->
-%%  meck:unload(erlang),
   meck:unload(nodekey),
   meck:unload(tpic),
   meck:unload(chainsettings).
 
+% ------------------------------------------------------------------------
+
 meck_it_all() ->
-%%  meck:new(erlang),
-%%  meck:expect(
-%%    erlang,
-%%    send_after,
-%%    fun(_, _, _) -> undefined end
-%%  ),
-%%  meck:expect(
-%%    erlang,
-%%    cancel_timer,
-%%    fun(_) -> undefined end
-%%  ),
   meck:new(nodekey),
   meck:expect(
     nodekey,
@@ -134,16 +229,7 @@ meck_it_all() ->
     fun chainsettings_is_our_node/1
   ).
 
-
-%%ets_new(Name, Options) ->
-%%  EtsNames =
-%%    case get(emulator_ets) of
-%%      unknown ->
-%%        #{};
-%%      EtsOpts ->
-%%        EtsOpts
-%%    end,
-
+% ------------------------------------------------------------------------
 
 init_emulator() ->
   NodeNames = get_node_names(),
@@ -159,6 +245,8 @@ init_emulator() ->
   meck_it_all(),
   init_states().
 
+% ------------------------------------------------------------------------
+
 
 init_states() ->
   NodeNames = get_node_names(),
@@ -173,13 +261,25 @@ init_states() ->
 
 % ------------------------------------------------------------------------
 
+cleanup_emulator() ->
+  Nodes = get_node_names(),
+  [ ets:delete(Table) || Table <- Nodes ], % remove
+  erase(),  % remove process dictionary
+  unmeck_all().
+
+% ------------------------------------------------------------------------
+
 tpic_cast_prepare(tpic, <<"mkblock">>) ->
 %%  error_logger:info_msg("catch tpic cast prepare"),
   Nodes = get_nodes(),
+  CurrentNode = get_current_node_name(),
 
 %%  [ {node1, #{authdata => [{pubkey, <<"key1">>}]} } ]
   maps:fold(
-    fun(NodeName, Priv, Acc) ->
+    fun
+      (NodeName, _Priv, Acc) when NodeName =:= CurrentNode ->  % don't make self association
+        Acc;
+      (NodeName, Priv, Acc) ->
       Pub = tpecdsa:calc_pub(Priv, true),
       [ {NodeName, #{authdata => [{pubkey, Pub}]} } | Acc ]
     end,
@@ -249,6 +349,12 @@ switch_node(NewNode) ->
 
 % ------------------------------------------------------------------------
 
+get_current_node_name() ->
+  #{ current_node := CurrentNode } = get(emulator_state),
+  CurrentNode.
+
+% ------------------------------------------------------------------------
+
 cancel_timers(State) ->
   Timers = [timer_announce, timer_relay, timer_decide],
   
@@ -279,11 +385,11 @@ handle_info(timer_decide, State) ->
 % ------------------------------------------------------------------------
 
 send_packet(NodeName, Payload) ->
-  #{net := Net} = EmulatorState = get(emulator_state),
+  #{current_node := From, net := Net} = EmulatorState = get(emulator_state),
   Queue = maps:get(NodeName, Net, []),
   put(
     emulator_state,
-    EmulatorState#{ net => maps:put(NodeName, Queue ++ [Payload], Net) }
+    EmulatorState#{ net => maps:put(NodeName, Queue ++ [ {From, Payload} ], Net) }
   ).
 
 
@@ -310,7 +416,7 @@ process_packets(Receiver) ->
 
 % ------------------------------------------------------------------------
 
-send_cast({Service, Payload}) ->
+send_cast({From, {Service, Payload}}) ->
   State = get_state(),
   % {got_beacon, _PeerID, <<16#be, _/binary>> = Payload}
   Service2 =
@@ -321,7 +427,7 @@ send_cast({Service, Payload}) ->
         got_beacon2
     end,
   
-  {noreply, NewState} = topology:handle_cast({Service2, dummy_from, Payload}, State),
+  {noreply, NewState} = topology:handle_cast({Service2, From, Payload}, State),
   
   set_state(NewState).
 
