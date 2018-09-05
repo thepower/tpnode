@@ -41,12 +41,15 @@ start_link() ->
 
 init(_Args) ->
   erlang:send_after(1000, self(), getlb),
-  {ok, #{
+  {ok,
+   load_settings(
+     #{
      queue=>queue:new(),
      nodeid=>nodekey:node_id(),
      pubkey=>nodekey:get_pub(),
      inprocess=>hashqueue:new()
-    }}.
+    }
+    )}.
 
 handle_call(state, _Form, State) ->
     {reply, State, State};
@@ -274,15 +277,15 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-decode_int(<<0:1/big,X:7/big,Rest/binary>>) -> 
+decode_int(<<0:1/big,X:7/big,Rest/binary>>) ->
   {X,Rest};
-decode_int(<<2:2/big,X:14/big,Rest/binary>>) -> 
+decode_int(<<2:2/big,X:14/big,Rest/binary>>) ->
   {X,Rest};
-decode_int(<<6:3/big,X:29/big,Rest/binary>>) -> 
+decode_int(<<6:3/big,X:29/big,Rest/binary>>) ->
   {X,Rest};
-decode_int(<<14:4/big,X:60/big,Rest/binary>>) -> 
+decode_int(<<14:4/big,X:60/big,Rest/binary>>) ->
   {X,Rest};
-decode_int(<<15:4/big,S:4/big,BX:S/binary,Rest/binary>>) -> 
+decode_int(<<15:4/big,S:4/big,BX:S/binary,Rest/binary>>) ->
   {binary:decode_unsigned(BX),Rest}.
 
 encode_int(X) when X<128 ->
@@ -364,7 +367,9 @@ recovery_lost(InProc, Queue, Now) ->
 
 load_settings(State) ->
     MyChain=blockchain:chain(),
+    {_Chain,Height}=gen_server:call(blockchain,last_block_height),
     State#{
-      mychain=>MyChain
+      mychain=>MyChain,
+      height=>Height
      }.
 
