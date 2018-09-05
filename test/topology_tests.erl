@@ -27,7 +27,7 @@ get_node_names() ->
 
 % ------------------------------------------------------------------------
 
-packet_loss_test() ->
+beacon_loss_test() ->
   % init emulator
   init_emulator(),
 
@@ -100,6 +100,81 @@ packet_loss_test() ->
   cleanup_emulator().
 
 % ------------------------------------------------------------------------
+
+collection_loss_test() ->
+  % init emulator
+  init_emulator(),
+  
+  % send beacons round1
+  Nodes = get_node_names(),
+  lists:foreach(
+    fun(NodeName) ->
+      switch_node(NodeName),
+      send_info(timer_announce)
+    end,
+    Nodes
+  ),
+  
+  % receive beacons round1
+  process_packets(fun send_cast/1),
+  
+  % send collections round2
+  lists:foreach(
+    fun(NodeName) ->
+      switch_node(NodeName),
+      send_info(timer_relay)
+    end,
+    Nodes
+  ),
+  
+  % drop packets for the first node on the list
+  BrokenTo = hd(Nodes),
+
+%%  _Dropped = drop_packets(BrokenTo, 1),
+  [{BrokenFrom, _}] = drop_packets(BrokenTo, 1),
+  
+  % receive collections round2
+  process_packets(fun send_cast/1),
+  
+  % make decision round3
+  lists:foreach(
+    fun(NodeName) ->
+      switch_node(NodeName),
+      send_info(timer_decide)
+    end,
+    Nodes
+  ),
+  
+  % at this point the network should think that BrokenFrom haven't full connectivity
+%%  error_logger:info_msg("Skipped packet from ~p to ~p", [BrokenFrom, BrokenTo]),
+  
+  % check matrix
+  lists:foreach(
+    fun(NodeName) ->
+      switch_node(NodeName),
+      lists:foreach(
+        fun(NodeName1) ->
+          EtsTableName = NodeName,
+          Status = topology:get_node(get_pub(NodeName1), EtsTableName),
+%%          error_logger:info_msg("Node ~p request ~p state ~p", [NodeName, NodeName1, Status]),
+          if
+            NodeName1 =:= BrokenFrom andalso NodeName =:= BrokenTo ->
+              ?assertEqual(error, Status);   % node haven't full connectivity
+            true ->
+              ?assertMatch({ok, _}, Status)  % node have full connectivity
+          end
+        end,
+        Nodes
+      )
+    end,
+    Nodes
+  ),
+  
+  % cleanup
+  cleanup_emulator().
+
+% ------------------------------------------------------------------------
+
 
 success_path_test() ->
   % init emulator
