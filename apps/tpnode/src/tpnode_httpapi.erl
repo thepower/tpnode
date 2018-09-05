@@ -304,9 +304,6 @@ h(<<"GET">>, [<<"nodes">>, Chain], _Req) ->
         chain_nodes => get_nodes(binary_to_integer(Chain, 10))
     });
 
-
-
-
 h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
   try
@@ -403,13 +400,6 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
               )
   end;
 
-h(<<"POST">>, [<<"test">>, <<"tx">>], Req) ->
-  {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
-  answer(
-   #{ result => <<"ok">>,
-      address=>ReqBody
-    });
-
 h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
   BinPacker=packer(_Req,hex),
   BlockHash0=if(BlockId == <<"last">>) -> last;
@@ -437,6 +427,24 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
         })
   end;
 
+h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
+  BlockHash0=if(BlockId == <<"last">>) -> last;
+               true -> hex:parse(BlockId)
+             end,
+  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+    undefined ->
+        err(
+            10006,
+            <<"Not found">>,
+            #{result => <<"not_found">>},
+            #{http_code => 404}
+        );
+    GoodBlock ->
+      {200,
+       [{<<"content-type">>,<<"binary/tp-block">>}],
+       block:pack(GoodBlock)
+      }
+  end;
 
 h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
@@ -509,9 +517,6 @@ h(<<"POST">>, [<<"register">>], Req) ->
                     pow=>maps:get(<<"pow">>,Body,<<>>),
                     timestamp=>maps:get(<<"timestamp">>,Body,0)
                   }),
-  %{TX0,
-  %gen_server:call(txpool, {register, TX0})
-  %}.
 
   case txpool:new_tx(BinTx) of
     {ok, Tx} ->
@@ -527,6 +532,7 @@ h(<<"POST">>, [<<"register">>], Req) ->
       ErrorMsg = iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
       Data =
        #{ result => <<"error">>,
+          notice => <<"method deprecated">>,
           pkey=>bin2hex:dbin2hex(PKey),
           tx=>base64:encode(BinTx),
           error => ErrorMsg
@@ -539,74 +545,9 @@ h(<<"POST">>, [<<"register">>], Req) ->
       )
   end;
 
-h(<<"POST">>, [<<"address">>], Req) ->
-  [Body]=apixiom:bodyjs(Req),
-  lager:debug("New tx from ~s: ~p", [Body]),
-  A=hd(Body),
-  R=naddress:encode(A),
-  answer(
-   #{ result => <<"ok">>,
-      r=> R
-    }
-  );
-
-h(<<"GET">>, [<<"emulation">>, <<"start">>], _Req) ->
-  R = case txgen:start_link() of
-        {ok, _} -> #{ok => true, res=> <<"Started">>};
-        {error, {already_started, _}} ->
-          case txgen:is_running() of
-            true -> #{ok => false, res=> <<"Already running">>};
-            false->
-              txgen:restart(),
-              #{ok => true, res=> <<"Started">>}
-          end;
-        _ -> #{ok => false, res=> <<"Error">>}
-      end,
-  answer(#{res => R});
-
 h(<<"GET">>, [<<"tx">>, <<"status">>, TxID], _Req) ->
   R=txstatus:get_json(TxID),
-    answer(#{res=>R});
-
-h(<<"POST">>, [<<"tx">>, <<"debug">>], Req) ->
-  {RemoteIP, _Port}=cowboy_req:peer(Req),
-  Body=apixiom:bodyjs(Req),
-  lager:info("New DEBUG from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
-  BinTx=case maps:get(<<"tx">>, Body, undefined) of
-          <<"0x", BArr/binary>> ->
-            hex:parse(BArr);
-          Any ->
-            base64:decode(Any)
-        end,
-  Dbg=case maps:get(<<"debug">>, Body, undefined) of
-        <<"0x", BArr1/binary>> ->
-          hex:parse(BArr1);
-        Any1 ->
-          base64:decode(Any1)
-      end,
-  U=tx:unpack(BinTx),
-  lager:info("Debug TX ~p",[U]),
-  Dbg2=tx1:mkmsg(U),
-  lager:info("Debug1 ~p",[bin2hex:dbin2hex(Dbg)]),
-  lager:info("Debug2 ~p",[bin2hex:dbin2hex(Dbg2)]),
-  XBin=io_lib:format("~p",[U]),
-  XTx=case tx1:verify1(U) of
-        {ok, Tx} ->
-          io_lib:format("~p.~n",[Tx]);
-        Err ->
-          io_lib:format("~p.~n",[{error,Err}])
-      end,
-
-  lager:info("Res ~p",[#{
-               xtx=>iolist_to_binary(XTx),
-               dbg=>iolist_to_binary(XBin)
-              }]),
-  answer(
-   #{
-       xtx=>iolist_to_binary(XTx),
-       dbg=>iolist_to_binary(XBin)
-   }
-  );
+  answer(#{res=>R});
 
 h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
@@ -758,6 +699,8 @@ prettify_block(#{hash:=<<0, 0, 0, 0, 0, 0, 0, 0>>}=Block0, BinPacker) ->
   Block0#{ hash=>BinPacker(<<0:64/big>>) }.
 
 % ----------------------------------------------------------------------
+str2bin(List) when is_list(List) ->
+  unicode:characters_to_binary(List).
 
 prettify_tx(#{ver:=2}=TXB, BinPacker) ->
   maps:map(
@@ -789,9 +732,9 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
        (txext, V1) ->
         maps:fold(
           fun(K2,V2,Acc) when is_list(K2), is_list(V2) ->
-              [{list_to_binary(K2),list_to_binary(V2)}|Acc];
+              [{str2bin(K2),str2bin(V2)}|Acc];
              (K2,V2,Acc) when is_list(K2) ->
-              [{list_to_binary(K2),V2}|Acc];
+              [{str2bin(K2),V2}|Acc];
               (K2,V2,Acc) when is_binary(K2) ->
               [{K2,V2}|Acc]
           end, [], V1);
