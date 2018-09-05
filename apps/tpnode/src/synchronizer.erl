@@ -27,14 +27,14 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-    gen_server:cast(self(), settings),
-    {ok, #{
+  {ok, #{
        myoffset=>undefined,
        offsets=>#{},
        timer5=>erlang:send_after(5000, self(), selftimer5),
        ticktimer=>erlang:send_after(6000, self(), ticktimer),
        tickms=>10000,
        prevtick=>0
+       mychain=>0
       }}.
 
 handle_call(peers, _From, #{offsets:=Offs}=State) ->

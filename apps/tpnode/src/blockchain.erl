@@ -132,6 +132,7 @@ init(_Args) ->
       _ ->
         erlang:send_after(6000, self(), runsync)
     end,
+    notify_settings(),
     {ok, Res}.
 
 handle_call(get_dbh, _From, #{ldb:=LDB}=State) ->

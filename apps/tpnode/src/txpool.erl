@@ -40,16 +40,14 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-  erlang:send_after(1000, self(), getlb),
   {ok,
-   load_settings(
-     #{
+   #{
      queue=>queue:new(),
      nodeid=>nodekey:node_id(),
      pubkey=>nodekey:get_pub(),
      inprocess=>hashqueue:new()
     }
-    )}.
+  }.
 
 handle_call(state, _Form, State) ->
     {reply, State, State};
@@ -64,53 +62,65 @@ handle_call({portout, #{
               }
             }, _From, #{queue:=Queue}=State) ->
     lager:notice("TODO: Check keys"),
-    TxID=generate_txid(State),
-    {reply,
-     {ok, TxID},
-     State#{
-       queue=>queue:in({TxID,
-                        #{
-                          from=>Address,
-                          portout=>PortTo,
-                          seq=>Seq,
-                          timestamp=>Timestamp,
-                          public_key=>HPub,
-                          signature=>HSig
-                         }
-                        }, Queue)
-      }
-    };
+    case generate_txid(State) of
+      error ->
+        {reply, {error,cant_gen_txid}, State};
+      {ok, TxID} ->
+        {reply,
+         {ok, TxID},
+         State#{
+           queue=>queue:in({TxID,
+                            #{
+                              from=>Address,
+                              portout=>PortTo,
+                              seq=>Seq,
+                              timestamp=>Timestamp,
+                              public_key=>HPub,
+                              signature=>HSig
+                             }
+                           }, Queue)
+          }
+        }
+    end;
 
 handle_call({register, #{
                register:=_
               }=Patch}, _From, #{queue:=Queue}=State) ->
-    TxID=generate_txid(State),
-    {reply,
-     {ok, TxID},
-     State#{
-       queue=>queue:in({TxID, Patch}, Queue)
+  case generate_txid(State) of
+    error ->
+      {reply, {error,cant_gen_txid}, State};
+    {ok, TxID} ->
+      {reply,
+       {ok, TxID},
+       State#{
+         queue=>queue:in({TxID, Patch}, Queue)
+        }
       }
-    };
+  end;
 
 
 handle_call({patch, #{
                patch:=_,
                sig:=_
               }=Patch}, _From, #{queue:=Queue}=State) ->
-    case settings:verify(Patch) of
-        {ok, #{ sigverify:=#{valid:=[_|_]} }} ->
-            TxID=generate_txid(State),
-            {reply,
-             {ok, TxID},
-             State#{
-               queue=>queue:in({TxID, Patch}, Queue)
-              }
-            };
-        bad_sig ->
-            {reply, {error, bad_sig}, State};
-        _ ->
-            {reply, {error, verify}, State}
-    end;
+  case settings:verify(Patch) of
+    {ok, #{ sigverify:=#{valid:=[_|_]} }} ->
+      case generate_txid(State) of
+        error ->
+          {reply, {error, cant_gen_txid}, State};
+        {ok, TxID} ->
+          {reply,
+           {ok, TxID},
+           State#{
+             queue=>queue:in({TxID, Patch}, Queue)
+            }
+          }
+      end;
+    bad_sig ->
+      {reply, {error, bad_sig}, State};
+    _ ->
+      {reply, {error, verify}, State}
+  end;
 
 handle_call({push_etx, [{_, _}|_]=Lst}, _From, #{queue:=Queue}=State) ->
   {reply, ok,
@@ -122,10 +132,14 @@ handle_call({new_tx, BinTx}, _From, #{queue:=Queue}=State) ->
     try
         case tx:verify(BinTx) of
             {ok, Tx} ->
-                TxID=generate_txid(State),
+            case generate_txid(State) of
+              error ->
+                {reply, {error, cant_gen_txid}, State};
+              {ok, TxID} ->
                 {reply, {ok, TxID}, State#{
                                       queue=>queue:in({TxID, Tx}, Queue)
-                                     }};
+                                     }}
+            end;
             Err ->
                 {reply, {error, Err}, State}
         end
@@ -334,8 +348,12 @@ generate_txid(#{mychain:=MyChain}=State) ->
         [encode_int(MyChain),
          encode_int(LBH),
          encode_int(T) ])),
-  <<I/binary,"-",P/binary>>.
+  {ok,<<I/binary,"-",P/binary>>};
 %<<MyChain:32/big,T:64/big,P/binary>>.
+
+generate_txid(#{}) ->
+  error.
+
 
 pullx(0, Q, Acc) ->
     {Q, Acc};
