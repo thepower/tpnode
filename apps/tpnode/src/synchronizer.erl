@@ -50,15 +50,6 @@ handle_call(_Request, _From, State) ->
 handle_cast(settings, State) ->
     {noreply, load_settings(State)};
 
-handle_cast({tpic, _PeerID, <<16#be, _/binary>>=Payload}, State) ->
-	try
-		Beacon=beacon:check(Payload),
-		lager:info("SYNC beacon ~p", [Beacon]),
-		{noreply, State}
-	catch _:_ ->
-			  {noreply, State}
-	end;
-
 handle_cast({tpic, _PeerID, Payload}, State) ->
     case msgpack:unpack(Payload) of
         {ok, #{null:=<<"hello">>, <<"n">>:=Node, <<"t">>:=T}} ->
