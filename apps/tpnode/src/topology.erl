@@ -110,7 +110,7 @@ handle_cast(
   #{collection_cache:=Cache} = State) ->
   
   try
-    lager:info("TOPO got beacon relay from ~p : ~p", [_PeerID, PayloadBin]),
+    lager:debug("TOPO got beacon relay from ~p : ~p", [_PeerID, PayloadBin]),
     {Me, BeaconTtl, Now} = get_beacon_settings(State, round2),
 
     BeaconValidator =
@@ -167,7 +167,7 @@ handle_cast(
           lager:error("TOPO unmatched parse_relayed: ~p", [_Err1]),
           error
       end,
-    lager:info("TOPO parsed beacon collection: ~p", [Collection]),
+    lager:debug("TOPO parsed beacon collection: ~p", [Collection]),
     {noreply, State#{
       collection_cache => add_collection_to_cache(Collection, Cache)
     }}
@@ -210,7 +210,7 @@ handle_cast(
     
     case beacon:check(Payload, Validator) of
       #{from := BeaconOrigin, to := Me, timestamp := BeaconTimestamp} = Beacon ->
-        lager:info("TOPO beacon from ~p: ~p", [_PeerID, Beacon]),
+        lager:debug("TOPO beacon from ~p: ~p", [_PeerID, Beacon]),
         
         {noreply, State#{
           beacon_cache => add_beacon_to_cache(Beacon, Collection),
@@ -222,7 +222,7 @@ handle_cast(
             add_collection_to_cache({Me, #{BeaconOrigin => BeaconTimestamp}}, Collection2)
         }};
       _ ->
-        lager:info("TOPO can't verify beacon from ~p", [_PeerID]),
+        lager:error("TOPO can't verify beacon from ~p", [_PeerID]),
         {noreply, State}
     end
   catch
@@ -281,7 +281,7 @@ handle_info(timer_decide,
     end,
   {Matrix, NewCache} = maps:fold(Worker, {#{}, #{}}, Cache),
   
-  lager:info("TOPO: decision matrix ~p", [
+  lager:debug("TOPO: decision matrix ~p", [
     maps:fold(
       fun(N1, Nodes2, Acc) ->
         maps:put(chainsettings:is_our_node(N1), [chainsettings:is_our_node(N2) || N2 <- Nodes2], Acc)
@@ -314,7 +314,7 @@ handle_info(timer_announce, #{timer_announce:=Tmr, tickms:=Delay} = State) ->
     fun
       ({Peer, #{authdata:=AD}}) ->
         DstNodePubKey = proplists:get_value(pubkey, AD, <<>>),
-        lager:info("TOPO sent ~p: ~p", [Peer, DstNodePubKey]),
+        lager:debug("TOPO sent ~p: ~p", [Peer, DstNodePubKey]),
         tpic:cast(
           tpic,
           Peer,

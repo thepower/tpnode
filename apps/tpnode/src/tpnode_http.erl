@@ -1,5 +1,5 @@
 -module(tpnode_http).
--export([childspec/0, childspec_ssl/2, child_names_ssl/0, get_ssl_port/1]).
+-export([childspec/0, childspec_ssl/2, child_names_ssl/0, get_ssl_port/0, get_ssl_port/1]).
 
 
 get_http_conn_type() ->
