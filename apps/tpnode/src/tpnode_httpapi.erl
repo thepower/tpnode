@@ -3,6 +3,7 @@
 -export([h/3, after_filter/1,
          prettify_block/2,
          prettify_block/1,
+         prettify_bal/2,
          prettify_tx/2,
          packer/2,
          binjson/1]).
@@ -607,6 +608,28 @@ filter_block(Block, Address) ->
 
 % ----------------------------------------------------------------------
 
+prettify_bal(V, BinPacker) ->
+  FixedBal=case maps:is_key(lastblk, V) of
+             false ->
+               maps:remove(ublk, V);
+             true ->
+               LastBlk=maps:get(lastblk, V),
+               maps:put(lastblk,
+                        BinPacker(LastBlk),
+                        maps:remove(ublk, V)
+                       )
+           end,
+  maps:map(
+    fun(pubkey, PubKey) ->
+        BinPacker(PubKey);
+       (state, PubKey) ->
+        BinPacker(PubKey);
+       (code, PubKey) ->
+        BinPacker(PubKey);
+       (_BalKey, BalVal) ->
+        BalVal
+    end, FixedBal).
+
 prettify_block(Block) ->
   prettify_block(Block, fun(Bin) -> bin2hex:dbin2hex(Bin) end).
 
@@ -621,26 +644,7 @@ prettify_block(#{}=Block0, BinPacker) ->
        (bals, Bal) ->
         maps:fold(
           fun(BalAddr, V, A) ->
-              FixedBal=case maps:is_key(lastblk, V) of
-                         false ->
-                           maps:remove(ublk, V);
-                         true ->
-                           LastBlk=maps:get(lastblk, V),
-                           maps:put(lastblk,
-                                    BinPacker(LastBlk),
-                                    maps:remove(ublk, V)
-                                   )
-                       end,
-              PrettyBal=maps:map(
-                          fun(pubkey, PubKey) ->
-                              BinPacker(PubKey);
-                             (state, PubKey) ->
-                              BinPacker(PubKey);
-                             (code, PubKey) ->
-                              BinPacker(PubKey);
-                             (_BalKey, BalVal) ->
-                              BalVal
-                          end, FixedBal),
+              PrettyBal=prettify_bal(V,BinPacker),
               maps:put(BinPacker(BalAddr), PrettyBal, A)
           end, #{}, Bal);
        (header, BlockHeader) ->
@@ -808,7 +812,7 @@ get_nodes(Chain) when is_integer(Chain) ->
 
 %%    io:format("Nodes: ~p~n", [Nodes]),
 %%    io:format("NodesHttps: ~p~n", [NodesHttps]),
-  
+
     % sanitize data types
     Nodes1 = lists:map(
         fun(Addr) when is_map(Addr) ->
@@ -827,9 +831,9 @@ get_nodes(Chain) when is_integer(Chain) ->
         end,
       NodesHttps ++ Nodes
     ),
-  
+
 %%    io:format("nodes1: ~p~n", [Nodes1]),
-  
+
     AddToList =
         fun(List, NewItem) ->
             case NewItem of
@@ -850,10 +854,10 @@ get_nodes(Chain) when is_integer(Chain) ->
                 <<"apis">> -> <<"https">>;
                 _ -> unknown
               end,
-  
+
             Host = add_proto(Host0, Proto),
             Ip = add_proto(Ip0, Proto),
-          
+
             case maps:get(nodeid, Addr, unknown) of
                 unknown -> NodeMap;
                 NodeId ->
@@ -895,7 +899,7 @@ remove_duplicates(NodeMap) ->
           (_, V) ->
             V
         end,
-      
+
       maps:map(Sorter, KeyMap)
     end,
   maps:map(Worker, NodeMap).
