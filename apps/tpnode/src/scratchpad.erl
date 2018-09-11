@@ -708,7 +708,7 @@ test_tx2b() ->
      },
     payload => [
                 #{amount => 10,cur => <<"FTT">>,purpose => transfer}
-                %#{amount => 20,cur => <<"FTT">>,purpose => srcfee}
+                #{amount => 100,cur => <<"FTT">>,purpose => srcfee}
                ]
    },
   TXConstructed=tx:sign(tx:construct_tx(T1),Pvt1),
@@ -950,16 +950,13 @@ contract_run() ->
          to=>Addr,
          call=>#{function=>"dec",args=>[1]},
          payload=>[
-                   #{purpose=>gas, amount=>3, cur=><<"SK">>}, %will be used 1
-                   #{purpose=>srcfee, amount=>100, cur=><<"FTT">>}
+                   #{purpose=>gas, amount=>300, cur=><<"SK">>}, %will be used 1
+                   #{purpose=>srcfee, amount=>100, cur=><<"SK">>}
                   ],
          seq=>Seq+1,
          t=>os:system_time(millisecond)
         }), Pvt1),
-  {
-   TX,
-   txpool:new_tx(TX)
-  }.
+   TX.
 
 
 contract_patch_gas() ->
@@ -981,10 +978,128 @@ contract_patch_gas() ->
              }
            )
          ),
-  {
-   Patch,
-   tx:verify(Patch),
-   tx:unpack(tx:pack(Patch)),
-   txpool:new_tx(Patch)
+   Patch.
+
+fee_tx2() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr=naddress:decode(<<"AA100000006710887143">>),
+  Seq=bal:get(seq,ledger:get(Addr)),
+  T1=#{
+    kind => generic,
+    t => os:system_time(millisecond),
+    seq => Seq+1,
+    from => Addr,
+    to => <<128,1,64,0,5,0,0,2>>,
+    ver => 2,
+    txext => #{
+      <<"message">> => <<"preved">>
+     },
+    payload => [
+                #{amount => 10,cur => <<"FTT">>,purpose => transfer}
+                %#{amount => 20,cur => <<"FTT">>,purpose => srcfee}
+               ]
+   },
+  TXConstructed=tx:sign(tx:construct_tx(T1),Pvt1),
+  #{body:=B}=TXConstructed,
+  {size(B),
+  size(tx:pack(TXConstructed))
   }.
+
+add_endless(Address, Cur) ->
+    Patch=sign_patchv2(
+            tx:construct_tx(
+              #{kind=>patch,
+                ver=>2,
+                patches=>
+                [
+                 #{<<"t">>=><<"set">>,
+                   <<"p">>=>[<<"current">>,
+                             <<"endless">>, Address, Cur],
+                   <<"v">>=>true}
+                ]
+               }
+             ),
+            "../tpnode_extras/configs/c3n?.config"),
+    io:format("PK ~p~n", [tx:verify(Patch)]),
+    Patch.
+
+
+bootstrap(Chain) ->
+  U="http://powernode25.westeurope.cloudapp.azure.com:43298/api/nodes/"++integer_to_list(Chain),
+  {ok,{Code,_,Res}}=httpc:request(get,
+                                  {U, [] },
+                                  [], [{body_format, binary}]),
+  case Code of
+    {_,200,_} ->
+      X=jsx:decode(Res, [return_maps]),
+      CN=maps:get(<<"chain_nodes">>,X),
+      N=hd(maps:keys(CN)),
+      binary_to_list(hd(lists:filter(
+        fun(<<"http://",_/binary>>) -> true;
+           (_)->false
+        end, settings:get([N,<<"ip">>],CN)
+       )));
+    true ->
+      {error, Code}
+  end.
+
+post_tx(Tx) ->
+  {ok,P} = application:get_env(tpnode,rpcport),
+  post_tx("127.0.0.1:"++integer_to_list(P),Tx).
+
+post_tx("http://"++Base, Tx) ->
+  {ok,{Code,_,Res}}=httpc:request(post,
+                {"http://"++Base++"/api/tx/new.bin",
+                 [],
+                 "binary/octet-stream",
+                 tx:pack(Tx)
+                },
+                [], [{body_format, binary}]),
+  io:format("~s~n",[Res]),
+  Code;
+
+post_tx(Base, Tx) ->
+  {ok,{Code,_,Res}}=httpc:request(post,
+                {"http://"++Base++"/api/tx/new.bin",
+                 [],
+                 "binary/octet-stream",
+                 tx:pack(Tx)
+                },
+                [], [{body_format, binary}]),
+  io:format("~s~n",[Res]),
+  Code.
+
+init_chain(ChNo) ->
+  Issuer=naddress:construct_public(10,ChNo,1),
+
+  Testers=[
+           #{<<"t">>=><<"set">>, <<"p">>=>
+             [<<"current">>, <<"endless">>, naddress:construct_public(10,N,1), <<"SK">>], <<"v">>=>true}
+           || N <- lists:seq(2,101) ],
+
+  Patch=sign_patchv2(
+          tx:construct_tx(
+            #{kind=>patch,
+              ver=>2,
+              patches=>
+              [
+               #{t=><<"nonexist">>, p=>[current, allocblock, last], v=>any},
+               #{t=>set, p=>[current, allocblock, group], v=>10},
+               #{t=>set, p=>[current, allocblock, block], v=>ChNo},
+               #{t=>set, p=>[current, allocblock, last], v=>0}
+               #{t=><<"nonexist">>, p=>[<<"current">>, <<"fee">>, params, <<"feeaddr">>], v=>any},
+               #{t=>set, p=>[<<"current">>, <<"fee">>, params, <<"feeaddr">>], v=>Issuer},
+               #{t=>set, p=>[<<"current">>, <<"fee">>, params, <<"tipaddr">>], v=>Issuer},
+               #{t=>set, p=>[<<"current">>, <<"fee">>, params, <<"notip">>], v=>1},
+               #{t=>set, p=>[<<"current">>, <<"fee">>, <<"SK">>, <<"base">>], v=>100},
+               #{t=>set, p=>[<<"current">>, <<"fee">>, <<"SK">>, <<"baseextra">>], v=>100},
+               #{t=>set, p=>[<<"current">>, <<"fee">>, <<"SK">>, <<"kb">>], v=>500},
+               #{t=>set, p=>[<<"current">>, <<"gas">>, <<"SK">>], v=>100 },
+               #{<<"t">>=><<"set">>, <<"p">>=>[<<"current">>, <<"endless">>, Issuer, <<"SK">>], <<"v">>=>true}
+              |Testers]
+             }
+           ),
+          "../tpnode_extras/tn2/out/c"++integer_to_list(ChNo)++"n?.config"),
+  Patch.
 
