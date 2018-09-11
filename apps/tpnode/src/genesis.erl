@@ -48,9 +48,9 @@ new(HPrivKey, Set0) ->
            end,
   Patch=lists:foldl(
           fun(PrivKey, Acc) ->
-              settings:sign(Acc, PrivKey)
+              tx:sign(Acc, PrivKey)
           end, Set0, PrivKeys),
-  Settings=[ { bin2hex:dbin2hex(crypto:hash(md5,settings:mp(Set0))), Patch } ],
+  Settings=[ { bin2hex:dbin2hex(crypto:hash(md5,maps:get(body,Set0))), Patch } ],
   Blk0=block:mkblock(
          #{ parent=><<0, 0, 0, 0, 0, 0, 0, 0>>,
             height=>0,
