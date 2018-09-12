@@ -93,7 +93,7 @@ handle_info(ticktimer,
     true ->
       gen_server:cast(txpool, prepare),
       erlang:send_after(200, whereis(mkblock), process),
-      lager:info("Time to tick. next in ~w", [Wait]);
+      lager:debug("Time to tick. next in ~w", [Wait]);
     false ->
       erlang:send_after(200, whereis(mkblock), flush),
       lager:info("Time to tick. But we not in sync. wait ~w", [Wait])
@@ -145,7 +145,7 @@ handle_info(selftimer5, #{mychain:=_MyChain, tickms:=Ms, timer5:=Tmr, offsets:=O
     (Friends == []) ->
       lager:debug("I'm alone in universe my time ~w", [(MeanMs rem 3600000) / 1000]);
     true ->
-      lager:info(
+      lager:debug(
         "I have ~b friends, and mean hospital time ~w, mean diff ~w blocktime ~w",
         [length(Friends), (MeanMs rem 3600000) / 1000, MeanDiff / 1000, Ms]
       )

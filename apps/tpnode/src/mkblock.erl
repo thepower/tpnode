@@ -243,6 +243,20 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
     emit:=EmitTXs}=generate_block:generate_block(PreTXL, Parent, PropsFun, AddrFun,
                                                  [{<<"prevnodes">>, PreNodes}]),
   T2=erlang:system_time(),
+
+  case application:get_env(tpnode,mkblock_debug) of
+    undefined ->
+      ok;
+    {ok, true} ->
+      {PHe,_}=Parent,
+      file:write_file("log/block_"++integer_to_list(PHe)++"_"++integer_to_list(T2),
+                      io_lib:format("~p.~n ~p.~n ~p.~n~n",
+                                    [PreTXL,Failed, Block])
+                     );
+    Any ->
+      lager:notice("What does mkblock_debug=~p means?",[Any])
+  end,
+
   if Failed==[] ->
        ok;
      true ->

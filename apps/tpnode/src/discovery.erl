@@ -1013,7 +1013,7 @@ unpack(<<254, _Rest/binary>> = Packed) ->
     Hash = crypto:hash(sha256, Bin),
     case bsig:checksig(Hash, [Sign]) of
         { [ #{ signature:= _FirstSign } | _] , _InvalidSings} ->
-            lager:notice("Check signature here");
+            lager:debug("Check signature here");
         _X ->
             lager:debug("checksig result ~p", [_X]),
             throw("invalid signature")
