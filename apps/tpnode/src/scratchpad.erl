@@ -1075,7 +1075,7 @@ init_chain(ChNo) ->
 
   Testers=[
            #{<<"t">>=><<"set">>, <<"p">>=>
-             [<<"current">>, <<"endless">>, naddress:construct_public(10,N,1), <<"SK">>], <<"v">>=>true}
+             [<<"current">>, <<"endless">>, naddress:construct_public(10,ChNo,N), <<"SK">>], <<"v">>=>true}
            || N <- lists:seq(2,101) ],
 
   Patch=sign_patchv2(
@@ -1087,7 +1087,7 @@ init_chain(ChNo) ->
                #{t=><<"nonexist">>, p=>[current, allocblock, last], v=>any},
                #{t=>set, p=>[current, allocblock, group], v=>10},
                #{t=>set, p=>[current, allocblock, block], v=>ChNo},
-               #{t=>set, p=>[current, allocblock, last], v=>0}
+               #{t=>set, p=>[current, allocblock, last], v=>0},
                #{t=><<"nonexist">>, p=>[<<"current">>, <<"fee">>, params, <<"feeaddr">>], v=>any},
                #{t=>set, p=>[<<"current">>, <<"fee">>, params, <<"feeaddr">>], v=>Issuer},
                #{t=>set, p=>[<<"current">>, <<"fee">>, params, <<"tipaddr">>], v=>Issuer},
