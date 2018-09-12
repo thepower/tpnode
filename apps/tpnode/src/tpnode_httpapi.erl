@@ -447,6 +447,27 @@ h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
       }
   end;
 
+h(<<"GET">>, [<<"txtblock">>, BlockId], _Req) ->
+  BlockHash0=if(BlockId == <<"last">>) -> last;
+               true -> hex:parse(BlockId)
+             end,
+  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+    undefined ->
+        err(
+            10006,
+            <<"Not found">>,
+            #{result => <<"not_found">>},
+            #{http_code => 404}
+        );
+    GoodBlock ->
+      {200,
+       [{<<"content-type">>,<<"text/plain">>}],
+       iolist_to_binary(
+         io_lib:format("~p.~n",[GoodBlock])
+        )
+      }
+  end;
+
 h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
   BinPacker=packer(_Req,hex),
@@ -684,9 +705,7 @@ prettify_block(#{}=Block0, BinPacker) ->
        (tx_proof, Proof) ->
         lists:map(
           fun({CHdr, CBody}) ->
-              {CHdr,
-               [BinPacker(H) || H<-tuple_to_list(CBody)]
-              }
+              {CHdr, prettify_mproof(CBody,BinPacker)}
           end,
           Proof
          );
@@ -701,6 +720,18 @@ prettify_block(#{}=Block0, BinPacker) ->
 
 prettify_block(#{hash:=<<0, 0, 0, 0, 0, 0, 0, 0>>}=Block0, BinPacker) ->
   Block0#{ hash=>BinPacker(<<0:64/big>>) }.
+
+prettify_mproof(M, BinPacker) ->
+  lists:map(
+    fun(E) when is_binary(E) -> BinPacker(E);
+       (E) when is_tuple(E) -> prettify_mproof(E, BinPacker);
+       (E) when is_list(E) -> prettify_mproof(E, BinPacker)
+    end,
+    if is_tuple(M) ->
+         tuple_to_list(M);
+       is_list(M) ->
+         M
+    end).
 
 % ----------------------------------------------------------------------
 str2bin(List) when is_list(List) ->

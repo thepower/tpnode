@@ -16,7 +16,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([encode_int/1,decode_int/1]).
+-export([encode_int/1,decode_ints/1]).
 -export([decode_txid/1]).
 
 %% ------------------------------------------------------------------
