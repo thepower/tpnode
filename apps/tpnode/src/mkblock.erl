@@ -148,9 +148,9 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
             };
           CHei>MH ->
             tpic:cast(tpic, <<"mkblock">>,
-                      #{ null=> <<"lag">>,
-                         lbh=>CHei
-                       }),
+                      msgpack:pack( #{ null=> <<"lag">>,
+                                       lbh=>CHei
+                                     })),
             lager:notice("Node ~p lagging, my h=~p his=~p",
                          [Origin, CHei, MH]),
             {noreply, State};
