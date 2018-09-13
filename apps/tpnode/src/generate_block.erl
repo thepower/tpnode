@@ -1675,26 +1675,23 @@ cleanup_bals(NewBal0) ->
           false ->
             BA;
           true ->
-            case maps:is_key(ublk, V) of
-              false ->
-                maps:put(K, V, BA);
-              true ->
-                C1=bal:changes(V),
-                case (maps:size(C1)>0) of
-                  true ->
-                    maps:remove(changes,
-                                maps:put(K,
-                                         maps:put(lastblk, 
-                                                  maps:get(ublk, V), 
-                                                  C1),
-                                         BA)
-                               );
-                  false ->
-                    maps:remove(changes,
-                                BA
-                               )
-                end
-            end
+            Item=case maps:is_key(ublk, V) of
+                   false ->
+                     maps:put(K, V, BA);
+                   true ->
+                     C1=bal:changes(V),
+                     case (maps:size(C1)>0) of
+                       true ->
+                         maps:put(K,
+                                  maps:put(lastblk,
+                                           maps:get(ublk, V),
+                                           C1),
+                                  BA);
+                       false ->
+                         BA
+                     end
+                 end,
+            maps:remove(changes,Item)
         end
     end, #{}, NewBal0).
 

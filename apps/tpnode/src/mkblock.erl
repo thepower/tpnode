@@ -228,12 +228,12 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
   end,
   AddrFun=fun({Addr, _Cur}) ->
               case ledger:get(Addr) of
-                #{amount:=_}=Bal -> Bal;
+                #{amount:=_}=Bal -> maps:without([changes],Bal);
                 not_found -> bal:new()
               end;
              (Addr) ->
               case ledger:get(Addr) of
-                #{amount:=_}=Bal -> Bal;
+                #{amount:=_}=Bal -> maps:without([changes],Bal);
                 not_found -> bal:new()
               end
           end,

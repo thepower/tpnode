@@ -224,7 +224,7 @@ handle_call({Action, KVS0, BlockID}, _From, #{db:=DB, mt:=MT}=State) when
                   fun({K, V}, Total) ->
                           ok=rocksdb:batch_put(Batch, K,
                                                term_to_binary(
-                                                 maps:remove(ublk,V)
+                                                 maps:without([ublk,changes],V)
                                                 )
                                               ),
                           if BlockID == undefined ->
