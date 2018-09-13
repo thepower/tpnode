@@ -291,7 +291,7 @@ try_process([{TxID,
             #{success:=Success, failed:=Failed}=Acc) ->
     lager:notice("TODO:Check signature once again and check seq"),
     try
-    throw('fixme'),
+    throw('fixme_portin'),
         Bals=maps:get(To, Addresses),
         case Bals of
             #{} ->
@@ -322,7 +322,7 @@ try_process([{TxID,
             #{success:=Success, failed:=Failed}=Acc) ->
   lager:notice("Ensure verified"),
     try
-    throw('fixme'),
+    throw('fixme_portout'),
         Bals=maps:get(From, Addresses),
         A1=maps:remove(keep, Bals),
         Empty=maps:size(A1)==0,
@@ -1558,7 +1558,9 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
      true -> ok
   end,
   _T4=erlang:system_time(),
+  lager:debug("Bals before clean ~p",[NewBal0]),
   NewBal=cleanup_bals(NewBal0),
+  lager:debug("Bals after clean ~p",[NewBal]),
   ExtraPatch=maps:fold(
                fun(ToChain, _NoOfTxs, AccExtraPatch) ->
                    [ToChain|AccExtraPatch]
@@ -1668,6 +1670,7 @@ addrcheck(Addr) ->
 cleanup_bals(NewBal0) ->
   maps:fold(
     fun(K, V, BA) ->
+        lager:debug("Bal cleanup ~p ~p",[K,V]),
         case maps:get(keep, V, true) of
           false ->
             BA;
