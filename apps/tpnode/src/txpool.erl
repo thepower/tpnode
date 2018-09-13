@@ -184,10 +184,10 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue}=State
 
   try
     PreSig=maps:merge(
-         gen_server:call(blockchain, lastsig),
-         #{null=><<"mkblock">>,
-           chain=>MyChain
-          }),
+             gen_server:call(blockchain, lastsig),
+             #{null=><<"mkblock">>,
+               chain=>MyChain
+              }),
     MResX=msgpack:pack(PreSig),
     gen_server:cast(mkblock, {tpic, PK, MResX}),
     tpic:cast(tpic, <<"mkblock">>, MResX)
@@ -197,8 +197,10 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue}=State
   end,
 
   try
+    LBH=get_lbh(State),
     MRes=msgpack:pack(#{null=><<"mkblock">>,
               chain=>MyChain,
+              lbh=>LBH,
               txs=>maps:from_list(
                    lists:map(
                    fun({TxID, T}) ->
@@ -213,7 +215,6 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue}=State
         lager:error("Can't encode at ~p", [Stack2])
   end,
 
-  %gen_server:cast(mkblock, {prepare, PK, Res}),
   Time=erlang:system_time(seconds),
   {InProc1, Queue2}=recovery_lost(InProc0, Queue1, Time),
   ETime=Time+20,
@@ -330,13 +331,7 @@ decode_txid(Txta) ->
   {N1, decode_ints(Bin)}.
 
 generate_txid(#{mychain:=MyChain}=State) ->
-  LBH=case maps:find(height, State) of
-        error ->
-          {_Chain,H1}=gen_server:call(blockchain,last_block_height),
-          H1;
-        {ok, H1} ->
-          H1
-      end,
+  LBH=get_lbh(State),
   T=os:system_time(),
 %  N=erlang:unique_integer([positive]),
   P=nodekey:node_name(),
@@ -354,6 +349,14 @@ generate_txid(#{mychain:=MyChain}=State) ->
 generate_txid(#{}) ->
   error.
 
+get_lbh(State) ->
+  case maps:find(height, State) of
+    error ->
+      {_Chain,H1}=gen_server:call(blockchain,last_block_height),
+      H1;
+    {ok, H1} ->
+      H1
+  end.
 
 pullx(0, Q, Acc) ->
     {Q, Acc};

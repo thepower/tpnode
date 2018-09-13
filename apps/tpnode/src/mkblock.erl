@@ -77,7 +77,7 @@ handle_cast({tpic, Origin, #{
                      null:=<<"mkblock">>,
                      <<"chain">>:=_MsgChain,
                      <<"txs">>:=TPICTXs
-                    }}, State)  ->
+                    }=Msg}, State)  ->
   TXs=decode_tpic_txs(TPICTXs),
   if TXs==[] -> ok;
      true ->
@@ -87,9 +87,9 @@ handle_cast({tpic, Origin, #{
              TXs
             ])
   end,
-  handle_cast({prepare, Origin, TXs}, State);
+  handle_cast({prepare, Origin, TXs, maps:get(<<"lbh">>,Msg,undefined)}, State);
 
-handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
+handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
   Origin=chainsettings:is_our_node(Node),
   if Origin==false ->
        lager:error("Got txs from bad node ~s",
@@ -133,18 +133,32 @@ handle_cast({prepare, Node, Txs}, #{preptxl:=PreTXL}=State) ->
                  end,
               {TxID,TxB1}
           end,
-       {noreply,
-      case maps:get(parent, State, undefined) of
-        undefined ->
-          #{header:=#{height:=Last_Height}, hash:=Last_Hash}=gen_server:call(blockchain, last_block),
-          State#{
-            preptxl=>PreTXL ++ lists:map(MarkTx, Txs),
-            parent=>{Last_Height, Last_Hash}
-           };
-        _ ->
-          State#{ preptxl=>PreTXL ++ lists:map(MarkTx, Txs) }
-      end
-       }
+       WithParent=case maps:get(parent, State, undefined) of
+                    undefined ->
+                      #{header:=#{height:=Last_Height}, hash:=Last_Hash}=gen_server:call(blockchain, last_block),
+                      State#{ parent=>{Last_Height, Last_Hash} };
+                    _ ->
+                      State
+                  end,
+       {CHei,_}=maps:get(parent, WithParent),
+       if MH==CHei orelse MH==undefined ->
+            {noreply, State#{
+                        preptxl=>PreTXL ++ lists:map(MarkTx, Txs)
+                       }
+            };
+          CHei>MH ->
+            tpic:cast(tpic, <<"mkblock">>,
+                      #{ null=> <<"lag">>,
+                         lbh=>CHei
+                       }),
+            lager:notice("Node ~p lagging, my h=~p his=~p",
+                         [Origin, CHei, MH]),
+            {noreply, State};
+          CHei<MH ->
+            lager:notice("Am I lagging? I got h=~p from ~p",
+                         [MH,Origin]),
+            {noreply, State}
+       end
   end;
 
 handle_cast(settings, State) ->
