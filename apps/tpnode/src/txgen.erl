@@ -197,7 +197,8 @@ write_terms(Filename, List) when is_list(List) ->
     lists:map(
       fun(Term) -> io_lib:format("~tp.~n", [Term]) end,
       List
-    )
+    ),
+    [append]
   ).
 
 %% -------------------------------------------------------------------------------------
@@ -267,6 +268,10 @@ create_wallets(Chain, WalletsCount, Acc) when is_integer(WalletsCount), is_integ
   Status = api_get_tx_status(TxId, BaseUrl),
   io:format("transaction status: ~p~n", [Status]),
   {ok, #{<<"ok">> := true, <<"res">> := WalletAddress}, _} = Status,
+  write_terms(
+    "wallets-" ++ integer_to_list(Chain) ++ ".txt",
+    [{WalletAddress, Pvt}]
+  ),
   create_wallets(Chain, WalletsCount - 1, Acc ++ [{WalletAddress, Pvt}]).
 
 
@@ -302,7 +307,7 @@ get_wallets(Chain) when is_integer(Chain)->
           WalletsLength1 when (WalletsLength1 < ChainWalletsCount) ->
             NewWallets1 =
               WalletsFromFile ++ create_wallets(Chain, ChainWalletsCount - WalletsLength1),
-            write_terms(FileName, NewWallets1),
+%%            write_terms(FileName, NewWallets1),
             NewWallets1;
           _ ->
             WalletsFromFile
@@ -310,7 +315,7 @@ get_wallets(Chain) when is_integer(Chain)->
       Err1 ->
         io:format("Can't read wallets from file: ~p ~p~n", [FileName, Err1]),
         NewWallets = create_wallets(Chain, ChainWalletsCount),
-        write_terms(FileName, NewWallets),
+%%        write_terms(FileName, NewWallets),
         io:format("wallets: ~p~n", [NewWallets]),
         NewWallets
     end,
@@ -318,41 +323,55 @@ get_wallets(Chain) when is_integer(Chain)->
 
 %% -------------------------------------------------------------------------------------
 
-bootstrap(4) ->
-  "http://127.0.0.1:49841";
+bootstrap(Chain) when is_integer(Chain), Chain>=4, Chain=<6 ->
+  Host = "pwr.local",
+  FirstPort = list_to_integer("498" ++ integer_to_list(Chain) ++ "1"),
+  Port = rand:uniform(3)-1+FirstPort,
+  "http://" ++ Host ++ ":" ++ integer_to_list(Port);
 
-bootstrap(5) ->
-  "http://127.0.0.1:49851";
+bootstrap(Chain) when is_integer(Chain), Chain>=10, Chain=<69  ->
+  rand:seed(exs1024s, os:timestamp()),
+  AllPorts = [{10, 43290}, {11, 43291}, {12, 43292}, {13, 43293}, {14, 43294}, {15, 43295}, {16, 43296}, {17, 43297}, {18, 43298}, {19, 43299}, {20, 43300}, {21, 43301}, {22, 43302}, {23, 43303}, {24, 43304}, {25, 43305}, {26, 43306}, {27, 43307}, {28, 43308}, {29, 43309}, {30, 43310}, {31, 43371}, {32, 43312}, {33, 43313}, {34, 43314}, {35, 43315}, {36, 43316}, {37, 43317}, {38, 43318}, {39, 43319}, {40, 43320}, {41, 43321}, {42, 43322}, {43, 43323}, {44, 43324}, {45, 43325}, {46, 43326}, {47, 43327}, {48, 43328}, {49, 43329}, {50, 43330}, {51, 43331}, {52, 43332}, {53, 43333}, {54, 43334}, {55, 43335}, {56, 43336}, {57, 43337}, {58, 43338}, {59, 43339}, {60, 43340}, {61, 43341}, {62, 43342}, {63, 43343}, {64, 43344}, {65, 43345}, {66, 43346}, {67, 43347}, {68, 43348}, {69, 43349}],
+  FirstNode = (Chain-10)*3,
+%%  Node = rand:uniform(3)-1+FirstNode,
+  Node = FirstNode,
+  Region =
+    case Node>35 of
+      true ->
+        "northeurope";
+      _ ->
+        "westeurope"
+    end,
+  Port = proplists:get_value(Chain, AllPorts),
+  "http://powernode" ++ integer_to_list(Node) ++ "." ++
+    Region ++ ".cloudapp.azure.com:" ++ integer_to_list(Port).
+  
 
-bootstrap(6) ->
-  "http://127.0.0.1:49861";
-
-
-bootstrap(Chain) ->
-  Url = "http://powernode25.westeurope.cloudapp.azure.com:43298/api/nodes/" ++ integer_to_list(Chain),
-  {ok, {Code, _, Res}} =
-    httpc:request(get, {Url, []}, [], [{body_format, binary}]),
-
-  case Code of
-    {_, 200, _} ->
-      X = jsx:decode(Res, [return_maps]),
-      CN = maps:get(<<"chain_nodes">>, X),
-      Addr =
-        case maps:keys(CN) of
-          [] ->
-            throw(no_address);
-          Addrs ->
-            hd(Addrs)
-        end,
-      binary_to_list(hd(lists:filter(
-        fun
-          (<<"http://", _/binary>>) -> true;
-          (_) -> false
-        end, settings:get([Addr, <<"ip">>], CN)
-      )));
-    true ->
-      {error, Code}
-  end.
+%%bootstrap(Chain) ->
+%%  Url = "http://powernode25.westeurope.cloudapp.azure.com:43298/api/nodes/" ++ integer_to_list(Chain),
+%%  {ok, {Code, _, Res}} =
+%%    httpc:request(get, {Url, []}, [], [{body_format, binary}]),
+%%
+%%  case Code of
+%%    {_, 200, _} ->
+%%      X = jsx:decode(Res, [return_maps]),
+%%      CN = maps:get(<<"chain_nodes">>, X),
+%%      Addr =
+%%        case maps:keys(CN) of
+%%          [] ->
+%%            throw(no_address);
+%%          Addrs ->
+%%            hd(Addrs)
+%%        end,
+%%      binary_to_list(hd(lists:filter(
+%%        fun
+%%          (<<"http://", _/binary>>) -> true;
+%%          (_) -> false
+%%        end, settings:get([Addr, <<"ip">>], CN)
+%%      )));
+%%    true ->
+%%      {error, Code}
+%%  end.
 
 %% -------------------------------------------------------------------------------------
 
@@ -491,6 +510,7 @@ generate_transactions(Chain, TransCount, [From, ToList], StartTime, WorkerId, Ow
 %%  [_ | Wallets] = get_wallets(Chain),
 %%  [From, ToList] = choose_wallets(Wallets),
   Base = bootstrap(Chain),
+  io:format("worker ~p send trs to ~p ~n", [WorkerId, Base]),
   {BaseIp, BasePort} = parse_http_addr(Base),
   {ok, ConnPid} = gun:open(BaseIp, BasePort),
   Options = {Owner, Base, ConnPid, StartTime, TransCount, WorkerId},
@@ -509,8 +529,8 @@ generate_transactions(
   
   check_stop_flag(),
   
-  case TransCount rem 5 of
-    0 ->
+  case TransCount =/= StartCount andalso TransCount rem 50 =:= 0 of
+    true ->
       TimeDiff = os:system_time(millisecond) - StartTime,
       Tps =
         case TimeDiff of
@@ -521,7 +541,7 @@ generate_transactions(
         end,
 %%      io:format("-> ~p ~p ~p ~p ~n", [StartCount, TransCount, StartTime, Tps]),
   
-      _Owner ! {reply, WorkerId, TransCount, Tps};
+      _Owner ! {reply, WorkerId, TransCount, Tps, self()};
     
     _ ->
       pass
@@ -575,7 +595,7 @@ check_stop_flag() ->
 
 %% -------------------------------------------------------------------------------------
 tx_money_transfer(From, To, Pvt) ->
-  Amount = rand:uniform(10),
+  Amount = rand:uniform(10)+1,
   FeeCur = Cur = <<"SK">>,
   
   T1 = #{
@@ -587,7 +607,7 @@ tx_money_transfer(From, To, Pvt) ->
     ver => 2,
     txext => #{},
     payload => [
-      #{amount => Amount, cur => Cur, purpose => transfer}
+      #{amount => Amount, cur => Cur, purpose => transfer},
       #{amount => 200, cur => FeeCur, purpose => srcfee}
     ]
   },
@@ -603,7 +623,9 @@ stop_all() ->
 %% -------------------------------------------------------------------------------------
 
 start_me(Chain, TransactionsPerProcess, Processes) ->
+  application:ensure_all_started(inets),
   application:set_env(tpnode, generator, start),
+  rand:seed(exs1024s, os:timestamp()),
   [_ | Wallets] = get_wallets(Chain),
   WalletsList = choose_wallets2(Wallets, Processes),
   
@@ -613,28 +635,53 @@ start_me(Chain, TransactionsPerProcess, Processes) ->
         [Chain, TransactionsPerProcess, Addresses,
           os:system_time(millisecond), WorkerId, self()])
     end,
-  lists:foldl(
-    fun(Addr, Acc) ->
-      Starter(Addr, Acc),
-      Acc+1
-    end,
-    0,
-    WalletsList
-  ),
-  wait_for_reply(TransactionsPerProcess, #{}, []).
+  {_, Pids} =
+    lists:foldl(
+      fun(Addr, {WorkerId, PidsList}) ->
+        {WorkerId+1, PidsList ++ [Starter(Addr, WorkerId)]}
+      end,
+      {0, []},
+      WalletsList
+    ),
+  wait_for_reply(TransactionsPerProcess, #{}, Pids).
 
 
-wait_for_reply(TransactionsPerProcess, TpsMap, List) ->
+wait_for_reply(TransactionsPerProcess, TpsMap, Pids) ->
   receive
-    {reply, WorkerId, TransCount, Tps} ->
-      TpsMap2 = maps:put(WorkerId, Tps, TpsMap),
+    {reply, WorkerId, _TransCount, Tps, SenderPid} ->
+      TpsMap2 = maps:put(SenderPid, Tps, TpsMap),
       TpsTotal = lists:sum(maps:values(TpsMap2)),
       io:format("tps [~p]: ~p, total: ~p~n", [WorkerId, Tps, TpsTotal]),
-      wait_for_reply(TransactionsPerProcess, TpsMap2, [TransactionsPerProcess-TransCount | List])
-    after 2000 ->
-      List
+      wait_for_reply(TransactionsPerProcess, TpsMap2, Pids)
+%%      wait_for_reply(TransactionsPerProcess, TpsMap2, [TransactionsPerProcess - _TransCount | List])
+  after 1000 ->
+    check_stop_flag(),
+    Alive = [is_process_alive(Pid) || Pid <- Pids],
+    % set proccess tps to zero if where exists finished workers
+    TpsMap2 =
+      case lists:member(false, Alive) of
+        true ->
+          maps:map(
+            fun(WorkerPid, Val) ->
+              case is_process_alive(WorkerPid) of
+                true ->
+                  Val;
+                _ ->
+                  0
+              end
+            end,
+            TpsMap
+          );
+        _ ->
+          TpsMap
+      end,
+    % continue waiting if live workers are exists
+    case lists:member(true, Alive) of
+      true ->
+        io:format("still alive ~p~n", [Alive]),
+        wait_for_reply(TransactionsPerProcess, TpsMap2, Pids);
+      _ ->
+        ok
+    end
   end.
   
-
-
-
