@@ -155,8 +155,8 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
                          [Origin, CHei, MH]),
             {noreply, State};
           CHei<MH ->
-            lager:notice("Am I lagging? I got h=~p from ~p",
-                         [MH,Origin]),
+            lager:notice("Am I lagging? I got h=~p, but my h=~p from ~p",
+                         [MH,CHei,Origin]),
             {noreply, State}
        end
   end;
