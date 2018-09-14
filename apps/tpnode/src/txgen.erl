@@ -1,6 +1,8 @@
 -module(txgen).
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
+%%-define(PAUSE, 100).
+
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -333,8 +335,8 @@ bootstrap(Chain) when is_integer(Chain), Chain>=10, Chain=<69  ->
   rand:seed(exs1024s, os:timestamp()),
   AllPorts = [{10, 43290}, {11, 43291}, {12, 43292}, {13, 43293}, {14, 43294}, {15, 43295}, {16, 43296}, {17, 43297}, {18, 43298}, {19, 43299}, {20, 43300}, {21, 43301}, {22, 43302}, {23, 43303}, {24, 43304}, {25, 43305}, {26, 43306}, {27, 43307}, {28, 43308}, {29, 43309}, {30, 43310}, {31, 43371}, {32, 43312}, {33, 43313}, {34, 43314}, {35, 43315}, {36, 43316}, {37, 43317}, {38, 43318}, {39, 43319}, {40, 43320}, {41, 43321}, {42, 43322}, {43, 43323}, {44, 43324}, {45, 43325}, {46, 43326}, {47, 43327}, {48, 43328}, {49, 43329}, {50, 43330}, {51, 43331}, {52, 43332}, {53, 43333}, {54, 43334}, {55, 43335}, {56, 43336}, {57, 43337}, {58, 43338}, {59, 43339}, {60, 43340}, {61, 43341}, {62, 43342}, {63, 43343}, {64, 43344}, {65, 43345}, {66, 43346}, {67, 43347}, {68, 43348}, {69, 43349}],
   FirstNode = (Chain-10)*3,
-%%  Node = rand:uniform(3)-1+FirstNode,
-  Node = FirstNode,
+  Node = rand:uniform(3)-1+FirstNode,
+%%  Node = FirstNode,
   Region =
     case Node>35 of
       true ->
@@ -505,12 +507,28 @@ parse_http_addr(Addr) when is_list(Addr) ->
 
 %% -------------------------------------------------------------------------------------
 
+-ifdef(PAUSE).
+
+pause_between_requests() ->
+  timer:sleep(?PAUSE).
+
+-else.
+
+pause_between_requests() ->
+  ok.
+
+-endif.
+
+
+
+
 
 generate_transactions(Chain, TransCount, [From, ToList], StartTime, WorkerId, Owner) when is_pid(Owner) ->
 %%  [_ | Wallets] = get_wallets(Chain),
 %%  [From, ToList] = choose_wallets(Wallets),
   Base = bootstrap(Chain),
-  io:format("worker ~p send trs to ~p ~n", [WorkerId, Base]),
+  {Addr, _} = From,
+  io:format("worker ~p send trs to ~p from ~s~n", [WorkerId, Base, naddress:encode(Addr)]),
   {BaseIp, BasePort} = parse_http_addr(Base),
   {ok, ConnPid} = gun:open(BaseIp, BasePort),
   Options = {Owner, Base, ConnPid, StartTime, TransCount, WorkerId},
@@ -571,6 +589,9 @@ generate_transactions(
           Body;
         {error, timeout} ->
           io:format("timeout~n"),
+          no_data;
+        {error,{closed,Message}} ->
+          io:format("connection closed: ~p ~n", [Message]),
           no_data
       end,
 %%  io:format("answer: ~s~n", [_Answer]),
@@ -579,6 +600,7 @@ generate_transactions(
 %%      Ec:Ee  ->
 %%        io:format("crash: ~p:~p~n", [Ec, Ee])
 %%  end,
+  pause_between_requests(),
   generate_transactions({From, FromPvt}, ToList, Options, TransCount-1).
 
 %% -------------------------------------------------------------------------------------
