@@ -89,13 +89,20 @@ handle_info(ticktimer,
   MeanMs = round((T + MeanDiff) / 1000),
   Wait = Delay - (MeanMs rem Delay),
   
+  MBD=case application:get_env(tpnode, mkblock_delay, 200) of
+        X when is_integer(X), X>50, X<2000 ->
+          X;
+        Any ->
+          lager:info("Bad mkblock_delay ~p",[Any]),
+          200
+      end,
   case maps:get(bcready, State, false) of
     true ->
       gen_server:cast(txpool, prepare),
-      erlang:send_after(200, whereis(mkblock), process),
+      erlang:send_after(MBD, whereis(mkblock), process),
       lager:debug("Time to tick. next in ~w", [Wait]);
     false ->
-      erlang:send_after(200, whereis(mkblock), flush),
+      erlang:send_after(MBD, whereis(mkblock), flush),
       lager:info("Time to tick. But we not in sync. wait ~w", [Wait])
   end,
   
