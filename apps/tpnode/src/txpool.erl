@@ -176,7 +176,8 @@ handle_cast({inbound_block, #{hash:=Hash}=Block}, #{queue:=Queue}=State) ->
     };
 
 handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue}=State) ->
-  {Queue1, Res}=pullx(2048, Queue, []),
+  MaxPop=chainsettings:get_val(<<"poptxs">>,200),
+  {Queue1, Res}=pullx(MaxPop, Queue, []),
   PK=case maps:get(pubkey, State, undefined) of
        undefined -> nodekey:get_pub();
        FoundKey -> FoundKey
