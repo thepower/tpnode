@@ -509,7 +509,7 @@ transaction_test(_Config) ->
     {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {patch, Patch}),
     io:format("PatchTxId: ~p~n", [PatchTxId]),
     {ok, _} = wait_for_tx(PatchTxId, get_node(<<"test_c4n1">>)),
-    ChainSettngs = rpc:call(get_node(<<"test_c4n1">>), blockchain, get_settings, []),
+    ChainSettngs = rpc:call(get_node(<<"test_c4n1">>), chainsettings, all, []),
     io:format("ChainSettngs: ~p~n", [ChainSettngs]),
     Amount = max(1000, rand:uniform(100000)),
 
