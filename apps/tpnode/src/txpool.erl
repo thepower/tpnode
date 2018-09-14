@@ -275,6 +275,9 @@ handle_cast(_Msg, State) ->
     lager:info("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
+handle_info(prepare, State) ->
+  handle_cast(prepare, State);
+
 handle_info(getlb, State) ->
   {_Chain,Height}=gen_server:call(blockchain,last_block_height),
   {noreply, State#{height=>Height}};

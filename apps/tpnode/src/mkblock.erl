@@ -133,15 +133,17 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
                  end,
               {TxID,TxB1}
           end,
-       WithParent=case maps:get(parent, State, undefined) of
+       WithParent=case maps:get(roundparent, State, undefined) of
                     undefined ->
+                      lager:info("Fetching last block from blockchain"),
                       #{header:=#{height:=Last_Height}, hash:=Last_Hash}=gen_server:call(blockchain, last_block),
-                      State#{ parent=>{Last_Height, Last_Hash} };
+                      State#{ roundparent=>{Last_Height, Last_Hash} };
                     _ ->
                       State
                   end,
-       {CHei,_}=maps:get(parent, WithParent),
-       if MH==CHei orelse MH==undefined ->
+       {CHei,_}=maps:get(roundparent, WithParent),
+
+       if CHei==undefined orelse MH==CHei orelse MH==undefined ->
             {noreply, State#{
                         preptxl=>PreTXL ++ lists:map(MarkTx, Txs)
                        }
@@ -184,16 +186,15 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
             end, #{}, PreTXL0),
   PreTXL=lists:keysort(1, maps:to_list(PreTXL1)),
 
-  AE=maps:get(ae, MySet, 1),
+  AE=maps:get(ae, MySet, 0),
 
-  {_, ParentHash}=Parent=case maps:get(parent, State, undefined) of
-                           undefined ->
-                             lager:info("Fetching last block from blockchain"),
-                             #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=gen_server:call(blockchain, last_block),
-                             {Last_Height1, Last_Hash1};
-                           {A, B} -> {A, B}
-                         end,
-
+  {ParentHeight, ParentHash}=Parent=case maps:get(parent, State, undefined) of
+                                      undefined ->
+                                        %lager:info("Fetching last block from blockchain"),
+                                        #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=gen_server:call(blockchain, last_block),
+                                        {Last_Height1, Last_Hash1};
+                                      {A, B} -> {A, B}
+                                    end,
   PreNodes=try
              PreSig=maps:get(presig, State),
              BK=maps:fold(
@@ -292,7 +293,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
      ],
   SignedBlock=sign(Block, ED),
   #{header:=#{height:=NewH}}=Block,
-  %cast whole block for my local blockvote
+  %cast whole block to my local blockvote
   gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
 
   case application:get_env(tpnode, dumpblocks) of
@@ -325,10 +326,14 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
                                     gen_server:call(txpool, {push_etx, EmitTXs})
                                    ])
   end,
-  {noreply, State#{preptxl=>[], parent=>undefined, presig=>#{}}}
-catch throw:empty ->
+  {noreply, State#{preptxl=>[], parent=>undefined,
+                   roundparent=>{ParentHeight, ParentHash},
+                   presig=>#{}}}
+  catch throw:empty ->
         lager:info("Skip empty block"),
-        {noreply, State#{preptxl=>[], parent=>undefined, presig=>#{}}}
+        {noreply, State#{preptxl=>[], parent=>{ParentHeight, ParentHash},
+                         roundparent=>{ParentHeight, ParentHash},
+                         presig=>#{}}}
     end;
 
 handle_info(process, State) ->
