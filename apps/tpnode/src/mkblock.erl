@@ -159,6 +159,7 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
           CHei<MH ->
             lager:notice("Am I lagging? I got h=~p, but my h=~p from ~p",
                          [MH,CHei,Origin]),
+            blockchain ! checksync,
             {noreply, State}
        end
   end;
@@ -331,7 +332,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
                    presig=>#{}}}
   catch throw:empty ->
         lager:info("Skip empty block"),
-        {noreply, State#{preptxl=>[], parent=>{ParentHeight, ParentHash},
+        {noreply, State#{preptxl=>[], parent=>undefined,
                          roundparent=>{ParentHeight, ParentHash},
                          presig=>#{}}}
     end;
