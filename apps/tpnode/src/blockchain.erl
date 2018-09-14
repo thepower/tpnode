@@ -868,7 +868,7 @@ handle_info({bbyb_sync, Hash}, #{
       }}
   end;
 
-handle_info(checksync, #{
+handle_info(checksync__, #{
         lastblock:=#{header:=#{height:=MyHeight}, hash:=_MyLastHash}
        }=State) ->
   Candidates=lists:reverse(
