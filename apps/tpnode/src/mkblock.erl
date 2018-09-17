@@ -57,6 +57,15 @@ handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
     end;
 
 handle_cast({tpic, FromKey, #{
+                     null:=<<"lag">>,
+                     <<"lbh">>:=LBH
+                    }}, State)  ->
+  Origin=chainsettings:is_our_node(FromKey),
+  lager:debug("MB Node ~s tells I lagging, his h=~w", [Origin, LBH]),
+  {noreply, State};
+
+
+handle_cast({tpic, FromKey, #{
                      null:=<<"mkblock">>,
            <<"hash">> := ParentHash,
            <<"signed">> := SignedBy
