@@ -47,7 +47,8 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
     lager:info("xchain client connecting to ~p ~p", [Ip, Port]),
     {ok, Pid} = gun:open(Ip, Port),
     receive
-      {gun_up, Pid, http} -> ok
+      {gun_up, Pid, http} ->
+        ok
     after 20000 ->
             gun:close(Pid),
             throw('up_timeout')
@@ -102,7 +103,12 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
     ws_mode(Pid,Sub#{proto=>Proto},GetFun),
     gun:close(Pid),
     done
-  catch Ec:Ee ->
+  catch
+    throw:up_timeout ->
+      Parent ! {wrk_down, self(), error},
+      lager:debug("connection to ~p was timed out", [Sub]),
+      pass;
+    Ec:Ee ->
           Parent ! {wrk_down, self(), error},
           S=erlang:get_stacktrace(),
           lager:error("xchain client error ~p:~p",[Ec,Ee]),
