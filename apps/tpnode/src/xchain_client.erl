@@ -139,7 +139,7 @@ make_connections(Subs) ->
           false ->
             try
               IsBanned =
-                fun(Sub) ->
+                fun() ->
                   %% Sub = #{ban => 12345678, address => "1.2.3.4",port => 8080}
                   Now = os:system_time(seconds),
                   case maps:get(ban, Sub, 0) of
@@ -150,7 +150,7 @@ make_connections(Subs) ->
                   end
                 end,
   
-              case IsBanned(Sub) of
+              case IsBanned() of
                 false ->
                   lager:info("xchain client make connection to ~p",[Sub]),
                   {ok, Pid} = xchain_client_worker:start_link(Sub),
