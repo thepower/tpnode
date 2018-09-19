@@ -5,6 +5,7 @@
 
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
+-define(CONNECTION_TIMER_SEC, 10).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -36,7 +37,7 @@ init(_Args) ->
     subs => init_subscribes(#{}),
     chain => blockchain:chain(),
     connect_timer => erlang:send_after(3 * 1000, self(), make_connections)
-   },
+  },
   code:ensure_loaded(xchain_client_handler),
   {ok, State}.
 
@@ -91,22 +92,32 @@ handle_info({wrk_up, ConnPid, NodeID}, #{subs:=Subs} = State) ->
              }};
 
 handle_info({wrk_down, ConnPid, Reason}, #{subs:=Subs} = State) ->
-  lager:notice("xchain client got close from server for pid ~p: ~p",
-               [ConnPid, Reason]),
-  {noreply, State#{
-              subs => update_sub(
-                        fun(_,Sub) ->
-                            maps:without([worker,nodeid],Sub)
-                        end, ConnPid, Subs)
-             }};
+  lager:notice(
+    "xchain client got close from server for pid ~p: ~p",
+    [ConnPid, Reason]
+  ),
+  
+  {noreply,
+    State#{
+      subs => update_sub(
+        fun(_, Sub) ->
+          BanUntil = os:system_time(seconds) +
+            ?CONNECTION_TIMER_SEC * 5 + rand:uniform(?CONNECTION_TIMER_SEC),
+          NewSub = maps:without([worker, nodeid], Sub),
+          NewSub#{ban => BanUntil}
+        end, ConnPid, Subs)
+    }};
+
 
 handle_info(make_connections, #{connect_timer:=Timer, subs:=Subs} = State) ->
   catch erlang:cancel_timer(Timer),
   NewSubs = make_connections(Subs),
-  {noreply, State#{
-              subs => NewSubs,
-              connect_timer => erlang:send_after(10 * 1000, self(), make_connections)
-             }};
+  {noreply,
+    State#{
+      subs => NewSubs,
+      connect_timer =>
+        erlang:send_after(?CONNECTION_TIMER_SEC * 1000, self(), make_connections)
+    }};
 
 handle_info(_Info, State) ->
   lager:error("xchain client unknown info ~p", [_Info]),
@@ -127,13 +138,33 @@ make_connections(Subs) ->
         case maps:is_key(worker, Sub) of
           false ->
             try
-              lager:info("xchain client make connection to ~p",[Sub]),
-              {ok, Pid} = xchain_client_worker:start_link(Sub),
-              Sub#{worker=>Pid}
+              IsBanned =
+                fun() ->
+                  %% Sub = #{ban => 12345678, address => "1.2.3.4",port => 8080}
+                  Now = os:system_time(seconds),
+                  case maps:get(ban, Sub, 0) of
+                    TS when (TS>Now) ->
+                      TS; % banned until TS
+                    _ ->
+                      false % can connect
+                  end
+                end,
+  
+              case IsBanned() of
+                false ->
+                  lager:info("xchain client make connection to ~p",[Sub]),
+                  {ok, Pid} = xchain_client_worker:start_link(Sub),
+                  Sub#{worker=>Pid};
+                WaitUntil ->
+                  lager:debug("xchain client skip until ~p connection to ~p",[WaitUntil, Sub]),
+                  Sub
+              end
             catch
               Err:Reason ->
-                lager:info("xchain client got error while connection to remote xchain: ~p ~p",
-                           [Err, Reason]),
+                lager:info(
+                  "xchain client got error while connection to remote xchain: ~p ~p",
+                  [Err, Reason]
+                ),
                 Sub
             end;
           _ ->
@@ -142,6 +173,8 @@ make_connections(Subs) ->
     end,
     Subs
    ).
+
+
 
 add_sub(#{address:=IP,port:=Port}=Subscribe, Subs) ->
   try
