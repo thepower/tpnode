@@ -2,6 +2,9 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
+-define(SYNC_TIMER_MS, 200).
+-define(SYNC_TX_COUNT_PER_PROCESS, 50).
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -45,7 +48,8 @@ init(_Args) ->
      queue=>queue:new(),
      nodeid=>nodekey:node_id(),
      pubkey=>nodekey:get_pub(),
-     inprocess=>hashqueue:new()
+     inprocess=>hashqueue:new(),
+     sync_timer=>undefined
     }
   }.
 
@@ -85,7 +89,7 @@ handle_call({portout, #{
 
 handle_call({register, #{
                register:=_
-              }=Patch}, _From, #{queue:=Queue}=State) ->
+              }=Patch}, _From, #{sync_timer:=Tmr, queue:=Queue}=State) ->
   case generate_txid(State) of
     error ->
       {reply, {error,cant_gen_txid}, State};
@@ -93,52 +97,37 @@ handle_call({register, #{
       {reply,
        {ok, TxID},
        State#{
-         queue=>queue:in({TxID, Patch}, Queue)
+         queue=>queue:in({TxID, Patch}, Queue),
+         sync_timer => update_sync_timer(Tmr)
         }
       }
   end;
 
 
-handle_call({patch, #{
-               patch:=_,
-               sig:=_
-              }=Patch}, _From, #{queue:=Queue}=State) ->
-  case settings:verify(Patch) of
-    {ok, #{ sigverify:=#{valid:=[_|_]} }} ->
-      case generate_txid(State) of
-        error ->
-          {reply, {error, cant_gen_txid}, State};
-        {ok, TxID} ->
-          {reply,
-           {ok, TxID},
-           State#{
-             queue=>queue:in({TxID, Patch}, Queue)
-            }
-          }
-      end;
-    bad_sig ->
-      {reply, {error, bad_sig}, State};
-    _ ->
-      {reply, {error, verify}, State}
-  end;
-
+% TODO: push_etx should place the tx directly to outbox
 handle_call({push_etx, [{_, _}|_]=Lst}, _From, #{queue:=Queue}=State) ->
   {reply, ok,
    State#{
      queue=>lists:foldl( fun queue:in_r/2, Queue, Lst)
     }};
 
-handle_call({new_tx, BinTx}, _From, #{queue:=Queue}=State) ->
+handle_call({new_tx, Tx}, _From, State) when is_map(Tx) ->
+  handle_call({new_tx, tx:pack(Tx)}, _From, State);
+
+handle_call({new_tx, BinTx}, _From, #{sync_timer:=Tmr, queue:=Queue}=State)
+  when is_binary(BinTx) ->
     try
         case tx:verify(BinTx) of
-            {ok, Tx} ->
+            {ok, _Tx} ->
             case generate_txid(State) of
               error ->
                 {reply, {error, cant_gen_txid}, State};
               {ok, TxID} ->
-                {reply, {ok, TxID}, State#{
-                                      queue=>queue:in({TxID, Tx}, Queue)
-                                     }}
+                {reply, {ok, TxID},
+                  State#{
+                    queue=>queue:in({TxID, BinTx}, Queue),
+                    sync_timer => update_sync_timer(Tmr)
+                  }}
             end;
             Err ->
                 {reply, {error, Err}, State}
@@ -167,12 +156,14 @@ handle_cast({new_height, H}, State) ->
 handle_cast(settings, State) ->
     {noreply, load_settings(State)};
 
-handle_cast({inbound_block, #{hash:=Hash}=Block}, #{queue:=Queue}=State) ->
+handle_cast({inbound_block, #{hash:=Hash}=Block}, #{sync_timer:=Tmr, queue:=Queue}=State) ->
     BlId=bin2hex:dbin2hex(Hash),
     lager:info("Inbound block ~p", [{BlId, Block}]),
-    {noreply, State#{
-                queue=>queue:in({BlId, Block}, Queue)
-               }
+    {noreply,
+      State#{
+        queue=>queue:in({BlId, Block}, Queue),
+        sync_timer => update_sync_timer(Tmr)
+      }
     };
 
 handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue}=State) ->
@@ -199,16 +190,14 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue}=State
 
   try
     LBH=get_lbh(State),
-    MRes=msgpack:pack(#{null=><<"mkblock">>,
-              chain=>MyChain,
-              lbh=>LBH,
-              txs=>maps:from_list(
-                   lists:map(
-                   fun({TxID, T}) ->
-                       {TxID, tx:pack(T)}
-                   end, Res)
-                  )
-               }),
+    MRes=msgpack:pack(
+      #{
+        null=><<"mkblock">>,
+        chain=>MyChain,
+        lbh=>LBH,
+        txs=>maps:from_list(Res)
+      }
+    ),
     gen_server:cast(mkblock, {tpic, PK, MRes}),
     tpic:cast(tpic, <<"mkblock">>, MRes)
   catch _:_ ->
@@ -217,6 +206,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue}=State
   end,
 
   Time=erlang:system_time(seconds),
+  % TODO: recovery_lost should place the tx directly to outbox
   {InProc1, Queue2}=recovery_lost(InProc0, Queue1, Time),
   ETime=Time+20,
   {noreply, State#{
@@ -232,7 +222,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue}=State
   };
 
 handle_cast(prepare, State) ->
-    lager:notice("TXPOOL Blocktime, but I not ready"),
+    lager:notice("TXPOOL Blocktime, but I am not ready"),
     {noreply, load_settings(State)};
 
 handle_cast({done, Txs}, #{inprocess:=InProc0}=State) ->
@@ -271,11 +261,16 @@ handle_cast({failed, Txs}, #{inprocess:=InProc0}=State) ->
          }
   };
 
-
 handle_cast(_Msg, State) ->
     lager:info("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
+handle_info(sync_tx, #{sync_timer:=Tmr}=State) ->
+  catch erlang:cancel_timer(Tmr),
+  lager:info("run tx sync"),
+  {noreply, State#{sync_timer => undefined}};
+
+  
 handle_info(prepare, State) ->
   handle_cast(prepare, State);
 
@@ -356,7 +351,7 @@ generate_txid(#{}) ->
 get_lbh(State) ->
   case maps:find(height, State) of
     error ->
-      {_Chain,H1}=gen_server:call(blockchain,last_block_height),
+      {_Chain,H1}=gen_server:call(blockchain, last_block_height),
       H1;
     {ok, H1} ->
       H1
@@ -369,8 +364,8 @@ pullx(N, Q, Acc) ->
     {Element, Q1}=queue:out(Q),
     case Element of
         {value, E1} ->
-      %lager:debug("Pull tx ~p", [E1]),
-      pullx(N-1, Q1, [E1|Acc]);
+            %lager:debug("Pull tx ~p", [E1]),
+            pullx(N-1, Q1, [E1|Acc]);
         empty ->
             {Q, Acc}
     end.
@@ -398,3 +393,11 @@ load_settings(State) ->
       height=>Height
      }.
 
+
+update_sync_timer(Tmr) ->
+  case Tmr of
+    undefined ->
+      erlang:send_after(?SYNC_TIMER_MS, self(), sync_tx);
+    _ ->
+      Tmr
+  end.

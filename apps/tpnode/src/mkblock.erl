@@ -372,15 +372,18 @@ load_settings(State) ->
     MyChain=blockchain:chain(),
     AE=chainsettings:get_val(<<"allowempty">>),
     State#{
-      settings=>maps:merge(
-                  OldSettings,
-                  #{ae=>AE, mychain=>MyChain}
-                 )
-     }.
+      settings=>
+      maps:merge(
+        OldSettings,
+        #{ae=>AE, mychain=>MyChain}
+      )
+    }.
 
 decode_tpic_txs(TXs) ->
     lists:map(
       fun({TxID, Tx}) ->
-              {TxID, tx:unpack(Tx)}
+        Unpacked = tx:unpack(Tx),
+%%        lager:info("debug tx unpack: ~p", [Unpacked]),
+        {TxID, Unpacked}
       end, maps:to_list(TXs)).
 
