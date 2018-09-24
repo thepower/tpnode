@@ -527,8 +527,15 @@ verify(#{
   end;
 
 verify(Bin, Opts) when is_binary(Bin) ->
-  Tx=unpack(Bin),
-  verify(Tx, Opts);
+  MaxTxSize=chainsettings:get_val(<<"maxtxsize">>, 4*1024*1024),
+  case size(Bin) of
+    Size when Size>MaxTxSize ->
+      tx_too_big;
+    _ ->
+      Tx=unpack(Bin),
+      verify(Tx, Opts)
+  end;
+
 
 verify(Struct, Opts) ->
   tx1:verify(Struct, Opts).
