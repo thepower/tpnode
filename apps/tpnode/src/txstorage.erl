@@ -1,0 +1,110 @@
+-module(txstorage).
+
+-behaviour(gen_server).
+-define(SERVER, ?MODULE).
+
+%% ------------------------------------------------------------------
+%% API Function Exports
+%% ------------------------------------------------------------------
+
+-export([start_link/0]).
+
+%% ------------------------------------------------------------------
+%% gen_server Function Exports
+%% ------------------------------------------------------------------
+
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+  terminate/2, code_change/3]).
+
+-export([store_tx/3, get_tx/2]).
+
+%% ------------------------------------------------------------------
+%% API Function Definitions
+%% ------------------------------------------------------------------
+
+start_link() ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, #{}, []).
+
+%% ------------------------------------------------------------------
+%% gen_server Function Definitions
+%% ------------------------------------------------------------------
+
+init_table(EtsTableName) ->
+  Table =
+    ets:new(
+      EtsTableName,
+      [named_table, protected, set, {read_concurrency, true}]
+    ),
+  lager:info("Table created: ~p", [Table]).
+
+init(Args) ->
+  EtsTableName = maps:get(ets_name, Args, ?MODULE),
+  init_table(EtsTableName),
+  ExpireTickSec = maps:get(expire_check_sec, Args, 60*60),
+  {ok, #{
+    expire_tick_ms => ExpireTickSec * 1000,
+    timer_expire => erlang:send_after(10*1000, self(), timer_expire),
+    ets_name => EtsTableName,
+    ets_ttl_sec => 60*60
+  }}.
+
+handle_call({get, TxId}, _From, #{ets_name:=EtsName} = State) ->
+  lager:notice("Get tx ~p", [TxId]),
+  {reply, get_tx(TxId, EtsName), State};
+
+handle_call(_Request, _From, State) ->
+  lager:notice("Unknown call ~p", [_Request]),
+  {reply, ok, State}.
+
+handle_cast(_Msg, State) ->
+  lager:notice("Unknown cast ~p", [_Msg]),
+  {noreply, State}.
+
+handle_info(timer_expire,
+  #{ets_name:=EtsName, timer_expire:=Tmr, expire_tick_ms:=Delay} = State) ->
+  
+  catch erlang:cancel_timer(Tmr),
+  lager:info("remove expired records"),
+  Now = os:system_time(second),
+  ets:select_delete(
+    EtsName,
+    [{{'_', '_', '_', '$1'}, [{'<', '$1', Now}], [true]}]
+  ),
+  {noreply,
+    State#{
+      timer_expire => erlang:send_after(Delay, self(), timer_expire)
+    }
+  };
+
+handle_info({store, TxId, Tx, Nodes}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
+  lager:info("store tx ~p", [TxId]),
+  store_tx({TxId, Tx, Nodes}, EtsName, Ttl),
+  {noreply, State};
+
+handle_info(_Info, State) ->
+  lager:notice("Unknown info  ~p", [_Info]),
+  {noreply, State}.
+
+terminate(_Reason, _State) ->
+  ok.
+
+code_change(_OldVsn, State, _Extra) ->
+  {ok, State}.
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
+
+store_tx({TxId, Tx, Nodes}, Table, Ttl) ->
+  TimeOut = os:system_time(second) + Ttl,
+  ets:insert(Table, {TxId, Tx, Nodes, TimeOut}),
+  ok.
+
+
+get_tx(TxId, Table) ->
+  case ets:lookup(Table, TxId) of
+    [{TxId, Tx, Nodes, _Timeout}] ->
+      {ok, {TxId, Tx, Nodes}};
+    [] ->
+      error
+  end.
