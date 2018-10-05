@@ -527,12 +527,12 @@ verify(#{
   end;
 
 verify(Bin, Opts) when is_binary(Bin) ->
-  MaxTxSize=chainsettings:get_val(<<"maxtxsize">>, 4*1024*1024),
+  MaxTxSize = txpool:get_max_tx_size(),
   case size(Bin) of
-    Size when Size>MaxTxSize ->
+    _Size when _Size > MaxTxSize ->
       tx_too_big;
     _ ->
-      Tx=unpack(Bin),
+      Tx = unpack(Bin),
       verify(Tx, Opts)
   end;
 
