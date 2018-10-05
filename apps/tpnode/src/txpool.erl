@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
--define(SYNC_TIMER_MS, 200).
+-define(SYNC_TIMER_MS, 100).
 -define(SYNC_TX_COUNT_PER_PROCESS, 50).
 
 %% ------------------------------------------------------------------
@@ -10,7 +10,7 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
--export([new_tx/1, get_pack/0, inbound_block/1]).
+-export([new_tx/1, get_pack/0, inbound_block/1, get_max_tx_size/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -166,9 +166,10 @@ handle_cast({inbound_block, #{hash:=Hash}=Block}, #{sync_timer:=Tmr, queue:=Queu
       }
     };
 
+
 handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue}=State) ->
   MaxPop=chainsettings:get_val(<<"poptxs">>,200),
-  {Queue1, Res}=pullx(MaxPop, Queue, []),
+  {Queue1, Res}=pullx({MaxPop, get_max_tx_size()}, Queue, []),
   PK=case maps:get(pubkey, State, undefined) of
        undefined -> nodekey:get_pub();
        FoundKey -> FoundKey
@@ -265,12 +266,33 @@ handle_cast(_Msg, State) ->
     lager:info("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(sync_tx, #{sync_timer:=Tmr}=State) ->
+handle_info(sync_tx, #{sync_timer:=Tmr, mychain:=MyChain, queue:=Queue} = State) ->
   catch erlang:cancel_timer(Tmr),
   lager:info("run tx sync"),
-  {noreply, State#{sync_timer => undefined}};
-
+  MaxPop = chainsettings:get_val(<<"poptxs">>, ?SYNC_TX_COUNT_PER_PROCESS),
+  MyPubKey =
+    case maps:get(pubkey, State, undefined) of
+      undefined -> nodekey:get_pub();
+      FoundKey -> FoundKey
+    end,
   
+  {NewQueue, Transactions} = pullx({MaxPop, get_max_tx_size()}, Queue, []),
+  case Transactions of
+    [] ->
+      pass;
+    _ ->
+      LBH = get_lbh(State),
+      erlang:spawn(txsync, do_sync, [Transactions, {MyChain, MyPubKey, LBH}]),
+      self() ! sync_tx
+  end,
+  {noreply,
+    State#{
+      pubkey => MyPubKey,
+      sync_timer => undefined,
+      queue => NewQueue
+    }
+  };
+
 handle_info(prepare, State) ->
   handle_cast(prepare, State);
 
@@ -357,15 +379,21 @@ get_lbh(State) ->
       H1
   end.
 
-pullx(0, Q, Acc) ->
+pullx({0, _}, Q, Acc) ->
     {Q, Acc};
 
-pullx(N, Q, Acc) ->
+pullx({N, MaxSize}, Q, Acc) ->
     {Element, Q1}=queue:out(Q),
     case Element of
         {value, E1} ->
-            %lager:debug("Pull tx ~p", [E1]),
-            pullx(N-1, Q1, [E1|Acc]);
+          MaxSize1 = MaxSize - size(E1),
+          if
+            MaxSize1 < 0 ->
+              {Q, Acc};
+            true ->
+              %lager:debug("Pull tx ~p", [E1]),
+              pullx({N - 1, MaxSize1}, Q1, [E1 | Acc])
+          end;
         empty ->
             {Q, Acc}
     end.
@@ -401,3 +429,7 @@ update_sync_timer(Tmr) ->
     _ ->
       Tmr
   end.
+
+get_max_tx_size() ->
+  chainsettings:get_val(<<"maxtxsize">>, 4*1024*1024).
+
