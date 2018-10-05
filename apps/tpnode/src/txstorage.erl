@@ -7,7 +7,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0]).
+-export([start_link/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -22,8 +22,8 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-start_link() ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, #{}, []).
+start_link(Args) ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, Args, []).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -56,6 +56,92 @@ handle_call(_Request, _From, State) ->
   lager:notice("Unknown call ~p", [_Request]),
   {reply, ok, State}.
 
+handle_cast(
+  {tpic, FromPubKey, Peer, PayloadBin},
+  #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
+  
+  lager:info(
+    "txstorage got txbatch from ~p payload ~p",
+    [ FromPubKey, PayloadBin]
+  ),
+  try
+%% Payload
+%%    #{
+%%      null => <<"mkblock">>,
+%%      chain => MyChain,
+%%      lbh => LBH,
+%%      txbatch => BatchBin,
+%%      batchid => BatchId
+%%    }
+    
+    {BatchId, BatchBin} =
+      case
+        msgpack:unpack(
+          PayloadBin,
+          [
+            {known_atoms, [txbatch, batchid] },
+            {unpack_str, as_binary}
+          ])
+      of
+        {ok, Payload} ->
+          case Payload of
+            #{
+              null := <<"mkblock">>,
+              txbatch := Bin,
+              batchid := Id
+             } ->
+                {Id, Bin};
+            _InvalidPayload ->
+              lager:error(
+                "txstorage got invalid transaction batch payload: ~p",
+                [_InvalidPayload]
+              ),
+              throw(invalid_payload)
+          end;
+        _ ->
+          lager:error("txstorage can't unpack msgpack: ~p", [ PayloadBin ])
+      end,
+
+    {BatchId, Txs} =
+      case txsync:parse_batch(BatchBin) of
+        {[], _} ->
+          throw(empty_batch);
+        {_, <<"">>} ->
+          throw(empty_batch);
+        Batch ->
+          Batch
+      end,
+    ValidUntil = os:system_time(second) + Ttl,
+    store_tx_batch(Txs, FromPubKey, EtsName, ValidUntil),
+    tpic:cast(tpic, Peer, BatchId)
+    
+  catch
+    Ec:Ee ->
+      StackTrace = erlang:get_stacktrace(),
+      lager:error("can't place transaction into storage: ~p:~p", [Ec, Ee]),
+      lists:foreach(
+        fun(SE) -> lager:error("@ ~p", [SE]) end,
+        StackTrace
+      )
+  end,
+  {noreply, State};
+
+handle_cast({store, Txs, Nodes}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
+  lager:info("Store txs ~p", [ Txs ]),
+  try
+    ValidUntil = os:system_time(second) + Ttl,
+    store_tx_batch(Txs, Nodes, EtsName, ValidUntil)
+  catch
+    Ec:Ee ->
+      StackTrace = erlang:get_stacktrace(),
+      lager:error("can't place transaction into storage: ~p:~p", [Ec, Ee]),
+      lists:foreach(
+        fun(SE) -> lager:error("@ ~p", [SE]) end,
+        StackTrace
+      )
+  end,
+  {noreply, State};
+
 handle_cast(_Msg, State) ->
   lager:notice("Unknown cast ~p", [_Msg]),
   {noreply, State}.
@@ -76,10 +162,22 @@ handle_info(timer_expire,
     }
   };
 
+
 handle_info({store, TxId, Tx, Nodes}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
   lager:info("store tx ~p", [TxId]),
-  store_tx({TxId, Tx, Nodes}, EtsName, Ttl),
+  try
+    store_tx({TxId, Tx, Nodes}, EtsName, Ttl)
+  catch
+    Ec:Ee ->
+      StackTrace = erlang:get_stacktrace(),
+      lager:error("can't put transaction into storage: ~p:~p", [Ec, Ee]),
+      lists:foreach(
+        fun(SE) -> lager:error("@ ~p", [SE]) end,
+        StackTrace
+      )
+  end,
   {noreply, State};
+
 
 handle_info(_Info, State) ->
   lager:notice("Unknown info  ~p", [_Info]),
@@ -95,11 +193,32 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-store_tx({TxId, Tx, Nodes}, Table, Ttl) ->
-  TimeOut = os:system_time(second) + Ttl,
-  ets:insert(Table, {TxId, Tx, Nodes, TimeOut}),
-  ok.
+store_tx({TxId, Tx, Nodes}, Table, ValidUntil) ->
+  lager:info("store tx ~p to ets", [TxId]),
+%%  TODO: vaildate transaction before store it
+  ets:insert(Table, {TxId, Tx, Nodes, ValidUntil}),
+  ok;
 
+store_tx(Invalid, _Table, _ValidUntil) ->
+  lager:error("can't store invalid transaction: ~p", [Invalid]),
+  error.
+
+%% ------------------------------------------------------------------
+
+store_tx_batch([], _FromPubKey, _Table, _ValidUntil) ->
+  ok;
+
+store_tx_batch([{TxId, Tx}|Rest], Nodes, Table, ValidUntil)
+  when is_list(Nodes) ->
+    store_tx({TxId, Tx, Nodes}, Table, ValidUntil),
+    store_tx_batch(Rest, Nodes, Table, ValidUntil);
+
+store_tx_batch([{TxId, Tx}|Rest], FromPubKey, Table, ValidUntil)
+  when is_binary(FromPubKey) ->
+    store_tx({TxId, Tx, [FromPubKey]}, Table, ValidUntil),
+    store_tx_batch(Rest, FromPubKey, Table, ValidUntil).
+
+%% ------------------------------------------------------------------
 
 get_tx(TxId, Table) ->
   case ets:lookup(Table, TxId) of

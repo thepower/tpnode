@@ -35,6 +35,11 @@ handle_tpic(From, mkblock, <<"beacon2">>, Beacon, _State) ->
   gen_server:cast(topology, {got_beacon2, From, Beacon}),
   ok;
 
+handle_tpic(From, mkblock, <<"txbatch">>, Payload, #{authdata:=AD}=_State) ->
+  lager:debug("txbatch: form ~p payload ~p", [ From, Payload ]),
+  gen_server:cast(txstorage, {tpic, proplists:get_value(pubkey, AD), From, Payload}),
+  ok;
+
 handle_tpic(_From, mkblock, <<>>, Payload, #{authdata:=AD}=_State) ->
   lager:debug("mkblock from ~p payload ~p",[_From,Payload]),
   gen_server:cast(mkblock, {tpic, proplists:get_value(pubkey, AD), Payload}),
