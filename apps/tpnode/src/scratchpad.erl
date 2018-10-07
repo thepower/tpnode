@@ -651,6 +651,8 @@ export_pvt_pub_to_der() ->
 
 export_pub_der() ->
   file:write_file("/tmp/addr1pub.der",[hex:parse("3036301006072a8648ce3d020106052b8104000a032200"),tpecdsa:calc_pub(address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>),true)]).
+%openssl ecparam -name secp256k1 -genkey -text -out /tmp/k2.priv.pem
+%openssl ec -in /tmp/k2.priv.pem -pubout -out /tmp/k2.pub.pem
 
 %openssl ec -in /tmp/addr1pvt.der -inform der -pubout -outform pem -conv_form uncompressed
 %openssl ec -in /tmp/addr1pvt.der -inform der -text -noout
