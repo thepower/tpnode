@@ -99,7 +99,7 @@ handle_info(ticktimer,
   case maps:get(bcready, State, false) of
     true ->
       if MBD<0 ->
-           mkblock ! precess,
+           mkblock ! process,
            erlang:send_after(-MBD, whereis(txpool), prepare);
          MBD>0 ->
            erlang:send_after(MBD, whereis(mkblock), process),
