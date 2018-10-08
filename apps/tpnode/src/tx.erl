@@ -674,9 +674,10 @@ rate(#{ver:=2, kind:=generic}=Tx, GetRateFun) ->
       _ ->
         case GetRateFun({params, <<"feeaddr">>}) of
           X when is_binary(X) ->
-            {false, #{ cost=>null } };
+            rate2(Tx, <<"none">>, 0, GetRateFun);
+            %{false, #{ cost=>null } };
           _ ->
-            {true, #{ cost=>0, tip => 0, cur=><<"NONE">> }}
+            {true, #{ cost=>0, tip => 0, cur=><<"none">> }}
         end
     end
   catch _:_ -> throw('cant_calculate_fee')
@@ -692,7 +693,7 @@ rate(#{ver:=2, kind:=deploy}=Tx, GetRateFun) ->
           X when is_binary(X) ->
             {false, #{ cost=>null } };
           _ ->
-            {true, #{ cost=>0, tip => 0, cur=><<"NONE">> }}
+            {true, #{ cost=>0, tip => 0, cur=><<"none">> }}
         end
     end
   catch Ec:Ee -> 
@@ -720,7 +721,8 @@ rate(#{cur:=TCur}=Tx, GetRateFun) ->
       _ ->
         case GetRateFun({params, <<"feeaddr">>}) of
           X when is_binary(X) ->
-            {false, #{ cost=>null } };
+            rate1(Tx, <<"none">>, 0, GetRateFun);
+%            {false, #{ cost=>null } };
           _ ->
             {true, #{ cost=>0, tip => 0, cur=>TCur }}
         end
