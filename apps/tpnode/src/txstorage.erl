@@ -16,7 +16,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
   terminate/2, code_change/3]).
 
--export([store_tx/3, get_tx/2]).
+-export([store_tx/3, get_tx/2, get_tx/1]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -47,6 +47,9 @@ init(Args) ->
     ets_name => EtsTableName,
     ets_ttl_sec => 60*60
   }}.
+
+handle_call(get_table_name, _From, #{ets_name:=EtsName} = State) ->
+  {reply, EtsName, State};
 
 handle_call({get, TxId}, _From, #{ets_name:=EtsName} = State) ->
   lager:notice("Get tx ~p", [TxId]),
@@ -219,6 +222,9 @@ store_tx_batch([{TxId, Tx}|Rest], FromPubKey, Table, ValidUntil)
     store_tx_batch(Rest, FromPubKey, Table, ValidUntil).
 
 %% ------------------------------------------------------------------
+
+get_tx(TxId) ->
+  get_tx(TxId, ?MODULE).
 
 get_tx(TxId, Table) ->
   case ets:lookup(Table, TxId) of
