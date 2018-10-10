@@ -152,7 +152,7 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
                   end,
        {CHei,_}=maps:get(roundparent, WithParent),
 
-       if CHei==undefined orelse MH==CHei orelse MH==undefined ->
+       if CHei==undefined orelse MH==CHei orelse MH==undefined orelse true->
             {noreply, State#{
                         preptxl=>PreTXL ++ lists:map(MarkTx, Txs)
                        }
@@ -195,20 +195,27 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
                 end
             end, #{}, PreTXL0),
   PreTXL=lists:keysort(1, maps:to_list(PreTXL1)),
+  lager:info("Pre ~p",[PreTXL0]),
 
   AE=maps:get(ae, MySet, 0),
 
-  {ParentHeight, ParentHash}=Parent=case maps:get(parent, State, undefined) of
-                                      undefined ->
-                                        %lager:info("Fetching last block from blockchain"),
-                                        #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=gen_server:call(blockchain, last_block),
-                                        {Last_Height1, Last_Hash1};
-                                      {A, B} -> {A, B}
-                                    end,
+  lager:info("Fetching last block from blockchain"),
+  B=gen_server:call(blockchain, last_block),
+  PTmp=maps:get(temporary,B,false),
+
+  {PHeight, PHash}=case PTmp of false ->
+                                  lager:info("Prev block is permanent, make child"),
+                                  #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=B,
+                                  {Last_Height1, Last_Hash1};
+                                X when is_integer(X) ->
+                                  lager:info("Prev block is temporary, make replacement"),
+                                  #{header:=#{height:=Last_Height1, parent:=Last_Hash1}}=B,
+                                  {Last_Height1-1, Last_Hash1}
+                   end,
   PreNodes=try
              PreSig=maps:get(presig, State),
              BK=maps:fold(
-                  fun(_, {BH, _}, Acc) when BH =/= ParentHash ->
+                  fun(_, {BH, _}, Acc) when BH =/= PHash ->
                       Acc;
                      (Node1, {_BH, Nodes2}, Acc) ->
                       [{Node1, Nodes2}|Acc]
@@ -221,9 +228,6 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
            end,
 
   try
-    if(AE==0 andalso PreTXL==[]) -> throw(empty);
-      true -> ok
-    end,
     T1=erlang:system_time(),
     lager:debug("MB pre nodes ~p", [PreNodes]),
 
@@ -263,38 +267,42 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
               end
           end,
 
+  NoTMP=maps:get(notmp, MySet, 0),
+
+  Temporary = if AE==0 andalso PreTXL==[] ->
+                   if(NoTMP=/=0) -> throw(empty);
+                     true ->
+                       if is_integer(PTmp) ->
+                            PTmp+1;
+                          true ->
+                            1
+                       end
+                   end;
+                 true ->
+                   false
+              end,
   #{block:=Block,
     failed:=Failed,
-    emit:=EmitTXs}=generate_block:generate_block(PreTXL, Parent, PropsFun, AddrFun,
-                                                 [{<<"prevnodes">>, PreNodes}]),
+    emit:=EmitTXs}=generate_block:generate_block(PreTXL, {PHeight, PHash}, PropsFun, AddrFun,
+                                                 [
+                                                  {<<"prevnodes">>, PreNodes}
+                                                 ],
+                                                 [
+                                                  {temporary, Temporary}
+                                                 ]
+                                                ),
   T2=erlang:system_time(),
 
   case application:get_env(tpnode,mkblock_debug) of
     undefined ->
       ok;
     {ok, true} ->
-      {PHe,_}=Parent,
-      file:write_file("log/block_"++integer_to_list(PHe)++"_"++integer_to_list(T2),
+      file:write_file("log/block_"++integer_to_list(PHeight)++"_"++integer_to_list(T2),
                       io_lib:format("~p.~n ~p.~n ~p.~n~n",
                                     [PreTXL,Failed, Block])
                      );
     Any ->
       lager:notice("What does mkblock_debug=~p means?",[Any])
-  end,
-
-  if Failed==[] ->
-       ok;
-     true ->
-       %there was failed tx. Block empty?
-       gen_server:cast(txpool, {failed, Failed}),
-       if(AE==0) ->
-           case maps:get(txs, Block, []) of
-             [] -> throw(empty);
-             _ -> ok
-           end;
-         true ->
-           ok
-       end
   end,
   Timestamp=os:system_time(millisecond),
   ED=[
@@ -316,7 +324,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
     _ -> ok
   end,
   %Block signature for each other
-  lager:info("MB My sign ~p emit ~p",
+  lager:debug("MB My sign ~p emit ~p",
              [
               maps:get(sign, SignedBlock),
               length(EmitTXs)
@@ -337,12 +345,12 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
                                    ])
   end,
   {noreply, State#{preptxl=>[], parent=>undefined,
-                   roundparent=>{ParentHeight, ParentHash},
+                   roundparent=>{PHeight, PHash},
                    presig=>#{}}}
   catch throw:empty ->
         lager:info("Skip empty block"),
         {noreply, State#{preptxl=>[], parent=>undefined,
-                         roundparent=>{ParentHeight, ParentHash},
+                         roundparent=>{PHeight, PHash},
                          presig=>#{}}}
     end;
 

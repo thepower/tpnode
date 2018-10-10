@@ -99,6 +99,7 @@ reset_testnet() {
     for node in ${CHAIN4}; do reset_node ${node}; done
     for node in ${CHAIN5}; do reset_node ${node}; done
     for node in ${CHAIN6}; do reset_node ${node}; done
+    rm -f log/debug_test_* log/error_test_* log/info_test_*
 }
 
 attach_testnet() {

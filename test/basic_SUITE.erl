@@ -343,7 +343,6 @@ wait_for_tx(TxId, NodeName, TrysLeft) ->
             io:format("transaction ~p commited~n", [TxId]),
             {ok, TrysLeft};
         {false, Error} ->
-            io:format("transaction ~p error ~p~n", [TxId, Error]),
             dump_testnet_state(),
             {error, Error}
     end.
@@ -499,26 +498,15 @@ transaction_test(_Config) ->
     EndlessAddress = naddress:decode(Wallet),
     TxpoolPidC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [txpool]),
     C4N1NodePrivKey = rpc:call(get_node(<<"test_c4n1">>), nodekey, get_priv, []),
-    Patch =
-      tx:sign(
-        tx:construct_tx(
-          #{
-            ver => 2,
-            kind => patch,
-            patches =>
-            [
-              #{<<"t">>=><<"set">>,
-                <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, Cur],
-                <<"v">>=>true},
-              #{<<"t">>=><<"set">>,
-                <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, <<"SK">>],
-                <<"v">>=>true}
-            ]
-          }
-        ),
-        C4N1NodePrivKey
-      ),
-    {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {new_tx, tx:pack(Patch)}),
+    Patch = settings:sign(
+        [#{<<"t">>=><<"set">>,
+            <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, Cur],
+            <<"v">>=>true},
+        #{<<"t">>=><<"set">>,
+            <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, <<"SK">>],
+            <<"v">>=>true}],
+        C4N1NodePrivKey),
+    {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {patch, Patch}),
     io:format("PatchTxId: ~p~n", [PatchTxId]),
     {ok, _} = wait_for_tx(PatchTxId, get_node(<<"test_c4n1">>)),
     ChainSettngs = rpc:call(get_node(<<"test_c4n1">>), chainsettings, all, []),
@@ -624,7 +612,10 @@ instant_sync_test(_Config) ->
   ledger_sync:run_target(TPIC, Handler, Pid, undefined),
 
   {ok, #{blk:=BinBlk}}=inst_sync_wait_more(#{}),
-  #{header:=#{ledger_hash:=Hash0}}=block:unpack(BinBlk),
+  Hash0=case block:unpack(BinBlk) of
+          #{header:=#{ledger_hash:=V1LH}} -> V1LH;
+          #{header:=#{roots:=Roots}} -> proplists:get_value(ledger_hash,Roots)
+        end,
   Hash1=ledger:check(Pid,[]),
   io:format("Hash ~p ~p~n",[Hash1,Hash2]),
   ?assertMatch({ok,_},Hash1),

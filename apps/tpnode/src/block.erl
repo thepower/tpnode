@@ -128,71 +128,79 @@ pack(Block) ->
 unpack(Block) when is_binary(Block) ->
   Atoms=[hash, outbound, header, settings, txs, sign, bals,
          balroot, ledger_hash, height, parent, txroot, tx_proof,
-         amount, lastblk, seq, t, child, setroot,
+         amount, lastblk, seq, t, child, setroot, tmp, ver,
          inbound_blocks, chain, extdata, roots, failed],
   case msgpack:unpack(Block, [{known_atoms, Atoms}]) of
-    {ok, Hash} ->
-      maps:map(
-        fun
-          (header, #{roots:=RootsList}=Header) ->
-            Header#{
-              roots=>[ {RK,RV} || [RK,RV] <- RootsList ]
-             };
-          (bals, BalsSnap) ->
-            maps:fold(
-              fun(Address, BinSnap, Acc) ->
-                  maps:put(Address, bal:unpack(BinSnap), Acc)
-              end, #{}, BalsSnap);
-          (sync, SyncState) ->
-            maps:fold(
-              fun(Chain, [BlkNo, BlkHash], Acc) ->
-                  maps:put(Chain, {BlkNo, BlkHash}, Acc)
-              end, #{}, SyncState);
-          (outbound, TXs) ->
-            lists:map(
-              fun([TxID, Cid]) ->
-                  {TxID, Cid}
-              end, TXs);
-          (tx_proof, TXs) ->
-            lists:map(
-              fun([TxID, Proof]) ->
-                  {TxID, unpack_mproof(Proof)}
-              end, TXs);
-          (failed, TXs) ->
-            lists:map(
-              fun([TxID, Tx]) ->
-                  {TxID, Tx}
-              end, TXs);
-          (txs, TXs) ->
-            lists:map(
-              fun([TxID, Tx]) ->
-                  {TxID, tx:unpack(Tx)}
-              end, TXs);
-          (extdata, ED) ->
-            lists:map(
-              fun([Key, Val]) ->
-                  {Key, Val}
-              end, ED);
-          (inbound_blocks, Blocks) ->
-            lists:map(
-              fun({TxID, T}) ->
-                  {TxID, block:unpack(T)}
-              end, maps:to_list(Blocks)
-             );
-          (settings, Txs) ->
-            lists:map(
-              fun({TxID, T}) ->
-                  {TxID, tx:unpack(T)}
-              end, maps:to_list(Txs)
-             );
-          (sign, Sigs) ->
-            lists:map(
-              fun(Sig) ->
-                  bsig:unpacksig(Sig)
-              end, Sigs);
-          (_, V) ->
-            V
-        end, Hash);
+    {ok, DMP} ->
+      ConvertFun=fun (header, #{roots:=RootsList}=Header) ->
+                     Header#{
+                       roots=>[ {RK,RV} || [RK,RV] <- RootsList ]
+                      };
+                     (bals, BalsSnap) ->
+                     maps:fold(
+                       fun(Address, BinSnap, Acc) ->
+                           maps:put(Address, bal:unpack(BinSnap), Acc)
+                       end, #{}, BalsSnap);
+                     (sync, SyncState) ->
+                     maps:fold(
+                       fun(Chain, [BlkNo, BlkHash], Acc) ->
+                           maps:put(Chain, {BlkNo, BlkHash}, Acc)
+                       end, #{}, SyncState);
+                     (outbound, TXs) ->
+                     lists:map(
+                       fun([TxID, Cid]) ->
+                           {TxID, Cid}
+                       end, TXs);
+                     (tx_proof, TXs) ->
+                     lists:map(
+                       fun([TxID, Proof]) ->
+                           {TxID, unpack_mproof(Proof)}
+                       end, TXs);
+                     (failed, TXs) ->
+                     lists:map(
+                       fun([TxID, Tx]) ->
+                           {TxID, Tx}
+                       end, TXs);
+                     (txs, TXs) ->
+                     lists:map(
+                       fun([TxID, Tx]) ->
+                           {TxID, tx:unpack(Tx)}
+                       end, TXs);
+                     (extdata, ED) ->
+                     lists:map(
+                       fun([Key, Val]) ->
+                           {Key, Val}
+                       end, ED);
+                     (inbound_blocks, Blocks) ->
+                     lists:map(
+                       fun({TxID, T}) ->
+                           {TxID, block:unpack(T)}
+                       end, maps:to_list(Blocks)
+                      );
+                     (settings, Txs) ->
+                     lists:map(
+                       fun({TxID, T}) ->
+                           {TxID, tx:unpack(T)}
+                       end, maps:to_list(Txs)
+                      );
+                     (sign, Sigs) ->
+                     lists:map(
+                       fun(Sig) ->
+                           bsig:unpacksig(Sig)
+                       end, Sigs);
+                     (_, V) ->
+                     V
+                 end,
+      #{header:=H}=UBlk=maps:map(ConvertFun, DMP),
+      case maps:get(roots, H, undefined) of
+        undefined -> UBlk;
+        RootsPL ->
+          case lists:keyfind(tmp,1,RootsPL) of
+            {tmp, <<TmpID:64/big>>} ->
+              UBlk#{temporary => TmpID };
+            false -> UBlk
+          end
+      end;
     {error, Err} ->
       throw({block_unpack, Err})
   end.
@@ -305,6 +313,8 @@ verify(#{ header:=#{parent:=Parent,
         {failed, NewHash};
       ({ledger_hash, Hash}) ->
         {ledger_hash, Hash};
+      ({tmp, IsTmp}) ->
+        {tmp, IsTmp};
       ({Key, Value}) ->
         lager:notice("Unknown root ~p",[Key]),
         {Key, Value}
@@ -417,18 +427,25 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
   TxRoot=gb_merkle_trees:root_hash(TxMT),
   BalsRoot=gb_merkle_trees:root_hash(BalsMT),
   SettingsRoot=gb_merkle_trees:root_hash(SettingsMT),
+  TempID=case maps:get(temporary, Req, false) of
+           X when is_integer(X) -> X;
+           _ -> false
+         end,
+
+  TempRoot=if TempID == false -> [];
+              true -> [{tmp, <<TempID:64/big>>}]
+           end,
 
   Failed=prepare_fail(maps:get(failed, Req,[])),
   %io:format("Fail1 ~p~n",[Failed]),
   FTxs=binarizefail(Failed),
   %io:format("Fail2 ~p~n",[FTxs]),
   FailRoot=if FTxs==[] ->
-                [];
+                TempRoot;
               true ->
                 FailMT=gb_merkle_trees:from_list(FTxs),
-                [{failed,gb_merkle_trees:root_hash(FailMT)}]
+                [{failed,gb_merkle_trees:root_hash(FailMT)}|TempRoot]
            end,
-
   HeaderItems=[{txroot, TxRoot},
                {balroot, BalsRoot},
                {ledger_hash, LH},
@@ -443,15 +460,19 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
           bals=>Bals,
           settings=>Settings,
           sign=>[] },
+  Block0=if TempID == false -> Block;
+            true ->
+              Block#{temporary=>TempID}
+         end,
   Block1=case maps:get(tx_proof, Req, []) of
            [] ->
-             Block;
+             Block0;
            List ->
              Proof=lists:map(
                      fun(TxID) ->
                          {TxID, gb_merkle_trees:merkle_proof (TxID, TxMT)}
                      end, List),
-             maps:put(tx_proof, Proof, Block)
+             maps:put(tx_proof, Proof, Block0)
          end,
   Block2=case maps:get(inbound_blocks, Req, []) of
            [] ->
@@ -742,7 +763,11 @@ build_header2(HeaderItems, Parent, H, ChainNo) ->
           HeaderItems
          ),
   {Bin,
-   #{ roots=>lists:reverse(Roots), parent=>Parent, height=>H, chain=>ChainNo }
+   #{ roots=>lists:reverse(Roots),
+      parent=>Parent,
+      height=>H,
+      chain=>ChainNo,
+      ver=>2 }
   }.
 
 

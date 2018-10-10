@@ -17,7 +17,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1,get/1,get_json/1]).
+-export([start_link/1,get/1,get_json/1,jsonfy/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -69,14 +69,14 @@ handle_cast({done, Result, Txs}, #{q:=Q}=State) when is_list(Txs)->
        fun({TxID,Res},QAcc) ->
            hashqueue:add(TxID, Timeout, {Result, Res}, QAcc);
           (TxID,QAcc) ->
-           hashqueue:add(TxID, Timeout, 
-                         {Result, 
-                         if Result -> 
+           hashqueue:add(TxID, Timeout,
+                         {Result,
+                         if Result ->
                               ok;
-                            true -> error 
+                            true -> error
                          end}, QAcc)
        end, Q, Txs),
-  {noreply, 
+  {noreply,
    State#{q=>Q1}
   };
 
@@ -87,8 +87,8 @@ handle_cast(_Msg, State) ->
 
 handle_info(timer, #{timer:=Tmr}=State) ->
   catch erlang:cancel_timer(Tmr),
-  handle_info({cleanup, 
-               erlang:system_time(seconds)}, 
+  handle_info({cleanup,
+               erlang:system_time(seconds)},
               State#{
                 timer=>erlang:send_after(?CLEANUP, self(), timer)
                });
@@ -119,13 +119,21 @@ jsonfy({true,#{address:=Addr}}) ->
 
 jsonfy({true,Status}) ->
   #{ok=>true,
-    res=> iolist_to_binary(io_lib:format("~p",[Status]))
+    res=>format_res(Status)
    };
 
 jsonfy({false,Status}) ->
   #{error=>true,
-    res=>iolist_to_binary(io_lib:format("~p",[Status]))
+    res=>format_res(Status)
    }.
+
+format_res(Atom) when is_atom(Atom) -> Atom;
+
+format_res(#{<<"reason">> := R}) when is_atom(R); is_binary(R) ->
+  R;
+
+format_res(Any) ->
+  iolist_to_binary(io_lib:format("~p",[Any])).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

@@ -265,6 +265,18 @@ unpack_txext(<<>>) -> #{};
 unpack_txext(Map) when is_map(Map) -> Map;
 unpack_txext(_Any) -> throw(bad_ext).
 
+unpack_payload(Amounts) when is_list(Amounts) ->
+  lists:map(
+    fun([Purpose, Cur, Amount]) ->
+        if is_integer(Amount) -> ok;
+           true -> throw('bad_amount')
+        end,
+        #{amount=>Amount,
+          cur=>to_binary(Cur),
+          purpose=>decode_purpose(Purpose)
+         }
+    end, Amounts).
+
 unpack_body(#{ ver:=2,
               kind:=GenericOrDeploy
              }=Tx,
@@ -276,13 +288,7 @@ unpack_body(#{ ver:=2,
                "e":=Extradata
              }=Unpacked) when GenericOrDeploy == generic ; 
                               GenericOrDeploy == deploy ->
-  Amounts=lists:map(
-       fun([Purpose, Cur, Amount]) ->
-         #{amount=>Amount,
-           cur=>to_binary(Cur),
-           purpose=>decode_purpose(Purpose)
-          }
-       end, Payload),
+  Amounts=unpack_payload(Payload),
   Decoded=Tx#{
     ver=>2,
     from=>unpack_addr(From,bad_from),
@@ -310,13 +316,7 @@ unpack_body(#{ ver:=2,
                "p":=Payload,
                "e":=Extradata
              }=Unpacked) ->
-  Amounts=lists:map(
-       fun([Purpose, Cur, Amount]) ->
-         #{amount=>Amount,
-           cur=>to_binary(Cur),
-           purpose=>decode_purpose(Purpose)
-          }
-       end, Payload),
+  Amounts=unpack_payload(Payload),
   Decoded=Tx#{
     ver=>2,
     from=>unpack_addr(From,bad_from),

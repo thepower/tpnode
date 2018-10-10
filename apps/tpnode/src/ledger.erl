@@ -152,9 +152,12 @@ handle_call(dump, _From, #{db:=DB}=State) ->
 				   ),
 	{reply, GB, State};
 
-handle_call(snapshot, _From, #{db:=DB}=State) ->
-    {ok, Snap}=rocksdb:snapshot(DB),
-    {reply, {DB, Snap}, State};
+handle_call(snapshot, _From, #{db:=DB, mt:=MT}=State) ->
+   MT1=gb_merkle_trees:balance(MT),
+   H=gb_merkle_trees:root_hash(MT1),
+   lager:info("snapshot mt ~p",[H]),
+   {ok, Snap}=rocksdb:snapshot(DB),
+   {reply, {DB, Snap}, State};
 
 handle_call('_flush', _From, State) ->
     drop_db(State),

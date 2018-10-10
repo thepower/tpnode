@@ -1574,13 +1574,14 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
 
   HedgerHash=ledger_hash(NewBal, LedgerPid),
   _T5=erlang:system_time(),
-  Blk=block:mkblock(#{
+  Blk=block:mkblock2(#{
         txs=>Success,
         parent=>Parent_Hash,
         mychain=>GetSettings(mychain),
         height=>Parent_Height+1,
         bals=>NewBal,
         failed=>Failed,
+        temporary=>proplists:get_value(temporary,Options),
         ledger_hash=>HedgerHash,
         settings=>Settings,
         tx_proof=>[ TxID || {TxID, _ToChain} <- Outbound ],
@@ -1631,14 +1632,15 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
             end, EmitTXs0),
 
   _T6=erlang:system_time(),
-  lager:info("Created block ~w ~s: txs: ~w, bals: ~w, LH: ~s, chain ~p",
+  lager:info("Created block ~w ~s: txs: ~w, bals: ~w, LH: ~s, chain ~p temp ~p",
              [
               Parent_Height+1,
               block:blkid(maps:get(hash, Blk)),
               length(Success),
               maps:size(NewBal),
               bin2hex:dbin2hex(HedgerHash),
-              GetSettings(mychain)
+              GetSettings(mychain),
+              proplists:get_value(temporary,Options)
              ]),
   lager:debug("BENCHMARK txs       ~w~n", [length(TXL)]),
   lager:debug("BENCHMARK sort tx   ~.6f ~n", [(_T2-_T1)/1000000]),
