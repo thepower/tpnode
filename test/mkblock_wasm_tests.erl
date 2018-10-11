@@ -203,12 +203,12 @@ extcontract_test() ->
                   [
                    ?assertMatch([{<<"5willfail">>,insufficient_gas}],Failed),
                    ?assertMatch([<<"4testexec">>,<<"3testdeploy">>],Success),
-                   ?assertMatch(<<512:64/big>>,maps:get(<<1,1,1,1,1,1,1,1,
+                   ?assertMatch(<<15:256/big>>,maps:get(<<1,1,1,1,1,1,1,1,
                                                           1,1,1,1,1,1,1,1,
                                                           1,1,1,1,1,1,1,1,
                                                           1,1,1,1,1,1,1,1>>,ContractState)),
-                   ?assertMatch(#{<<"TST">>:=29, <<"FTT">>:=11},maps:get(amount, NewSCLedger)),
-                   ?assertMatch(#{<<"SK">>:=1, <<"FTT">>:=3},Fee)
+                   ?assertMatch(#{<<"TST">>:=29, <<"FTT">>:=676},maps:get(amount, NewSCLedger)),
+                   ?assertMatch(#{<<"SK">>:=2, <<"FTT">>:=328},Fee)
                   ]
               end,
       Ledger=[
