@@ -56,8 +56,8 @@ apply_macro(MapWithMacro, Dict) when is_map(MapWithMacro) andalso is_map(Dict) -
 %% -------------------------------------------------------------------------------------
 
 print_error(Message, Ec, Ee, StackTrace) ->
-  lager:error(Message ++ " [~p:~p]", [Ec, Ee]),
+  lager:error(make_list(Message) ++ " [~p:~p]", [Ec, Ee]),
   lists:foreach(
-    fun(SE) -> lager:error("@ ~p", [SE]) end,
+    fun(Where) -> lager:error("@ ~p", [Where]) end,
     StackTrace
   ).
