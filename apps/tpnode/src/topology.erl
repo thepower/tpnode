@@ -177,11 +177,7 @@ handle_cast(
     Ec:Ee ->
       StackTrace = erlang:get_stacktrace(),
       lager:error("TOPO ~p beacon2 parse problem for payload ~p", [_PeerID, hex:encode(PayloadBin)]),
-      lager:error("TOPO ~p:~p", [Ec, Ee]),
-      lists:foreach(
-        fun(SE) -> lager:error("@ ~p", [SE]) end,
-        StackTrace
-      ),
+      utils:print_error("TOPO", Ec, Ee, StackTrace),
       {noreply, State}
   end;
 
