@@ -223,7 +223,7 @@ handle_cast(
   catch
     Ec:Ee ->
       utils:print_error("TOPO", Ec, Ee, erlang:get_stacktrace()),
-      lager:error("TOPO ~p beacon check problem for payload ~p", [_PeerID, Payload]),
+      lager:error("TOPO ~p beacon check problem for payload ~p", [_PeerID, Payload])
   end;
 
 
