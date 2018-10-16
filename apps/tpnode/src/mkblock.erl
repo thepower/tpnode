@@ -223,7 +223,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
                                       {A, B} -> {A, B}
                                     end,
   PreNodes=try
-             PreSig=maps:get(presig, State),
+             PreSig=maps:get(presig, State, #{}),
              BK=maps:fold(
                   fun(_, {BH, _}, Acc) when BH =/= ParentHash ->
                       Acc;
@@ -231,10 +231,10 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
                       [{Node1, Nodes2}|Acc]
                   end, [], PreSig),
              lists:sort(bron_kerbosch:max_clique(BK))
-           catch Ec:Ee ->
-                   Stack1=erlang:get_stacktrace(),
-                   lager:error("Can't calc xsig ~p:~p ~p", [Ec, Ee, Stack1]),
-                   []
+           catch
+             Ec:Ee ->
+               utils:print_error("Can't calc xsig", Ec, Ee, erlang:get_stacktrace()),
+               []
            end,
 
   try
