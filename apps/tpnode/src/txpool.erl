@@ -63,7 +63,7 @@ handle_call({portout, #{
                public_key:=HPub,
                signature:=HSig
               }
-            }, _From, #{queue:=Queue}=State) ->
+            }, _From, #{sync_timer:=Tmr, queue:=Queue}=State) ->
     lager:notice("TODO: Check keys"),
     case generate_txid(State) of
       error ->
@@ -81,8 +81,9 @@ handle_call({portout, #{
                               public_key=>HPub,
                               signature=>HSig
                              }
-                           }, Queue)
-          }
+                           }, Queue),
+           sync_timer => update_sync_timer(Tmr)
+         }
         }
     end;
 
