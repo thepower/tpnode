@@ -35,8 +35,9 @@ get_table_name() ->
   ?MODULE.
 
 init_state() ->
-  catch ets:delete(get_table_name()),
-  {ok, State} = txstorage:init(#{ets_name => get_table_name()}),
+  EtsTableName = get_table_name(),
+  catch ets:delete(EtsTableName),
+  {ok, State} = txstorage:init(#{ets_name => EtsTableName}),
   put_state(cancel_timers(State)).
 
 
@@ -45,7 +46,7 @@ store_and_get_test() ->
   State = get_state(),
   TxId = <<"tx_id">>,
   Tx = <<"tx_body">>,
-  Nodes = #{},
+  Nodes = [<<"node1 pub key">>, <<"node2 pub key">>],
   EtsTable = get_table_name(),
 
   % direct get error
@@ -67,12 +68,22 @@ store_and_get_test() ->
   {reply, Get4, _State3} = txstorage:handle_call({get, TxId}, self(), State2),
   ?assertEqual({ok, {TxId, Tx, Nodes}}, Get4).
   
+
+%%debug_ets_table() ->
+%%  Table = get_table_name(),
+%%  io:format("~ntable name: ~p~n", [Table]),
+%%  io:format(
+%%    "ets table content: ~p~n",
+%%    [ets:match_object(Table, {'$0', '$1', '$2', '$3'})]
+%%  ).
+
+
 expiration_test() ->
   init_state(),
   State = get_state(),
   TxId = <<"tx_id">>,
   Tx = <<"tx_body">>,
-  Nodes = #{},
+  Nodes = [],
   EtsTable = get_table_name(),
   Ttl = -1,
   
@@ -91,12 +102,3 @@ expiration_test() ->
   Get2 = txstorage:get_tx(TxId, EtsTable),
   ?assertEqual(error, Get2).
 
-  
-  
-% TODO: придумать как хранить ноды которым нужно только id и
-% ноды которым нужно полностью транзу слать.
-%% storage предполагается использовать в 2х сценариях
-%% 1. получили транзу и храним ее локально до сборки блока
-%% 2. транза для рассылки. некоторым нодам из списка нужно слать только id
-%%    остальным нодам нужно слать id и тело транзы
-  

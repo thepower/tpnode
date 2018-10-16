@@ -40,12 +40,11 @@ init_table(EtsTableName) ->
 init(Args) ->
   EtsTableName = maps:get(ets_name, Args, ?MODULE),
   init_table(EtsTableName),
-  ExpireTickSec = maps:get(expire_check_sec, Args, 60*60),
   {ok, #{
-    expire_tick_ms => ExpireTickSec * 1000,
-    timer_expire => erlang:send_after(10*1000, self(), timer_expire),
+    expire_tick_ms => 1000 * maps:get(expire_check_sec, Args, 60*60), % default: 1 hour
+    timer_expire => erlang:send_after(10*1000, self(), timer_expire), % first timer fires after 10 seconds
     ets_name => EtsTableName,
-    ets_ttl_sec => 60*60
+    ets_ttl_sec => maps:get(ets_ttl_sec, Args, 60*60)  % default: 1 hour
   }}.
 
 handle_call(get_table_name, _From, #{ets_name:=EtsName} = State) ->
@@ -128,11 +127,17 @@ handle_cast(
   end,
   {noreply, State};
 
-handle_cast({store, Txs, Nodes}, State) ->
+handle_cast({store, Txs}, State) ->
+  handle_cast({store, Txs, [], #{}}, State);
+
+handle_cast({store, Txs, Nodes}, State) when is_list(Nodes) ->
   handle_cast({store, Txs, Nodes, #{}}, State);
 
-handle_cast({store, Txs, Nodes, Options}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
-  lager:info("Store txs ~p", [ Txs ]),
+handle_cast({store, Txs, Nodes, Options}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State)
+  when is_list(Nodes) ->
+  
+  lager:debug("Store txs ~p", [ Txs ]),
+  io:format("Store txs ~p~n", [ Txs ]),
   try
     ValidUntil = os:system_time(second) + Ttl,
     TxIds = store_tx_batch(Txs, Nodes, EtsName, ValidUntil),
@@ -164,7 +169,7 @@ handle_info(timer_expire,
   #{ets_name:=EtsName, timer_expire:=Tmr, expire_tick_ms:=Delay} = State) ->
   
   catch erlang:cancel_timer(Tmr),
-  lager:info("remove expired records"),
+  lager:debug("remove expired records"),
   Now = os:system_time(second),
   ets:select_delete(
     EtsName,
@@ -176,19 +181,9 @@ handle_info(timer_expire,
     }
   };
 
-
-%%handle_info({store, TxId, Tx, Nodes}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
-%%  lager:info("store tx ~p", [TxId]),
-%%  try
-%%    store_tx({TxId, Tx, Nodes}, EtsName, Ttl)
-%%  catch
-%%    Ec:Ee ->
-%%      utils:print_error(
-%%        "can't place transaction into storage",
-%%        Ec, Ee, erlang:get_stacktrace()
-%%      )
-%%  end,
-%%  {noreply, State};
+handle_info({store, TxId, Tx, Nodes}, State) ->
+  lager:debug("store tx ~p", [TxId]),
+  handle_cast({store, [{TxId, Tx}], Nodes}, State);
 
 
 handle_info(_Info, State) ->
@@ -207,6 +202,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 store_tx({TxId, Tx, Nodes}, Table, ValidUntil) ->
 %%  lager:info("store tx ~p to ets", [TxId]),
+%%  io:format("store tx ~p to table ~p ~n", [TxId, Table]),
+
 %%  TODO: vaildate transaction before store it
   ets:insert(Table, {TxId, Tx, Nodes, ValidUntil}),
   TxId;
@@ -217,8 +214,11 @@ store_tx(Invalid, _Table, _ValidUntil) ->
 
 %% ------------------------------------------------------------------
 
-store_tx_batch(Txs, FromPubKey, Table, ValidUntil) ->
-  store_tx_batch(Txs, FromPubKey, Table, ValidUntil, []).
+store_tx_batch(Txs, FromPubKey, Table, ValidUntil) when is_binary(FromPubKey) ->
+  store_tx_batch(Txs, FromPubKey, Table, ValidUntil, []);
+
+store_tx_batch(Txs, Nodes, Table, ValidUntil) when is_list(Nodes) ->
+  store_tx_batch(Txs, Nodes, Table, ValidUntil, []).
 
 store_tx_batch([], _FromPubKey, _Table, _ValidUntil, StoredIds) ->
   StoredIds;
@@ -240,7 +240,7 @@ get_tx(TxId) ->
 
 get_tx(TxId, Table) ->
   case ets:lookup(Table, TxId) of
-    [{TxId, Tx, Nodes, _Timeout}] ->
+    [{TxId, Tx, Nodes, _ValidUntil}] ->
       {ok, {TxId, Tx, Nodes}};
     [] ->
       error
