@@ -120,12 +120,7 @@ do_sync(Transactions, {MyChain, _MyPubKey, LBH} = _Options) when is_list(Transac
     ok
   catch
     Ec:Ee ->
-      StackTrace = erlang:get_stacktrace(),
-      lager:error("do_sync error: ~p:~p", [Ec, Ee]),
-      lists:foreach(
-        fun(SE) -> lager:error("@ ~p", [SE]) end,
-        StackTrace
-      ),
+      utils:print_error("do_sync error", Ec, Ee, erlang:get_stacktrace()),
       error
   end.
 
@@ -135,7 +130,7 @@ wait_response(
     confirmed := Confirmed,
     conf_timeout_ms := TimeoutMs,
     batchid := BatchId,
-    txs := _TxMap} = State) ->
+    txs := TxMap} = State) ->
   
   receive
 %% {'$gen_cast',{tpic,{61,4,<<5,102,134,118,0,0,5,193>>},<<"fake_tx_id">>}}
@@ -154,7 +149,7 @@ wait_response(
         0 ->
           % all confirmations received
           lager:info("got all confirmations for ~p", [BatchId]),
-          store_batch(_TxMap, Confirmed),
+          store_batch(TxMap, Confirmed, #{push_queue => true}),
           ok;
         _ ->
           wait_response(
@@ -169,9 +164,8 @@ wait_response(
       wait_response(State)
     after TimeoutMs ->
       % confirmations waiting cycle timeout
-      store_batch(_TxMap, Confirmed),
+      store_batch(TxMap, Confirmed, #{push_queue => true}),
       lager:error("EOF for batch ~p", [BatchId])
-
   end,
   ok.
 
@@ -179,8 +173,11 @@ wait_response(
 %% ------------------------------------------------------------------
 % Txs = [ #{ TxId => TxBody } ]
 % Nodes = #{ PubKey => 1 }
-store_batch(Txs, Nodes) ->
-  gen_server:cast(txstorage, {store, maps:to_list(Txs), maps:keys(Nodes)}).
+%%store_batch(Txs, Nodes) ->
+%%  store_batch(Txs, Nodes, #{}).
+
+store_batch(Txs, Nodes, Options) ->
+  gen_server:cast(txstorage, {store, maps:to_list(Txs), maps:keys(Nodes), Options}).
 
 
 %% ------------------------------------------------------------------

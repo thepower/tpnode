@@ -115,32 +115,43 @@ handle_cast(
           Batch
       end,
     ValidUntil = os:system_time(second) + Ttl,
-    store_tx_batch(Txs, FromPubKey, EtsName, ValidUntil),
-    tpic:cast(tpic, Peer, BatchId)
+    TxIds = store_tx_batch(Txs, FromPubKey, EtsName, ValidUntil),
+    tpic:cast(tpic, Peer, BatchId),
+    txqueue ! {push, TxIds}
     
   catch
     Ec:Ee ->
-      StackTrace = erlang:get_stacktrace(),
-      lager:error("can't place transaction into storage: ~p:~p", [Ec, Ee]),
-      lists:foreach(
-        fun(SE) -> lager:error("@ ~p", [SE]) end,
-        StackTrace
+      utils:print_error(
+        "can't place transaction into storage",
+        Ec, Ee, erlang:get_stacktrace()
       )
   end,
   {noreply, State};
 
-handle_cast({store, Txs, Nodes}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
+handle_cast({store, Txs, Nodes}, State) ->
+  handle_cast({store, Txs, Nodes, #{}}, State);
+
+handle_cast({store, Txs, Nodes, Options}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
   lager:info("Store txs ~p", [ Txs ]),
   try
     ValidUntil = os:system_time(second) + Ttl,
-    store_tx_batch(Txs, Nodes, EtsName, ValidUntil)
+    TxIds = store_tx_batch(Txs, Nodes, EtsName, ValidUntil),
+    ParseOptions =
+      fun
+        (#{push_queue := _}) when length(TxIds) > 0 ->
+          gen_server:cast(txqueue, {push, TxIds});
+        (#{push_head_queue := _}) when length(TxIds) > 0 ->
+          gen_server:cast(txqueue, {push_head, TxIds});
+        (_) ->
+          ok
+      end,
+    ParseOptions(Options)
+
   catch
     Ec:Ee ->
-      StackTrace = erlang:get_stacktrace(),
-      lager:error("can't place transaction into storage: ~p:~p", [Ec, Ee]),
-      lists:foreach(
-        fun(SE) -> lager:error("@ ~p", [SE]) end,
-        StackTrace
+      utils:print_error(
+        "can't place transaction into storage",
+        Ec, Ee, erlang:get_stacktrace()
       )
   end,
   {noreply, State};
@@ -166,20 +177,18 @@ handle_info(timer_expire,
   };
 
 
-handle_info({store, TxId, Tx, Nodes}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
-  lager:info("store tx ~p", [TxId]),
-  try
-    store_tx({TxId, Tx, Nodes}, EtsName, Ttl)
-  catch
-    Ec:Ee ->
-      StackTrace = erlang:get_stacktrace(),
-      lager:error("can't put transaction into storage: ~p:~p", [Ec, Ee]),
-      lists:foreach(
-        fun(SE) -> lager:error("@ ~p", [SE]) end,
-        StackTrace
-      )
-  end,
-  {noreply, State};
+%%handle_info({store, TxId, Tx, Nodes}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
+%%  lager:info("store tx ~p", [TxId]),
+%%  try
+%%    store_tx({TxId, Tx, Nodes}, EtsName, Ttl)
+%%  catch
+%%    Ec:Ee ->
+%%      utils:print_error(
+%%        "can't place transaction into storage",
+%%        Ec, Ee, erlang:get_stacktrace()
+%%      )
+%%  end,
+%%  {noreply, State};
 
 
 handle_info(_Info, State) ->
@@ -197,10 +206,10 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 
 store_tx({TxId, Tx, Nodes}, Table, ValidUntil) ->
-  lager:info("store tx ~p to ets", [TxId]),
+%%  lager:info("store tx ~p to ets", [TxId]),
 %%  TODO: vaildate transaction before store it
   ets:insert(Table, {TxId, Tx, Nodes, ValidUntil}),
-  ok;
+  TxId;
 
 store_tx(Invalid, _Table, _ValidUntil) ->
   lager:error("can't store invalid transaction: ~p", [Invalid]),
@@ -208,18 +217,21 @@ store_tx(Invalid, _Table, _ValidUntil) ->
 
 %% ------------------------------------------------------------------
 
-store_tx_batch([], _FromPubKey, _Table, _ValidUntil) ->
-  ok;
+store_tx_batch(Txs, FromPubKey, Table, ValidUntil) ->
+  store_tx_batch(Txs, FromPubKey, Table, ValidUntil, []).
 
-store_tx_batch([{TxId, Tx}|Rest], Nodes, Table, ValidUntil)
+store_tx_batch([], _FromPubKey, _Table, _ValidUntil, StoredIds) ->
+  StoredIds;
+
+store_tx_batch([{TxId, Tx}|Rest], Nodes, Table, ValidUntil, StoredIds)
   when is_list(Nodes) ->
-    store_tx({TxId, Tx, Nodes}, Table, ValidUntil),
-    store_tx_batch(Rest, Nodes, Table, ValidUntil);
+    NewStoredIds = StoredIds ++ store_tx({TxId, Tx, Nodes}, Table, ValidUntil),
+    store_tx_batch(Rest, Nodes, Table, ValidUntil, NewStoredIds);
 
-store_tx_batch([{TxId, Tx}|Rest], FromPubKey, Table, ValidUntil)
+store_tx_batch([{TxId, Tx}|Rest], FromPubKey, Table, ValidUntil, StoredIds)
   when is_binary(FromPubKey) ->
-    store_tx({TxId, Tx, [FromPubKey]}, Table, ValidUntil),
-    store_tx_batch(Rest, FromPubKey, Table, ValidUntil).
+    NewStoredIds = StoredIds ++ store_tx({TxId, Tx, [FromPubKey]}, Table, ValidUntil),
+    store_tx_batch(Rest, FromPubKey, Table, ValidUntil, NewStoredIds).
 
 %% ------------------------------------------------------------------
 
@@ -233,3 +245,4 @@ get_tx(TxId, Table) ->
     [] ->
       error
   end.
+

@@ -427,7 +427,7 @@ handle_call({new_block, #{hash:=BlockHash,
                                         lager:info("TX ~p",[_Any]),
                                         TxID
                                     end, Txs),
-                      gen_server:cast(txpool, {done, SendSuccess}),
+                      gen_server:cast(txqueue, {done, SendSuccess}),
 
                       case maps:is_key(inbound_blocks, MBlk) of
                         true ->
@@ -438,7 +438,7 @@ handle_call({new_block, #{hash:=BlockHash,
                       end,
 
                       Settings=maps:get(settings, MBlk, []),
-                      gen_server:cast(txpool, {done, proplists:get_keys(Settings)}),
+                      gen_server:cast(txqueue, {done, proplists:get_keys(Settings)}),
 
                       if(Sets1 =/= Sets) ->
                           notify_settings(),
@@ -1240,6 +1240,7 @@ foldl(Fun, Acc0, LDB, BlkId) ->
 
 notify_settings() ->
     gen_server:cast(txpool, settings),
+    gen_server:cast(txqueue, settings),
     gen_server:cast(mkblock, settings),
     gen_server:cast(blockvote, settings),
     gen_server:cast(synchronizer, settings),
