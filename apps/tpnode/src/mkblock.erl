@@ -146,7 +146,7 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
                          %do nothing with inbound block
                          TxB;
                        _ ->
-                         {ok, Tx1} = tx:verify(TxB),
+                         {ok, Tx1} = tx:verify(TxB, [ {maxsize, txpool:get_max_tx_size()} ]),
                          tx:set_ext(origin, Origin, Tx1)
                      end
                  catch _Ec:_Ee ->
@@ -205,7 +205,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
                   true ->
                     TXB1=tx:mergesig(TXB,
                                      maps:get(TxID, Acc)),
-                    {ok, Tx1} = tx:verify(TXB1),
+                    {ok, Tx1} = tx:verify(TXB1, [ {maxsize, txpool:get_max_tx_size()} ]),
                     maps:put(TxID, Tx1, Acc);
                   false ->
                     maps:put(TxID, TXB, Acc)

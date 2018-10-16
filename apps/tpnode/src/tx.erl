@@ -527,9 +527,9 @@ verify(#{
   end;
 
 verify(Bin, Opts) when is_binary(Bin) ->
-  MaxTxSize = txpool:get_max_tx_size(),
+  MaxTxSize = proplists:get_value(maxsize, Opts, 0),
   case size(Bin) of
-    _Size when _Size > MaxTxSize ->
+    _Size when MaxTxSize > 0 andalso _Size > MaxTxSize ->
       tx_too_big;
     _ ->
       Tx = unpack(Bin),
