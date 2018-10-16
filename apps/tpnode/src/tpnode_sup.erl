@@ -87,10 +87,13 @@ init([]) ->
 
             { mkblock, {mkblock, start_link, []},
               permanent, 5000, worker, []},
-  
-            { txstorage, {txstorage, start_link, [#{}]},
+        
+            { txqueue, {txqueue, start_link, []},
               permanent, 5000, worker, []},
         
+            { txstorage, {txstorage, start_link, [#{}]},
+              permanent, 5000, worker, []},
+      
             { txpool, {txpool, start_link, []},
               permanent, 5000, worker, []},
 

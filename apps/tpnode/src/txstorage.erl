@@ -134,20 +134,23 @@ handle_cast({store, Txs, Nodes}, State) when is_list(Nodes) ->
   handle_cast({store, Txs, Nodes, #{}}, State);
 
 handle_cast({store, Txs, Nodes, Options}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State)
-  when is_list(Nodes) ->
+  when is_list(Nodes), is_list(Txs) ->
   
-  lager:debug("Store txs ~p", [ Txs ]),
-  io:format("Store txs ~p~n", [ Txs ]),
+  lager:info("Store txs ~p, options ~p", [ Txs, Options ]),
+
   try
     ValidUntil = os:system_time(second) + Ttl,
     TxIds = store_tx_batch(Txs, Nodes, EtsName, ValidUntil),
     ParseOptions =
       fun
         (#{push_queue := _}) when length(TxIds) > 0 ->
+          lager:info("push ids to txqueue: ~p", [TxIds]),
           gen_server:cast(txqueue, {push, TxIds});
         (#{push_head_queue := _}) when length(TxIds) > 0 ->
+          lager:info("push head ids to txqueue: ~p", [TxIds]),
           gen_server:cast(txqueue, {push_head, TxIds});
-        (_) ->
+        (_Opt) ->
+          lager:info("txstorage store terminal case, TxIds: ~p, options: ~p", [TxIds, _Opt]),
           ok
       end,
     ParseOptions(Options)
@@ -225,12 +228,12 @@ store_tx_batch([], _FromPubKey, _Table, _ValidUntil, StoredIds) ->
 
 store_tx_batch([{TxId, Tx}|Rest], Nodes, Table, ValidUntil, StoredIds)
   when is_list(Nodes) ->
-    NewStoredIds = StoredIds ++ store_tx({TxId, Tx, Nodes}, Table, ValidUntil),
+    NewStoredIds = StoredIds ++ [store_tx({TxId, Tx, Nodes}, Table, ValidUntil)],
     store_tx_batch(Rest, Nodes, Table, ValidUntil, NewStoredIds);
 
 store_tx_batch([{TxId, Tx}|Rest], FromPubKey, Table, ValidUntil, StoredIds)
   when is_binary(FromPubKey) ->
-    NewStoredIds = StoredIds ++ store_tx({TxId, Tx, [FromPubKey]}, Table, ValidUntil),
+    NewStoredIds = StoredIds ++ [store_tx({TxId, Tx, [FromPubKey]}, Table, ValidUntil)],
     store_tx_batch(Rest, FromPubKey, Table, ValidUntil, NewStoredIds).
 
 %% ------------------------------------------------------------------

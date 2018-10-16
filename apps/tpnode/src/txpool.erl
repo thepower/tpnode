@@ -43,14 +43,13 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-  {ok,
-   #{
-     queue=>queue:new(),
-     nodeid=>nodekey:node_id(),
-     pubkey=>nodekey:get_pub(),
-     sync_timer=>undefined
-    }
-  }.
+  State = #{
+    queue=>queue:new(),
+    nodeid=>nodekey:node_id(),
+    pubkey=>nodekey:get_pub(),
+    sync_timer=>undefined
+  },
+  {ok, load_settings(State)}.
 
 handle_call(state, _Form, State) ->
     {reply, State, State};
@@ -234,9 +233,9 @@ handle_cast({inbound_block, #{hash:=Hash} = Block}, #{sync_timer:=Tmr, queue:=Qu
 %%         }
 %%  };
 
-handle_cast(prepare, State) ->
-    lager:notice("TXPOOL Blocktime, but I am not ready"),
-    {noreply, load_settings(State)};
+%%handle_cast(prepare, State) ->
+%%    lager:notice("TXPOOL Blocktime, but I am not ready"),
+%%    {noreply, load_settings(State)};
 
 handle_cast(_Msg, State) ->
     lager:info("Unknown cast ~p", [_Msg]),

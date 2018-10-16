@@ -79,7 +79,7 @@ do_sync(Transactions, {MyChain, _MyPubKey, LBH} = _Options) when is_list(Transac
       
     Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
     
-    lager:error("tpic peers: ~p", [Peers]),
+%%    lager:debug("tpic peers: ~p", [Peers]),
     
     MRes = msgpack:pack(
       #{
@@ -141,7 +141,7 @@ wait_response(
           unknown ->
             Confirmed; % don't touch confirmations
           PubKey ->
-            lager:info("got confirmation for ~p", [PubKey]),
+            lager:info("got confirmation from ~p", [PubKey]),
             maps:put(PubKey, 1, Confirmed)
         end,
       Unconfirmed1 = maps:remove(Handle, Unconfirmed),

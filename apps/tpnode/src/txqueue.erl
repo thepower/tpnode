@@ -127,7 +127,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
         #{},
         TxIds
       ),
-    lager:info("txs for mkblock: ~p", TxMap),
+    lager:info("txs for mkblock: ~p", [TxMap]),
     MRes = msgpack:pack(
       #{
         null=><<"mkblock">>,
@@ -146,12 +146,13 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
   Time = erlang:system_time(seconds),
   {InProc1, Queue2} = recovery_lost(InProc0, Queue1, Time),
   ETime = Time + 20,
+  
   {noreply,
     State#{
       queue=>Queue2,
       inprocess=>lists:foldl(
-        fun({TxId, TxBody}, Acc) ->
-          hashqueue:add(TxId, ETime, TxBody, Acc)
+        fun(TxId, Acc) ->
+          hashqueue:add(TxId, ETime, null, Acc)
         end,
         InProc1,
         TxIds
@@ -167,18 +168,11 @@ handle_cast(_Msg, State) ->
   lager:notice("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
-%%handle_info(prepare, #{queue:=Queue} = State) ->
-%%  lager:info("prepare transactions"),
-%%  MaxPop=chainsettings:get_val(<<"poptxs">>,200),
-%%  {Queue1, Res}=txpool:pullx({MaxPop, txpool:get_max_tx_size()}, Queue, []),
-%%
-%%  {noreply, State#{
-%%    queue=>Queue1
-%%  }};
-
+handle_info(prepare, State) ->
+  handle_cast(prepare, State);
 
 handle_info(_Info, State) ->
-  lager:notice("Unknown info  ~p", [_Info]),
+  lager:notice("Unknown info ~p", [_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -202,8 +196,8 @@ recovery_lost(InProc, Queue, Now) ->
       case hashqueue:pop(InProc) of
         {InProc1, empty} ->
           {InProc1, Queue};
-        {InProc1, {TxID, Tx}} ->
-          recovery_lost(InProc1, queue:in({TxID, Tx}, Queue), Now)
+        {InProc1, {TxID, _TxBody}} ->
+          recovery_lost(InProc1, queue:in(TxID, Queue), Now)
       end
   end.
 
