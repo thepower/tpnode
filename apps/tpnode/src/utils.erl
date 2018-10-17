@@ -1,6 +1,6 @@
 -module(utils).
 
--export([alloc_tcp_port/0,make_binary/1, make_list/1, apply_macro/2]).
+-export([alloc_tcp_port/0,make_binary/1, make_list/1, apply_macro/2, print_error/4]).
 
 alloc_tcp_port() ->
   {ok,S}=gen_tcp:listen(0,[]),
@@ -52,3 +52,12 @@ apply_macro(MapWithMacro, Dict) when is_map(MapWithMacro) andalso is_map(Dict) -
         end, SrcMap)
     end,
   maps:fold(Worker, MapWithMacro, Dict).
+
+%% -------------------------------------------------------------------------------------
+
+print_error(Message, Ec, Ee, StackTrace) ->
+  lager:error(make_list(Message) ++ " [~p:~p]", [Ec, Ee]),
+  lists:foreach(
+    fun(Where) -> lager:error("@ ~p", [Where]) end,
+    StackTrace
+  ).

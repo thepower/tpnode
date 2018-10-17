@@ -110,8 +110,28 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
           lager:info("TXs from node ~s: ~p",
                [ Origin, length(Txs) ])
        end,
-       MarkTx=fun({TxID, TxB}) ->
-              TxB1=try
+       MarkTx=fun({TxID, TxB0}) ->
+         
+         % get transaction body from storage
+         TxB =
+           try
+             case TxB0 of
+               {TxID, null} ->
+                 case txstorage:get_tx(TxID) of
+                   {ok, {TxID, TxBody, _Nodes}} ->
+                     {TxID, TxBody}; % got tx body from txstorage
+                   _ ->
+                     {TxID, null} % error
+                 end;
+               _OtherTx ->
+                 _OtherTx  % transaction with body or invalid transaction
+             end
+           catch _Ec0:_Ee0 ->
+             utils:print_error("Error", _Ec0, _Ee0, erlang:get_stacktrace()),
+             TxB0
+           end,
+  
+         TxB1=try
                      case TxB of
                        #{patch:=_} ->
                          VerFun=fun(PubKey) ->
@@ -126,18 +146,15 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
                          %do nothing with inbound block
                          TxB;
                        _ ->
-                         {ok, Tx1} = tx:verify(TxB),
+                         {ok, Tx1} = tx:verify(TxB, [ {maxsize, txpool:get_max_tx_size()} ]),
                          tx:set_ext(origin, Origin, Tx1)
                      end
                  catch _Ec:_Ee ->
-                     S=erlang:get_stacktrace(),
-                     lager:error("Error ~p:~p", [_Ec, _Ee]),
-                     lists:foreach(fun(SE) ->
-                                 lager:error("@ ~p", [SE])
-                             end, S),
-                     file:write_file("tmp/mkblk_badsig_" ++ binary_to_list(nodekey:node_id()),
-                             io_lib:format("~p.~n", [TxB])),
-
+                     utils:print_error("Error", _Ec, _Ee, erlang:get_stacktrace()),
+                     file:write_file(
+                       "tmp/mkblk_badsig_" ++ binary_to_list(nodekey:node_id()),
+                       io_lib:format("~p.~n", [TxB])
+                     ),
                      TxB
                  end,
               {TxID,TxB1}
@@ -188,7 +205,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
                   true ->
                     TXB1=tx:mergesig(TXB,
                                      maps:get(TxID, Acc)),
-                    {ok, Tx1} = tx:verify(TXB1),
+                    {ok, Tx1} = tx:verify(TXB1, [ {maxsize, txpool:get_max_tx_size()} ]),
                     maps:put(TxID, Tx1, Acc);
                   false ->
                     maps:put(TxID, TXB, Acc)
@@ -213,7 +230,7 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
                                   {Last_Height1-1, Last_Hash1}
                    end,
   PreNodes=try
-             PreSig=maps:get(presig, State),
+             PreSig=maps:get(presig, State, #{}),
              BK=maps:fold(
                   fun(_, {BH, _}, Acc) when BH =/= PHash ->
                       Acc;
@@ -221,10 +238,10 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
                       [{Node1, Nodes2}|Acc]
                   end, [], PreSig),
              lists:sort(bron_kerbosch:max_clique(BK))
-           catch Ec:Ee ->
-                   Stack1=erlang:get_stacktrace(),
-                   lager:error("Can't calc xsig ~p:~p ~p", [Ec, Ee, Stack1]),
-                   []
+           catch
+             Ec:Ee ->
+               utils:print_error("Can't calc xsig", Ec, Ee, erlang:get_stacktrace()),
+               []
            end,
 
   try
@@ -375,20 +392,43 @@ sign(Blk, ED) when is_map(Blk) ->
     PrivKey=nodekey:get_priv(),
     block:sign(Blk, ED, PrivKey).
 
+%% ------------------------------------------------------------------
+
 load_settings(State) ->
     OldSettings=maps:get(settings, State, #{}),
     MyChain=blockchain:chain(),
     AE=chainsettings:get_val(<<"allowempty">>),
     State#{
-      settings=>maps:merge(
-                  OldSettings,
-                  #{ae=>AE, mychain=>MyChain}
-                 )
-     }.
+      settings=>
+      maps:merge(
+        OldSettings,
+        #{ae=>AE, mychain=>MyChain}
+      )
+    }.
+
+%% ------------------------------------------------------------------
 
 decode_tpic_txs(TXs) ->
-    lists:map(
-      fun({TxID, Tx}) ->
-              {TxID, tx:unpack(Tx)}
-      end, maps:to_list(TXs)).
+  lists:map(
+    fun
+      % get pre synced transaction body from txstorage
+      ({TxID, null}) ->
+        TxBody =
+          case txstorage:get_tx(TxID) of
+            {ok, {TxID, Tx, _Nodes}} ->
+              Tx;
+            error ->
+              lager:error("can't get body for tx ~p", [TxID]),
+              null
+          end,
+        {TxID, TxBody};
+      
+      % unpack transaction body
+      ({TxID, Tx}) ->
+        Unpacked = tx:unpack(Tx),
+%%      lager:info("debug tx unpack: ~p", [Unpacked]),
+        {TxID, Unpacked}
+    end,
+    maps:to_list(TXs)
+  ).
 

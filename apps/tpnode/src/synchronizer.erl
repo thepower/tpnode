@@ -100,10 +100,10 @@ handle_info(ticktimer,
     true ->
       if MBD<0 ->
            mkblock ! process,
-           erlang:send_after(-MBD, whereis(txpool), prepare);
+           erlang:send_after(-MBD, whereis(txqueue), prepare);
          MBD>0 ->
            erlang:send_after(MBD, whereis(mkblock), process),
-           txpool ! prepare
+           txqueue ! prepare
       end,
       lager:debug("Time to tick. next in ~w", [Wait]);
     false ->

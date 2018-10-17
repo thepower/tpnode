@@ -527,8 +527,15 @@ verify(#{
   end;
 
 verify(Bin, Opts) when is_binary(Bin) ->
-  Tx=unpack(Bin),
-  verify(Tx, Opts);
+  MaxTxSize = proplists:get_value(maxsize, Opts, 0),
+  case size(Bin) of
+    _Size when MaxTxSize > 0 andalso _Size > MaxTxSize ->
+      tx_too_big;
+    _ ->
+      Tx = unpack(Bin),
+      verify(Tx, Opts)
+  end;
+
 
 verify(Struct, Opts) ->
   tx1:verify(Struct, Opts).
