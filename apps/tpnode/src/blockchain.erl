@@ -453,12 +453,12 @@ handle_call({new_block, #{hash:=BlockHash,
                         [] -> ok;
                         Failed ->
                           %there was failed tx. Block empty?
-                          gen_server:cast(txpool, {failed, Failed})
+                          gen_server:cast(txqueue, {failed, Failed})
                       end,
 
                       case maps:is_key(inbound_blocks, MBlk) of
                         true ->
-                          gen_server:cast(txpool,
+                          gen_server:cast(txqueue,
                                           {done,
                                            proplists:get_keys(maps:get(inbound_blocks, MBlk))});
                         false -> ok
@@ -513,6 +513,8 @@ handle_call({new_block, #{hash:=BlockHash,
                         end
                     end, 0, block:outward_mk(MBlk)),
                   gen_server:cast(txpool,{new_height, Hei}),
+                  gen_server:cast(txqueue,{new_height, Hei}),
+                  
                   S1=maps:remove(tmpblock, State),
 
                   {reply, ok, S1#{

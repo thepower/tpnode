@@ -146,11 +146,11 @@ handle_call(status, _From, #{nodeid:=Node, queue:=Queue}=State) ->
 handle_call(_Request, _From, State) ->
     {reply, unknown_request, State}.
 
-handle_cast({new_height, H}, State) ->
-    {noreply, State#{height=>H}};
-
 handle_cast(settings, State) ->
     {noreply, load_settings(State)};
+
+handle_cast({new_height, H}, State) ->
+  {noreply, State#{height=>H}};
 
 handle_cast({inbound_block, #{hash:=Hash} = Block}, #{sync_timer:=Tmr, queue:=Queue} = State) ->
   TxId = bin2hex:dbin2hex(Hash),
@@ -271,9 +271,6 @@ handle_info(sync_tx, #{sync_timer:=Tmr, mychain:=MyChain, queue:=Queue} = State)
 handle_info(prepare, State) ->
   handle_cast(prepare, State);
 
-handle_info(getlb, State) ->
-  {_Chain,Height}=gen_server:call(blockchain,last_block_height),
-  {noreply, State#{height=>Height}};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -354,17 +351,6 @@ generate_txid(#{}) ->
 
 %% ------------------------------------------------------------------
 
-get_lbh(State) ->
-  case maps:find(height, State) of
-    error ->
-      {_Chain,H1}=gen_server:call(blockchain, last_block_height),
-      H1;
-    {ok, H1} ->
-      H1
-  end.
-
-%% ------------------------------------------------------------------
-
 pullx({0, _}, Q, Acc) ->
     {Q, Acc};
 
@@ -420,3 +406,10 @@ get_max_pop_tx() ->
 
 get_max_pop_tx(Default) ->
   chainsettings:get_val(<<"poptxs">>, Default).
+
+%% ------------------------------------------------------------------
+
+get_lbh(State) ->
+  txqueue:get_lbh(State).
+
+

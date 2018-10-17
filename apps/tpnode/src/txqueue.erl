@@ -7,7 +7,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0]).
+-export([start_link/0, get_lbh/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -92,6 +92,9 @@ handle_cast({failed, Txs}, #{inprocess:=InProc0} = State) ->
   }};
 
 
+handle_cast({new_height, H}, State) ->
+  {noreply, State#{height=>H}};
+
 handle_cast(settings, State) ->
   {noreply, load_settings(State)};
 
@@ -168,6 +171,10 @@ handle_cast(_Msg, State) ->
   lager:notice("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
+%%handle_info(getlb, State) ->
+%%  {_Chain,Height}=gen_server:call(blockchain,last_block_height),
+%%  {noreply, State#{height=>Height}};
+
 handle_info(prepare, State) ->
   handle_cast(prepare, State);
 
@@ -217,6 +224,7 @@ get_lbh(State) ->
   case maps:find(height, State) of
     error ->
       {_Chain, H1} = gen_server:call(blockchain, last_block_height),
+      gen_server:cast(self(), {new_height, H1}), % renew height cache in state
       H1;
     {ok, H1} ->
       H1
