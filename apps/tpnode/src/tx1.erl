@@ -211,6 +211,9 @@ to_list(Arg) when is_list(Arg) ->
 to_list(Arg) when is_binary(Arg) ->
   binary_to_list(Arg).
 
+verify(null, _) ->
+  throw(no_transaction);
+
 verify(#{register:=_, type:=register}=Tx, _) ->
   {ok, Tx};
 
