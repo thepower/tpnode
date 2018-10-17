@@ -498,15 +498,21 @@ transaction_test(_Config) ->
     EndlessAddress = naddress:decode(Wallet),
     TxpoolPidC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [txpool]),
     C4N1NodePrivKey = rpc:call(get_node(<<"test_c4n1">>), nodekey, get_priv, []),
-    Patch = settings:sign(
-        [#{<<"t">>=><<"set">>,
+  
+    PatchTx = tx:sign(
+      tx:construct_tx(
+        #{kind=>patch,
+          ver=>2,
+          patches=>
+          [#{<<"t">>=><<"set">>,
             <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, Cur],
             <<"v">>=>true},
-        #{<<"t">>=><<"set">>,
-            <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, <<"SK">>],
-            <<"v">>=>true}],
-        C4N1NodePrivKey),
-    {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {patch, Patch}),
+            #{<<"t">>=><<"set">>,
+              <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, <<"SK">>],
+              <<"v">>=>true}]
+        }
+      ), C4N1NodePrivKey),
+    {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {new_tx, PatchTx}),
     io:format("PatchTxId: ~p~n", [PatchTxId]),
     {ok, _} = wait_for_tx(PatchTxId, get_node(<<"test_c4n1">>)),
     ChainSettngs = rpc:call(get_node(<<"test_c4n1">>), chainsettings, all, []),
