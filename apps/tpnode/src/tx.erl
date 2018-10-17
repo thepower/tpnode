@@ -3,8 +3,8 @@
 -export([del_ext/2, get_ext/2, set_ext/3]).
 -export([sign/2, verify/1, verify/2, pack/1, unpack/1]).
 -export([txlist_hash/1, rate/2, mergesig/2]).
--export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1,
-         construct_tx/1,construct_tx/2, get_payload/2, get_payloads/2]).
+-export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1]).
+-export([construct_tx/1,construct_tx/2, get_payload/2, get_payloads/2]).
 -export([hashdiff/1,upgrade/1]).
 
 -include("apps/tpnode/include/tx_const.hrl").
