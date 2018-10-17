@@ -127,16 +127,16 @@ handle_cast(
   end,
   {noreply, State};
 
-handle_cast({store, Txs}, State) ->
+handle_cast({store, Txs}, State) when is_list(Txs)->
   handle_cast({store, Txs, [], #{}}, State);
 
 handle_cast({store, Txs, Nodes}, State) when is_list(Nodes) ->
   handle_cast({store, Txs, Nodes, #{}}, State);
 
 handle_cast({store, Txs, Nodes, Options}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State)
-  when is_list(Nodes), is_list(Txs) ->
+  when is_list(Nodes), is_list(Txs), is_map(Options) ->
   
-  lager:info("Store txs ~p, options ~p", [ Txs, Options ]),
+  lager:debug("Store txs ~p, options ~p", [ Txs, Options ]),
 
   try
     ValidUntil = os:system_time(second) + Ttl,
@@ -150,7 +150,7 @@ handle_cast({store, Txs, Nodes, Options}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName}
           lager:info("push head ids to txqueue: ~p", [TxIds]),
           gen_server:cast(txqueue, {push_head, TxIds});
         (_Opt) ->
-          lager:info("txstorage store terminal case, TxIds: ~p, options: ~p", [TxIds, _Opt]),
+          lager:debug("txstorage EndOfOptions TxIds: ~p, options: ~p", [TxIds, _Opt]),
           ok
       end,
     ParseOptions(Options)

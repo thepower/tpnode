@@ -41,14 +41,14 @@ handle_call(_Request, _From, State) ->
 
 
 handle_cast({push, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
-  lager:info("push ~p", [TxIds]),
+  lager:debug("push ~p", [TxIds]),
   {noreply, State#{
     queue=>lists:foldl( fun queue:in/2, Queue, TxIds)
   }};
 
 
 handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
-  lager:info("push head ~p", [TxIds]),
+  lager:debug("push head ~p", [TxIds]),
   {noreply, State#{
     queue=>lists:foldl( fun queue:in_r/2, Queue, TxIds)
   }};
@@ -130,7 +130,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
         #{},
         TxIds
       ),
-    lager:info("txs for mkblock: ~p", [TxMap]),
+    lager:debug("txs for mkblock: ~p", [TxMap]),
     MRes = msgpack:pack(
       #{
         null=><<"mkblock">>,
