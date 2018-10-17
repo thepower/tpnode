@@ -110,83 +110,103 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
           lager:info("TXs from node ~s: ~p",
                [ Origin, length(Txs) ])
        end,
-       MarkTx=fun({TxID, TxB0}) ->
-         
-         % get transaction body from storage
-         TxB =
-           try
-             case TxB0 of
-               {TxID, null} ->
-                 case txstorage:get_tx(TxID) of
-                   {ok, {TxID, TxBody, _Nodes}} ->
-                     {TxID, TxBody}; % got tx body from txstorage
-                   _ ->
-                     {TxID, null} % error
-                 end;
-               _OtherTx ->
-                 _OtherTx  % transaction with body or invalid transaction
-             end
-           catch _Ec0:_Ee0 ->
-             utils:print_error("Error", _Ec0, _Ee0, erlang:get_stacktrace()),
-             TxB0
-           end,
-  
-         TxB1=try
-                     case TxB of
-                       #{patch:=_} ->
-                         VerFun=fun(PubKey) ->
-                                    NodeID=chainsettings:is_our_node(PubKey),
-                                    is_binary(NodeID)
-                                end,
-                         {ok, Tx1} = settings:verify(TxB, VerFun),
-                         tx:set_ext(origin, Origin, Tx1);
-                       #{ hash:=_,
-                          header:=_,
-                          sign:=_} ->
-                         %do nothing with inbound block
-                         TxB;
-                       _ ->
-                         {ok, Tx1} = tx:verify(TxB, [ {maxsize, txpool:get_max_tx_size()} ]),
-                         tx:set_ext(origin, Origin, Tx1)
-                     end
-                 catch _Ec:_Ee ->
-                     utils:print_error("Error", _Ec, _Ee, erlang:get_stacktrace()),
-                     file:write_file(
-                       "tmp/mkblk_badsig_" ++ binary_to_list(nodekey:node_id()),
-                       io_lib:format("~p.~n", [TxB])
-                     ),
-                     TxB
-                 end,
-              {TxID,TxB1}
-          end,
-       WithParent=case maps:get(roundparent, State, undefined) of
-                    undefined ->
-                      lager:info("Fetching last block from blockchain"),
-                      #{header:=#{height:=Last_Height}, hash:=Last_Hash}=gen_server:call(blockchain, last_block),
-                      State#{ roundparent=>{Last_Height, Last_Hash} };
-                    _ ->
-                      State
-                  end,
-       {CHei,_}=maps:get(roundparent, WithParent),
+       MarkTx =
+         fun({TxID, TxB0}) ->
+      
+           % get transaction body from storage
+           TxB =
+             try
+               case TxB0 of
+                 {TxID, null} ->
+                   case txstorage:get_tx(TxID) of
+                     {ok, {TxID, TxBody, _Nodes}} ->
+                       {TxID, TxBody}; % got tx body from txstorage
+                     _ ->
+                       {TxID, null} % error
+                   end;
+                 _OtherTx ->
+                   _OtherTx  % transaction with body or invalid transaction
+               end
+             catch _Ec0:_Ee0 ->
+               utils:print_error("Error", _Ec0, _Ee0, erlang:get_stacktrace()),
+               TxB0
+             end,
+      
+           TxB1 =
+             try
+               case TxB of
+                 #{patch:=_} ->
+                   VerFun =
+                     fun(PubKey) ->
+                       NodeID = chainsettings:is_our_node(PubKey),
+                       is_binary(NodeID)
+                     end,
+                   {ok, Tx1} = settings:verify(TxB, VerFun),
+                   tx:set_ext(origin, Origin, Tx1);
 
-       if CHei==undefined orelse MH==CHei orelse MH==undefined orelse true->
-            {noreply, State#{
-                        preptxl=>PreTXL ++ lists:map(MarkTx, Txs)
-                       }
-            };
-          CHei>MH ->
-            tpic:cast(tpic, <<"mkblock">>,
-                      msgpack:pack( #{ null=> <<"lag">>,
-                                       lbh=>CHei
-                                     })),
-            lager:notice("Node ~p lagging, my h=~p his=~p",
-                         [Origin, CHei, MH]),
-            {noreply, State};
-          CHei<MH ->
-            lager:notice("Am I lagging? I got h=~p, but my h=~p from ~p",
-                         [MH,CHei,Origin]),
-            blockchain ! checksync,
-            {noreply, State}
+                 #{hash:=_,
+                   header:=_,
+                   sign:=_} ->
+
+                   %do nothing with inbound block
+                   TxB;
+
+                 _ ->
+                   {ok, Tx1} = tx:verify(TxB, [{maxsize, txpool:get_max_tx_size()}]),
+                   tx:set_ext(origin, Origin, Tx1)
+               end
+             catch
+               throw:no_transaction ->
+                 null;
+               _Ec:_Ee ->
+                 utils:print_error("Error", _Ec, _Ee, erlang:get_stacktrace()),
+                 file:write_file(
+                   "tmp/mkblk_badsig_" ++ binary_to_list(nodekey:node_id()),
+                   io_lib:format("~p.~n", [TxB])
+                 ),
+                 TxB
+             end,
+           case TxB1 of
+             null ->
+               false;
+             _ ->
+               {true, {TxID, TxB1}}
+           end
+         end,
+  
+       WithParent =
+         case maps:get(roundparent, State, undefined) of
+           undefined ->
+             lager:info("Fetching last block from blockchain"),
+             #{header:=#{height:=Last_Height}, hash:=Last_Hash} =
+               gen_server:call(blockchain, last_block),
+             State#{roundparent=>{Last_Height, Last_Hash}};
+           _ ->
+             State
+         end,
+       {CHei,_}=maps:get(roundparent, WithParent),
+  
+       if CHei == undefined orelse MH == CHei orelse MH == undefined orelse true ->
+         {noreply,
+           State#{
+             preptxl=>PreTXL ++ lists:filtermap(MarkTx, Txs)
+           }
+         };
+         CHei > MH ->
+           tpic:cast(tpic, <<"mkblock">>,
+             msgpack:pack(
+               #{null=> <<"lag">>,
+                 lbh=>CHei
+               }
+             )),
+           lager:notice("Node ~p lagging, my h=~p his=~p",
+             [Origin, CHei, MH]),
+           {noreply, State};
+         CHei < MH ->
+           lager:notice("Am I lagging? I got h=~p, but my h=~p from ~p",
+             [MH, CHei, Origin]),
+           blockchain ! checksync,
+           {noreply, State}
        end
   end;
 
