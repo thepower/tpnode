@@ -7,7 +7,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0, get_lbh/1]).
+-export([start_link/0, get_lbh/1, get_state/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -34,6 +34,9 @@ init(_Args) ->
       inprocess=>hashqueue:new()
     }
   }.
+
+handle_call(state, _From, State) ->
+  {reply, State, State};
 
 handle_call(_Request, _From, State) ->
   lager:notice("Unknown call ~p", [_Request]),
@@ -229,3 +232,9 @@ get_lbh(State) ->
     {ok, H1} ->
       H1
   end.
+
+%% ------------------------------------------------------------------
+
+get_state() ->
+  gen_server:call(?MODULE, state).
+

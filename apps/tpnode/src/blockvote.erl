@@ -7,7 +7,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0]).
+-export([start_link/0, get_state/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -151,6 +151,8 @@ code_change(_OldVsn, State, _Extra) ->
 blkid(<<X:8/binary, _/binary>>) ->
     bin2hex:dbin2hex(X).
 
+%% ------------------------------------------------------------------
+
 checksig(BlockHash, Sigs, Acc0) ->
     lists:foldl(
       fun(Signature, Acc) ->
@@ -170,6 +172,8 @@ checksig(BlockHash, Sigs, Acc0) ->
                       Acc
               end
       end, Acc0, Sigs).
+
+%% ------------------------------------------------------------------
 
 is_block_ready(BlockHash, State) ->
 	try
@@ -244,6 +248,8 @@ is_block_ready(BlockHash, State) ->
 			  State
 	end.
 
+%% ------------------------------------------------------------------
+
 load_settings(State) ->
   {ok, MyChain} = chainsettings:get_setting(mychain),
   MinSig=chainsettings:get_val(minsig,1000),
@@ -256,4 +262,8 @@ load_settings(State) ->
     lastblock=>LastBlock
    }.
 
+%% ------------------------------------------------------------------
+
+get_state() ->
+  gen_server:call(?MODULE, state).
 

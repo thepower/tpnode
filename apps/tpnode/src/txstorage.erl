@@ -16,7 +16,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
   terminate/2, code_change/3]).
 
--export([store_tx/3, get_tx/2, get_tx/1]).
+-export([store_tx/3, get_tx/2, get_tx/1, get_state/0]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -46,6 +46,9 @@ init(Args) ->
     ets_name => EtsTableName,
     ets_ttl_sec => maps:get(ets_ttl_sec, Args, 60*60)  % default: 1 hour
   }}.
+
+handle_call(state, _From, State) ->
+  {reply, State, State};
 
 handle_call(get_table_name, _From, #{ets_name:=EtsName} = State) ->
   {reply, EtsName, State};
@@ -248,4 +251,10 @@ get_tx(TxId, Table) ->
     [] ->
       error
   end.
+
+
+%% ------------------------------------------------------------------
+
+get_state() ->
+  gen_server:call(?MODULE, state).
 

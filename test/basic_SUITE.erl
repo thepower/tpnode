@@ -474,18 +474,34 @@ new_wallet() ->
   end.
 
 
-dump_testnet_state() ->
-    logger("dump testnet state ~n"),
-    StateDumper =
-        fun(NodeName) ->
-            logger("last block for node ~p ~n", [NodeName]),
-            LastBlock = rpc:call(get_node(NodeName), blockchain, last, []),
-            logger("~p ~n", [LastBlock])
-        end,
-    lists:foreach(StateDumper, ?TESTNET_NODES),
-    ok.
-    
 
+
+dump_testnet_state() ->
+  logger("dump testnet state ~n"),
+  
+  StateDumper =
+    fun(NodeName) ->
+      States =
+        [
+          {Module, rpc:call(get_node(NodeName), Module, get_state, [])} ||
+            Module <- [txpool, txqueue, txstorage, blockvote]
+        ],
+      LastBlock = rpc:call(get_node(NodeName), blockchain, last, []),
+      
+      lists:foreach(
+        fun({Module, State}) ->
+          logger("~p state of node ~p ~n", [Module, NodeName]),
+          logger("~p ~n", [State])
+        end,
+        States
+      ),
+
+      logger("last block at node ~p ~n", [NodeName]),
+      logger("~p ~n", [LastBlock])
+    end,
+  
+  lists:foreach(StateDumper, ?TESTNET_NODES),
+  ok.
 
 
 transaction_test(_Config) ->
@@ -573,7 +589,9 @@ transaction_test(_Config) ->
     Wallet2Data7 = api_get_wallet(Wallet2),
     logger("wallet [step 7, all sk are used today]: ~p ~n", [Wallet2Data7]),
     ?assertMatch(#{<<"res">> := <<"sk_limit">>}, Status7),
-    ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount6}}}, Wallet2Data7).
+    ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount6}}}, Wallet2Data7),
+  
+    dump_testnet_state().
 
 tpiccall(TPIC, Handler, Object, Atoms) ->
     Res=tpic:call(TPIC, Handler, msgpack:pack(Object)),
@@ -687,3 +705,6 @@ format_time({{Y, M, D}, {H, Mi, S, Ms}}) ->
     "~p-~2..0p-~2..0p ~2..0p:~2..0p:~2..0p.~3..0p",
     [Y, M, D, H, Mi, S, Ms]
   )).
+
+% -----------------------------------------------------------------------------
+

@@ -11,6 +11,7 @@
 
 -export([start_link/0]).
 -export([new_tx/1, get_pack/0, inbound_block/1, get_max_tx_size/0, get_max_pop_tx/0, pullx/3]).
+-export([get_state/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -409,4 +410,8 @@ get_max_pop_tx(Default) ->
 get_lbh(State) ->
   txqueue:get_lbh(State).
 
+%% ------------------------------------------------------------------
+
+get_state() ->
+  gen_server:call(?MODULE, state).
 
