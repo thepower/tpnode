@@ -60,9 +60,6 @@ lint: rebar
 dialyzer: rebar
 	$(REBAR) dialyzer
 
-eunit: rebar
-	$(REBAR) eunit
-
 xref: rebar
 	$(REBAR) xref skip_deps=true
 
@@ -88,9 +85,13 @@ cleantest:
 buildtest: rebar
 	@REBAR_PROFILE=test $(REBAR) do compile
 
-cover: sedcheck ctruncheck cleantest buildtest
+prepare_cover: sedcheck
 	@$(SED) -re "s/@[^']+/@`hostname -s`/gi" <test/tpnode.coverspec.tpl >test/tpnode.coverspec
+
+eunit: rebar prepare_cover
 	@REBAR_PROFILE=test $(REBAR) do eunit --cover
+
+cover: ctruncheck cleantest buildtest rebar prepare_cover eunit
 	@$(TESTNET) start
 	@$(CT_RUN) -pa _build/test/lib/*/ebin \
 	 		  -cover test/tpnode.coverspec \
@@ -99,6 +100,9 @@ cover: sedcheck ctruncheck cleantest buildtest
 	 		  -suite basic_SUITE \
 	 		  -noshell
 	@$(TESTNET) stop
+
+reset: cleantest
+	@$(TESTNET) reset
 
 
 sedcheck:
