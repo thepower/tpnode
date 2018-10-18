@@ -66,13 +66,13 @@ end_per_suite(Config) ->
 
 
 save_bckups() ->
-    io:format("saving bckups"),
+    logger("saving bckups"),
     SaveBckupForNode =
         fun(Node) ->
             BckupDir = "/tmp/ledger_bckups/" ++ Node ++ "/",
 %%        filelib:ensure_dir("../../../../" ++ BckupDir),
             filelib:ensure_dir(BckupDir),
-            io:format("saving bckup for node ~p to dir ~p", [Node, BckupDir]),
+            logger("saving bckup for node ~p to dir ~p", [Node, BckupDir]),
             rpc:call(get_node(Node), blockchain, backup, [BckupDir])
         end,
     lists:foreach(SaveBckupForNode, ?TESTNET_NODES),
@@ -114,8 +114,8 @@ cover_start() ->
 
 
 cover_finish() ->
-    io:format("going to flush coverage data~n"),
-    io:format("nodes: ~p~n", [nodes()]),
+    logger("going to flush coverage data~n"),
+    logger("nodes: ~p~n", [nodes()]),
     erlang:register(ctester, self()),
     ct_cover:remove_nodes(nodes()),
 %%    cover:stop(nodes()),
@@ -264,7 +264,7 @@ discovery_ssl_test(_Config) ->
   gen_server:cast(DiscoveryC4N1, {got_announce, AnnounceBin}),
   timer:sleep(2000),  % wait for announce propagation
   Result = rpc:call(get_node(<<"test_c4n1">>), tpnode_httpapi, get_nodes, [4]),
-  io:format("get_nodes answer: ~p~n", [Result]),
+  logger("get_nodes answer: ~p~n", [Result]),
   ?assertMatch(#{NodeId := #{ host := _, ip := _}}, Result),
   AddrInfo = maps:get(NodeId, Result, #{}),
   Hosts = maps:get(host, AddrInfo, []),
@@ -313,10 +313,10 @@ api_get_tx_status(TxId, BaseUrl) ->
     Status = tpapi:get_tx_status(TxId, BaseUrl),
     case Status of
       {ok, timeout, _} ->
-        io:format("got transaction ~p timeout~n", [TxId]),
+        logger("got transaction ~p timeout~n", [TxId]),
         dump_testnet_state();
       {ok, #{<<"res">> := <<"bad_seq">>}, _} ->
-        io:format("got transaction ~p badseq~n", [TxId]),
+        logger("got transaction ~p badseq~n", [TxId]),
         dump_testnet_state();
       _ ->
         ok
@@ -334,13 +334,13 @@ wait_for_tx(_TxId, _NodeName, 0 = _TrysLeft) ->
 
 wait_for_tx(TxId, NodeName, TrysLeft) ->
     Status = rpc:call(NodeName, txstatus, get, [TxId]),
-    io:format("got tx status: ~p ~n", [Status]),
+    logger("got tx status: ~p ~n", [Status]),
     case Status of
         undefined ->
             timer:sleep(1000),
             wait_for_tx(TxId, NodeName, TrysLeft - 1);
         {true, ok} ->
-            io:format("transaction ~p commited~n", [TxId]),
+            logger("transaction ~p commited~n", [TxId]),
             {ok, TrysLeft};
         {false, Error} ->
             dump_testnet_state(),
@@ -363,17 +363,17 @@ register_wallet_test(_Config) ->
     ?assertEqual(<<"ok">>, maps:get(<<"result">>, Res, unknown)),
     TxId = maps:get(<<"txid">>, Res, unknown),
     ?assertNotEqual(unknown, TxId),
-    io:format("got txid: ~p~n", [TxId]),
+    logger("got txid: ~p~n", [TxId]),
     ?assertMatch(#{<<"result">> := <<"ok">>}, Res),
     {ok, Status, _TrysLeft} = api_get_tx_status(TxId),
-    io:format("transaction status: ~p ~n trys left: ~p", [Status, _TrysLeft]),
+    logger("transaction status: ~p ~n trys left: ~p", [Status, _TrysLeft]),
     ?assertNotEqual(timeout, Status),
     ?assertMatch(#{<<"ok">> := true}, Status),
     Wallet = maps:get(<<"res">>, Status, unknown),
     ?assertNotEqual(unknown, Wallet),
     % проверяем статус кошелька через API
     Res2 = api_get_wallet(Wallet),
-    io:format("Info for wallet ~p: ~p", [Wallet, Res2]),
+    logger("Info for wallet ~p: ~p", [Wallet, Res2]),
     ?assertMatch(#{<<"result">> := <<"ok">>, <<"txtaddress">> := Wallet}, Res2),
     WalletInfo = maps:get(<<"info">>, Res2, unknown),
     ?assertNotEqual(unknown, WalletInfo),
@@ -408,11 +408,11 @@ api_register_wallet() ->
     TxId = maps:get(<<"txid">>, Res, unknown),
     ?assertMatch(#{<<"result">> := <<"ok">>}, Res),
     {ok, Status, _} = api_get_tx_status(TxId),
-    io:format("register wallet transaction status: ~p ~n", [Status]),
+    logger("register wallet transaction status: ~p ~n", [Status]),
     ?assertMatch(#{<<"ok">> := true}, Status),
     Wallet = maps:get(<<"res">>, Status, unknown),
     ?assertNotEqual(unknown, Wallet),
-    io:format("new wallet has been registered: ~p ~n", [Wallet]),
+    logger("new wallet has been registered: ~p ~n", [Wallet]),
     Wallet.
 
 
@@ -421,15 +421,15 @@ get_sequence(Node, Wallet) ->
     Ledger = rpc:call(Node, ledger, get, [naddress:decode(Wallet)]),
     case bal:get(seq, Ledger) of
         Seq when is_integer(Seq) ->
-          io:format(
+          logger(
             "node ledger seq for wallet ~p (via rpc:call): ~p~n",
             [Wallet, Seq]
           ),
           NewSeq = max(Seq, os:system_time(millisecond)),
-          io:format("new wallet [~p] seq chosen: ~p~n", [Wallet, NewSeq]),
+          logger("new wallet [~p] seq chosen: ~p~n", [Wallet, NewSeq]),
           NewSeq;
         _ ->
-          io:format("new wallet [~p] seq chosen: 0~n", [Wallet]),
+          logger("new wallet [~p] seq chosen: 0~n", [Wallet]),
           0
     end.
 
@@ -440,7 +440,7 @@ make_transaction(From, To, Currency, Amount, Message) ->
 
 make_transaction(Node, From, To, Currency, Amount, Message) ->
     Seq = get_sequence(Node, From),
-    io:format("seq for wallet ~p is ~p ~n", [From, Seq]),
+    logger("seq for wallet ~p is ~p ~n", [From, Seq]),
     Tx = #{
         amount => Amount,
         cur => Currency,
@@ -450,7 +450,7 @@ make_transaction(Node, From, To, Currency, Amount, Message) ->
         seq=> Seq + 1,
         timestamp => os:system_time(millisecond)
     },
-    io:format("transaction body ~p ~n", [Tx]),
+    logger("transaction body ~p ~n", [Tx]),
     SignedTx = tx:sign(Tx, get_wallet_priv_key()),
     Res4 = api_post_transaction(SignedTx),
     maps:get(<<"txid">>, Res4, unknown).
@@ -459,7 +459,7 @@ new_wallet() ->
   PubKey = tpecdsa:calc_pub(get_wallet_priv_key(), true),
   case tpapi:register_wallet(PubKey, get_base_url()) of
     {error, timeout, TxId} ->
-      io:format(
+      logger(
         "wallet registration timeout, txid: ~p, pub key: ~p~n",
         [TxId, PubKey]
       ),
@@ -468,19 +468,19 @@ new_wallet() ->
     {ok, Wallet, _TxId} ->
       Wallet;
     Other ->
-      io:format("wallet registration error: ~p, pub key: ~p ~n", [Other, PubKey]),
+      logger("wallet registration error: ~p, pub key: ~p ~n", [Other, PubKey]),
       dump_testnet_state(),
       throw(wallet_registration_error)
   end.
 
 
 dump_testnet_state() ->
-    io:format("dump testnet state ~n"),
+    logger("dump testnet state ~n"),
     StateDumper =
         fun(NodeName) ->
-            io:format("last block for node ~p ~n", [NodeName]),
+            logger("last block for node ~p ~n", [NodeName]),
             LastBlock = rpc:call(get_node(NodeName), blockchain, last, []),
-            io:format("~p ~n", [LastBlock])
+            logger("~p ~n", [LastBlock])
         end,
     lists:foreach(StateDumper, ?TESTNET_NODES),
     ok.
@@ -489,11 +489,11 @@ dump_testnet_state() ->
 
 
 transaction_test(_Config) ->
-    % регистрируем кошелек
+    % register new wallets
     Wallet = new_wallet(),
     Wallet2 = new_wallet(),
-    io:format("wallet: ~p, wallet2: ~p ~n", [Wallet, Wallet2]),
-    %%%%%%%%%%%%%%%% Wallet become endless %%%%%%%%%%%%%%
+    logger("wallet: ~p, wallet2: ~p ~n", [Wallet, Wallet2]),
+    %%%%%%%%%%%%%%%% make Wallet endless %%%%%%%%%%%%%%
     Cur = <<"FTT">>,
     EndlessAddress = naddress:decode(Wallet),
     TxpoolPidC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [txpool]),
@@ -514,10 +514,10 @@ transaction_test(_Config) ->
       ), C4N1NodePrivKey),
   
     {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {new_tx, PatchTx}),
-    io:format("PatchTxId: ~p~n", [PatchTxId]),
+    logger("PatchTxId: ~p~n", [PatchTxId]),
     {ok, _} = wait_for_tx(PatchTxId, get_node(<<"test_c4n1">>)),
     ChainSettngs = rpc:call(get_node(<<"test_c4n1">>), chainsettings, all, []),
-    io:format("ChainSettngs: ~p~n", [ChainSettngs]),
+    logger("ChainSettngs: ~p~n", [ChainSettngs]),
     Amount = max(1000, rand:uniform(100000)),
 
     % send money from endless to Wallet2
@@ -525,41 +525,41 @@ transaction_test(_Config) ->
     TxId3 = make_transaction(Wallet, Wallet2, Cur, Amount, Message),
     {ok, Status3, _} = api_get_tx_status(TxId3),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
-    io:format("transaction status3: ~p ~n", [Status3]),
+    logger("transaction status3: ~p ~n", [Status3]),
     Wallet2Data = api_get_wallet(Wallet2),
-    io:format("destination wallet [step 3]: ~p ~n", [Wallet2Data]),
+    logger("destination wallet [step 3]: ~p ~n", [Wallet2Data]),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := Amount}}}, Wallet2Data),
 
     % make transactions from Wallet2 where we haven't SK
     Message4 = <<"without sk">>,
     TxId4 = make_transaction(Wallet2, Wallet, Cur, 1, Message4),
-    io:format("TxId4: ~p", [TxId4]),
+    logger("TxId4: ~p", [TxId4]),
     {ok, Status4, _} = api_get_tx_status(TxId4),
-    io:format("Status4: ~p", [Status4]),
+    logger("Status4: ~p", [Status4]),
     ?assertMatch(#{<<"res">> := <<"no_sk">>}, Status4),
     Wallet2Data4 = api_get_wallet(Wallet2),
-    io:format("wallet [step 4, without SK]: ~p ~n", [Wallet2Data4]),
+    logger("wallet [step 4, without SK]: ~p ~n", [Wallet2Data4]),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := Amount}}}, Wallet2Data4),
 
     % send SK from endless to Wallet2
     Message5 = <<"sk">>,
     TxId5 = make_transaction(Wallet, Wallet2, <<"SK">>, 1, Message5),
-    io:format("TxId5: ~p", [TxId5]),
+    logger("TxId5: ~p", [TxId5]),
     {ok, Status5, _} = api_get_tx_status(TxId5),
-    io:format("Status5: ~p", [Status5]),
+    logger("Status5: ~p", [Status5]),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status5),
     Wallet2Data5 = api_get_wallet(Wallet2),
-    io:format("wallet [step 5, received 1 SK]: ~p ~n", [Wallet2Data5]),
+    logger("wallet [step 5, received 1 SK]: ~p ~n", [Wallet2Data5]),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{<<"SK">> := 1}}}, Wallet2Data5),
 
     % transaction from Wallet2 should be successful, because Wallet2 got 1 SK
     Message6 = <<"send money back">>,
     TxId6 = make_transaction(Wallet2, Wallet, Cur, 1, Message6),
-    io:format("TxId6: ~p", [TxId6]),
+    logger("TxId6: ~p", [TxId6]),
     {ok, Status6, _} = api_get_tx_status(TxId6),
-    io:format("Status6: ~p", [Status6]),
+    logger("Status6: ~p", [Status6]),
     Wallet2Data6 = api_get_wallet(Wallet2),
-    io:format("wallet [step 6, sk present]: ~p ~n", [Wallet2Data6]),
+    logger("wallet [step 6, sk present]: ~p ~n", [Wallet2Data6]),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status6),
     NewAmount6 = Amount - 1,
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount6}}}, Wallet2Data6),
@@ -567,11 +567,11 @@ transaction_test(_Config) ->
     % second transaction from Wallet2 should be failed, because Wallet2 spent all SK for today
     Message7 = <<"sk test">>,
     TxId7 = make_transaction(Wallet2, Wallet, Cur, 1, Message7),
-    io:format("TxId7: ~p", [TxId7]),
+    logger("TxId7: ~p", [TxId7]),
     {ok, Status7, _} = api_get_tx_status(TxId7),
-    io:format("Status7: ~p", [Status7]),
+    logger("Status7: ~p", [Status7]),
     Wallet2Data7 = api_get_wallet(Wallet2),
-    io:format("wallet [step 7, all sk are used today]: ~p ~n", [Wallet2Data7]),
+    logger("wallet [step 7, all sk are used today]: ~p ~n", [Wallet2Data7]),
     ?assertMatch(#{<<"res">> := <<"sk_limit">>}, Status7),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount6}}}, Wallet2Data7).
 
@@ -605,7 +605,7 @@ instant_sync_test(_Config) ->
     chain:=Chain,
     last_hash:=Hash,
     last_height:=Height}=Candidate,
-  io:format("~s chain ~w h= ~w hash= ~s ~n",
+  logger("~s chain ~w h= ~w hash= ~s ~n",
             [ Avail, Chain, Height, bin2hex:dbin2hex(Hash) ]),
 
   Name=test_sync_ledger,
@@ -627,7 +627,7 @@ instant_sync_test(_Config) ->
           #{header:=#{roots:=Roots}} -> proplists:get_value(ledger_hash,Roots)
         end,
   Hash1=ledger:check(Pid,[]),
-  io:format("Hash ~p ~p~n",[Hash1,Hash2]),
+  logger("Hash ~p ~p~n",[Hash1,Hash2]),
   ?assertMatch({ok,_},Hash1),
   ?assertMatch({ok,_},Hash2),
   ?assertEqual(Hash1,{ok,Hash0}),
@@ -639,24 +639,51 @@ instant_sync_test(_Config) ->
 inst_sync_wait_more(A) ->
   receive
     {inst_sync, block, Blk} ->
-      io:format("Block~n"),
+      logger("Block~n"),
       inst_sync_wait_more(A#{blk=>Blk});
     {inst_sync, settings} ->
-      io:format("settings~n"),
+      logger("settings~n"),
       inst_sync_wait_more(A);
     {inst_sync, ledger} ->
-      io:format("Ledger~n"),
+      logger("Ledger~n"),
       inst_sync_wait_more(A);
     {inst_sync, settings, _} ->
-      io:format("Settings~n"),
+      logger("Settings~n"),
       inst_sync_wait_more(A);
     {inst_sync, done, Res} ->
-      io:format("Done ~p~n", [Res]),
+      logger("Done ~p~n", [Res]),
       {ok,A};
     Any ->
-      io:format("error: ~p~n", [Any]),
+      logger("error: ~p~n", [Any]),
       {error, Any}
   after 10000 ->
           timeout
   end.
 
+
+% -----------------------------------------------------------------------------
+
+logger(Format) when is_list(Format) ->
+  logger(Format, []).
+  
+logger(Format, Args) when is_list(Format), is_list(Args) ->
+  StrTime = format_time(),
+  io:format(
+    StrTime ++ " " ++ Format ++ "~n",
+    Args).
+
+% -----------------------------------------------------------------------------
+%% pretty print timestamp from lager/src/lager_utils.erl
+localtime_ms() ->
+  {_, _, Micro} = Now = os:timestamp(),
+  {Date, {Hours, Minutes, Seconds}} = calendar:now_to_local_time(Now),
+  {Date, {Hours, Minutes, Seconds, Micro div 1000 rem 1000}}.
+
+format_time() ->
+  format_time(localtime_ms()).
+
+format_time({{Y, M, D}, {H, Mi, S, Ms}}) ->
+  lists:flatten(io_lib:format(
+    "~p-~2..0p-~2..0p ~2..0p:~2..0p:~2..0p.~3..0p",
+    [Y, M, D, H, Mi, S, Ms]
+  )).

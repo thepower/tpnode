@@ -101,6 +101,15 @@ cover: ctruncheck cleantest buildtest rebar prepare_cover eunit
 	 		  -noshell
 	@$(TESTNET) stop
 
+nocover: ctruncheck cleantest buildtest rebar
+	@$(TESTNET) start
+	@$(CT_RUN) -pa _build/test/lib/*/ebin \
+	 		  -logdir $(LOG_DIR) \
+	 		  -cover_stop false \
+	 		  -suite basic_SUITE \
+	 		  -noshell
+	@$(TESTNET) stop
+
 reset: cleantest
 	@$(TESTNET) reset
 
