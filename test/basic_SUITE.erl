@@ -493,7 +493,7 @@ transaction_test(_Config) ->
     Wallet = new_wallet(),
     Wallet2 = new_wallet(),
     io:format("wallet: ~p, wallet2: ~p ~n", [Wallet, Wallet2]),
-    %%%%%%%%%%%%%%%% make endless for Wallet %%%%%%%%%%%%%%
+    %%%%%%%%%%%%%%%% Wallet become endless %%%%%%%%%%%%%%
     Cur = <<"FTT">>,
     EndlessAddress = naddress:decode(Wallet),
     TxpoolPidC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [txpool]),
@@ -512,6 +512,7 @@ transaction_test(_Config) ->
               <<"v">>=>true}]
         }
       ), C4N1NodePrivKey),
+  
     {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {new_tx, PatchTx}),
     io:format("PatchTxId: ~p~n", [PatchTxId]),
     {ok, _} = wait_for_tx(PatchTxId, get_node(<<"test_c4n1">>)),
@@ -526,7 +527,7 @@ transaction_test(_Config) ->
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
     io:format("transaction status3: ~p ~n", [Status3]),
     Wallet2Data = api_get_wallet(Wallet2),
-    io:format("destination wallet: ~p ~n", [Wallet2Data]),
+    io:format("destination wallet [step 3]: ~p ~n", [Wallet2Data]),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := Amount}}}, Wallet2Data),
 
     % make transactions from Wallet2 where we haven't SK
@@ -537,7 +538,7 @@ transaction_test(_Config) ->
     io:format("Status4: ~p", [Status4]),
     ?assertMatch(#{<<"res">> := <<"no_sk">>}, Status4),
     Wallet2Data4 = api_get_wallet(Wallet2),
-    io:format("wallet without SK: ~p ~n", [Wallet2Data4]),
+    io:format("wallet [step 4, without SK]: ~p ~n", [Wallet2Data4]),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := Amount}}}, Wallet2Data4),
 
     % send SK from endless to Wallet2
@@ -548,6 +549,7 @@ transaction_test(_Config) ->
     io:format("Status5: ~p", [Status5]),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status5),
     Wallet2Data5 = api_get_wallet(Wallet2),
+    io:format("wallet [step 5, received 1 SK]: ~p ~n", [Wallet2Data5]),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{<<"SK">> := 1}}}, Wallet2Data5),
 
     % transaction from Wallet2 should be successful, because Wallet2 got 1 SK
@@ -556,8 +558,9 @@ transaction_test(_Config) ->
     io:format("TxId6: ~p", [TxId6]),
     {ok, Status6, _} = api_get_tx_status(TxId6),
     io:format("Status6: ~p", [Status6]),
-    ?assertMatch(#{<<"res">> := <<"ok">>}, Status6),
     Wallet2Data6 = api_get_wallet(Wallet2),
+    io:format("wallet [step 6, sk present]: ~p ~n", [Wallet2Data6]),
+    ?assertMatch(#{<<"res">> := <<"ok">>}, Status6),
     NewAmount6 = Amount - 1,
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount6}}}, Wallet2Data6),
 
@@ -567,8 +570,9 @@ transaction_test(_Config) ->
     io:format("TxId7: ~p", [TxId7]),
     {ok, Status7, _} = api_get_tx_status(TxId7),
     io:format("Status7: ~p", [Status7]),
-    ?assertMatch(#{<<"res">> := <<"sk_limit">>}, Status7),
     Wallet2Data7 = api_get_wallet(Wallet2),
+    io:format("wallet [step 7, all sk are used today]: ~p ~n", [Wallet2Data7]),
+    ?assertMatch(#{<<"res">> := <<"sk_limit">>}, Status7),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount6}}}, Wallet2Data7).
 
 tpiccall(TPIC, Handler, Object, Atoms) ->
