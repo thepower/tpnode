@@ -3,7 +3,7 @@
 
 main(_) ->
     I=lists:flatten(io_lib:format(
-                      "-define(VERSION, ~p).~n"++
+                      "-define(VERSION, ~p++\"-hl\").~n"++
                       "-define(BUILD_TIME, ~p).~n"++
                       "~n-export([ver/0]).~nver() -> {?VERSION,?BUILD_TIME}.~n",
                       [
