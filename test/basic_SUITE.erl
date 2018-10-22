@@ -22,7 +22,6 @@
 %%    "test_c4n3"
 %%]).
 
-
 all() ->
     [
         transaction_test,
@@ -473,36 +472,63 @@ new_wallet() ->
       throw(wallet_registration_error)
   end.
 
+% -----------------------------------------------------------------------------
 
+dump_node_state(Parent, NodeName) ->
+  States =
+    [
+      {Module, rpc:call(get_node(NodeName), Module, get_state, [])} ||
+      Module <- [blockvote, txpool, txqueue, txstorage]
+    ] ++
+    [{lastblock, rpc:call(get_node(NodeName), blockchain, last, [])}],
+  Parent ! {states, NodeName, States}.
 
+% -----------------------------------------------------------------------------
 
 dump_testnet_state() ->
   logger("dump testnet state ~n"),
-  
-  StateDumper =
-    fun(NodeName) ->
-      States =
-        [
-          {Module, rpc:call(get_node(NodeName), Module, get_state, [])} ||
-            Module <- [txpool, txqueue, txstorage, blockvote]
-        ],
-      LastBlock = rpc:call(get_node(NodeName), blockchain, last, []),
-      
-      lists:foreach(
-        fun({Module, State}) ->
-          logger("~p state of node ~p ~n", [Module, NodeName]),
-          logger("~p ~n", [State])
-        end,
-        States
-      ),
 
-      logger("last block at node ~p ~n", [NodeName]),
-      logger("~p ~n", [LastBlock])
-    end,
+  Pids = [
+    erlang:spawn(?MODULE, dump_node_state, [self(), NodeName]) ||
+    NodeName <- ?TESTNET_NODES
+  ],
   
-  lists:foreach(StateDumper, ?TESTNET_NODES),
+  wait_for_dumpers(Pids),
   ok.
+% -----------------------------------------------------------------------------
 
+wait_for_dumpers(Pids) ->
+  wait_for_dumpers(Pids, #{}).
+
+
+wait_for_dumpers(Pids, StatesAcc) ->
+  receive
+    {states, NodeName, States} ->
+      wait_for_dumpers(Pids, maps:put(NodeName, States, StatesAcc))
+  after 500 ->
+    case lists:member(true, [is_process_alive(Pid) || Pid <- Pids]) of
+      true ->
+        wait_for_dumpers(Pids, StatesAcc);
+      _ ->
+        logger("------ testnet states data ------"),
+        
+        maps:filter(
+          fun
+            (NodeName, NodeStates) ->
+              [
+                logger("~p state of node ~p:~n~p~n", [Module, NodeName, State]) ||
+                {Module, State} <- NodeStates
+              ],
+              false
+          end,
+          StatesAcc
+        ),
+        
+        logger("------ end of data ------"),
+        ok
+    end
+  end.
+% -----------------------------------------------------------------------------
 
 transaction_test(_Config) ->
     % register new wallets
