@@ -119,7 +119,7 @@ handle_cast(
     ValidUntil = os:system_time(second) + Ttl,
     TxIds = store_tx_batch(Txs, FromPubKey, EtsName, ValidUntil),
     tpic:cast(tpic, Peer, BatchId),
-    txqueue ! {push, TxIds}
+    gen_server:cast(txqueue, {push, TxIds})
     
   catch
     Ec:Ee ->

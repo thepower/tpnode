@@ -181,6 +181,12 @@ handle_cast(_Msg, State) ->
 handle_info(prepare, State) ->
   handle_cast(prepare, State);
 
+handle_info({push, TxIds}, State) when is_list(TxIds) ->
+  handle_cast({push, TxIds}, State);
+
+handle_info({push_head, TxIds}, State) when is_list(TxIds) ->
+  handle_cast({push_head, TxIds}, State);
+  
 handle_info(_Info, State) ->
   lager:notice("Unknown info ~p", [_Info]),
   {noreply, State}.
