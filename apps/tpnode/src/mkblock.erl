@@ -217,7 +217,9 @@ handle_cast(_Msg, State) ->
     lager:info("MB unknown cast ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=State) ->
+handle_info(process,
+  #{settings:=#{mychain:=MyChain, nodename:=NodeName}=MySet, preptxl:=PreTXL0}=State) ->
+  
   lager:info("-------[MAKE BLOCK]-------"),
   PreTXL1=lists:foldl(
             fun({TxID, TXB}, Acc) ->
@@ -334,10 +336,11 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
     undefined ->
       ok;
     {ok, true} ->
-      file:write_file("log/block_"++integer_to_list(PHeight)++"_"++integer_to_list(T2),
-                      io_lib:format("~p~n~p.~n ~p.~n ~p.~n~n",
-                                    [PHash, PreTXL, Failed, Block])
-                     );
+      file:write_file(
+        "log/"++ utils:make_list(NodeName) ++ "_block_" ++
+            integer_to_list(PHeight) ++ "_" ++ integer_to_list(T2),
+        io_lib:format("~p~n~p.~n ~p.~n ~p.~n~n", [PHash, PreTXL, Failed, Block])
+      );
     Any ->
       lager:notice("What does mkblock_debug=~p means?",[Any])
   end,
@@ -418,11 +421,12 @@ load_settings(State) ->
     OldSettings=maps:get(settings, State, #{}),
     MyChain=blockchain:chain(),
     AE=chainsettings:get_val(<<"allowempty">>),
+    NodeName=nodekey:node_name(),
     State#{
       settings=>
       maps:merge(
         OldSettings,
-        #{ae=>AE, mychain=>MyChain}
+        #{ae=>AE, mychain=>MyChain, nodename=>NodeName}
       )
     }.
 
