@@ -352,9 +352,7 @@ get_wallet_priv_key() ->
 
 get_register_wallet_transaction() ->
     PrivKey = get_wallet_priv_key(),
-    Promo = <<"TEST5">>,
-    PubKey = tpecdsa:calc_pub(PrivKey, true),
-    tpapi:get_register_wallet_transaction(PubKey, Promo).
+    tpapi:get_register_wallet_transaction(PrivKey, #{promo => <<"TEST5">>}).
 
 register_wallet_test(_Config) ->
     RegisterTx = get_register_wallet_transaction(),
@@ -455,8 +453,9 @@ make_transaction(Node, From, To, Currency, Amount, Message) ->
     maps:get(<<"txid">>, Res4, unknown).
 
 new_wallet() ->
-  PubKey = tpecdsa:calc_pub(get_wallet_priv_key(), true),
-  case tpapi:register_wallet(PubKey, get_base_url()) of
+  PrivKey = get_wallet_priv_key(),
+  PubKey = tpecdsa:calc_pub(PrivKey, true),
+  case tpapi:register_wallet(PrivKey, get_base_url()) of
     {error, timeout, TxId} ->
       logger(
         "wallet registration timeout, txid: ~p, pub key: ~p~n",
