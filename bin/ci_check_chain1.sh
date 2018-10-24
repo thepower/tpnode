@@ -16,6 +16,13 @@ if [ $rc -eq 0 ]
 then
     rm -rf _build/test/log_chain1/
     mkdir -p _build/test/log_chain1
+else
+        for ip in "2001:bc8:4700:2500::183" "2001:bc8:4700:2500::305" "2001:bc8:4400:2700::1263" "2001:bc8:4400:2700::1265" "2001:bc8:4400:2700::2341"
+        do
+            (
+            ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@$ip "cd thepower; . /opt/erl/activate;  ./bin/thepower eval 'blockchain ! runsync.'"
+             ) &
+        done
 fi
 
 exit $rc
