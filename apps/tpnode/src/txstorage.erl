@@ -65,7 +65,7 @@ handle_cast(
   {tpic, FromPubKey, Peer, PayloadBin},
   #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
   
-  lager:info(
+  lager:debug(
     "txstorage got txbatch from ~p payload ~p",
     [ FromPubKey, PayloadBin]
   ),
@@ -117,9 +117,8 @@ handle_cast(
           Batch
       end,
     ValidUntil = os:system_time(second) + Ttl,
-    TxIds = store_tx_batch(Txs, FromPubKey, EtsName, ValidUntil),
-    tpic:cast(tpic, Peer, BatchId),
-    gen_server:cast(txqueue, {push, TxIds})
+    _TxIds = store_tx_batch(Txs, FromPubKey, EtsName, ValidUntil),
+    tpic:cast(tpic, Peer, BatchId)
     
   catch
     Ec:Ee ->
