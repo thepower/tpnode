@@ -335,8 +335,8 @@ handle_info(process, #{settings:=#{mychain:=MyChain}=MySet, preptxl:=PreTXL0}=St
       ok;
     {ok, true} ->
       file:write_file("log/block_"++integer_to_list(PHeight)++"_"++integer_to_list(T2),
-                      io_lib:format("~p.~n ~p.~n ~p.~n~n",
-                                    [PreTXL,Failed, Block])
+                      io_lib:format("~p~n~p.~n ~p.~n ~p.~n~n",
+                                    [PHash, PreTXL, Failed, Block])
                      );
     Any ->
       lager:notice("What does mkblock_debug=~p means?",[Any])
