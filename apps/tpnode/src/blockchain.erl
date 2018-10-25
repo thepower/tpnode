@@ -438,24 +438,6 @@ handle_call({new_block, #{hash:=BlockHash,
                     true ->
                       ok;
                     false ->
-                      SendSuccess=lists:map(
-                                    fun({TxID, #{register:=_, address:=Addr}}) ->
-                                        {TxID, #{address=>Addr}};
-                                       ({TxID, #{kind:=register, ver:=2,
-                                                 extdata:=#{<<"addr">>:=Addr}}}) ->
-                                        {TxID, #{address=>Addr}};
-                                       ({TxID, _Any}) ->
-                                        lager:info("TX ~p",[_Any]),
-                                        TxID
-                                    end, Txs),
-                      gen_server:cast(txqueue, {done, SendSuccess}),
-                      case maps:get(failed, MBlk, []) of
-                        [] -> ok;
-                        Failed ->
-                          %there was failed tx. Block empty?
-                          gen_server:cast(txqueue, {failed, Failed})
-                      end,
-
                       case maps:is_key(inbound_blocks, MBlk) of
                         true ->
                           gen_server:cast(txqueue,
@@ -463,17 +445,35 @@ handle_call({new_block, #{hash:=BlockHash,
                                            proplists:get_keys(maps:get(inbound_blocks, MBlk))});
                         false -> ok
                       end,
-
-                      Settings=maps:get(settings, MBlk, []),
-                      gen_server:cast(txqueue, {done, proplists:get_keys(Settings)}),
-
+                      
                       if(Sets1 =/= Sets) ->
                           notify_settings(),
                           save_sets(LDB, Sets1);
                         true -> ok
                       end
                   end,
+  
+                  SendSuccess=lists:map(
+                    fun({TxID, #{register:=_, address:=Addr}}) ->
+                      {TxID, #{address=>Addr}};
+                      ({TxID, #{kind:=register, ver:=2,
+                        extdata:=#{<<"addr">>:=Addr}}}) ->
+                        {TxID, #{address=>Addr}};
+                      ({TxID, _Any}) ->
+                        lager:info("TX ~p",[_Any]),
+                        TxID
+                    end, Txs),
+                  gen_server:cast(txqueue, {done, SendSuccess}),
+                  case maps:get(failed, MBlk, []) of
+                    [] -> ok;
+                    Failed ->
+                      %there was failed tx. Block empty?
+                      gen_server:cast(txqueue, {failed, Failed})
+                  end,
 
+                  Settings=maps:get(settings, MBlk, []),
+                  gen_server:cast(txqueue, {done, proplists:get_keys(Settings)}),
+                  
                   T3=erlang:system_time(),
                   lager:info("enough confirmations ~w/~w. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",
                              [
