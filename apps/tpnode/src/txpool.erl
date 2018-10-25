@@ -240,16 +240,11 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(sync_tx,
-  #{sync_timer:=Tmr, mychain:=MyChain, minsig:=MinSig, queue:=Queue} = State) ->
+  #{sync_timer:=Tmr, mychain:=_MyChain, minsig:=MinSig, queue:=Queue} = State) ->
   
   catch erlang:cancel_timer(Tmr),
   lager:info("run tx sync"),
   MaxPop = chainsettings:get_val(<<"poptxs">>, ?SYNC_TX_COUNT_PER_PROCESS),
-  MyPubKey =
-    case maps:get(pubkey, State, undefined) of
-      undefined -> nodekey:get_pub();
-      FoundKey -> FoundKey
-    end,
   
   % do nothing in case peers count less than minsig
   Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
@@ -269,13 +264,11 @@ handle_info(sync_tx,
         [] ->
           pass;
         _ ->
-          LBH = get_lbh(State),
-          erlang:spawn(txsync, do_sync, [Transactions, {MyChain, MyPubKey, LBH}]),
+          erlang:spawn(txsync, do_sync, [Transactions, #{}]),
           self() ! sync_tx
       end,
       {noreply,
         State#{
-          pubkey => MyPubKey,
           sync_timer => undefined,
           queue => NewQueue
         }
