@@ -186,6 +186,8 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
          end,
        {CHei,_}=maps:get(roundparent, WithParent),
   
+
+       lager:info("Node ~p h=~p, my h=~p", [Origin, MH, CHei]),
        if CHei == undefined orelse MH == CHei orelse MH == undefined orelse true ->
          {noreply,
            State#{
