@@ -80,6 +80,8 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
          ({_Height, BlkID},_) when BlkID == Known ->
           lager:info("Skip known block ~s",[hex:encode(BlkID)]),
           error;
+         ({0, <<0,0,0,0,0,0,0,0>>}, Acc) ->
+          Acc;
          ({_Height, BlkID},Acc) ->
           lager:info("Pick block ~s",[hex:encode(BlkID)]),
           case pick_block(Pid, Proto, MyChain, BlkID) of
