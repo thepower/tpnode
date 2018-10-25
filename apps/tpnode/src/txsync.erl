@@ -63,7 +63,7 @@ do_sync([], _Options) ->
   lager:info("txsync: skip empty transactions list"),
   ok;
 
-do_sync(Transactions, {MyChain, _MyPubKey, LBH} = _Options) when is_list(Transactions) ->
+do_sync(Transactions, _Options) when is_list(Transactions) ->
   try
     lager:info("txsync: start for ~p", [Transactions]),
     
@@ -84,8 +84,6 @@ do_sync(Transactions, {MyChain, _MyPubKey, LBH} = _Options) when is_list(Transac
     MRes = msgpack:pack(
       #{
         null => <<"mkblock">>,
-        chain => MyChain,
-        lbh => LBH,
         txbatch => BatchBin,
         batchid => BatchId
       }
