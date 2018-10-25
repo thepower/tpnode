@@ -239,7 +239,9 @@ handle_cast(_Msg, State) ->
     lager:info("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(sync_tx, #{sync_timer:=Tmr, mychain:=MyChain, queue:=Queue} = State) ->
+handle_info(sync_tx,
+  #{sync_timer:=Tmr, mychain:=MyChain, minsig:=MinSig, queue:=Queue} = State) ->
+  
   catch erlang:cancel_timer(Tmr),
   lager:info("run tx sync"),
   MaxPop = chainsettings:get_val(<<"poptxs">>, ?SYNC_TX_COUNT_PER_PROCESS),
@@ -249,22 +251,36 @@ handle_info(sync_tx, #{sync_timer:=Tmr, mychain:=MyChain, queue:=Queue} = State)
       FoundKey -> FoundKey
     end,
   
-  {NewQueue, Transactions} = pullx({MaxPop, get_max_tx_size()}, Queue, []),
-  case Transactions of
-    [] ->
-      pass;
+  % do nothing in case peers count less than minsig
+  Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
+  case length(Peers) of
+    _ when MinSig == undefined ->
+      % minsig unknown
+      lager:error("minsig is undefined, we can't run transaction synchronizer"),
+      {noreply, load_settings(State#{ sync_timer => update_sync_timer(undefined)})};
+    PeersCount when PeersCount<MinSig ->
+      % peers count is less than we need, do nothing
+      lager:info("peers count ~p is less than minsig ~p", [PeersCount, MinSig]),
+      {noreply, State#{ sync_timer => update_sync_timer(undefined) }};
     _ ->
-      LBH = get_lbh(State),
-      erlang:spawn(txsync, do_sync, [Transactions, {MyChain, MyPubKey, LBH}]),
-      self() ! sync_tx
-  end,
-  {noreply,
-    State#{
-      pubkey => MyPubKey,
-      sync_timer => undefined,
-      queue => NewQueue
-    }
-  };
+      % peers count is OK, sync transactions
+      {NewQueue, Transactions} = pullx({MaxPop, get_max_tx_size()}, Queue, []),
+      case Transactions of
+        [] ->
+          pass;
+        _ ->
+          LBH = get_lbh(State),
+          erlang:spawn(txsync, do_sync, [Transactions, {MyChain, MyPubKey, LBH}]),
+          self() ! sync_tx
+      end,
+      {noreply,
+        State#{
+          pubkey => MyPubKey,
+          sync_timer => undefined,
+          queue => NewQueue
+        }
+      }
+  end;
 
 handle_info(prepare, State) ->
   handle_cast(prepare, State);
@@ -371,12 +387,13 @@ pullx({N, MaxSize}, Q, Acc) ->
 %% ------------------------------------------------------------------
 
 load_settings(State) ->
-    MyChain=blockchain:chain(),
-    {_Chain,Height}=gen_server:call(blockchain,last_block_height),
-    State#{
-      mychain=>MyChain,
-      height=>Height
-     }.
+  MyChain = blockchain:chain(),
+  {_Chain, Height} = gen_server:call(blockchain, last_block_height),
+  State#{
+    mychain=>MyChain,
+    height=>Height,
+    minsig => chainsettings:get_val(minsig, undefined)
+  }.
 
 %% ------------------------------------------------------------------
 
