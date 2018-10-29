@@ -337,12 +337,12 @@ unpack_body(#{ ver:=2,
              }=Tx,
             #{ "t":=Timestamp,
                "h":=Hash
-             }=_Unpacked) ->
+             }=Unpacked) ->
   Tx#{
     ver=>2,
     t=>unpack_timestamp(Timestamp),
     keysh=>Hash,
-    txext=>unpack_txext(maps:get("e", Tx, #{}))
+    txext=>unpack_txext(maps:get("e", Unpacked, #{}))
    };
 
 unpack_body(#{ ver:=2,
