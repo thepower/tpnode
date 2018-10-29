@@ -284,8 +284,7 @@ unpack_body(#{ ver:=2,
                "to":=To,
                "t":=Timestamp,
                "s":=Seq,
-               "p":=Payload,
-               "e":=Extradata
+               "p":=Payload
              }=Unpacked) when GenericOrDeploy == generic ; 
                               GenericOrDeploy == deploy ->
   Amounts=unpack_payload(Payload),
@@ -296,7 +295,7 @@ unpack_body(#{ ver:=2,
     t=>unpack_timestamp(Timestamp),
     seq=>unpack_seq(Seq),
     payload=>Amounts,
-    txext=>unpack_txext(Extradata)
+    txext=>unpack_txext(maps:get("e", Unpacked, #{}))
    },
   case maps:is_key("c",Unpacked) of
     false -> Decoded;
@@ -313,8 +312,7 @@ unpack_body(#{ ver:=2,
             #{ "f":=From,
                "t":=Timestamp,
                "s":=Seq,
-               "p":=Payload,
-               "e":=Extradata
+               "p":=Payload
              }=Unpacked) ->
   Amounts=unpack_payload(Payload),
   Decoded=Tx#{
@@ -323,7 +321,7 @@ unpack_body(#{ ver:=2,
     t=>unpack_timestamp(Timestamp),
     seq=>unpack_seq(Seq),
     payload=>Amounts,
-    txext=>unpack_txext(Extradata)
+    txext=>unpack_txext(maps:get("e", Unpacked, #{}))
    },
   case maps:is_key("c",Unpacked) of
     false -> Decoded;
@@ -338,14 +336,13 @@ unpack_body(#{ ver:=2,
               kind:=register
              }=Tx,
             #{ "t":=Timestamp,
-               "e":=Extradata,
                "h":=Hash
              }=_Unpacked) ->
   Tx#{
     ver=>2,
     t=>unpack_timestamp(Timestamp),
     keysh=>Hash,
-    txext=>unpack_txext(Extradata)
+    txext=>unpack_txext(maps:get("e", Unpacked, #{}))
    };
 
 unpack_body(#{ ver:=2,
@@ -364,13 +361,12 @@ unpack_body(#{ ver:=2,
 unpack_body(#{ ver:=2,
               kind:=patch
              }=Tx,
-            #{ "p":=Patches,
-               "e":=Extradata
+            #{ "p":=Patches
              }=_Unpacked) ->
   Tx#{
     ver=>2,
     patches=>Patches,
-    txext=>unpack_txext(Extradata)
+    txext=>unpack_txext(maps:get("e", Unpacked, #{}))
    };
 
 unpack_body(#{ver:=Ver, kind:=Kind},_Unpacked) ->
