@@ -342,27 +342,14 @@ unpack_body(#{ ver:=2,
     ver=>2,
     t=>unpack_timestamp(Timestamp),
     keysh=>Hash,
-    txext=>unpack_txext(maps:get("e", Unpacked, #{}))
-   };
-
-unpack_body(#{ ver:=2,
-              kind:=register
-             }=Tx,
-            #{ "t":=Timestamp,
-               "h":=Hash
-             }=_Unpacked) ->
-  Tx#{
-    ver=>2,
-    t=>unpack_timestamp(Timestamp),
-    keysh=>Hash,
-    txext=>#{}
+    txext=>unpack_txext(maps:get("e", Tx, #{}))
    };
 
 unpack_body(#{ ver:=2,
               kind:=patch
              }=Tx,
             #{ "p":=Patches
-             }=_Unpacked) ->
+             }=Unpacked) ->
   Tx#{
     ver=>2,
     patches=>Patches,
