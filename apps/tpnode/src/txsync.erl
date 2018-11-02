@@ -198,8 +198,8 @@ make_batch([{TxId, TxBody} | Rest], Batch, _BatchId) ->
   make_batch(
     Rest,
     <<Batch/binary,
-      (size(TxId))/big,
-      (size(TxBody))/big,
+      (size(TxId)):8/big,
+      (size(TxBody)):32/big,
       TxId/binary, TxBody/binary>>,
     TxId   % we use the last transaction id as batch id
   ).
@@ -213,7 +213,7 @@ parse_batch(<<"">>, ParsedTxs, BatchId) ->
   {BatchId, ParsedTxs};
 
 parse_batch(
-  <<S1/big, S2/big, TxId:S1/binary, TxBody:S2/binary, Rest/binary>>,
+  <<S1:8/big, S2:32/big, TxId:S1/binary, TxBody:S2/binary, Rest/binary>>,
   Parsed,
   _BatchId) ->
   
