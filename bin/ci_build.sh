@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # reset the testnet
-./bin/testnet.sh reset
+./bin/testnet.sh reset >/dev/null
 
 # remove old logs
 rm -rf ./log
@@ -22,10 +22,16 @@ then
     ./bin/testnet.sh stop
     # save db to artifacts
     echo "tests failed, saving ledger bckups"
-    tar cfj log/test_ledger_bckups.tar.bz2 /tmp/ledger_bckups/
+    tar cfj log/test_ledger_bckups.tar.bz2 /tmp/ledger_bckups/ >/dev/null
+    tar cfj log/test_block_debug.tar.bz2 ./log/*_block_* >/dev/null
 fi
+
+# send stop signal to testnet once again
+./bin/testnet.sh stop
 
 # cleanup
 rm -rf /tmp/ledger_bckups/
+rm -rf ./log/vmproto_req_*
+find ./log -name '*_block_*' -delete
 
 exit $rc
