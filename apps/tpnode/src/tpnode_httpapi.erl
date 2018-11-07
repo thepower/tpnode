@@ -305,6 +305,108 @@ h(<<"GET">>, [<<"nodes">>, Chain], _Req) ->
         chain_nodes => get_nodes(binary_to_integer(Chain, 10))
     });
 
+h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
+  try
+    Addr=case TAddr of
+           <<"0x", Hex/binary>> -> hex:parse(Hex);
+           _ -> naddress:decode(TAddr)
+         end,
+    Ledger=ledger:get([Addr]),
+    case maps:is_key(Addr, Ledger) of
+      false ->
+          err(
+              10003,
+              <<"Not found">>,
+              #{result => <<"not_found">>},
+              #{http_code => 404}
+          );
+      true ->
+        Info=maps:get(Addr, Ledger),
+        State=maps:get(state, Info, <<>>),
+        case Path of
+          [] ->
+            lager:info("F ~p",[F]),
+            case F of <<>> ->
+                        {200, [{"Content-Type","binary/octet-stream"}], State};
+                      <<"json">> ->
+                        {ok,S}=msgpack:unpack(State),
+                        S1=maps:fold(
+                          fun(K,V,Acc) ->
+                              maps:put(
+                                base64:encode(K),
+                                base64:encode(V),
+                                Acc)
+                          end, #{
+                            notice => <<"Only for Sasha">>
+                           }, S),
+                        {200, [{"Content-Type","application/json"}], S1}
+            end;
+          [Key] ->
+            K=case Key of
+                   <<"0x", HexK/binary>> -> hex:parse(HexK);
+                   _ -> base64:decode(Key)
+                 end,
+            {ok,S}=msgpack:unpack(State),
+            Val=maps:get(K,S,<<>>),
+            {200, [{"Content-Type","binary/octet-stream"}], Val}
+        end
+    end
+  catch
+    throw:{error, address_crc} ->
+              err(
+                  10004,
+                  <<"Invalid address">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              );
+          throw:bad_addr ->
+              err(
+                  10005,
+                  <<"Invalid address (2)">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              )
+  end;
+
+
+h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
+  try
+    Addr=case TAddr of
+           <<"0x", Hex/binary>> -> hex:parse(Hex);
+           _ -> naddress:decode(TAddr)
+         end,
+    Ledger=ledger:get([Addr]),
+    case maps:is_key(Addr, Ledger) of
+      false ->
+          err(
+              10003,
+              <<"Not found">>,
+              #{result => <<"not_found">>},
+              #{http_code => 404}
+          );
+      true ->
+        Info=maps:get(Addr, Ledger),
+        Code=maps:get(code, Info, <<>>),
+        {200, [{"Content-Type","binary/octet-stream"}], Code}
+    end
+  catch
+    throw:{error, address_crc} ->
+              err(
+                  10004,
+                  <<"Invalid address">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              );
+          throw:bad_addr ->
+              err(
+                  10005,
+                  <<"Invalid address (2)">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              )
+  end;
+
+
 h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
   try
@@ -353,17 +455,10 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
                       _ -> BinPacker(V)
                     end;
       (preblk, V) -> BinPacker(V);
-      (code, V) -> BinPacker(V);
-      (state, V) ->
-        try
-          iolist_to_binary(
-            io_lib:format("~p",
-                          [
-                           erlang:binary_to_term(V, [safe])])
-           )
-        catch _:_ ->
-                base64:encode(V)
-        end;
+      (view, View) ->
+                    [ list_to_binary(M) || M<- View];
+      (code, V) -> size(V);
+      (state, V) -> size(V);
       (_, V) -> V
                 end, Info1),
         Info3=try
@@ -645,6 +740,8 @@ prettify_bal(V, BinPacker) ->
         BinPacker(PubKey);
        (state, PubKey) ->
         BinPacker(PubKey);
+       (view, View) ->
+        [ list_to_binary(M) || M<- View];
        (code, PubKey) ->
         BinPacker(PubKey);
        (_BalKey, BalVal) ->
@@ -747,6 +844,10 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
         BinPacker(Val);
        (keysh, Val) ->
         BinPacker(Val);
+       (call, Val) ->
+         Bin=msgpack:pack(Val),
+         {ok, R}=msgpack:unpack(Bin,[{spec,new},{unpack_str, as_binary}]),
+         R;
        (sigverify, Fields) ->
         maps:map(
           fun(pubkeys, Val) ->

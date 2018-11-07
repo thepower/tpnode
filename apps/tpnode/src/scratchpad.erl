@@ -499,6 +499,60 @@ eval(File, Bindings0) ->
   {value, Result, _} = erl_eval:exprs(Parsed, Bindings),
   Result.
 
+give_money() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr=naddress:decode(<<"AA100000006710887143">>),
+  Seq=bal:get(seq,ledger:get(Addr)),
+  Dst=naddress:decode(<<"AA100000006710887985">>),
+
+  TX=tx:sign(
+       tx:construct_tx(#{
+         ver=>2,
+         kind=>generic,
+         from=>Addr,
+         to=>Dst,
+         seq=>Seq+1,
+         t=>os:system_time(millisecond),
+         payload=>[
+                   #{purpose=>srcfee, amount=>200100, cur=><<"FTT">>},
+%                   #{purpose=>transfer, amount=>4000005000000, cur=><<"FTT">>},
+                   #{purpose=>transfer, amount=>40000, cur=><<"SK">>}
+                  ]
+        }), Pvt1),
+  {
+   TX,
+   txpool:new_tx(TX)
+  }.
+
+
+contract_deploy_info() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr=naddress:decode(<<"AA100000006710887143">>),
+  Seq=bal:get(seq,ledger:get(Addr)),
+
+  TX=tx:sign(
+       tx:construct_tx(#{
+         ver=>2,
+         kind=>deploy,
+         from=>Addr,
+         seq=>Seq+1,
+         t=>os:system_time(millisecond),
+         payload=>[
+                   #{purpose=>srcfee, amount=>200100, cur=><<"FTT">>}
+                  ],
+         txext=>#{ "view"=> ["sha1:c50c64f1889d9211a32063ab166fdd2f9efcd580",
+                             "https://yastatic.net/www/_/x/Q/xk8YidkhGjIGOrFm_dL5781YA.svg"
+                            ]
+                 }
+        }), Pvt1),
+  {
+   TX,
+   txpool:new_tx(TX)
+  }.
+
+
 contract_deploy() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
@@ -610,7 +664,25 @@ add_endless(Address, Cur) ->
               ]
              }
            ),
-          "../tpnode_extras/configs/c3n?.config"),
+          "../tpnode_extras/configs/c1n?.config"),
+  io:format("PK ~p~n", [tx:verify(Patch)]),
+  Patch.
+
+
+add_ch1_fee_() ->
+  Patch=sign_patchv2(
+          tx:construct_tx(
+            #{kind=>patch,
+              ver=>2,
+              patches=>
+              [
+               #{<<"p">> => [<<"current">>,<<"fee">>,<<"SK">>,<<"base">>], <<"t">> => <<"set">>,<<"v">> => 100},
+               #{<<"p">> => [<<"current">>,<<"fee">>,<<"SK">>,<<"baseextra">>],<<"t">> => <<"set">>,<<"v">> => 100},
+               #{<<"p">> => [<<"current">>,<<"fee">>,<<"SK">>,<<"kb">>], <<"t">> => <<"set">>,<<"v">> => 500}
+              ]
+             }
+           ),
+          "../tpnode_extras/configs/c1n?.config"),
   io:format("PK ~p~n", [tx:verify(Patch)]),
   Patch.
 

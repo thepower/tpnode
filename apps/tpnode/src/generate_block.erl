@@ -352,7 +352,7 @@ try_process([{TxID, #{
                 ver:=2,
                 kind:=deploy,
                 from:=Owner,
-                txext:=#{"code":=Code,"vm":=VMType0}
+                txext:=#{"code":=Code,"vm":=VMType0}=TxExt
                }=Tx} |Rest],
             SetState, Addresses, GetFun,
             #{failed:=Failed,
@@ -388,8 +388,14 @@ try_process([{TxID, #{
 
 
     try
+
       NewF1=bal:put(vm, VMType, NewF),
       NewF2=bal:put(code, Code, NewF1),
+      NewF3=case maps:find("view", TxExt) of
+              error -> NewF2;
+              {ok, View} ->
+                bal:put(view, View, NewF2)
+            end,
       lager:info("Deploy contract ~s for ~s gas ~w",
                  [VM, naddress:encode(Owner), {GCur,GAmount,GRate}]),
       lager:info("A4 ~p A6 ~p",[A4,A6]),
@@ -428,7 +434,7 @@ try_process([{TxID, #{
                          end
                     end,
       NewF3=maps:remove(keep,
-                        bal:put(state, St1, NewF2)
+                        bal:put(state, St1, NewF3)
                        ),
 
       NewAddresses=case GasLeft of
@@ -475,57 +481,68 @@ try_process([{TxID, #{
                       Acc#{failed=>[{TxID, other}|Failed]})
   end;
 
-%try_process([{TxID, #{deploy:=VMType, code:=Code, from:=Owner}=Tx} |Rest],
-%            SetState, Addresses, GetFun,
-%            #{failed:=Failed,
-%              success:=Success}=Acc) ->
-%  lager:notice("Old deploy. Ensure verified"),
-%    try
-%    VM=try
-%         erlang:binary_to_existing_atom(<<"contract_", VMType/binary>>, utf8)
-%       catch error:badarg ->
-%           throw('unknown_vm')
-%       end,
-%
-%        lager:info("Deploy contract ~s for ~s",
-%                   [VM, naddress:encode(Owner)]),
-%    State0=maps:get(state, Tx, <<>>),
-%    Bal=maps:get(Owner, Addresses),
-%    NewF1=bal:put(vm, VMType, Bal),
-%    NewF2=bal:put(code, Code, NewF1),
-%    State1=try
-%           case erlang:apply(VM, deploy, [Owner, Bal, Code, State0, 1, GetFun]) of
-%             {ok, NewS} ->
-%               NewS;
-%             {error, Error} ->
-%               throw({'deploy_failed', Error});
-%             _ ->
-%               throw({'deploy_failed', other})
-%           end
-%         catch Ec:Ee ->
-%             S=erlang:get_stacktrace(),
-%             lager:error("Can't deploy ~p:~p @ ~p",
-%                   [Ec, Ee, hd(S)]),
-%             throw({'deploy_error', [Ec, Ee]})
-%         end,
-%    NewF3=maps:remove(keep,
-%              bal:put(state, State1, NewF2)
-%           ),
-%    lager:info("deploy for ~p ledger1 ~p ledger2 ~p",
-%           [Owner,
-%          Bal,
-%          NewF3
-%           ]),
-%
-%        NewAddresses=maps:put(Owner, NewF3, Addresses),
-%
-%        try_process(Rest, SetState, NewAddresses, GetFun,
-%                    Acc#{success=> [{TxID, Tx}|Success]})
-%    catch throw:X ->
-%              lager:info("Contract deploy failed ~p", [X]),
-%              try_process(Rest, SetState, Addresses, GetFun,
-%                          Acc#{failed=>[{TxID, X}|Failed]})
-%    end;
+try_process([{TxID, #{
+                ver:=2,
+                kind:=deploy,
+                from:=Owner,
+                txext:=#{"view":=NewView}
+               }=Tx} |Rest],
+            SetState, Addresses, GetFun,
+            #{failed:=Failed,
+              success:=Success}=Acc) ->
+  try
+    Verify=try
+             #{sigverify:=#{valid:=SigValid}}=Tx,
+             SigValid>0
+           catch _:_ ->
+                   false
+           end,
+    if Verify -> ok;
+       true ->
+         %error_logger:error_msg("Unverified ~p",[Tx]),
+         throw('unverified')
+    end,
+
+    Bal=maps:get(Owner, Addresses),
+    case bal:get(vm, Bal) of
+      VM when is_binary(VM) ->
+        ok;
+      _ ->
+        throw('not_deployed')
+    end,
+
+    {NewF, _GasF, GotFee, Gas}=withdraw(Bal, Tx, GetFun, SetState),
+
+    NewF1=maps:remove(keep,
+                      bal:put(view, NewView, NewF)
+                     ),
+    lager:info("F1 ~p",[maps:without([code,state],NewF1)]),
+
+    NewF2=return_gas(Tx, Gas, SetState, NewF1),
+    lager:info("F2 ~p",[maps:without([code,state],NewF2)]),
+    NewAddresses=maps:put(Owner, NewF2, Addresses),
+
+    try_process(Rest, SetState, NewAddresses, GetFun,
+                savefee(GotFee,
+                        Acc#{success=> [{TxID, Tx}|Success]}
+                       )
+               )
+  catch error:{badkey,Owner} ->
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
+        throw:X ->
+          lager:info("Contract deploy failed ~p", [X]),
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{failed=>[{TxID, X}|Failed]});
+        Ec:Ee ->
+          S=erlang:get_stacktrace(),
+          lager:info("Contract deploy failed ~p:~p", [Ec,Ee]),
+          lists:foreach(fun(SE) ->
+                            lager:error("@ ~p", [SE])
+                        end, S),
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{failed=>[{TxID, other}|Failed]})
+  end;
 
 try_process([{TxID, #{ver:=2,
                       kind:=register,
@@ -1489,14 +1506,14 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
 %                  AAcc
 %              end,
 %           {A1, SAcc};
-          ({_, #{from:=F, deploy:=_}}, AAcc) ->
-           case maps:get(F, AAcc, undefined) of
-                undefined ->
-                  AddrInfo1=GetAddr(F),
-                  maps:put(F, AddrInfo1#{keep=>false}, AAcc);
-                _ ->
-                  AAcc
-              end;
+%          ({_, #{from:=F, deploy:=_}}, AAcc) ->
+%           case maps:get(F, AAcc, undefined) of
+%                undefined ->
+%                  AddrInfo1=GetAddr(F),
+%                  maps:put(F, AddrInfo1#{keep=>false}, AAcc);
+%                _ ->
+%                  AAcc
+%              end;
           ({_TxID, #{ver:=2, to:=T, from:=F, payload:=_}}=_TX, AAcc) ->
            FB=bal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
            TB=bal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
@@ -1582,6 +1599,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
         bals=>NewBal,
         failed=>Failed,
         temporary=>proplists:get_value(temporary,Options),
+        retry=>proplists:get_value(retry,Options),
         ledger_hash=>HedgerHash,
         settings=>Settings,
         tx_proof=>[ TxID || {TxID, _ToChain} <- Outbound ],

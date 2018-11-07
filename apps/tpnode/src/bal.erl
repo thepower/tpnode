@@ -16,11 +16,11 @@
         ]).
 
 -define(FIELDS,
-        [t, seq, lastblk, pubkey, ld, usk, state, code, vm]
+        [t, seq, lastblk, pubkey, ld, usk, state, code, vm, view]
        ).
 
--type balfield() :: 'amount'|'t'|'seq'|'lastblk'|'pubkey'|'ld'|'usk'|'state'|'code'|'vm'.
--type sparsebal () :: #{'amount'=>map(), 
+-type balfield() :: 'amount'|'t'|'seq'|'lastblk'|'pubkey'|'ld'|'usk'|'state'|'code'|'vm'|'view'.
+-type sparsebal () :: #{'amount'=>map(),
                   'changes'=>[balfield()],
                   'seq'=>integer(),
                   't'=>integer(),
@@ -31,10 +31,11 @@
                   'state'=>binary(),
                   'code'=>binary(),
                   'vm'=>binary(),
+                  'view'=>binary(),
                   'ublk'=>binary() %external attr
                  }.
 
--type bal () :: #{'amount':=map(), 
+-type bal () :: #{'amount':=map(),
                   'changes':=[balfield()],
                   'seq'=>integer(),
                   't'=>integer(),
@@ -45,6 +46,7 @@
                   'state'=>binary(),
                   'code'=>binary(),
                   'vm'=>binary(),
+                  'view'=>binary(),
                   'ublk'=>binary() %external attr
                  }.
 
@@ -90,7 +92,7 @@ put_cur(Currency, Value, #{amount:=A}=Bal) ->
        }
   end.
 
--spec mput (Seq::non_neg_integer(), T::non_neg_integer(), 
+-spec mput (Seq::non_neg_integer(), T::non_neg_integer(),
             Bal::bal(), UseSK::boolean()|'reset') -> bal().
 
 mput(Seq, 0, Bal, false) when is_integer(Seq) ->
@@ -165,6 +167,16 @@ put(vm, V, Bal) when is_binary(V) ->
   Bal#{ vm=>V,
         changes=>[vm|maps:get(changes, Bal, [])]
       };
+put(view, V, Bal) when is_list(V) ->
+  case valid_latin1_str_list(V) of
+    true ->
+      Bal#{ view=>V,
+            changes=>[view|maps:get(changes, Bal, [])]
+          };
+    false ->
+      throw('incorrect_view_list')
+  end;
+
 put(state, V, Bal) when is_binary(V) ->
   case maps:get(state, Bal, undefined) of
     OldState when OldState==V ->
@@ -198,6 +210,7 @@ get(pubkey, Bal) -> maps:get(pubkey, Bal, <<>>);
 get(ld, Bal) ->     maps:get(ld, Bal, 0);
 get(usk, Bal) ->    maps:get(usk, Bal, 0);
 get(vm, Bal) ->     maps:get(vm, Bal, undefined);
+get(view, Bal) ->   maps:get(view, Bal, undefined);
 get(state, Bal) ->  maps:get(state, Bal, <<>>);
 get(code, Bal) ->   maps:get(code, Bal, <<>>);
 get(lastblk, Bal) ->maps:get(lastblk, Bal, <<0, 0, 0, 0, 0, 0, 0, 0>>);
@@ -251,4 +264,20 @@ merge(Old, New) ->
          maps:get(amount, New, #{})
         ),
   P1#{amount=>Bals}.
+
+valid_latin1_str([C|Rest]) when C>=16#20, C<16#7F ->
+  valid_latin1_str(Rest);
+valid_latin1_str([]) -> true;
+valid_latin1_str(_) -> false.
+
+valid_latin1_str_list([]) ->
+  true;
+valid_latin1_str_list([L1|Rest]) ->
+  case valid_latin1_str(L1) of
+    true ->
+      valid_latin1_str_list(Rest);
+    false ->
+      false
+  end.
+
 
