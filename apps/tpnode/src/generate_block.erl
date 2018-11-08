@@ -433,17 +433,17 @@ try_process([{TxID, #{
                              throw({'deploy_error', other})
                          end
                     end,
-      NewF3=maps:remove(keep,
+      NewF4=maps:remove(keep,
                         bal:put(state, St1, NewF3)
                        ),
 
       NewAddresses=case GasLeft of
                      {_, 0, _} ->
-                       maps:put(Owner, NewF3, Addresses);
+                       maps:put(Owner, NewF4, Addresses);
                      {_, IGL, _} when IGL < 0 ->
                        throw('insufficient_gas');
                      {_, IGL, _} when IGL > 0 ->
-                       XBal1=return_gas(Tx, GasLeft, SetState, NewF3),
+                       XBal1=return_gas(Tx, GasLeft, SetState, NewF4),
                        maps:put(Owner, XBal1, Addresses)
                    end,
 
