@@ -5,6 +5,7 @@
          prettify_block/1,
          prettify_bal/2,
          prettify_tx/2,
+         postbatch/1,
          packer/2,
          binjson/1]).
 
@@ -666,6 +667,17 @@ h(<<"GET">>, [<<"tx">>, <<"status">>, TxID], _Req) ->
   R=txstatus:get_json(TxID),
   answer(#{res=>R});
 
+h(<<"POST">>, [<<"tx">>, <<"batch">>], Req) ->
+  {RemoteIP, _Port}=cowboy_req:peer(Req),
+  lager:debug("New batch from ~s", [inet:ntoa(RemoteIP)]),
+  {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
+  R=postbatch(ReqBody),
+  answer(
+    #{ result => <<"ok">>,
+       reslist => R
+     }
+   );
+
 h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
   Body=apixiom:bodyjs(Req),
@@ -1108,4 +1120,16 @@ binjson(Term) ->
      Term,
      [ strict, {error_handler, EHF} ]
     ).
+
+postbatch(<<>>) ->
+  [];
+
+postbatch(<<Size:32/big,Body:Size/binary,Rest/binary>>) ->
+  case txpool:new_tx(Body) of
+    {ok, Tx} ->
+      [Tx | postbatch(Rest) ];
+    {error, Err} ->
+      lager:info("error ~p", [Err]),
+      [iolist_to_binary(io_lib:format("bad_tx:~p", [Err])) | postbatch(Rest)]
+  end.
 

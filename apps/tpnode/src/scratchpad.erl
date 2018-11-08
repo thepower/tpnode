@@ -706,6 +706,25 @@ bootstrap(Chain) ->
       {error, Code}
   end.
 
+post_batch(Bin) ->
+  {ok,P} = application:get_env(tpnode,rpcport),
+  post_batch("127.0.0.1:"++integer_to_list(P),Bin).
+
+post_batch("http://"++Base, Bin) ->
+  post_batch(Base, Bin);
+
+post_batch(Base, Bin) ->
+  {ok,{Code,_,Res}}=httpc:request(post,
+                                  {"http://"++Base++"/api/tx/batch.bin",
+                                   [],
+                                   "binary/octet-stream",
+                                   Bin
+                                  },
+                                  [], [{body_format, binary}]),
+  io:format("~s~n",[Res]),
+  Code.
+
+
 post_tx(Tx) ->
   {ok,P} = application:get_env(tpnode,rpcport),
   post_tx("127.0.0.1:"++integer_to_list(P),Tx).
