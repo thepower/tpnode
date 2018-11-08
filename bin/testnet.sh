@@ -1,12 +1,13 @@
 #!/bin/sh
 
-CHAIN4="test_c4n1 test_c4n2 test_c4n3"
-CHAIN5="test_c5n1 test_c5n2 test_c5n3"
-CHAIN6="test_c6n1 test_c6n2 test_c6n3"
+CHAIN4="${CHAIN4:-test_c4n1 test_c4n2 test_c4n3}"
+CHAIN5="${CHAIN5:-test_c5n1 test_c5n2 test_c5n3}"
+CHAIN6="${CHAIN6:-test_c6n1 test_c6n2 test_c6n3}"
 # SYNC = 0 — no sync, SYNC = 1 — add -s sync to command line for c4n1 node
-SYNC=0
+SYNC=${SYNC-0}
 
-HOST=`hostname -s`
+HOST=${HOST-`hostname -s`}
+
 
 
 is_alive() {
@@ -21,9 +22,10 @@ start_node() {
     node=$2
 
     sync_str=""
-    if [ $SYNC -eq 1 -a ${node} = "test_c4n1" ]
+    if [ $SYNC -eq 1 ]
     then
         sync_str="-s sync"
+        export SYNC=0
     fi
 
     if is_alive ${node}
@@ -40,9 +42,10 @@ start_node() {
 
 
 start_testnet() {
-    for node in $CHAIN4; do start_node ./examples/test_chain4 ${node}; done
-    for node in $CHAIN5; do start_node ./examples/test_chain5 ${node}; done
-    for node in $CHAIN6; do start_node ./examples/test_chain6 ${node}; done
+    CONFIG_ROOT=${CONFIG_ROOT:-./examples}
+    for node in $CHAIN4; do start_node ${CONFIG_ROOT}/test_chain4 ${node}; done
+    for node in $CHAIN5; do start_node ${CONFIG_ROOT}/test_chain5 ${node}; done
+    for node in $CHAIN6; do start_node ${CONFIG_ROOT}/test_chain6 ${node}; done
 }
 
 node_pid() {
@@ -130,7 +133,7 @@ compile_testnet() {
 }
 
 usage() {
-    echo "usage: $0 start|stop|attach|reset"
+    echo "usage: $0 start|stop|attach|reset|compile"
 }
 
 if [ $# -ne 1 ]

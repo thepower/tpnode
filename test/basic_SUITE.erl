@@ -8,12 +8,15 @@
 
 
 -define(TESTNET_NODES, [
-    "test_c4n1",
-    "test_c4n2",
-    "test_c4n3",
-    "test_c5n1",
-    "test_c5n2",
-    "test_c5n3"
+  "test_c4n1",
+  "test_c4n2",
+  "test_c4n3",
+  "test_c5n1",
+  "test_c5n2",
+  "test_c5n3",
+  "test_c6n1",
+  "test_c6n2",
+  "test_c6n3"
 ]).
 
 %%-define(TESTNET_NODES, [
@@ -35,6 +38,8 @@ all() ->
         instant_sync_test
     ].
 
+% -----------------------------------------------------------------------------
+
 init_per_suite(Config) ->
 %%    Env = os:getenv(),
 %%    io:fwrite("env ~p", [Env]),
@@ -46,11 +51,17 @@ init_per_suite(Config) ->
 %%    Config ++ [{processes, Pids}].
     Config.
 
+% -----------------------------------------------------------------------------
+
 init_per_testcase(_, Config) ->
     Config.
 
+% -----------------------------------------------------------------------------
+
 end_per_testcase(_, Config) ->
     Config.
+
+% -----------------------------------------------------------------------------
 
 end_per_suite(Config) ->
 %%    Pids = proplists:get_value(processes, Config, []),
@@ -63,6 +74,7 @@ end_per_suite(Config) ->
     save_bckups(),
     Config.
 
+% -----------------------------------------------------------------------------
 
 save_bckups() ->
     logger("saving bckups"),
@@ -74,7 +86,7 @@ save_bckups() ->
             logger("saving bckup for node ~p to dir ~p", [Node, BckupDir]),
             rpc:call(get_node(Node), blockchain, backup, [BckupDir])
         end,
-    lists:foreach(SaveBckupForNode, ?TESTNET_NODES),
+    lists:foreach(SaveBckupForNode, get_testnet_nodenames()),
     ok.
   
 
@@ -95,7 +107,7 @@ save_bckups() ->
 %%
 %%            io:fwrite("Started node ~p with os pid ~p", [NodeName, OsPid]),
 %%            [OsPid | StartedPids]
-%%        end, [], ?TESTNET_NODES
+%%        end, [], get_testnet_nodenames()
 %%    ),
 %%    ok = wait_for_testnet(Pids),
 %%    {ok, Pids}.
@@ -111,6 +123,7 @@ cover_start() ->
     ct_cover:add_nodes(nodes()),
     cover:start(nodes()).
 
+% -----------------------------------------------------------------------------
 
 cover_finish() ->
     logger("going to flush coverage data~n"),
@@ -124,21 +137,18 @@ cover_finish() ->
 %%    timer:sleep(1000).
 %%    cover:analyse_to_file([{outdir,"cover"},html]).
 
+% -----------------------------------------------------------------------------
 
-
-get_node(Name) when is_atom(Name) ->
-    get_node(atom_to_list(Name));
-
-get_node(Name) when is_list(Name) ->
-    get_node(list_to_binary(Name));
-
-get_node(Name) when is_binary(Name) ->
+get_node(Name) ->
+    NameBin = utils:make_binary(Name),
     [_,NodeHost]=binary:split(atom_to_binary(erlang:node(),utf8),<<"@">>),
-    binary_to_atom(<<Name/binary, "@", NodeHost/binary>>, utf8).
+    binary_to_atom(<<NameBin/binary, "@", NodeHost/binary>>, utf8).
 
+% -----------------------------------------------------------------------------
 
 wait_for_testnet(Trys) ->
-    NodesCount = length(?TESTNET_NODES),
+    AllNodes = get_testnet_nodenames(),
+    NodesCount = length(AllNodes),
     Alive = lists:foldl(
         fun(Name, ReadyNodes) ->
             NodeName = get_node(Name),
@@ -149,27 +159,30 @@ wait_for_testnet(Trys) ->
                     io:fwrite("Node ~p answered ~p~n", [NodeName, _Answer]),
                     ReadyNodes
             end
-        end, 0, ?TESTNET_NODES),
+        end, 0, AllNodes),
 
     if
         Trys<1 ->
             timeout;
         Alive =/= NodesCount ->
-            io:fwrite("testnet hasn't started yet, alive ~p, need ~p", [Alive, NodesCount]),
+            io:fwrite("testnet starting timeout: alive ~p, need ~p", [Alive, NodesCount]),
             timer:sleep(1000),
             wait_for_testnet(Trys-1);
         true -> ok
     end.
 
+% -----------------------------------------------------------------------------
 
 discovery_register_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid =
+      rpc:call(get_node(get_default_nodename()), erlang, whereis, [discovery]),
     Answer = gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
     ?assertEqual(ok, Answer).
 
 
 discovery_lookup_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid =
+      rpc:call(get_node(get_default_nodename()), erlang, whereis, [discovery]),
     gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
     Result1 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
     ?assertMatch({ok, _, <<"test_service">>}, Result1),
@@ -180,7 +193,8 @@ discovery_lookup_test(_Config) ->
 
 
 discovery_unregister_by_name_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid =
+      rpc:call(get_node(get_default_nodename()), erlang, whereis, [discovery]),
     gen_server:call(DiscoveryPid, {register, <<"test_service">>, self()}),
     gen_server:call(DiscoveryPid, {register, <<"test_service2">>, self()}),
     Result1 = gen_server:call(DiscoveryPid, {get_pid, <<"test_service">>}),
@@ -193,7 +207,8 @@ discovery_unregister_by_name_test(_Config) ->
 
 
 discovery_unregister_by_pid_test(_Config) ->
-    DiscoveryPid = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
+    DiscoveryPid =
+      rpc:call(get_node(get_default_nodename()), erlang, whereis, [discovery]),
     MyPid = self(),
     gen_server:call(DiscoveryPid, {register, <<"test_service">>, MyPid}),
     gen_server:call(DiscoveryPid, {register, <<"test_service2">>, MyPid}),
@@ -246,7 +261,7 @@ build_announce(Options) when is_map(Options) ->
   {Announce, AnnounceBin}.
 
 discovery_ssl_test(_Config) ->
-  DiscoveryC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
+  DiscoveryC4N1 = rpc:call(get_node(get_default_nodename()), erlang, whereis, [discovery]),
   ServiceName = <<"apispeer">>,
   {Announce, AnnounceBin} =
     build_announce(#{
@@ -262,7 +277,7 @@ discovery_ssl_test(_Config) ->
   Ip =  <<"https://", IpAddr/binary, ":", (integer_to_binary(PortNo))/binary>>,
   gen_server:cast(DiscoveryC4N1, {got_announce, AnnounceBin}),
   timer:sleep(2000),  % wait for announce propagation
-  Result = rpc:call(get_node(<<"test_c4n1">>), tpnode_httpapi, get_nodes, [4]),
+  Result = rpc:call(get_node(get_default_nodename()), tpnode_httpapi, get_nodes, [4]),
   logger("get_nodes answer: ~p~n", [Result]),
   ?assertMatch(#{NodeId := #{ host := _, ip := _}}, Result),
   AddrInfo = maps:get(NodeId, Result, #{}),
@@ -368,7 +383,7 @@ register_wallet_test(_Config) ->
     ?assertMatch(#{<<"ok">> := true}, Status),
     Wallet = maps:get(<<"res">>, Status, unknown),
     ?assertNotEqual(unknown, Wallet),
-    % проверяем статус кошелька через API
+    % chech wallet status via API
     Res2 = api_get_wallet(Wallet),
     logger("Info for wallet ~p: ~p", [Wallet, Res2]),
     ?assertMatch(#{<<"result">> := <<"ok">>, <<"txtaddress">> := Wallet}, Res2),
@@ -379,7 +394,9 @@ register_wallet_test(_Config) ->
 
 % base url for c4n1 rpc
 get_base_url() ->
-    "http://pwr.local:49841".
+  DefaultUrl = "http://pwr.local:49841",
+  os:getenv("API_BASE_URL", DefaultUrl).
+
 
 % get info for wallet
 api_get_wallet(Wallet) ->
@@ -398,7 +415,6 @@ dist_post_transaction(Node, Transaction) ->
 
 % register new wallet using API
 api_register_wallet() ->
-    % регистрируем кошелек
     RegisterTx = get_register_wallet_transaction(),
     Res = api_post_transaction(RegisterTx),
     ?assertEqual(<<"ok">>, maps:get(<<"result">>, Res, unknown)),
@@ -432,7 +448,7 @@ get_sequence(Node, Wallet) ->
 
 
 make_transaction(From, To, Currency, Amount, Message) ->
-    Node = get_node(<<"test_c4n1">>),
+    Node = get_node(get_default_nodename()),
     make_transaction(Node, From, To, Currency, Amount, Message).
 
 make_transaction(Node, From, To, Currency, Amount, Message) ->
@@ -489,11 +505,21 @@ dump_testnet_state() ->
 
   Pids = [
     erlang:spawn(?MODULE, dump_node_state, [self(), NodeName]) ||
-    NodeName <- ?TESTNET_NODES
+    NodeName <- get_testnet_nodenames()
   ],
   
   wait_for_dumpers(Pids),
   ok.
+% -----------------------------------------------------------------------------
+
+get_testnet_nodenames() ->
+  ?TESTNET_NODES.
+
+% -----------------------------------------------------------------------------
+
+get_default_nodename() ->
+  <<"test_c4n1">>.
+
 % -----------------------------------------------------------------------------
 
 wait_for_dumpers(Pids) ->
@@ -537,8 +563,10 @@ transaction_test(_Config) ->
     %%%%%%%%%%%%%%%% make Wallet endless %%%%%%%%%%%%%%
     Cur = <<"FTT">>,
     EndlessAddress = naddress:decode(Wallet),
-    TxpoolPidC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [txpool]),
-    C4N1NodePrivKey = rpc:call(get_node(<<"test_c4n1">>), nodekey, get_priv, []),
+    TxpoolPidC4N1 =
+      rpc:call(get_node(get_default_nodename()), erlang, whereis, [txpool]),
+    C4N1NodePrivKey =
+      rpc:call(get_node(get_default_nodename()), nodekey, get_priv, []),
   
     PatchTx = tx:sign(
       tx:construct_tx(
@@ -556,8 +584,8 @@ transaction_test(_Config) ->
   
     {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {new_tx, PatchTx}),
     logger("PatchTxId: ~p~n", [PatchTxId]),
-    {ok, _} = wait_for_tx(PatchTxId, get_node(<<"test_c4n1">>)),
-    ChainSettngs = rpc:call(get_node(<<"test_c4n1">>), chainsettings, all, []),
+    {ok, _} = wait_for_tx(PatchTxId, get_node(get_default_nodename())),
+    ChainSettngs = rpc:call(get_node(get_default_nodename()), chainsettings, all, []),
     logger("ChainSettngs: ~p~n", [ChainSettngs]),
     Amount = max(1000, rand:uniform(100000)),
 
@@ -632,7 +660,7 @@ tpiccall(TPIC, Handler, Object, Atoms) ->
 instant_sync_test(_Config) ->
   %instant synchronization
   rdb_dispatcher:start_link(),
-  TPIC=rpc:call(get_node(<<"test_c4n1">>),erlang,whereis,[tpic]),
+  TPIC=rpc:call(get_node(get_default_nodename()),erlang,whereis,[tpic]),
   Cs=tpiccall(TPIC, <<"blockchain">>,
               #{null=><<"sync_request">>},
               [last_hash, last_height, chain]
@@ -659,8 +687,8 @@ instant_sync_test(_Config) ->
              ),
   gen_server:call(Pid, '_flush'),
   
-  Hash2=rpc:call(get_node(<<"test_c4n1">>),ledger,check,[[]]),
-  Hash2=rpc:call(get_node(<<"test_c4n1">>),ledger,check,[[]]),
+  Hash2=rpc:call(get_node(get_default_nodename()),ledger,check,[[]]),
+  Hash2=rpc:call(get_node(get_default_nodename()),ledger,check,[[]]),
 
   ledger_sync:run_target(TPIC, Handler, Pid, undefined),
 
