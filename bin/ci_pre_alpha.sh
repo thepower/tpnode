@@ -1,16 +1,18 @@
 #! /bin/sh
 
-if [ ! -f ./bin/testnet.sh ]
-then
-    echo "can't find testnet control utility"
-    exit -1
-fi
+#if [ ! -r ./bin/testnet2.sh ]
+#then
+#    echo "can't find testnet control utility"
+#    exit -1
+#fi
 
+export RELEASENAME=thepower-latest-pre
 export CHAIN4="alpha_c4n1 alpha_c4n2 alpha_c4n3"
 export CHAIN5="alpha_c5n1 alpha_c5n2 alpha_c5n3"
 export CHAIN6="alpha_c6n1 alpha_c6n2 alpha_c6n3"
 export CONFIG_ROOT=./alpha
 export API_BASE_URL="http://127.0.0.1:42841"
+
 
 rm -rf ./alpha
 mkdir -p ./alpha
@@ -31,5 +33,5 @@ do
    mv $file $(echo "$file" | sed 's/\(test_c\)\([0-9]\+n[0-9]\+\)/alpha_c\2/g')
 done
 
-./bin/testnet.sh $1
+./bin/testnet2.sh $1
 
