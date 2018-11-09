@@ -1,13 +1,25 @@
 #!env escript
 %% -*- erlang -*-
 
+
+get_version() ->
+    Version = string:trim(os:cmd("git describe"),trailing,"\n"),
+    case os:getenv("VERSION_SUFFIX", unknown) of
+        unknown ->
+            Version;
+        Suffix ->
+            Version ++ "-" ++ Suffix
+    end.
+
+
+
 main(_) ->
     I=lists:flatten(io_lib:format(
                       "-define(VERSION, ~p).~n"++
                       "-define(BUILD_TIME, ~p).~n"++
                       "~n-export([ver/0]).~nver() -> {?VERSION,?BUILD_TIME}.~n",
                       [
-                       string:trim(os:cmd("git describe"),trailing,"\n"),
+                       get_version(),
                        os:system_time(seconds)
                       ])),
     filelib:ensure_dir("apps/tpnode/include/"),
