@@ -1,9 +1,8 @@
 #!/bin/sh
 
-CHAIN4="test_c4n1 test_c4n2 test_c4n3"
-CHAIN5="test_c5n1 test_c5n2 test_c5n3"
-CHAIN6="test_c6n1 test_c6n2 test_c6n3"
-
+CHAIN4="${CHAIN4:-test_c4n1 test_c4n2 test_c4n3}"
+CHAIN5="${CHAIN5:-test_c5n1 test_c5n2 test_c5n3}"
+CHAIN6="${CHAIN6:-test_c6n1 test_c6n2 test_c6n3}"
 
 not_found() {
     echo "'$1' command not found" >&2
@@ -15,7 +14,6 @@ check_command() {
 }
 
 check_command hostname
-
 HOST=`hostname -s`
 
 
@@ -52,9 +50,11 @@ start_node() {
 
 
 start_testnet() {
-    for node in $CHAIN4; do start_node ./examples/test_chain4 ${node}; done
-    for node in $CHAIN5; do start_node ./examples/test_chain5 ${node}; done
-    for node in $CHAIN6; do start_node ./examples/test_chain6 ${node}; done
+    CONFIG_ROOT=${CONFIG_ROOT:-./examples}
+
+    for node in $CHAIN4; do start_node ${CONFIG_ROOT}/test_chain4 ${node}; done
+    for node in $CHAIN5; do start_node ${CONFIG_ROOT}/test_chain5 ${node}; done
+    for node in $CHAIN6; do start_node ${CONFIG_ROOT}/test_chain6 ${node}; done
 }
 
 node_pid() {
@@ -120,6 +120,9 @@ reset_testnet() {
     for node in ${CHAIN4}; do reset_node ${node}; done
     for node in ${CHAIN5}; do reset_node ${node}; done
     for node in ${CHAIN6}; do reset_node ${node}; done
+
+    rm -f log/debug_test_* log/error_test_* log/info_test_* log/crash.log log/vmproto_req_*
+    find ./log -name '*_block_*' -delete
 }
 
 attach_testnet() {
@@ -129,7 +132,7 @@ attach_testnet() {
 
     echo "attaching to testnet"
 
-    sessions_cnt=`tmux ls |grep testnet |wc -l`
+    sessions_cnt=`tmux ls | grep testnet | wc -l`
     if [ "${sessions_cnt}0" -eq 0 ]
     then
 #        echo "start new session"
@@ -156,10 +159,12 @@ update_testnet() {
 
     ARCH=`uname -p | sed 's/86_//' | sed 's/aarch/arm/'`
 
-    rm -f thepower-latest*.tar.gz
-    wget -c http://dist.thepower.io/thepower-latest-${ARCH}.tar.gz
-    tar xvf thepower-latest*.tar.gz
-    rm -f thepower-latest*.tar.gz
+    RELEASENAME=${RELEASENAME:-thepower-latest}
+
+    rm -f ${RELEASENAME}*.tar.gz
+    wget -c http://dist.thepower.io/${RELEASENAME}-${ARCH}.tar.gz
+    tar xvf ${RELEASENAME}*.tar.gz
+    rm -f ${RELEASENAME}*.tar.gz
 }
 
 usage() {
