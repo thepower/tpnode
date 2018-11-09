@@ -329,6 +329,9 @@ api_get_tx_status(TxId, BaseUrl) ->
       {ok, timeout, _} ->
         logger("got transaction ~p timeout~n", [TxId]),
         dump_testnet_state();
+      {ok, #{<<"res">> := <<"ok">>}, _} ->
+        logger("got transaction ~p res=ok~n", [TxId]),
+        dump_testnet_state();
       {ok, #{<<"res">> := <<"bad_seq">>}, _} ->
         logger("got transaction ~p badseq~n", [TxId]),
         dump_testnet_state();
