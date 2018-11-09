@@ -19,19 +19,23 @@ export rc=$?
 if [ $rc -ne 0 ]
 then
     # stop testnet in case of error
-    ./bin/testnet.sh stop
+    ./bin/testnet.sh stop >/dev/null
     # save db to artifacts
     echo "tests failed, saving ledger bckups"
     tar cfj log/test_ledger_bckups.tar.bz2 /tmp/ledger_bckups/ >/dev/null
     tar cfj log/test_blockdebug.tar.bz2 ./log/*_block_* >/dev/null
 fi
 
-# send stop signal to testnet once again
-./bin/testnet.sh stop
+# save logs
+tar cfj log/test_logs.tar.bz2 ./log/*.log
+find ./log -name '*.log' -delete
 
 # cleanup
 rm -rf /tmp/ledger_bckups/
 rm -rf ./log/vmproto_req_*
 find ./log -name '*_block_*' -delete
+
+# send stop signal to testnet once again
+./bin/testnet.sh stop >/dev/null
 
 exit $rc
