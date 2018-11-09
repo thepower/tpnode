@@ -23,7 +23,7 @@ then
     # save db to artifacts
     echo "tests failed, saving ledger bckups"
     tar cfj log/test_ledger_bckups.tar.bz2 /tmp/ledger_bckups/ >/dev/null
-    tar cfj log/test_block_debug.tar.bz2 ./log/*_block_* >/dev/null
+    tar cfj log/test_blockdebug.tar.bz2 ./log/*_block_* >/dev/null
 fi
 
 # send stop signal to testnet once again
