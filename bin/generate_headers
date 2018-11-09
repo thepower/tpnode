@@ -7,8 +7,10 @@ get_version() ->
     case os:getenv("VERSION_SUFFIX", unknown) of
         unknown ->
             Version;
-        Suffix ->
-            Version ++ "-" ++ Suffix
+        Suffix when length(Suffix) > 0 ->
+            Version ++ "-" ++ Suffix;
+        _ ->
+            Version
     end.
 
 
