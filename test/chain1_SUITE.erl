@@ -125,8 +125,12 @@ transaction_ping_pong_test(_Config) ->
     io:format("destination wallet after money sent: ~p ~n", [Wallet2Data]),
     NewAmount = AmountPrev + Amount,
     io:format("expected new amount: ~p ~n", [NewAmount]),
-    ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount}}}, Wallet2Data),
+    ?assertMatch(
+        #{<<"info">> := #{<<"amount">> := #{Cur := NewAmount}}},
+        Wallet2Data
+    ),
 
+    
     % send money back
     Message2 = <<"pong">>,
     TxId2 = make_transaction(Wallet2, Wallet, Cur, Amount, Message2),
