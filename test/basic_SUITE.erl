@@ -741,26 +741,7 @@ logger(Format) when is_list(Format) ->
   logger(Format, []).
   
 logger(Format, Args) when is_list(Format), is_list(Args) ->
-  StrTime = format_time(),
-  io:format(
-    StrTime ++ " " ++ Format ++ "~n",
-    Args).
-
-% -----------------------------------------------------------------------------
-%% pretty print timestamp from lager/src/lager_utils.erl
-localtime_ms() ->
-  {_, _, Micro} = Now = os:timestamp(),
-  {Date, {Hours, Minutes, Seconds}} = calendar:now_to_local_time(Now),
-  {Date, {Hours, Minutes, Seconds, Micro div 1000 rem 1000}}.
-
-format_time() ->
-  format_time(localtime_ms()).
-
-format_time({{Y, M, D}, {H, Mi, S, Ms}}) ->
-  lists:flatten(io_lib:format(
-    "~p-~2..0p-~2..0p ~2..0p:~2..0p:~2..0p.~3..0p",
-    [Y, M, D, H, Mi, S, Ms]
-  )).
+  utils:logger(Format, Args).
 
 % -----------------------------------------------------------------------------
 
