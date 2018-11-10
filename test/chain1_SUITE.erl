@@ -73,17 +73,24 @@ get_wallet_priv_key() ->
 make_transaction(From, To, Currency, Amount, Message) ->
     Seq = api_get_wallet_seq(From),
     io:format("seq for wallet ~p is ~p ~n", [From, Seq]),
-    Tx = #{
-        amount => Amount,
-        cur => Currency,
-        extradata =>jsx:encode(#{message=>Message}),
-        from => naddress:decode(From),
-        to => naddress:decode(To),
-        seq=> Seq + 1,
-        timestamp => os:system_time(millisecond)
-    },
+    Tx = tx:construct_tx(
+        #{
+            kind => generic,
+            ver => 2,
+            t => os:system_time(millisecond),
+            seq=> Seq + 1,
+            from => naddress:decode(From),
+            to => naddress:decode(To),
+            txext => #{
+                <<"message">> => Message
+            },
+            payload => [
+                #{amount => Amount,cur => Currency, purpose => transfer}
+            ]
+        }
+    ),
     SignedTx = tx:sign(Tx, get_wallet_priv_key()),
-    Res = api_post_transaction(SignedTx),
+    Res = api_post_transaction(tx:pack(SignedTx)),
     maps:get(<<"txid">>, Res, unknown).
 
 % --------------------------------------------------------------------------------
@@ -133,5 +140,8 @@ transaction_ping_pong_test(_Config) ->
 
     Wallet2Data2 = api_get_wallet(Wallet2),
     io:format("destination wallet after money sent back: ~p ~n", [Wallet2Data2]),
-    ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := AmountPrev}}}, Wallet2Data2).
+    ?assertMatch(
+        #{<<"info">> := #{<<"amount">> := #{Cur := AmountPrev}}},
+        Wallet2Data2
+    ).
 
