@@ -72,7 +72,7 @@ get_wallet_priv_key() ->
 
 make_transaction(From, To, Currency, Amount, Message) ->
     Seq = api_get_wallet_seq(From),
-    io:format("seq for wallet ~p is ~p ~n", [From, Seq]),
+    logger("seq for wallet ~p is ~p ~n", [From, Seq]),
     Tx = tx:construct_tx(
         #{
             kind => generic,
@@ -107,24 +107,24 @@ transaction_ping_pong_test(_Config) ->
     % get balance of destination wallet
     #{<<"info">> := #{<<"amount">> := AmountWallet2}} = api_get_wallet(Wallet2),
     AmountPrev = maps:get(Cur, AmountWallet2, 0),
-    io:format("destination wallet ammount: ~p ~n ~p ~n", [AmountPrev, AmountWallet2]),
+    logger("destination wallet ammount: ~p ~n ~p ~n", [AmountPrev, AmountWallet2]),
 
     % send money from endless to Wallet2
     Message = <<"ping">>,
     TxId = make_transaction(Wallet, Wallet2, Cur, Amount, Message),
-    io:format("txid: ~p ~n", [TxId]),
+    logger("txid: ~p ~n", [TxId]),
     {ok, Status, _} = api_get_tx_status(TxId),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status),
-    io:format("money send transaction status: ~p ~n", [Status]),
+    logger("money send transaction status: ~p ~n", [Status]),
 
     timer:sleep(5000), % wait 5 sec for wallet data update across all network
     Height2 = api_get_height(),
     ?assertMatch(true, Height2>Height),
 
     Wallet2Data = api_get_wallet(Wallet2),
-    io:format("destination wallet after money sent: ~p ~n", [Wallet2Data]),
+    logger("destination wallet after money sent: ~p ~n", [Wallet2Data]),
     NewAmount = AmountPrev + Amount,
-    io:format("expected new amount: ~p ~n", [NewAmount]),
+    logger("expected new amount: ~p ~n", [NewAmount]),
     ?assertMatch(
         #{<<"info">> := #{<<"amount">> := #{Cur := NewAmount}}},
         Wallet2Data
@@ -136,16 +136,26 @@ transaction_ping_pong_test(_Config) ->
     TxId2 = make_transaction(Wallet2, Wallet, Cur, Amount, Message2),
     {ok, Status2, _} = api_get_tx_status(TxId2),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
-    io:format("money send back transaction status: ~p ~n", [Status2]),
+    logger("money send back transaction status: ~p ~n", [Status2]),
 
     timer:sleep(5000), % wait 5 sec for wallet data update across all network
     Height3 = api_get_height(),
     ?assertMatch(true, Height3>Height2),
 
     Wallet2Data2 = api_get_wallet(Wallet2),
-    io:format("destination wallet after money sent back: ~p ~n", [Wallet2Data2]),
+    logger("destination wallet after money sent back: ~p ~n", [Wallet2Data2]),
     ?assertMatch(
         #{<<"info">> := #{<<"amount">> := #{Cur := AmountPrev}}},
         Wallet2Data2
     ).
 
+
+% -----------------------------------------------------------------------------
+
+logger(Format) when is_list(Format) ->
+    logger(Format, []).
+
+logger(Format, Args) when is_list(Format), is_list(Args) ->
+    utils:logger(Format, Args).
+
+% -----------------------------------------------------------------------------
