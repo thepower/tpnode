@@ -289,6 +289,9 @@ handle_call(last_block, _From, #{lastblock:=LB}=State) ->
 handle_call({get_block, last}, _From, #{tmpblock:=LB}=State) ->
   {reply, LB, State};
 
+handle_call({get_block, last}, _From, #{lastblock:=LB}=State) ->
+  {reply, LB, State};
+
 handle_call({get_block, BlockHash}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}=LB}=State)
   when is_binary(BlockHash) ->
     %lager:debug("Get block ~p", [BlockHash]),
