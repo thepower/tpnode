@@ -1,4 +1,4 @@
--module(chain1_SUITE).
+-module(chain4_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -9,6 +9,7 @@
 
 all() ->
     [
+%%      wallets_check_test
         transaction_ping_pong_test
     ].
 
@@ -26,21 +27,17 @@ end_per_suite(Config) ->
     Config.
 
 % ------------------------------------------------------------------
-get_node(Name) when is_atom(Name) ->
-    get_node(atom_to_list(Name));
-
-get_node(Name) when is_list(Name) ->
-    get_node(list_to_binary(Name));
-
-get_node(Name) when is_binary(Name) ->
+get_node(Name) ->
+    NameBin = utils:make_binary(Name),
     [_,NodeHost]=binary:split(atom_to_binary(erlang:node(),utf8),<<"@">>),
-    binary_to_atom(<<Name/binary, "@", NodeHost/binary>>, utf8).
+    binary_to_atom(<<NameBin/binary, "@", NodeHost/binary>>, utf8).
 
 % ------------------------------------------------------------------
 
-% base url for chain1 rpc
+% base url for chain4 rpc
 get_base_url() ->
-    "http://wallet.thepower.io/api/chain/1".
+    DefaultUrl = "http://pwr.local:49841",
+    os:getenv("API_BASE_URL", DefaultUrl).
 
 % ------------------------------------------------------------------
 
@@ -95,12 +92,162 @@ make_transaction(From, To, Currency, Amount, Message) ->
 
 % --------------------------------------------------------------------------------
 
-transaction_ping_pong_test(_Config) ->
-    Wallet = <<"AA100000001677894510">>,  % endless here
-    Wallet2 = <<"AA100000001677894616">>,
-    Cur = <<"TEST">>,
-    Amount = 10,
+get_all_nodes_keys(Wildcard) ->
+  lists:filtermap(
+    fun(Filename) ->
+      try
+        {ok, E} = file:consult(Filename),
+        case proplists:get_value(privkey, E) of
+          undefined -> false;
+          Val -> {true, hex:decode(Val)}
+        end
+      catch _:_ ->
+        false
+      end
+    end,
+    filelib:wildcard(Wildcard)
+  ).
 
+% --------------------------------------------------------------------------------
+
+sign_patchv2(Patch) ->
+  sign_patchv2(Patch, "c4*.config").
+
+sign_patchv2(Patch, Wildcard) ->
+  PrivKeys = lists:usort(get_all_nodes_keys(Wildcard)),
+  lists:foldl(
+    fun(Key, Acc) ->
+      tx:sign(Acc, Key)
+    end, Patch, PrivKeys).
+
+% --------------------------------------------------------------------------------
+
+ensure_wallet_exist(Address) ->
+  ensure_wallet_exist(Address, false).
+
+ensure_wallet_exist(Address, EndlessCur) ->
+  % check existing
+  WalletData =
+    try
+      tpapi:get_wallet_info(Address, get_base_url())
+    catch
+      Ec:Ee ->
+        utils:print_error("error getting wallet data", Ec, Ee, erlang:get_stacktrace()),
+        logger("Wallet not exists: ~p", [Address]),
+        undefined
+    end,
+  
+  % register new wallet in case of error
+  case WalletData of
+    undefined ->
+      WalletAddress = api_register_wallet(),
+      ?assertEqual(Address, WalletAddress),
+      
+      % TODO: then we have added endless checking, remove this code
+      case EndlessCur of
+        false ->
+          ok;
+        CurName ->
+          % make that wallet endless
+          make_endless(Address, CurName)
+      end;
+    _ ->
+      ok
+  end,
+
+  
+%%  case EndlessCur of
+%%    false ->
+%%      ok;
+%%    CurName ->
+
+% TODO: check endless here, uncomment this code
+
+%%      % make that wallet endless
+%%      make_endless(Address, CurName)
+%%  end;
+  
+  
+  ok.
+
+
+
+check_chain_settings(Endless, Wallet2, Cur) ->
+  logger("wallets: ~p, ~p", [Endless, Wallet2]),
+  logger("cur: ~p", [Cur]),
+  
+  % check wallets existing
+  ensure_wallet_exist(Endless, Cur),
+  ensure_wallet_exist(Wallet2),
+  
+  ok.
+
+
+% --------------------------------------------------------------------------------
+
+get_register_wallet_transaction() ->
+  PrivKey = get_wallet_priv_key(),
+  tpapi:get_register_wallet_transaction(PrivKey, #{promo => <<"TEST5">>}).
+
+% --------------------------------------------------------------------------------
+
+% register new wallet using API
+api_register_wallet() ->
+  RegisterTx = get_register_wallet_transaction(),
+  Res = api_post_transaction(RegisterTx),
+  ?assertEqual(<<"ok">>, maps:get(<<"result">>, Res, unknown)),
+  TxId = maps:get(<<"txid">>, Res, unknown),
+  ?assertMatch(#{<<"result">> := <<"ok">>}, Res),
+  {ok, Status, _} = api_get_tx_status(TxId),
+  logger("register wallet transaction status: ~p ~n", [Status]),
+  ?assertMatch(#{<<"ok">> := true}, Status),
+  Wallet = maps:get(<<"res">>, Status, unknown),
+  ?assertNotEqual(unknown, Wallet),
+  logger("new wallet has been registered: ~p ~n", [Wallet]),
+  Wallet.
+
+% --------------------------------------------------------------------------------
+
+make_endless(Address, Cur) ->
+  Patch =
+    sign_patchv2(
+      tx:construct_tx(
+        #{kind=>patch,
+          ver=>2,
+          patches=>
+          [
+            #{
+              <<"t">> => <<"set">>,
+              <<"p">> => [
+                <<"current">>,
+                <<"endless">>, Address, Cur],
+              <<"v">> => true}
+          ]
+        }
+      ),
+      "../examples/test_chain4/c4n?.config"),
+  logger("PK ~p~n", [tx:verify(Patch)]),
+  Patch.
+
+% --------------------------------------------------------------------------------
+
+wallets_check_test(_Config) ->
+  Wallet = <<"AA100000006710886518">>,  % endless here
+  Wallet2 = <<"AA100000006710886608">>,
+  Cur = <<"SK">>,
+  
+  check_chain_settings(Wallet, Wallet2, Cur),
+  ok.
+
+
+transaction_ping_pong_test(_Config) ->
+    Wallet = <<"AA100000006710886518">>,  % endless here
+    Wallet2 = <<"AA100000006710886608">>,
+    Cur = <<"SK">>,
+    Amount = 10,
+  
+    check_chain_settings(Wallet, Wallet2, Cur),
+  
     % get height
     Height = api_get_height(),
 
@@ -153,9 +300,7 @@ transaction_ping_pong_test(_Config) ->
 % -----------------------------------------------------------------------------
 
 logger(Format) when is_list(Format) ->
-    logger(Format, []).
+  logger(Format, []).
 
 logger(Format, Args) when is_list(Format), is_list(Args) ->
-    utils:logger(Format, Args).
-
-% -----------------------------------------------------------------------------
+  utils:logger(Format, Args).

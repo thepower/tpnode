@@ -2,6 +2,8 @@
 
 -export([alloc_tcp_port/0,make_binary/1, make_list/1, apply_macro/2, print_error/4]).
 
+-export([logger/1, logger/2]).
+
 alloc_tcp_port() ->
   {ok,S}=gen_tcp:listen(0,[]),
   {ok,{_,CPort}}=inet:sockname(S),
@@ -61,3 +63,28 @@ print_error(Message, Ec, Ee, StackTrace) ->
     fun(Where) -> lager:error("@ ~p", [Where]) end,
     StackTrace
   ).
+
+%% -------------------------------------------------------------------------------------
+
+logger(Format) when is_list(Format) ->
+  logger(Format, []).
+
+logger(Format, Args) when is_list(Format), is_list(Args) ->
+  StrTime = now_str(),
+  io:format(
+    StrTime ++ " " ++ Format ++ "~n",
+    Args).
+
+
+% -----------------------------------------------------------------------------
+%% pretty print timestamp from lager/src/lager_utils.erl
+now_str() ->
+  {_, _, Micro} = Now = os:timestamp(),
+  {Date, {Hours, Minutes, Seconds}} = calendar:now_to_local_time(Now),
+  now_str({Date, {Hours, Minutes, Seconds, Micro div 1000 rem 1000}}).
+
+now_str({{Y, M, D}, {H, Mi, S, Ms}}) ->
+  lists:flatten(io_lib:format(
+    "~p-~2..0p-~2..0p ~2..0p:~2..0p:~2..0p.~3..0p",
+    [Y, M, D, H, Mi, S, Ms]
+  )).
