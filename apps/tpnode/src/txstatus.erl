@@ -112,9 +112,16 @@ jsonfy({false,{error,{contract_error,[Ec,Ee]}}}) ->
      type=>Ec,
      details=>iolist_to_binary(io_lib:format("~p",[Ee]))};
 
-jsonfy({true,#{address:=Addr}}) ->
+jsonfy({true,#{address:=Addr, block:=Blk}}) ->
   #{ok=>true,
-    res=>naddress:encode(Addr)
+    res=>naddress:encode(Addr),
+    block=>hex:encode(Blk)
+   };
+
+jsonfy({true,#{block:=Blk}=Status}) ->
+  #{ok=>true,
+    res=>format_res(maps:delete(block,Status)),
+    block=>hex:encode(Blk)
    };
 
 jsonfy({true,Status}) ->
