@@ -667,6 +667,8 @@ prepare_fail(Fail) ->
     fun({TxID, A}) when is_atom(A) ->
         R=#{<<"reason">>=>atom_to_binary(A,utf8)},
         {TxID, R};
+       ({TxID, T}) when is_list(T) ->
+        {TxID, T};
        ({TxID, T}) when is_tuple(T) ->
         [E|L]=tuple_to_list(T),
         R=#{ <<"reason">>=> to_binary(E), <<"ext">>=>L },
@@ -681,6 +683,8 @@ binarizefail(Fail) ->
   lists:map(
     fun({TxID, T}) when is_binary(T) ->
         {TxID, T};
+       ({TxID, T}) when is_list(T) ->
+        {TxID, list_to_binary(T)};
        ({TxID, #{ver:=2}=Tx}) ->
         BTx=tx:pack(Tx),
         {TxID, BTx};

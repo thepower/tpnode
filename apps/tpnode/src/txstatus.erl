@@ -106,30 +106,31 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-jsonfy({false,{error,{contract_error,[Ec,Ee]}}}) ->
+jsonfy({IsOK, #{block:=Blk}=ExtData}) ->
+  R=jsonfy1({IsOK, ExtData}),
+  R#{ block=>hex:encode(Blk) };
+
+jsonfy({IsOK, ExtData}) ->
+  jsonfy1({IsOK, ExtData}).
+
+jsonfy1({false,{error,{contract_error,[Ec,Ee]}}}) ->
   #{ error=>true,
      res=><<"smartcontract">>,
      type=>Ec,
-     details=>iolist_to_binary(io_lib:format("~p",[Ee]))};
+     reason=>iolist_to_binary(io_lib:format("~p",[Ee]))};
 
-jsonfy({true,#{address:=Addr, block:=Blk}}) ->
+jsonfy1({true,#{address:=Addr}}) ->
   #{ok=>true,
     res=>naddress:encode(Addr),
-    block=>hex:encode(Blk)
+    address=>naddress:encode(Addr)
    };
 
-jsonfy({true,#{block:=Blk}=Status}) ->
-  #{ok=>true,
-    res=>format_res(maps:delete(block,Status)),
-    block=>hex:encode(Blk)
-   };
-
-jsonfy({true,Status}) ->
+jsonfy1({true,Status}) ->
   #{ok=>true,
     res=>format_res(Status)
    };
 
-jsonfy({false,Status}) ->
+jsonfy1({false,Status}) ->
   #{error=>true,
     res=>format_res(Status)
    }.

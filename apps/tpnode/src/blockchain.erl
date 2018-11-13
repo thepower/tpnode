@@ -458,13 +458,13 @@ handle_call({new_block, #{hash:=BlockHash,
   
                   SendSuccess=lists:map(
                     fun({TxID, #{register:=_, address:=Addr}}) ->
-                      {TxID, #{address=>Addr}};
+                        {TxID, #{address=>Addr, block=>BlockHash}};
                       ({TxID, #{kind:=register, ver:=2,
                         extdata:=#{<<"addr">>:=Addr}}}) ->
-                        {TxID, #{address=>Addr}};
+                        {TxID, #{address=>Addr, block=>BlockHash}};
                       ({TxID, _Any}) ->
                         lager:info("TX ~p",[_Any]),
-                        TxID
+                        {TxID, #{block=>BlockHash}}
                     end, Txs),
                   gen_server:cast(txqueue, {done, SendSuccess}),
                   case maps:get(failed, MBlk, []) of
