@@ -69,13 +69,14 @@ get_wallet_priv_key() ->
 
 make_transaction(From, To, Currency, Amount, Message) ->
     Seq = api_get_wallet_seq(From),
-    logger("seq for wallet ~p is ~p ~n", [From, Seq]),
+    TxSeq = max(Seq, os:system_time(millisecond)),
+    logger("seq for wallet ~p is ~p, use ~p for transaction ~n", [From, Seq, TxSeq]),
     Tx = tx:construct_tx(
         #{
             kind => generic,
             ver => 2,
             t => os:system_time(millisecond),
-            seq=> Seq + 1,
+            seq=> TxSeq,
             from => naddress:decode(From),
             to => naddress:decode(To),
             txext => #{
@@ -240,11 +241,25 @@ wallets_check_test(_Config) ->
   ok.
 
 
+mass_transaction_sender(From, To, Cur, Message, Count) ->
+  Sender =
+    fun(Amount) ->
+      TxId = make_transaction(From, To, Cur, Amount, Message),
+      logger("tx ~p -> ~p [~p]: ~p ~n", [From, To, Amount, TxId]),
+      TxId
+    end,
+  [
+    Sender(Amount) || Amount <- lists:seq(1, Count)
+  ].
+  
+  
+
 transaction_ping_pong_test(_Config) ->
     Wallet = <<"AA100000006710886518">>,  % endless here
     Wallet2 = <<"AA100000006710886608">>,
     Cur = <<"SK">>,
-    Amount = 10,
+    TransactionCount = 10,
+%%    Amount = 10,
   
     check_chain_settings(Wallet, Wallet2, Cur),
   
@@ -258,11 +273,20 @@ transaction_ping_pong_test(_Config) ->
 
     % send money from endless to Wallet2
     Message = <<"ping">>,
-    TxId = make_transaction(Wallet, Wallet2, Cur, Amount, Message),
-    logger("txid: ~p ~n", [TxId]),
-    {ok, Status, _} = api_get_tx_status(TxId),
-    ?assertMatch(#{<<"res">> := <<"ok">>}, Status),
-    logger("money send transaction status: ~p ~n", [Status]),
+    TxIds = mass_transaction_sender(Wallet, Wallet2, Cur, Message, TransactionCount),
+    StatusChecker =
+      fun(TxId) ->
+        logger("check status of transaction ~p ~n", [TxId]),
+        {ok, Status, _} = api_get_tx_status(TxId),
+        logger("got status [~p]: ~p ~n", [TxId, Status]),
+        ?assertMatch(#{<<"res">> := <<"ok">>}, Status)
+      end,
+%%    TxId = make_transaction(Wallet, Wallet2, Cur, Amount, Message),
+%%    logger("txid: ~p ~n", [TxId]),
+%%    {ok, Status, _} = api_get_tx_status(TxId),
+%%    ?assertMatch(#{<<"res">> := <<"ok">>}, Status),
+%%    logger("money send transaction status: ~p ~n", [Status]),
+    [ StatusChecker(CurTxId) || CurTxId <- TxIds ],
 
     timer:sleep(5000), % wait 5 sec for wallet data update across all network
     Height2 = api_get_height(),
@@ -270,7 +294,7 @@ transaction_ping_pong_test(_Config) ->
 
     Wallet2Data = api_get_wallet(Wallet2),
     logger("destination wallet after money sent: ~p ~n", [Wallet2Data]),
-    NewAmount = AmountPrev + Amount,
+    NewAmount = AmountPrev + lists:sum(lists:seq(1, TransactionCount)),
     logger("expected new amount: ~p ~n", [NewAmount]),
     ?assertMatch(
         #{<<"info">> := #{<<"amount">> := #{Cur := NewAmount}}},
@@ -280,10 +304,14 @@ transaction_ping_pong_test(_Config) ->
     
     % send money back
     Message2 = <<"pong">>,
-    TxId2 = make_transaction(Wallet2, Wallet, Cur, Amount, Message2),
-    {ok, Status2, _} = api_get_tx_status(TxId2),
-    ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
-    logger("money send back transaction status: ~p ~n", [Status2]),
+    logger("send money back"),
+    TxIds2 = mass_transaction_sender(Wallet2, Wallet, Cur, Message2, TransactionCount),
+    [ StatusChecker(CurTxId2) || CurTxId2 <- TxIds2 ],
+
+%%    TxId2 = make_transaction(Wallet2, Wallet, Cur, Amount, Message2),
+%%    {ok, Status2, _} = api_get_tx_status(TxId2),
+%%    ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
+%%    logger("money send back transaction status: ~p ~n", [Status2]),
 
     timer:sleep(5000), % wait 5 sec for wallet data update across all network
     Height3 = api_get_height(),
