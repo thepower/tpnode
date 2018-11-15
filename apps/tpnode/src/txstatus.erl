@@ -107,11 +107,13 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 jsonfy({IsOK, #{block:=Blk}=ExtData}) ->
-  R=jsonfy1({IsOK, ExtData}),
+  R=jsonfy1({IsOK, maps:without([block],ExtData)}),
   R#{ block=>hex:encode(Blk) };
 
 jsonfy({IsOK, ExtData}) ->
   jsonfy1({IsOK, ExtData}).
+
+
 
 jsonfy1({false,{error,{contract_error,[Ec,Ee]}}}) ->
   #{ error=>true,
@@ -126,9 +128,17 @@ jsonfy1({true,#{address:=Addr}}) ->
    };
 
 jsonfy1({true,Status}) ->
-  #{ok=>true,
-    res=>format_res(Status)
-   };
+  case maps:size(Status) of 
+    0 ->
+      #{ok=>true,
+        res=>ok
+       };
+    _ ->
+      #{ok=>true,
+        s=>maps:size(Status),
+        res=>format_res(Status)
+       }
+  end;
 
 jsonfy1({false,Status}) ->
   #{error=>true,
