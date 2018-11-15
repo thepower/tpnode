@@ -12,8 +12,13 @@
 %% <<128,1,64,0,7,0,0,3>>
 -define(TO_WALLET, <<"AA100000011744051536">>).
 
-
+% each transaction fee
 -define(TX_FEE, 100).
+
+% transaction count
+-define(TX_COUNT, 2000).
+
+
 
 all() ->
     [
@@ -273,8 +278,7 @@ transaction_ping_pong_test(_Config) ->
     Wallet = ?FROM_WALLET,  % endless here
     Wallet2 = ?TO_WALLET,
     Cur = <<"SK">>,
-    TransactionCount = 10,
-%%    Amount = 10,
+    TransactionCount = ?TX_COUNT,
   
     check_chain_settings(Wallet, Wallet2, Cur),
   
