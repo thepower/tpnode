@@ -4,6 +4,8 @@ BUILD_BRANCH=pre-alpha
 BUILD_SUFFIX=pre
 
 
+echo "**** build x86 version"
+
 ssh root@2001:bc8:4400:2500::24:d0d "cat > build.sh && sh build.sh" << EOF1
 cd blochchaintest
 . /opt/erl/activate
@@ -13,7 +15,6 @@ git checkout ${BUILD_BRANCH}
 git pull
 git describe
 rm -rf _build/rel/lib/tpnode
-rm -rf _build/default/lib/jsx/ebin/
 rm apps/tpnode/include/version.hrl
 export VERSION_SUFFIX=${BUILD_SUFFIX}
 escript bin/generate_headers
@@ -21,6 +22,8 @@ escript bin/generate_headers
 git checkout master
 EOF1
 
+
+echo "**** build arm64 version"
 
 ssh root@ascw.cleverfox.ru "cat > build.sh && sh build.sh" << EOF2
 cd blochchaintest
@@ -31,7 +34,6 @@ git checkout ${BUILD_BRANCH}
 git pull
 git describe
 rm -rf _build/rel/lib/tpnode
-rm -rf _build/default/lib/jsx/ebin/
 rm apps/tpnode/include/version.hrl
 export VERSION_SUFFIX=${BUILD_SUFFIX}
 escript bin/generate_headers

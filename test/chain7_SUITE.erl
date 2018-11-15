@@ -1,4 +1,4 @@
--module(chain4_SUITE).
+-module(chain7_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -6,6 +6,14 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+%% <<128,1,64,0,7,0,0,1>>
+-define(FROM_WALLET, <<"AA100000011744051368">>).
+
+%% <<128,1,64,0,7,0,0,3>>
+-define(TO_WALLET, <<"AA100000011744051536">>).
+
+
+-define(TX_FEE, 100).
 
 all() ->
     [
@@ -34,9 +42,9 @@ get_node(Name) ->
 
 % ------------------------------------------------------------------
 
-% base url for chain4 rpc
+% base url for chain rpc
 get_base_url() ->
-    DefaultUrl = "http://pwr.local:49841",
+    DefaultUrl = "http://pwr.local:43287",
     os:getenv("API_BASE_URL", DefaultUrl).
 
 % ------------------------------------------------------------------
@@ -67,7 +75,7 @@ get_wallet_priv_key() ->
 
 % --------------------------------------------------------------------------------
 
-make_transaction(From, To, Currency, Amount, Message) ->
+make_transaction(From, To, Currency, Amount, Fee, Message) ->
     Seq = api_get_wallet_seq(From),
     TxSeq = max(Seq, os:system_time(millisecond)),
     logger("seq for wallet ~p is ~p, use ~p for transaction ~n", [From, Seq, TxSeq]),
@@ -83,7 +91,8 @@ make_transaction(From, To, Currency, Amount, Message) ->
                 <<"message">> => Message
             },
             payload => [
-                #{amount => Amount,cur => Currency, purpose => transfer}
+                #{amount => Amount, cur => Currency, purpose => transfer},
+                #{amount => Fee, cur => <<"SK">>, purpose => srcfee}
             ]
         }
     ),
@@ -144,7 +153,7 @@ ensure_wallet_exist(Address, EndlessCur) ->
       WalletAddress = api_register_wallet(),
       ?assertEqual(Address, WalletAddress),
       
-      % TODO: then we have added endless checking, remove this code
+      % TODO: when we'll have added endless checking, remove this code
       case EndlessCur of
         false ->
           ok;
@@ -173,14 +182,19 @@ ensure_wallet_exist(Address, EndlessCur) ->
 
 
 
-check_chain_settings(Endless, Wallet2, Cur) ->
-  logger("wallets: ~p, ~p", [Endless, Wallet2]),
-  logger("cur: ~p", [Cur]),
+check_chain_settings(_Endless, _Wallet2, _Cur) ->
+  logger("wallets: ~p, ~p", [_Endless, _Wallet2]),
+  logger("cur: ~p", [_Cur]),
   
   % check wallets existing
-  ensure_wallet_exist(Endless, Cur),
-  ensure_wallet_exist(Wallet2),
+  % <<128,1,64,0,7,0,0,1>>
+  ensure_wallet_exist(<<"AA100000011744051368">>),
   
+  % <<128,1,64,0,7,0,0,2>>
+  ensure_wallet_exist(<<"AA100000011744051446">>),
+  
+  % <<128,1,64,0,7,0,0,3>>
+  ensure_wallet_exist(<<"AA100000011744051536">>),
   ok.
 
 
@@ -226,15 +240,15 @@ make_endless(Address, Cur) ->
           ]
         }
       ),
-      "../examples/test_chain4/c4n?.config"),
+      "../tpnode_extras/chain7/c7n?.config"),
   logger("PK ~p~n", [tx:verify(Patch)]),
   Patch.
 
 % --------------------------------------------------------------------------------
 
 wallets_check_test(_Config) ->
-  Wallet = <<"AA100000006710886518">>,  % endless here
-  Wallet2 = <<"AA100000006710886608">>,
+  Wallet = ?FROM_WALLET,  % endless here
+  Wallet2 = ?TO_WALLET,
   Cur = <<"SK">>,
   
   check_chain_settings(Wallet, Wallet2, Cur),
@@ -242,9 +256,10 @@ wallets_check_test(_Config) ->
 
 
 mass_transaction_sender(From, To, Cur, Message, Count) ->
+  Fee = ?TX_FEE,
   Sender =
     fun(Amount) ->
-      TxId = make_transaction(From, To, Cur, Amount, Message),
+      TxId = make_transaction(From, To, Cur, Amount, Fee, Message),
       logger("tx ~p -> ~p [~p]: ~p ~n", [From, To, Amount, TxId]),
       TxId
     end,
@@ -255,8 +270,8 @@ mass_transaction_sender(From, To, Cur, Message, Count) ->
   
 
 transaction_ping_pong_test(_Config) ->
-    Wallet = <<"AA100000006710886518">>,  % endless here
-    Wallet2 = <<"AA100000006710886608">>,
+    Wallet = ?FROM_WALLET,  % endless here
+    Wallet2 = ?TO_WALLET,
     Cur = <<"SK">>,
     TransactionCount = 10,
 %%    Amount = 10,
@@ -266,8 +281,16 @@ transaction_ping_pong_test(_Config) ->
     % get height
     Height = api_get_height(),
 
+    % get balances
+    Wallet1Data = api_get_wallet(Wallet),
+    Wallet2Data = api_get_wallet(Wallet2),
+  
+    logger("initial wallet state.~n"),
+    logger("source (endless) wallet data: ~p~n", [Wallet1Data]),
+    logger("destination wallet data: ~p~n", [Wallet2Data]),
+  
     % get balance of destination wallet
-    #{<<"info">> := #{<<"amount">> := AmountWallet2}} = api_get_wallet(Wallet2),
+    #{<<"info">> := #{<<"amount">> := AmountWallet2}} = Wallet2Data,
     AmountPrev = maps:get(Cur, AmountWallet2, 0),
     logger("destination wallet ammount: ~p ~n ~p ~n", [AmountPrev, AmountWallet2]),
 
@@ -281,24 +304,37 @@ transaction_ping_pong_test(_Config) ->
         logger("got status [~p]: ~p ~n", [TxId, Status]),
         ?assertMatch(#{<<"res">> := <<"ok">>}, Status)
       end,
-%%    TxId = make_transaction(Wallet, Wallet2, Cur, Amount, Message),
-%%    logger("txid: ~p ~n", [TxId]),
-%%    {ok, Status, _} = api_get_tx_status(TxId),
-%%    ?assertMatch(#{<<"res">> := <<"ok">>}, Status),
-%%    logger("money send transaction status: ~p ~n", [Status]),
-    [ StatusChecker(CurTxId) || CurTxId <- TxIds ],
 
+    logger("Statuses of money send transactions (ping).~n"),
+    [ StatusChecker(CurTxId) || CurTxId <- TxIds ],
+  
+    FeeAmount = ?TX_FEE * TransactionCount,
+    logger(
+      "Send additional money which will be used as transaction fee on sent money back stage.~n" ++
+      "Additional money for fee: ~p",
+      [FeeAmount]
+    ),
+
+    TxId = make_transaction(Wallet, Wallet2, Cur, FeeAmount, ?TX_FEE, <<"for fee">>),
+    logger("txid: ~p ~n", [TxId]),
+    {ok, Status, _} = api_get_tx_status(TxId),
+    ?assertMatch(#{<<"res">> := <<"ok">>}, Status),
+  
     timer:sleep(5000), % wait 5 sec for wallet data update across all network
     Height2 = api_get_height(),
     ?assertMatch(true, Height2>Height),
 
-    Wallet2Data = api_get_wallet(Wallet2),
-    logger("destination wallet after money sent: ~p ~n", [Wallet2Data]),
-    NewAmount = AmountPrev + lists:sum(lists:seq(1, TransactionCount)),
+    Wallet2Data1 = api_get_wallet(Wallet2),
+    logger("destination wallet after money sent: ~p ~n", [Wallet2Data1]),
+    TransferedMoney = lists:sum(lists:seq(1, TransactionCount)),
+    logger("transfered money: ~p ~n", [TransferedMoney]),
+    logger("fee amount: ~p ~n", [FeeAmount]),
+  
+    NewAmount = AmountPrev + TransferedMoney + FeeAmount,
     logger("expected new amount: ~p ~n", [NewAmount]),
     ?assertMatch(
         #{<<"info">> := #{<<"amount">> := #{Cur := NewAmount}}},
-        Wallet2Data
+        Wallet2Data1
     ),
 
     
@@ -312,13 +348,17 @@ transaction_ping_pong_test(_Config) ->
 %%    {ok, Status2, _} = api_get_tx_status(TxId2),
 %%    ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
 %%    logger("money send back transaction status: ~p ~n", [Status2]),
+  
+    logger("Statuses of money send transactions (pong).~n"),
 
     timer:sleep(5000), % wait 5 sec for wallet data update across all network
     Height3 = api_get_height(),
     ?assertMatch(true, Height3>Height2),
 
     Wallet2Data2 = api_get_wallet(Wallet2),
-    logger("destination wallet after money sent back: ~p ~n", [Wallet2Data2]),
+    logger("destination wallet after the money were sent back: ~p ~n", [Wallet2Data2]),
+    logger("expected amount (prev dest wallet amount): ~p~n", [AmountPrev]),
+  
     ?assertMatch(
         #{<<"info">> := #{<<"amount">> := #{Cur := AmountPrev}}},
         Wallet2Data2
