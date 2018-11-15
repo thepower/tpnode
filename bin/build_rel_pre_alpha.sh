@@ -13,6 +13,7 @@ git checkout ${BUILD_BRANCH}
 git pull
 git describe
 rm -rf _build/rel/lib/tpnode
+rm -rf _build/default/lib/jsx/ebin/
 rm apps/tpnode/include/version.hrl
 export VERSION_SUFFIX=${BUILD_SUFFIX}
 escript bin/generate_headers
@@ -30,6 +31,7 @@ git checkout ${BUILD_BRANCH}
 git pull
 git describe
 rm -rf _build/rel/lib/tpnode
+rm -rf _build/default/lib/jsx/ebin/
 rm apps/tpnode/include/version.hrl
 export VERSION_SUFFIX=${BUILD_SUFFIX}
 escript bin/generate_headers
