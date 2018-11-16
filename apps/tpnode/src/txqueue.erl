@@ -44,19 +44,22 @@ handle_call(_Request, _From, State) ->
 
 
 handle_cast({push, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
-  lager:debug("push ~p", [TxIds]),
+%%  lager:debug("push ~p", [TxIds]),
+  clog:log(txqueue_push, [ {ids, TxIds} ]),
   {noreply, State#{
     queue=>lists:foldl( fun queue:in/2, Queue, TxIds)
   }};
 
 
 handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
-  lager:debug("push head ~p", [TxIds]),
+%%  lager:debug("push head ~p", [TxIds]),
+  clog:log(txqueue_pushhead, [ {ids, TxIds} ]),
   {noreply, State#{
     queue=>lists:foldl( fun queue:in_r/2, Queue, TxIds)
   }};
 
 handle_cast({done, Txs}, #{inprocess:=InProc0} = State) ->
+  clog:log(txqueue_done, [ {result, true}, {ids, Txs} ]),
   InProc1 =
     lists:foldl(
       fun
@@ -77,6 +80,7 @@ handle_cast({done, Txs}, #{inprocess:=InProc0} = State) ->
     }};
 
 handle_cast({failed, Txs}, #{inprocess:=InProc0} = State) ->
+  clog:log(txqueue_done, [ {result, failed}, {ids, Txs} ]),
   InProc1 = lists:foldl(
     fun
       ({_, {overdue, Parent}}, Acc) ->

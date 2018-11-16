@@ -49,10 +49,10 @@ get_json(TxID) ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-  {ok, #{ q=>hashqueue:new(),
-          timer=>erlang:send_after(?CLEANUP, self(), timer)
-        }
-  }.
+  {ok, #{
+    q=>hashqueue:new(),
+    timer=>erlang:send_after(?CLEANUP, self(), timer)
+  }}.
 
 handle_call({get, TxID}, _From, #{q:=Q}=State) ->
   R=hashqueue:get(TxID, Q),
@@ -61,23 +61,29 @@ handle_call({get, TxID}, _From, #{q:=Q}=State) ->
 handle_call(_Request, _From, State) ->
     {reply, unknown_call, State}.
 
-handle_cast({done, Result, Txs}, #{q:=Q}=State) when is_list(Txs)->
+handle_cast({done, Result, Txs}, #{q:=Q} = State) when is_list(Txs) ->
   %{done,false,[{<<"1524179A464B33A2-3NBx74EdmT2PyYexBSrg7xcht998-03A2">>,{contract_error, [error,{badmatch,#{<<"fee">> => 30000000,<<"feecur">> => <<"FTT">>,<<"message">> => <<"To AA100000001677722185 with love">>}}]}}]}
   %{done,true,[<<"AA1000000016777220390000000000000009xQzCH+qGbhzKlrFxoZOLWN5DhVE=">>]}
-  Timeout=erlang:system_time(seconds)+?TIMEOUT,
-  Q1=lists:foldl(
-       fun({TxID,Res},QAcc) ->
-           hashqueue:add(TxID, Timeout, {Result, Res}, QAcc);
-          (TxID,QAcc) ->
-           hashqueue:add(TxID, Timeout,
-                         {Result,
-                         if Result ->
-                              ok;
-                            true -> error
-                         end}, QAcc)
-       end, Q, Txs),
+  clog:log(txstatus_done, [{result, Result}, {ids, Txs}]),
+  Timeout = erlang:system_time(seconds) + ?TIMEOUT,
+  Q1 = lists:foldl(
+    fun
+      ({TxID, Res}, QAcc) ->
+        hashqueue:add(TxID, Timeout, {Result, Res}, QAcc);
+      (TxID, QAcc) ->
+        hashqueue:add(
+          TxID,
+          Timeout,
+          {Result,
+            if Result ->
+              ok;
+              true -> error
+            end
+          },
+          QAcc)
+    end, Q, Txs),
   {noreply,
-   State#{q=>Q1}
+    State#{q=>Q1}
   };
 
 
@@ -85,13 +91,14 @@ handle_cast(_Msg, State) ->
   lager:notice("Unhandler cast ~p",[_Msg]),
   {noreply, State}.
 
-handle_info(timer, #{timer:=Tmr}=State) ->
+handle_info(timer, #{timer:=Tmr} = State) ->
   catch erlang:cancel_timer(Tmr),
-  handle_info({cleanup,
-               erlang:system_time(seconds)},
-              State#{
-                timer=>erlang:send_after(?CLEANUP, self(), timer)
-               });
+  handle_info(
+    {cleanup,
+      erlang:system_time(seconds)},
+    State#{
+      timer=>erlang:send_after(?CLEANUP, self(), timer)
+    });
 
 handle_info({cleanup, Time}, #{q:=Queue}=State) ->
   Q1=cleanup(Queue,Time),
@@ -106,6 +113,8 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+%% ------------------------------------------------------------------
+
 jsonfy({IsOK, #{block:=Blk}=ExtData}) ->
   R=jsonfy1({IsOK, maps:without([block],ExtData)}),
   R#{ block=>hex:encode(Blk) };
@@ -113,7 +122,7 @@ jsonfy({IsOK, #{block:=Blk}=ExtData}) ->
 jsonfy({IsOK, ExtData}) ->
   jsonfy1({IsOK, ExtData}).
 
-
+%% ------------------------------------------------------------------
 
 jsonfy1({false,{error,{contract_error,[Ec,Ee]}}}) ->
   #{ error=>true,
@@ -145,6 +154,9 @@ jsonfy1({false,Status}) ->
     res=>format_res(Status)
    }.
 
+
+%% ------------------------------------------------------------------
+
 format_res(Atom) when is_atom(Atom) -> Atom;
 
 format_res(#{<<"reason">> := R}) when is_atom(R); is_binary(R) ->
@@ -173,6 +185,8 @@ cleanup(Queue, Now) ->
   end.
 
 
+%% ------------------------------------------------------------------
+%% ------------------------------------------------------------------
 
 -ifdef(TEST).
 txstatus_test() ->
