@@ -473,15 +473,19 @@ handle_call({new_block, #{hash:=BlockHash,
                         lager:info("TX ~p",[_Any]),
                         {TxID, #{block=>BlockHash}}
                     end, Txs),
+  
+                  clog:log(blockchain_success, [{result, SendSuccess}, {failed, nope}]),
                   gen_server:cast(txqueue, {done, SendSuccess}),
                   case maps:get(failed, MBlk, []) of
                     [] -> ok;
                     Failed ->
                       %there was failed tx. Block empty?
+                      clog:log(blockchain_success, [{result, Failed}, {failed, yep}]),
                       gen_server:cast(txqueue, {failed, Failed})
                   end,
 
                   Settings=maps:get(settings, MBlk, []),
+                  clog:log(blockchain_success, [{result, proplists:get_keys(Settings)}, {failed, nope}]),
                   gen_server:cast(txqueue, {done, proplists:get_keys(Settings)}),
                   
                   T3=erlang:system_time(),

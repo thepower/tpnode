@@ -2,5 +2,7 @@
 {txqueue_pushhead, ["pushed to head ids ", ids]}.
 {txqueue_done, ["txqueue got done, result=", result, ", ids: ", ids]}.
 {txstatus_done, ["txstatus got done, result=", result, ", ids: ", ids ]}.
+{blockchain_success, ["blockchain sent done, failed=", failed, ", result=", result]}.
+
 
 
