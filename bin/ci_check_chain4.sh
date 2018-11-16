@@ -2,6 +2,8 @@
 
 mkdir -p _build/test/log_chain4
 
+export API_BASE_URL="http://pwr.local:49841"
+
 ./rebar3 ct --suite=chain4_SUITE \
          --logdir _build/test/log_chain4
 export rc=$?
