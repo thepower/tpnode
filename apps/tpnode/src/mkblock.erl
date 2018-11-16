@@ -338,11 +338,20 @@ handle_info(process,
     undefined ->
       ok;
     {ok, true} ->
-      file:write_file(
-        "log/"++ utils:make_list(NodeName) ++ "_block_" ++
-            integer_to_list(PHeight) ++ "_" ++ integer_to_list(T2),
-        io_lib:format("~p~n~p.~n ~p.~n ~p.~n~n", [PHash, PreTXL, Failed, Block])
-      );
+      clog:log(mkblock_debug,
+               [
+                {node_name,NodeName},
+                {height, PHeight},
+                {phash, PHash},
+                {pretxl, PreTXL},
+                {fail, Failed},
+                {block, Block}
+               ]);
+      %file:write_file(
+      %  "log/"++ utils:make_list(NodeName) ++ "_block_" ++
+      %      integer_to_list(PHeight) ++ "_" ++ integer_to_list(T2),
+      %  io_lib:format("~p~n~p.~n ~p.~n ~p.~n~n", [PHash, PreTXL, Failed, Block])
+      %);
     Any ->
       lager:notice("What does mkblock_debug=~p means?",[Any])
   end,

@@ -403,6 +403,13 @@ handle_call({new_block, #{hash:=BlockHash,
              %enough signs. Make block.
              NewPHash=maps:get(parent, Header),
              if IsTemp ->
+                  clog:log(accept_block,
+                              [
+                               {temp, maps:get(temporary,Blk,false)},
+                               {hash, BlockHash},
+                               {sig, SigLen},
+                               {height,maps:get(height, maps:get(header, Blk))}
+                              ]),
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
@@ -478,6 +485,12 @@ handle_call({new_block, #{hash:=BlockHash,
                   gen_server:cast(txqueue, {done, proplists:get_keys(Settings)}),
                   
                   T3=erlang:system_time(),
+                  clog:log(accept_block,
+                              [
+                               {hash, BlockHash},
+                               {sig, SigLen},
+                               {height,maps:get(height, maps:get(header, Blk))}
+                              ]),
                   lager:info("enough confirmations ~w/~w. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",
                              [
                               SigLen, MinSig,
