@@ -64,7 +64,7 @@ handle_call(_Request, _From, State) ->
 handle_cast({done, Result, Txs}, #{q:=Q} = State) when is_list(Txs) ->
   %{done,false,[{<<"1524179A464B33A2-3NBx74EdmT2PyYexBSrg7xcht998-03A2">>,{contract_error, [error,{badmatch,#{<<"fee">> => 30000000,<<"feecur">> => <<"FTT">>,<<"message">> => <<"To AA100000001677722185 with love">>}}]}}]}
   %{done,true,[<<"AA1000000016777220390000000000000009xQzCH+qGbhzKlrFxoZOLWN5DhVE=">>]}
-  clog:log(txstatus_done, [{result, Result}, {ids, Txs}]),
+  stout:log(txstatus_done, [{result, Result}, {ids, Txs}]),
   Timeout = erlang:system_time(seconds) + ?TIMEOUT,
   Q1 = lists:foldl(
     fun

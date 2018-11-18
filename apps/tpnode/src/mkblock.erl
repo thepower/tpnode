@@ -338,7 +338,7 @@ handle_info(process,
     undefined ->
       ok;
     {ok, true} ->
-      clog:log(mkblock_debug,
+      stout:log(mkblock_debug,
                [
                 {node_name,NodeName},
                 {height, PHeight},

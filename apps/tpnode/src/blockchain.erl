@@ -403,7 +403,7 @@ handle_call({new_block, #{hash:=BlockHash,
              %enough signs. Make block.
              NewPHash=maps:get(parent, Header),
              if IsTemp ->
-                  clog:log(accept_block,
+                  stout:log(accept_block,
                               [
                                {temp, maps:get(temporary,Blk,false)},
                                {hash, BlockHash},
@@ -474,22 +474,22 @@ handle_call({new_block, #{hash:=BlockHash,
                         {TxID, #{block=>BlockHash}}
                     end, Txs),
   
-                  clog:log(blockchain_success, [{result, SendSuccess}, {failed, nope}]),
+                  stout:log(blockchain_success, [{result, SendSuccess}, {failed, nope}]),
                   gen_server:cast(txqueue, {done, SendSuccess}),
                   case maps:get(failed, MBlk, []) of
                     [] -> ok;
                     Failed ->
                       %there was failed tx. Block empty?
-                      clog:log(blockchain_success, [{result, Failed}, {failed, yep}]),
+                      stout:log(blockchain_success, [{result, Failed}, {failed, yep}]),
                       gen_server:cast(txqueue, {failed, Failed})
                   end,
 
                   Settings=maps:get(settings, MBlk, []),
-                  clog:log(blockchain_success, [{result, proplists:get_keys(Settings)}, {failed, nope}]),
+                  stout:log(blockchain_success, [{result, proplists:get_keys(Settings)}, {failed, nope}]),
                   gen_server:cast(txqueue, {done, proplists:get_keys(Settings)}),
                   
                   T3=erlang:system_time(),
-                  clog:log(accept_block,
+                  stout:log(accept_block,
                               [
                                {hash, BlockHash},
                                {sig, SigLen},

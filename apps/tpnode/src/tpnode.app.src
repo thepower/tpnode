@@ -18,7 +18,7 @@
       tables,
       tpic,
       letsencrypt,
-      clog
+      stout
     ]},
     {mod, {tpnode, []}},
     {env, []}
