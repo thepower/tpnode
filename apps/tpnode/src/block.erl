@@ -164,7 +164,7 @@ unpack(Block) when is_binary(Block) ->
                      (txs, TXs) ->
                      lists:map(
                        fun([TxID, Tx]) ->
-                           {TxID, tx:unpack(Tx)}
+                           {TxID, tx:unpack(Tx,[trusted])}
                        end, TXs);
                      (extdata, ED) ->
                      lists:map(
@@ -180,7 +180,7 @@ unpack(Block) when is_binary(Block) ->
                      (settings, Txs) ->
                      lists:map(
                        fun({TxID, T}) ->
-                           {TxID, tx:unpack(T)}
+                           {TxID, tx:unpack(T,[trusted])}
                        end, maps:to_list(Txs)
                       );
                      (sign, Sigs) ->
@@ -710,7 +710,7 @@ extract(<<>>) ->
 
 extract(<<TxIDLen:8/integer, TxLen:16/integer, Body/binary>>) ->
   <<TxID:TxIDLen/binary, Tx:TxLen/binary, Rest/binary>> = Body,
-  [{TxID, tx:unpack(Tx)}|extract(Rest)].
+  [{TxID, tx:unpack(Tx,[trusted])}|extract(Rest)].
 
 
 bals2bin(NewBal) ->
