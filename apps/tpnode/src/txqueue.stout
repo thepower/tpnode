@@ -1,6 +1,9 @@
 {txqueue_push, ["pushed ids ", ids]}.
 {txqueue_pushhead, ["pushed to head ids ", ids]}.
 {txqueue_done, ["txqueue got done, result=", result, ", ids: ", ids]}.
+{txqueue_prepare, ["txqueue prepare transactions, ids: ", ids]}.
+{txqueue_xsig, ["txqueue xsig sent, ids: ", ids]}.
+{txqueue_mkblock, ["txqueue sent to mkblok, lbh=", lbh, ", ids: ", ids]}.
 {txstatus_done, ["txstatus got done, result=", result, ", ids: ", ids ]}.
 {blockchain_success, ["blockchain sent done, failed=", failed, ", result=", result]}.
 

@@ -109,6 +109,8 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
   {Queue1, TxIds} =
     txpool:pullx({txpool:get_max_pop_tx(), txpool:get_max_tx_size()}, Queue, []),
   
+  stout:log(txqueue_prepare, [ {ids, TxIds} ]),
+  
   PK =
     case maps:get(pubkey, State, undefined) of
       undefined -> nodekey:get_pub();
@@ -123,7 +125,8 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
       }),
     MResX = msgpack:pack(PreSig),
     gen_server:cast(mkblock, {tpic, PK, MResX}),
-    tpic:cast(tpic, <<"mkblock">>, MResX)
+    tpic:cast(tpic, <<"mkblock">>, MResX),
+    stout:log(txqueue_xsig, [ {ids, TxIds} ])
   catch
     Ec:Ee ->
       utils:print_error("Can't send xsig", Ec, Ee, erlang:get_stacktrace())
@@ -147,7 +150,8 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
       }
     ),
     gen_server:cast(mkblock, {tpic, PK, MRes}),
-    tpic:cast(tpic, <<"mkblock">>, MRes)
+    tpic:cast(tpic, <<"mkblock">>, MRes),
+    stout:log(txqueue_mkblock, [{ids, TxIds}, {lbh, LBH}])
   catch
     Ec1:Ee1 ->
       utils:print_error("Can't encode", Ec1, Ee1, erlang:get_stacktrace())
