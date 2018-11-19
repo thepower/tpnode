@@ -104,7 +104,7 @@ prepack(Block) ->
        (txs, Txs) ->
         lists:map(
           fun({TxID, T}) ->
-              [TxID, tx:pack(T)]
+              [TxID, tx:pack(T,[withext])]
           end, Txs
          );
        (_, V) ->
@@ -382,7 +382,7 @@ verify(#{ header:=#{parent:=Parent,
                           bin2hex:dbin2hex(HTxRoot)
                          ]);
           SetRoot =/= HSetRoot ->
-            lager:notice("Set root mismatch",
+            lager:notice("Set root mismatch ~s vs ~s",
                          [
                           bin2hex:dbin2hex(SetRoot),
                           bin2hex:dbin2hex(HSetRoot)
@@ -686,7 +686,7 @@ binarizefail(Fail) ->
        ({TxID, T}) when is_list(T) ->
         {TxID, list_to_binary(T)};
        ({TxID, #{ver:=2}=Tx}) ->
-        BTx=tx:pack(Tx),
+        BTx=tx:pack(Tx,[withext]),
         {TxID, BTx};
        ({TxID, #{<<"reason">>:=_}=Any}) ->
         %io:format("Binarize ~p~n",[Any]),
@@ -699,7 +699,7 @@ binarizetx([]) ->
   [];
 
 binarizetx([{TxID, Tx}|Rest]) ->
-  BTx=tx:pack(Tx),
+  BTx=tx:pack(Tx,[withext]),
   %TxIDLen=size(TxID),
   %TxLen=size(BTx),
   %<<TxIDLen:8/integer, TxLen:16/integer, TxID/binary, BTx/binary, (binarizetx(Rest))/binary>>.
