@@ -45,7 +45,7 @@
  {<<"shotgun">>,{pkg,<<"shotgun">>,<<"0.3.0">>},1},
  {<<"stout">>,
   {git,"https://github.com/cleverfox/stout.git",
-       {ref,"0e766dd977b130ef2205e4d61d5922c0597516c9"}},
+       {ref,"b88ad8e25b64cbde691c15417f1d48d23bdd99a2"}},
   0},
  {<<"sync">>,
   {git,"https://github.com/rustyio/sync.git",
