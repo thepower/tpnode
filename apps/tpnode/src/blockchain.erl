@@ -13,6 +13,7 @@
          last/0, last/1, chain/0,
          backup/1, restore/1,
          chainstate/0,
+         blkid/1,
          rel/2]).
 
 %% ------------------------------------------------------------------
@@ -1260,7 +1261,7 @@ apply_block_conf(Block, Conf0) ->
     end, Conf0, S).
 
 blkid(<<X:8/binary, _/binary>>) ->
-    bin2hex:dbin2hex(X).
+    binary_to_list(bin2hex:dbin2hex(X)).
 
 rewind(LDB, BlkNo) ->
   CurBlk=ldb:read_key(LDB, <<"lastblock">>, <<0, 0, 0, 0, 0, 0, 0, 0>>),

@@ -73,7 +73,7 @@
   0},
  {<<"wanode">>,
   {git,"git@git.thepower.io:dss/wanode.git",
-       {ref,"63c67f1b86eadd9b330e5df5e366a5903de07c4e"}},
+       {ref,"c27a18a30fe9db02eead24d320be5aed4f41865c"}},
   0},
  {<<"yamerl">>,{pkg,<<"yamerl">>,<<"0.4.0">>},1}]}.
 [

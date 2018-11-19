@@ -1,5 +1,6 @@
 -module(blockvote).
 
+-compile([{parse_transform, stout_pt}]).
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -76,9 +77,10 @@ handle_cast({tpic, _From, #{
     lager:info("BV sig from other chain"),
     {noreply, State};
 
-handle_cast({signature, BlockHash, _Sigs}=WholeSig,
+handle_cast({signature, BlockHash, Sigs}=WholeSig,
             #{lastblock:=#{hash:=LBH}}=State) when LBH==BlockHash->
     lager:info("BV Got extra sig for ~s ~p", [blkid(BlockHash), WholeSig]),
+    stout:log(bv_gotsig, [{hash, BlockHash}, {sig, Sigs}, {extra, true}]),
     gen_server:cast(blockchain, WholeSig),
     {noreply, State};
 
@@ -88,6 +90,7 @@ handle_cast({signature, BlockHash, Sigs}, #{candidatesig:=Candidatesig}=State) -
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
     %lager:debug("BV S CS2 ~p", [maps:keys(CSig)]),
+    stout:log(bv_gotsig, [{hash, BlockHash}, {sig, Sigs}, {extra, false}]),
     State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig) },
     {noreply, is_block_ready(BlockHash, State2)};
 
@@ -97,9 +100,10 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID},
                lastblock:=#{hash:=LBlockHash}=LastBlock
              }=State) ->
 
+    Height=maps:get(height, maps:get(header, Blk)),
     lager:info("BV New block (~p/~p) arrived (~s/~s)",
                [
-                maps:get(height, maps:get(header, Blk)),
+                Height,
                 maps:get(height, maps:get(header, LastBlock)),
                 blkid(BlockHash),
                 blkid(LBlockHash)
@@ -107,6 +111,7 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID},
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
     %lager:debug("BV N CS2 ~p", [maps:keys(CSig)]),
+    stout:log(bv_gotblock, [{hash, BlockHash}, {sig, Sigs}, {height, Height}]),
     State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig),
                    candidates => maps:put(BlockHash, Blk, Candidates)
                  },
@@ -222,11 +227,17 @@ is_block_ready(BlockHash, State) ->
 				Blk=Blk0#{sign=>Success},
 				%enough signs. use block
 				T3=erlang:system_time(),
+        Height=maps:get(height, maps:get(header, Blk)),
+        stout:log(bv_ready,
+                  [ {hash, BlockHash},
+                    {height, Height},
+                    {header, maps:get(header, Blk)}
+                  ]),
 				lager:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
-						   [blkid(BlockHash),
-							maps:get(height, maps:get(header, Blk)),
-							(T3-T0)/1000000
-						   ]),
+                   [blkid(BlockHash),
+                    Height,
+                    (T3-T0)/1000000
+                   ]),
 
 				gen_server:cast(blockchain, {new_block, Blk, self()}),
 				State#{

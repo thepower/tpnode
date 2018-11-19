@@ -363,6 +363,13 @@ handle_info(process,
   SignedBlock=sign(Block, ED),
   #{header:=#{height:=NewH}}=Block,
   %cast whole block to my local blockvote
+  stout:log(mkblock_done,
+            [
+             {node_name,NodeName},
+             {height, PHeight},
+             {block_hdr, maps:with([hash,header,sign,temporary], SignedBlock)}
+            ]),
+
   gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
 
   case application:get_env(tpnode, dumpblocks) of
@@ -391,9 +398,14 @@ handle_info(process,
   tpic:cast(tpic, <<"blockvote">>, HBlk),
   if EmitTXs==[] -> ok;
      true ->
-       lager:info("Inject TXs ~p", [
-                                    gen_server:call(txpool, {push_etx, EmitTXs})
-                                   ])
+       Push=gen_server:call(txpool, {push_etx, EmitTXs}),
+       stout:log(push_etx,
+                 [
+                  {node_name,NodeName},
+                  {txs, EmitTXs},
+                  {res, Push}
+                 ]),
+       lager:info("Inject TXs ~p", [Push])
   end,
   {noreply, State#{preptxl=>[], parent=>undefined,
                    roundparent=>{PHeight, PHash},

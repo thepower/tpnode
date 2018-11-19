@@ -5,3 +5,9 @@
   ["Block created at ",node_name, " H= ",height, " parent= ",phash, " pretx= ",pretxl, " failed= ",fail, " block= ",block],
   []
 }.
+
+{mkblock_done, [ "Built block h=", height, ": ", block_hdr ]}.
+
+{bv_gotsig, ["Got sig for block ",{{blockchain,blkid},hash}," ",sig," ",extra] }.
+{bv_gotblock, ["Got block ",{{blockchain,blkid},hash}," h= ",height," ",sig] }.
+{bv_ready, ["Ready block ",{{blockchain,blkid},hash}," h=",height]}.
