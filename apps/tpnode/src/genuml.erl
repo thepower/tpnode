@@ -4,7 +4,7 @@
 
 bv(BLog) ->
   stout_reader:fold(
-    fun(T,bv_gotblock, PL, Acc) ->
+    fun(T,bv_gotblock, PL, _Acc) ->
         Hash=proplists:get_value(hash, PL, <<>>),
         H=proplists:get_value(height, PL, -1),
         Sig=[
@@ -15,7 +15,7 @@ bv(BLog) ->
         io:format("~w ~w ~s ~p~n",[T,H,hex:encode(Hash), Sig]);
 
 
-       (T,bv_gotsig, PL, Acc) ->
+       (T,bv_gotsig, PL, _Acc) ->
         Hash=proplists:get_value(hash, PL, <<>>),
         Sig=[
              nodekey:node_id(
