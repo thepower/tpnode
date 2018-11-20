@@ -615,6 +615,7 @@ try_process([{TxID, #{ver:=2,
     NewF=bal:put(pubkey, PubKey, bal:new()),
     NewAddresses=maps:put(NewBAddr, NewF, Addresses),
     NewTx=maps:remove(inv,tx:set_ext(<<"addr">>,NewBAddr,Tx)),
+    lager:info("try process register tx [~p]: ~p", [NewBAddr, NewTx]),
     try_process(Rest, SS1, NewAddresses, GetFun,
                 Acc#{success=> [{TxID, NewTx}|Success],
                      settings=>[AAlloc|lists:keydelete(<<"aalloc">>, 1, Settings)]

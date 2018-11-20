@@ -1,4 +1,4 @@
--module(chain4_SUITE).
+-module(chain7_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -6,17 +6,18 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
-%% <<128,1,64,0,4,0,0,1>>
--define(FROM_WALLET, <<"AA100000006710886518">>).
+%% <<128,1,64,0,7,0,0,1>>
+-define(FROM_WALLET, <<"AA100000011744051368">>).
 
-%% <<128,1,64,0,4,0,0,2>>
--define(TO_WALLET, <<"AA100000006710886608">>).
+%% <<128,1,64,0,7,0,0,3>>
+-define(TO_WALLET, <<"AA100000011744051536">>).
 
 % each transaction fee
--define(TX_FEE, 0).
+-define(TX_FEE, 100).
 
 % transaction count
 -define(TX_COUNT, 2000).
+
 
 
 all() ->
@@ -48,7 +49,7 @@ get_node(Name) ->
 
 % base url for chain rpc
 get_base_url() ->
-    DefaultUrl = "http://pwr.local:49741",
+    DefaultUrl = "http://pwr.local:43287",
     os:getenv("API_BASE_URL", DefaultUrl).
 
 % ------------------------------------------------------------------
@@ -79,7 +80,7 @@ get_wallet_priv_key() ->
 
 % --------------------------------------------------------------------------------
 
-make_transaction(From, To, Currency, Amount, _Fee, Message) ->
+make_transaction(From, To, Currency, Amount, Fee, Message) ->
     Seq = api_get_wallet_seq(From),
     TxSeq = max(Seq, os:system_time(millisecond)),
     logger("seq for wallet ~p is ~p, use ~p for transaction ~n", [From, Seq, TxSeq]),
@@ -95,8 +96,8 @@ make_transaction(From, To, Currency, Amount, _Fee, Message) ->
                 <<"message">> => Message
             },
             payload => [
-                #{amount => Amount, cur => Currency, purpose => transfer}
-%%                #{amount => Fee, cur => <<"SK">>, purpose => srcfee}
+                #{amount => Amount, cur => Currency, purpose => transfer},
+                #{amount => Fee, cur => <<"SK">>, purpose => srcfee}
             ]
         }
     ),
@@ -154,7 +155,6 @@ ensure_wallet_exist(Address, EndlessCur) ->
   % register new wallet in case of error
   case WalletData of
     undefined ->
-      logger("register new wallet, base_url = ~p", [get_base_url()]),
       WalletAddress = api_register_wallet(),
       ?assertEqual(Address, WalletAddress),
       
@@ -192,8 +192,14 @@ check_chain_settings(_Endless, _Wallet2, _Cur) ->
   logger("cur: ~p", [_Cur]),
   
   % check wallets existing
-  ensure_wallet_exist(?FROM_WALLET),
-  ensure_wallet_exist(?TO_WALLET),
+  % <<128,1,64,0,7,0,0,1>>
+  ensure_wallet_exist(<<"AA100000011744051368">>),
+  
+  % <<128,1,64,0,7,0,0,2>>
+  ensure_wallet_exist(<<"AA100000011744051446">>),
+  
+  % <<128,1,64,0,7,0,0,3>>
+  ensure_wallet_exist(<<"AA100000011744051536">>),
   ok.
 
 
@@ -239,7 +245,7 @@ make_endless(Address, Cur) ->
           ]
         }
       ),
-      "./examples/test_chain4/c4n?.conf"),
+      "../tpnode_extras/chain7/c7n?.config"),
   logger("PK ~p~n", [tx:verify(Patch)]),
   Patch.
 

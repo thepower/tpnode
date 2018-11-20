@@ -63,10 +63,11 @@ handle_cast(settings, State) ->
   {noreply, change_settings_handler(State)};
 
 handle_cast({discovery, Announce, AnnounceBin}, #{subs:=Subs} = State) ->
-  lager:notice(
-    "xchain client got announce from discovery. " ++
-    "Relay it to all active xchain connections."),
+%%  lager:debug(
+%%    "xchain client got announce from discovery. " ++
+%%    "Relay it to all active xchain connections."),
   try
+    stout:log(xchain_c_discovery, [{announce, Announce}]),
     relay_discovery(Announce, AnnounceBin, Subs)
   catch
     Err:Reason ->

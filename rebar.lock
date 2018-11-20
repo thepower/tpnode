@@ -43,6 +43,10 @@
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.4.0">>},1},
  {<<"rocksdb">>,{pkg,<<"rocksdb">>,<<"0.12.0">>},0},
  {<<"shotgun">>,{pkg,<<"shotgun">>,<<"0.3.0">>},1},
+ {<<"stout">>,
+  {git,"https://github.com/cleverfox/stout.git",
+       {ref,"b88ad8e25b64cbde691c15417f1d48d23bdd99a2"}},
+  0},
  {<<"sync">>,
   {git,"https://github.com/rustyio/sync.git",
        {ref,"44a1e0d0c3eab0544010bc973ee46b1f6d602ccf"}},
@@ -73,7 +77,7 @@
   0},
  {<<"wanode">>,
   {git,"git@git.thepower.io:dss/wanode.git",
-       {ref,"63c67f1b86eadd9b330e5df5e366a5903de07c4e"}},
+       {ref,"c27a18a30fe9db02eead24d320be5aed4f41865c"}},
   0},
  {<<"yamerl">>,{pkg,<<"yamerl">>,<<"0.4.0">>},1}]}.
 [

@@ -1,7 +1,7 @@
 -module(tx).
 
 -export([del_ext/2, get_ext/2, set_ext/3]).
--export([sign/2, verify/1, verify/2, pack/1, unpack/1]).
+-export([sign/2, verify/1, verify/2, pack/1, pack/2, unpack/1, unpack/2]).
 -export([txlist_hash/1, rate/2, mergesig/2]).
 -export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1]).
 -export([construct_tx/1,construct_tx/2, get_payload/2, get_payloads/2]).
@@ -525,9 +525,12 @@ verify(Struct, Opts) ->
 
 -spec pack(tx()) -> binary().
 
+pack(Tx) ->
+  pack(Tx, []).
+
 pack(#{ ver:=2,
         body:=Bin,
-        sig:=PS}=Tx) ->
+        sig:=PS}=Tx, Opts) ->
   T=#{"ver"=>2,
       "body"=>Bin,
       "sig"=>PS
@@ -538,22 +541,33 @@ pack(#{ ver:=2,
        _ ->
          T
      end,
-  msgpack:pack(T1,[
+  T2=case lists:member(withext, Opts) andalso maps:is_key(extdata, Tx) of
+       false -> T1;
+       true ->
+         T1#{
+           "extdata" => maps:get(extdata,Tx)
+          }
+     end,
+  msgpack:pack(T2,[
                   {spec,new},
                   {pack_str, from_list}
                  ]);
 
-pack(Any) ->
+pack(Any, _) ->
   tx1:pack(Any).
 
 unpack(Tx) when is_map(Tx) ->
   Tx;
 
 unpack(BinTx) when is_binary(BinTx) ->
+  unpack(BinTx,[]).
+
+unpack(BinTx,Opts) when is_binary(BinTx), is_list(Opts) ->
   {ok, Tx0} = msgpack:unpack(BinTx, [{known_atoms,
                                       [type, sig, tx, patch, register,
                                        register, address, block ] },
                                      {unpack_str, as_binary}] ),
+  Trusted=lists:member(trusted, Opts),
   case Tx0 of
     #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv} ->
       unpack_body( #{
@@ -563,11 +577,7 @@ unpack(BinTx) when is_binary(BinTx) ->
         inv=>Inv
        });
     #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody} ->
-      unpack_body( #{
-        ver=>2,
-        sig=>Sign,
-        body=>TxBody
-       });
+      unpack_generic(Trusted, Tx0, TxBody, Sign);
     #{<<"ver">>:=2, <<"sig">>:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv} ->
       unpack_body( #{
         ver=>2,
@@ -576,14 +586,33 @@ unpack(BinTx) when is_binary(BinTx) ->
         inv=>Inv
        });
     #{<<"ver">>:=2, <<"sig">>:=Sign, <<"body">>:=TxBody} ->
-      unpack_body( #{
-        ver=>2,
-        sig=>Sign,
-        body=>TxBody
-       });
+      unpack_generic(Trusted, Tx0, TxBody, Sign);
     _ ->
       tx1:unpack_mp(Tx0)
   end.
+
+unpack_generic(Trusted, Tx0, TxBody, Sign) ->
+  Ext=if Trusted ->
+           case maps:find(<<"extdata">>,Tx0) of
+             {ok, Val} ->
+               Val;
+             _ -> false
+           end;
+         true -> false
+      end,
+  unpack_body(
+    if Ext == false ->
+         #{ ver=>2,
+            sig=>Sign,
+            body=>TxBody
+          };
+       true ->
+         #{ extdata => Ext,
+            ver=>2,
+            sig=>Sign,
+            body=>TxBody
+          }
+    end).
 
 txlist_hash(List) ->
   crypto:hash(sha256,

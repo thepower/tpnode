@@ -8,18 +8,17 @@
       stdlib,
       lager,
       tinymq,
-      lager,
       jsx,
       cowboy,
       rocksdb,
-      tinymq,
       gb_merkle_trees,
       msgpack,
       cowdb,
       mkmap,
       tables,
       tpic,
-      letsencrypt
+      letsencrypt,
+      stout
     ]},
     {mod, {tpnode, []}},
     {env, []}

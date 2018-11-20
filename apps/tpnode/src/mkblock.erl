@@ -338,11 +338,20 @@ handle_info(process,
     undefined ->
       ok;
     {ok, true} ->
-      file:write_file(
-        "log/"++ utils:make_list(NodeName) ++ "_block_" ++
-            integer_to_list(PHeight) ++ "_" ++ integer_to_list(T2),
-        io_lib:format("~p~n~p.~n ~p.~n ~p.~n~n", [PHash, PreTXL, Failed, Block])
-      );
+      stout:log(mkblock_debug,
+               [
+                {node_name,NodeName},
+                {height, PHeight},
+                {phash, PHash},
+                {pretxl, PreTXL},
+                {fail, Failed},
+                {block, Block}
+               ]);
+      %file:write_file(
+      %  "log/"++ utils:make_list(NodeName) ++ "_block_" ++
+      %      integer_to_list(PHeight) ++ "_" ++ integer_to_list(T2),
+      %  io_lib:format("~p~n~p.~n ~p.~n ~p.~n~n", [PHash, PreTXL, Failed, Block])
+      %);
     Any ->
       lager:notice("What does mkblock_debug=~p means?",[Any])
   end,
@@ -354,6 +363,13 @@ handle_info(process,
   SignedBlock=sign(Block, ED),
   #{header:=#{height:=NewH}}=Block,
   %cast whole block to my local blockvote
+  stout:log(mkblock_done,
+            [
+             {node_name,NodeName},
+             {height, PHeight},
+             {block_hdr, maps:with([hash,header,sign,temporary], SignedBlock)}
+            ]),
+
   gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
 
   case application:get_env(tpnode, dumpblocks) of
@@ -382,9 +398,14 @@ handle_info(process,
   tpic:cast(tpic, <<"blockvote">>, HBlk),
   if EmitTXs==[] -> ok;
      true ->
-       lager:info("Inject TXs ~p", [
-                                    gen_server:call(txpool, {push_etx, EmitTXs})
-                                   ])
+       Push=gen_server:call(txpool, {push_etx, EmitTXs}),
+       stout:log(push_etx,
+                 [
+                  {node_name,NodeName},
+                  {txs, EmitTXs},
+                  {res, Push}
+                 ]),
+       lager:info("Inject TXs ~p", [Push])
   end,
   {noreply, State#{preptxl=>[], parent=>undefined,
                    roundparent=>{PHeight, PHash},

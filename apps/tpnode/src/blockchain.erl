@@ -13,6 +13,7 @@
          last/0, last/1, chain/0,
          backup/1, restore/1,
          chainstate/0,
+         blkid/1,
          rel/2]).
 
 %% ------------------------------------------------------------------
@@ -403,6 +404,13 @@ handle_call({new_block, #{hash:=BlockHash,
              %enough signs. Make block.
              NewPHash=maps:get(parent, Header),
              if IsTemp ->
+                  stout:log(accept_block,
+                              [
+                               {temp, maps:get(temporary,Blk,false)},
+                               {hash, BlockHash},
+                               {sig, SigLen},
+                               {height,maps:get(height, maps:get(header, Blk))}
+                              ]),
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
@@ -466,18 +474,28 @@ handle_call({new_block, #{hash:=BlockHash,
                         lager:info("TX ~p",[_Any]),
                         {TxID, #{block=>BlockHash}}
                     end, Txs),
+  
+                  stout:log(blockchain_success, [{result, SendSuccess}, {failed, nope}]),
                   gen_server:cast(txqueue, {done, SendSuccess}),
                   case maps:get(failed, MBlk, []) of
                     [] -> ok;
                     Failed ->
                       %there was failed tx. Block empty?
+                      stout:log(blockchain_success, [{result, Failed}, {failed, yep}]),
                       gen_server:cast(txqueue, {failed, Failed})
                   end,
 
                   Settings=maps:get(settings, MBlk, []),
+                  stout:log(blockchain_success, [{result, proplists:get_keys(Settings)}, {failed, nope}]),
                   gen_server:cast(txqueue, {done, proplists:get_keys(Settings)}),
                   
                   T3=erlang:system_time(),
+                  stout:log(accept_block,
+                              [
+                               {hash, BlockHash},
+                               {sig, SigLen},
+                               {height,maps:get(height, maps:get(header, Blk))}
+                              ]),
                   lager:info("enough confirmations ~w/~w. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",
                              [
                               SigLen, MinSig,
@@ -1243,7 +1261,7 @@ apply_block_conf(Block, Conf0) ->
     end, Conf0, S).
 
 blkid(<<X:8/binary, _/binary>>) ->
-    bin2hex:dbin2hex(X).
+    binary_to_list(bin2hex:dbin2hex(X)).
 
 rewind(LDB, BlkNo) ->
   CurBlk=ldb:read_key(LDB, <<"lastblock">>, <<0, 0, 0, 0, 0, 0, 0, 0>>),
