@@ -10,6 +10,7 @@
 -export([apply_block_conf/2,
          apply_block_conf_meta/2,
          apply_ledger/2,
+         last_meta/0,
          last/0, last/1, chain/0,
          backup/1, restore/1,
          chainstate/0,
@@ -39,6 +40,10 @@ rel(Hash, Rel) when Rel==prev orelse Rel==child ->
 
 rel(Hash, self) ->
   gen_server:call(blockchain, {get_block, Hash}).
+
+last_meta() ->
+  [{last_meta, Blk}]=ets:lookup(lastblock,last_meta),
+  Blk.
 
 last(N) ->
     gen_server:call(blockchain, {last_block, N}).
@@ -81,6 +86,8 @@ chainstate() ->
 init(_Args) ->
     Table=ets:new(?MODULE,[named_table,protected,bag,{read_concurrency,true}]),
     lager:info("Table created: ~p",[Table]),
+    BTable=ets:new(lastblock,[named_table,protected,set,{read_concurrency,true}]),
+    lager:info("Table created: ~p",[BTable]),
     NodeID=nodekey:node_id(),
     filelib:ensure_dir("db/"),
     {ok, LDB}=ldb:open("db/db_" ++ atom_to_list(node())),
@@ -119,13 +126,14 @@ init(_Args) ->
     Conf=load_sets(LDB, LastBlock),
     lager:info("My last block hash ~s",
                [bin2hex:dbin2hex(LastBlockHash)]),
-
+    lastblock2ets(BTable, LastBlock),
     Res=mychain(#{
           nodeid=>NodeID,
           ldb=>LDB,
           candidates=>#{},
           settings=>chainsettings:settings_to_ets(Conf),
-          lastblock=>LastBlock
+          lastblock=>LastBlock,
+          btable=>BTable
          }),
     case Restore of
       {backup, Path1} ->
@@ -336,6 +344,7 @@ handle_call({new_block, #{hash:=BlockHash,
             _From,
             #{candidates:=Candidates, ldb:=LDB0,
               settings:=Sets,
+              btable:=BTable,
               lastblock:=#{header:=#{parent:=Parent}, hash:=LBlockHash}=LastBlock,
               mychain:=MyChain
              }=State) ->
@@ -456,14 +465,14 @@ handle_call({new_block, #{hash:=BlockHash,
                                            proplists:get_keys(maps:get(inbound_blocks, MBlk))});
                         false -> ok
                       end,
-                      
+
                       if(Sets1 =/= Sets) ->
                           notify_settings(),
                           save_sets(LDB, Sets1);
                         true -> ok
                       end
                   end,
-  
+
                   SendSuccess=lists:map(
                     fun({TxID, #{register:=_, address:=Addr}}) ->
                         {TxID, #{address=>Addr, block=>BlockHash}};
@@ -488,7 +497,7 @@ handle_call({new_block, #{hash:=BlockHash,
                   Settings=maps:get(settings, MBlk, []),
                   stout:log(blockchain_success, [{result, proplists:get_keys(Settings)}, {failed, nope}]),
                   gen_server:cast(txqueue, {done, proplists:get_keys(Settings)}),
-                  
+
                   T3=erlang:system_time(),
                   stout:log(accept_block,
                               [
@@ -535,9 +544,10 @@ handle_call({new_block, #{hash:=BlockHash,
                     end, 0, block:outward_mk(MBlk)),
                   gen_server:cast(txpool,{new_height, Hei}),
                   gen_server:cast(txqueue,{new_height, Hei}),
-                  
+
                   S1=maps:remove(tmpblock, State),
 
+                  lastblock2ets(BTable, MBlk),
                   {reply, ok, S1#{
                                 prevblock=> NewLastBlock,
                                 lastblock=> MBlk,
@@ -710,6 +720,10 @@ handle_cast({signature, BlockHash, Sigs},
       {noreply, State}
   end;
 
+handle_cast({signature, BlockHash, _Sigs}, State) ->
+      lager:info("Got sig for block ~s, but it's not my last block",
+                 [blkid(BlockHash) ]),
+      {noreply, State};
 
 handle_cast({tpic, Peer, #{null := <<"sync_done">>}},
             #{ldb:=LDB, settings:=Set,
@@ -875,7 +889,9 @@ handle_info({inst_sync, ledger}, State) ->
     %sync in progress got ledger
     {noreply, State};
 
-handle_info({inst_sync, done, Log}, #{ldb:=LDB}=State) ->
+handle_info({inst_sync, done, Log}, #{ldb:=LDB,
+                                      btable:=BTable
+                                     }=State) ->
     lager:info("BC Sync done ~p", [Log]),
     lager:notice("Check block's keys"),
     {ok, C}=gen_server:call(ledger, {check, []}),
@@ -888,7 +904,8 @@ handle_info({inst_sync, done, Log}, #{ldb:=LDB}=State) ->
        SS=maps:get(syncsettings, State),
            %self() ! runsync,
            save_block(LDB, Block, true),
-       save_sets(LDB, SS),
+           save_sets(LDB, SS),
+           lastblock2ets(BTable, Block),
            {noreply, CleanState#{
                        settings=>chainsettings:settings_to_ets(SS),
                        lastblock=>Block,
@@ -1509,6 +1526,43 @@ block_rel(LDB,Hash,Rel) when Rel==prev orelse Rel==child orelse Rel==self ->
       noprev;
     _ ->
       unknown
+  end.
+
+lastblock2ets(TableID, #{header:=Hdr,hash:=Hash,sign:=Sign}=Block) ->
+  case maps:is_key(temporary,Block) of
+    false ->
+      ets:delete(TableID, tmp_temporary),
+      ets:delete(TableID, tmp_header),
+      ets:delete(TableID, tmp_hash),
+      ets:delete(TableID, tmp_sign),
+      ets:insert(TableID,[
+                          {header,Hdr},
+                          {hash,Hash},
+                          {sign,Sign},
+                          {last_meta,
+                           #{
+                             header=>Hdr,
+                             hash=>Hash,
+                             sign=>Sign
+                            }
+                          }
+                         ]);
+    true ->
+      ets:insert(TableID,[
+                          {tmp_temporary, maps:get(temporary, Block)},
+                          {tmp_header,Hdr},
+                          {tmp_hash,Hash},
+                          {tmp_sign,Sign},
+                          {last, Block},
+                          {last_meta,
+                           #{
+                             header=>Hdr,
+                             hash=>Hash,
+                             sign=>Sign,
+                             temporary=>maps:get(temporary, Block)
+                            }
+                          }
+                         ])
   end.
 
 %% ------------------------------------------------------------------

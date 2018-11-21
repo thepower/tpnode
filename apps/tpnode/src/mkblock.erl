@@ -37,6 +37,7 @@ init(_Args) ->
     {ok, #{
        nodeid=>nodekey:node_id(),
        preptxl=>[],
+       pre=>#{h=>0, tmp=>0},
        settings=>#{}
       }
     }.
@@ -173,19 +174,8 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
                {true, {TxID, TxB1}}
            end
          end,
-  
-       WithParent =
-         case maps:get(roundparent, State, undefined) of
-           undefined ->
-             lager:info("Fetching last block from blockchain"),
-             #{header:=#{height:=Last_Height}, hash:=Last_Hash} =
-               gen_server:call(blockchain, last_block),
-             State#{roundparent=>{Last_Height, Last_Hash}};
-           _ ->
-             State
-         end,
-       {CHei,_}=maps:get(roundparent, WithParent),
-  
+
+       #{header:=#{height:=CHei}}=blockchain:last_meta(),
 
        lager:info("Node ~p h=~p, my h=~p", [Origin, MH, CHei]),
        if CHei == undefined orelse MH == CHei orelse MH == undefined orelse true ->
@@ -222,7 +212,6 @@ handle_cast(_Msg, State) ->
 handle_info(process,
   #{settings:=#{mychain:=MyChain, nodename:=NodeName}=MySet, preptxl:=PreTXL0}=State) ->
   
-  lager:info("-------[MAKE BLOCK]-------"),
   PreTXL1=lists:foldl(
             fun({TxID, TXB}, Acc) ->
                 case maps:is_key(TxID, Acc) of
@@ -236,12 +225,9 @@ handle_info(process,
                 end
             end, #{}, PreTXL0),
   PreTXL=lists:keysort(1, maps:to_list(PreTXL1)),
-  lager:info("Pre ~p",[PreTXL0]),
 
   AE=maps:get(ae, MySet, 0),
-
-  lager:info("Fetching last block from blockchain"),
-  B=gen_server:call(blockchain, last_block),
+  B=blockchain:last_meta(),
   PTmp=maps:get(temporary,B,false),
 
   {PHeight, PHash}=case PTmp of false ->
@@ -253,6 +239,10 @@ handle_info(process,
                                   #{header:=#{height:=Last_Height1, parent:=Last_Hash1}}=B,
                                   {Last_Height1-1, Last_Hash1}
                    end,
+
+  lager:info("-------[MAKE BLOCK h=~w tmp=~w]-------",[PHeight, PTmp]),
+  lager:info("Pre ~p",[PreTXL0]),
+
   PreNodes=try
              PreSig=maps:get(presig, State, #{}),
              BK=maps:fold(
@@ -407,14 +397,15 @@ handle_info(process,
                  ]),
        lager:info("Inject TXs ~p", [Push])
   end,
-  {noreply, State#{preptxl=>[], parent=>undefined,
-                   roundparent=>{PHeight, PHash},
-                   presig=>#{}}}
+  {noreply, State#{preptxl=>[],
+                   presig=>#{},
+                   pre=>#{h=>PHeight, tmp=>PTmp}
+                  }}
   catch throw:empty ->
         lager:info("Skip empty block"),
-        {noreply, State#{preptxl=>[], parent=>undefined,
-                         roundparent=>{PHeight, PHash},
-                         presig=>#{}}}
+        {noreply, State#{preptxl=>[],
+                         presig=>#{},
+                         pre=>#{h=>PHeight, tmp=>PTmp}}}
     end;
 
 handle_info(process, State) ->
