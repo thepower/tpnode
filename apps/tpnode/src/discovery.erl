@@ -128,25 +128,29 @@ handle_call(get_local_addresses, _From, State) ->
 
 %% register Pid as new local service with name ServiceName
 handle_call({register, ServiceName, Pid}, _From, #{local_services:=Dict} = State) ->
-    {reply, ok, State#{
+  stout:log(discvry_register, [{service, ServiceName}, {pid, Pid}]),
+  {reply, ok, State#{
         local_services => register_service(ServiceName, Pid, Dict)
     }};
 
 handle_call({register, ServiceName, Pid, Options}, _From, #{local_services:=Dict} = State) ->
+    stout:log(discvry_register, [{service, ServiceName}, {pid, Pid}, {options, Options}]),
     {reply, ok, State#{
         local_services => register_service(ServiceName, Pid, Dict, Options)
     }};
 
 %% remove registration for all local services with pid Pid
 handle_call({unregister, Pid}, _From, #{local_services:=LocalDict} = State) when is_pid(Pid) ->
-    lager:debug("Unregister local service with pid ~p", [Pid]),
+    stout:log(discvry_unregister, [{pid, Pid}]),
+%%    lager:debug("Unregister local service with pid ~p", [Pid]),
     {reply, ok, State#{
         local_services => delete_service(Pid, LocalDict)
     }};
 
 %% remove registration for local serivce with name Name
 handle_call({unregister, Name}, _From, #{local_services:=Dict} = State) when is_binary(Name) ->
-    lager:debug("Unregister local service with name ~p", [Name]),
+    stout:log(discvry_unregister_name, [{name, Name}]),
+%%    lager:debug("Unregister local service with name ~p", [Name]),
     {reply, ok, State#{
         local_services => delete_service(Name, Dict)
     }};
