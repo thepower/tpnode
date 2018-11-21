@@ -96,10 +96,10 @@ handle_cast({signature, BlockHash, Sigs}, #{candidatesig:=Candidatesig}=State) -
 
 handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID},
             #{ candidates:=Candidates,
-               candidatesig:=Candidatesig,
-               lastblock:=#{hash:=LBlockHash}=LastBlock
+               candidatesig:=Candidatesig
              }=State) ->
 
+    #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
     Height=maps:get(height, maps:get(header, Blk)),
     lager:info("BV New block (~p/~p) arrived (~s/~s)",
                [
@@ -117,21 +117,14 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID},
                  },
     {noreply, is_block_ready(BlockHash, State2)};
 
-handle_cast(blockchain_sync, State) ->
-    LastBlock=gen_server:call(blockchain, last_block),
-    Res=State#{
-      lastblock=>LastBlock
-     },
-    {noreply, Res};
-
 handle_cast(_Msg, State) ->
     lager:info("BV Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(init, undefined) ->
-    LastBlock=gen_server:call(blockchain, last_block),
+    #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
     lager:info("BV My last block hash ~s",
-               [bin2hex:dbin2hex(maps:get(hash, LastBlock))]),
+               [bin2hex:dbin2hex(LBlockHash)]),
     Res=#{
       candidatesig=>#{},
       candidates=>#{},
@@ -264,7 +257,8 @@ is_block_ready(BlockHash, State) ->
 load_settings(State) ->
   {ok, MyChain} = chainsettings:get_setting(mychain),
   MinSig=chainsettings:get_val(minsig,1000),
-  LastBlock=gen_server:call(blockchain, last_block),
+  LastBlock=blockchain:last_meta(),
+  %LastBlock=gen_server:call(blockchain, last_block),
   lager:info("BV My last block hash ~s",
              [bin2hex:dbin2hex(maps:get(hash, LastBlock))]),
   State#{
