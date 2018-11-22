@@ -94,6 +94,12 @@ settings_to_ets(NewSettings) ->
 get_val(Name) ->
   get_val(Name, undefined).
 
+get_val(mychain, Def) ->
+  case ets:lookup(blockchain,mychain) of
+    [{mychain,X}] -> X;
+    _ -> Def
+  end;
+
 get_val(Name, Default) when Name==minsig; Name==patchsig ->
   Val=by_path([<<"current">>,chain,Name]),
   if is_integer(Val) -> Val;

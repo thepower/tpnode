@@ -55,28 +55,33 @@ chainstate() ->
   Candidates=lists:reverse(
                tpiccall(<<"blockchain">>,
                         #{null=><<"sync_request">>},
-                        [last_hash, last_height, chain, prev_hash]
+                        [last_hash, last_height, chain, prev_hash, last_temp]
                        ))++[{self,gen_server:call(?MODULE,sync_req)}],
   io:format("Cand ~p~n",[Candidates]),
   ChainState=lists:foldl( %first suitable will be the quickest
                fun({_, #{chain:=_HisChain,
                          %null:=<<"sync_available">>,
                          last_hash:=Hash,
+                         last_temp:=Tmp,
 %                         prev_hash:=PHash,
                          last_height:=Heig
                         }=A
                    }, Acc) ->
                    PHash=maps:get(prev_hash,A,<<0,0,0,0,0,0,0,0>>),
-                   maps:put({Heig, Hash, PHash}, maps:get({Heig, Hash, PHash}, Acc, 0)+1, Acc);
+                   maps:put({Heig, Hash, PHash, Tmp}, maps:get({Heig, Hash, PHash, Tmp}, Acc, 0)+1, Acc);
                   ({_, _}, Acc) ->
                    Acc
                end, #{}, Candidates),
-  maps:fold(
-    fun({Heig,Has,PHas},V,Acc) ->
-        maps:put(<<(integer_to_binary(Heig))/binary,
-                   ":",(blkid(Has))/binary,
-                   "/",(blkid(PHas))/binary>>,V,Acc)
-    end, #{}, ChainState).
+  erlang:display(maps:fold(
+    fun({Heig,Has,PHas,Tmp},V,Acc) ->
+        maps:put(iolist_to_binary([
+                    integer_to_binary(Heig),
+                    ":",blkid(Has),
+                    "/",blkid(PHas),":",
+                    integer_to_list(if Tmp==false -> 0; true -> Tmp end)
+                                  ]),V,Acc)
+    end, #{}, ChainState)),
+  ChainState.
 
 
 %% ------------------------------------------------------------------
@@ -301,11 +306,16 @@ handle_call({get_block, last}, _From, #{tmpblock:=LB}=State) ->
 handle_call({get_block, last}, _From, #{lastblock:=LB}=State) ->
   {reply, LB, State};
 
+handle_call({get_block, LBH}, _From, #{lastblock:=#{hash:=LBH}=LB}=State) ->
+    {reply, LB, State};
+
+handle_call({get_block, TBH}, _From, #{tmpblock:=#{hash:=TBH}=TB}=State) ->
+    {reply, TB, State};
+
 handle_call({get_block, BlockHash}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}=LB}=State)
   when is_binary(BlockHash) ->
     %lager:debug("Get block ~p", [BlockHash]),
-    Block=if BlockHash==last -> LB;
-             BlockHash==LBH -> LB;
+    Block=if BlockHash==LBH -> LB;
              true ->
                  ldb:read_key(LDB,
                               <<"block:", BlockHash/binary>>,
@@ -420,6 +430,7 @@ handle_call({new_block, #{hash:=BlockHash,
                                {sig, SigLen},
                                {height,maps:get(height, maps:get(header, Blk))}
                               ]),
+                  lastblock2ets(BTable, MBlk),
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
@@ -1036,7 +1047,7 @@ handle_info(
       lists:reverse(
         tpiccall(<<"blockchain">>,
           #{null=><<"sync_request">>},
-          [last_hash, last_height, chain]
+          [last_hash, last_height, chain, last_temp]
         ))
     end,
 
@@ -1077,6 +1088,7 @@ handle_info(
         chain:=_Ch,
         last_hash:=_,
         last_height:=Height,
+        last_temp:=Tmp,
         null:=<<"sync_available">>
       } = Info
     } ->
@@ -1098,9 +1110,13 @@ handle_info(
                      false
                  end
              end,
+      MyTmp=case maps:find(tmpblock, State) of
+              error -> false;
+              {ok, #{temporary:=TmpNo}} -> TmpNo
+            end,
       lager:info("Found candidate h=~w my ~w, bb ~s inst ~s/~s",
         [Height, MyHeight, ByBlock, Inst0, Inst]),
-      if (Height == MyHeight) ->
+      if (Height == MyHeight andalso Tmp == MyTmp) ->
         lager:info("Sync done, finish."),
         notify_settings(),
         {noreply,
@@ -1127,6 +1143,15 @@ handle_info(
       end
   end;
 
+%begin of temporary code for debugging
+handle_info(block2ets, #{btable:=BTable, tmpblock:=LB}=State) ->
+  lastblock2ets(BTable, LB),
+  {noreply, State};
+
+handle_info(block2ets, #{btable:=BTable, lastblock:=LB}=State) ->
+  lastblock2ets(BTable, LB),
+  {noreply, State};
+%end of temporary code
 
 handle_info(_Info, State) ->
     lager:info("BC unhandled info ~p", [_Info]),
@@ -1424,18 +1449,20 @@ getset(Name,#{settings:=Sets, mychain:=MyChain}=_State) ->
 sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}},
               mychain:=MyChain
              }=State) ->
-  Template=case maps:get(tmpblock, State, undefined) of
-             undefined ->
+  Template=case maps:find(tmpblock, State) of
+             error ->
                #{ last_height=>Height,
                   last_hash=>Hash,
                   last_temp=>false,
                   prev_hash=>Parent,
                   chain=>MyChain
                 };
-             #{hash:=TH, header:=#{height:=THei, parent:=TParent}} ->
+             {ok,#{hash:=TH,
+                   header:=#{height:=THei, parent:=TParent},
+                   temporary:=TmpNo}} ->
                #{ last_height=>THei,
                   last_hash=>TH,
-                  last_temp=>true,
+                  last_temp=>TmpNo,
                   prev_hash=>TParent,
                   chain=>MyChain
                 }
@@ -1528,42 +1555,39 @@ block_rel(LDB,Hash,Rel) when Rel==prev orelse Rel==child orelse Rel==self ->
       unknown
   end.
 
-lastblock2ets(TableID, #{header:=Hdr,hash:=Hash,sign:=Sign}=Block) ->
-  case maps:is_key(temporary,Block) of
-    false ->
-      ets:delete(TableID, tmp_temporary),
-      ets:delete(TableID, tmp_header),
-      ets:delete(TableID, tmp_hash),
-      ets:delete(TableID, tmp_sign),
-      ets:insert(TableID,[
-                          {header,Hdr},
-                          {hash,Hash},
-                          {sign,Sign},
-                          {last_meta,
-                           #{
-                             header=>Hdr,
-                             hash=>Hash,
-                             sign=>Sign
-                            }
-                          }
-                         ]);
-    true ->
-      ets:insert(TableID,[
-                          {tmp_temporary, maps:get(temporary, Block)},
-                          {tmp_header,Hdr},
-                          {tmp_hash,Hash},
-                          {tmp_sign,Sign},
-                          {last, Block},
-                          {last_meta,
-                           #{
-                             header=>Hdr,
-                             hash=>Hash,
-                             sign=>Sign,
-                             temporary=>maps:get(temporary, Block)
-                            }
-                          }
-                         ])
-  end.
+lastblock2ets(TableID, #{header:=Hdr,hash:=Hash,sign:=Sign,temporary:=Tmp}) ->
+  ets:insert(TableID,[
+                      {tmp_temporary, Tmp},
+                      {tmp_header,Hdr},
+                      {tmp_hash,Hash},
+                      {tmp_sign,Sign},
+                      {last_meta,
+                       #{
+                         header=>Hdr,
+                         hash=>Hash,
+                         sign=>Sign,
+                         temporary=>Tmp
+                        }
+                      }
+                     ]);
+
+lastblock2ets(TableID, #{header:=Hdr,hash:=Hash,sign:=Sign}) ->
+  ets:delete(TableID, tmp_temporary),
+  ets:delete(TableID, tmp_header),
+  ets:delete(TableID, tmp_hash),
+  ets:delete(TableID, tmp_sign),
+  ets:insert(TableID,[
+                      {header,Hdr},
+                      {hash,Hash},
+                      {sign,Sign},
+                      {last_meta,
+                       #{
+                         header=>Hdr,
+                         hash=>Hash,
+                         sign=>Sign
+                        }
+                      }
+                     ]).
 
 %% ------------------------------------------------------------------
 
