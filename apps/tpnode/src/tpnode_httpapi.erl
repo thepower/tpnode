@@ -117,15 +117,25 @@ h(Method, [<<"api">>|Path], Req) ->
   h(Method, Path, Req);
 
 h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
-  {Chain, Hash, Header1} = case catch gen_server:call(blockchain, status) of
-                             {A, B, C} -> {A, B, C};
-                             _Err ->
-                               lager:info("Error ~p", [_Err]),
-                               {-1, <<0, 0, 0, 0, 0, 0, 0, 0>>, #{}}
-                           end,
+%  {Chain, Hash, Header1} = case catch gen_server:call(blockchain, status) of
+%                             {A, B, C} -> {A, B, C};
+%                             _Err ->
+%                               lager:info("Error ~p", [_Err]),
+%                               {-1, <<0, 0, 0, 0, 0, 0, 0, 0>>, #{}}
+%                           end,
+  Chain=chainsettings:get_val(mychain),
+  #{hash:=Hash,
+    header:=Header1}=Blk=blockchain:last_meta(),
+  Temp=maps:get(temporary,Blk,false),
   BinPacker=packer(_Req,hex),
   Header=maps:map(
-           fun(_, V) when is_binary(V) -> BinPacker(V);
+           fun(roots, V) ->
+               [ if is_binary(RV) ->
+                      {N, BinPacker(RV)};
+                   true ->
+                      {N, RV}
+                 end || {N,RV} <- V ];
+              (_, V) when is_binary(V) -> BinPacker(V);
               (_, V) -> V
            end, Header1),
   Peers=lists:map(
@@ -150,7 +160,8 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
         blockchain=>#{
           chain=>Chain,
           hash=>BinPacker(Hash),
-          header=>Header
+          header=>Header,
+          temporary=>Temp
          },
         xchain_inbound => try
                             gen_server:call(xchain_dispatcher, peers)

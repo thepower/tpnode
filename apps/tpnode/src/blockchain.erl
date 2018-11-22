@@ -1450,7 +1450,7 @@ sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}},
               mychain:=MyChain
              }=State) ->
   Template=case maps:find(tmpblock, State) of
-             false ->
+             error ->
                #{ last_height=>Height,
                   last_hash=>Hash,
                   last_temp=>false,
