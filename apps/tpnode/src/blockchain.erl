@@ -55,28 +55,33 @@ chainstate() ->
   Candidates=lists:reverse(
                tpiccall(<<"blockchain">>,
                         #{null=><<"sync_request">>},
-                        [last_hash, last_height, chain, prev_hash]
+                        [last_hash, last_height, chain, prev_hash, last_temp]
                        ))++[{self,gen_server:call(?MODULE,sync_req)}],
   io:format("Cand ~p~n",[Candidates]),
   ChainState=lists:foldl( %first suitable will be the quickest
                fun({_, #{chain:=_HisChain,
                          %null:=<<"sync_available">>,
                          last_hash:=Hash,
+                         last_temp:=Tmp,
 %                         prev_hash:=PHash,
                          last_height:=Heig
                         }=A
                    }, Acc) ->
                    PHash=maps:get(prev_hash,A,<<0,0,0,0,0,0,0,0>>),
-                   maps:put({Heig, Hash, PHash}, maps:get({Heig, Hash, PHash}, Acc, 0)+1, Acc);
+                   maps:put({Heig, Hash, PHash, Tmp}, maps:get({Heig, Hash, PHash, Tmp}, Acc, 0)+1, Acc);
                   ({_, _}, Acc) ->
                    Acc
                end, #{}, Candidates),
-  maps:fold(
-    fun({Heig,Has,PHas},V,Acc) ->
-        maps:put(<<(integer_to_binary(Heig))/binary,
-                   ":",(blkid(Has))/binary,
-                   "/",(blkid(PHas))/binary>>,V,Acc)
-    end, #{}, ChainState).
+  erlang:display(maps:fold(
+    fun({Heig,Has,PHas,Tmp},V,Acc) ->
+        maps:put(iolist_to_binary([
+                    integer_to_binary(Heig),
+                    ":",blkid(Has),
+                    "/",blkid(PHas),":",
+                    integer_to_list(if Tmp==false -> 0; true -> Tmp end)
+                                  ]),V,Acc)
+    end, #{}, ChainState)),
+  ChainState.
 
 
 %% ------------------------------------------------------------------
@@ -1042,7 +1047,7 @@ handle_info(
       lists:reverse(
         tpiccall(<<"blockchain">>,
           #{null=><<"sync_request">>},
-          [last_hash, last_height, chain]
+          [last_hash, last_height, chain, last_temp]
         ))
     end,
 
@@ -1083,6 +1088,7 @@ handle_info(
         chain:=_Ch,
         last_hash:=_,
         last_height:=Height,
+        last_temp:=Tmp,
         null:=<<"sync_available">>
       } = Info
     } ->
@@ -1104,9 +1110,13 @@ handle_info(
                      false
                  end
              end,
+      MyTmp=case maps:find(tmpblock, State) of
+              error -> false;
+              {ok, #{temporary:=TmpNo}} -> TmpNo
+            end,
       lager:info("Found candidate h=~w my ~w, bb ~s inst ~s/~s",
         [Height, MyHeight, ByBlock, Inst0, Inst]),
-      if (Height == MyHeight) ->
+      if (Height == MyHeight andalso Tmp == MyTmp) ->
         lager:info("Sync done, finish."),
         notify_settings(),
         {noreply,
@@ -1133,6 +1143,15 @@ handle_info(
       end
   end;
 
+%begin of temporary code for debugging
+handle_info(block2ets, #{btable:=BTable, tmpblock:=LB}=State) ->
+  lastblock2ets(BTable, LB),
+  {noreply, State};
+
+handle_info(block2ets, #{btable:=BTable, lastblock:=LB}=State) ->
+  lastblock2ets(BTable, LB),
+  {noreply, State};
+%end of temporary code
 
 handle_info(_Info, State) ->
     lager:info("BC unhandled info ~p", [_Info]),
@@ -1430,18 +1449,20 @@ getset(Name,#{settings:=Sets, mychain:=MyChain}=_State) ->
 sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}},
               mychain:=MyChain
              }=State) ->
-  Template=case maps:get(tmpblock, State, undefined) of
-             undefined ->
+  Template=case maps:find(tmpblock, State) of
+             false ->
                #{ last_height=>Height,
                   last_hash=>Hash,
                   last_temp=>false,
                   prev_hash=>Parent,
                   chain=>MyChain
                 };
-             #{hash:=TH, header:=#{height:=THei, parent:=TParent}} ->
+             {ok,#{hash:=TH,
+                   header:=#{height:=THei, parent:=TParent},
+                   temporary:=TmpNo}} ->
                #{ last_height=>THei,
                   last_hash=>TH,
-                  last_temp=>true,
+                  last_temp=>TmpNo,
                   prev_hash=>TParent,
                   chain=>MyChain
                 }
