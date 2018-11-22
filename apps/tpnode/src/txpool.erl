@@ -253,9 +253,9 @@ handle_info(sync_tx,
       % minsig unknown
       lager:error("minsig is undefined, we can't run transaction synchronizer"),
       {noreply, load_settings(State#{ sync_timer => update_sync_timer(undefined)})};
-    PeersCount when PeersCount<MinSig ->
-      % peers count is less than we need, do nothing
-      lager:info("peers count ~p is less than minsig ~p", [PeersCount, MinSig]),
+    PeersCount when PeersCount+1<MinSig ->
+      % nodes count is less than we need, do nothing  (nodes = peers + 1)
+      lager:info("nodes count ~p is less than minsig ~p", [PeersCount+1, MinSig]),
       {noreply, State#{ sync_timer => update_sync_timer(undefined) }};
     _ ->
       % peers count is OK, sync transactions

@@ -1755,6 +1755,9 @@ to_gas(#{amount:=A, cur:=C}, Settings) ->
       error
   end.
 
+return_gas(_Tx, {<<"NONE">>, _GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
+  Bal0;
+
 return_gas(_Tx, {GCur, GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
   lager:debug("return_gas ~p left ~b",[GCur, GAmount]),
   if(GAmount > 0) ->

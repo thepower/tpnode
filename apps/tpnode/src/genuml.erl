@@ -9,7 +9,17 @@ bv(BLog,T1,T2) ->
              Sig=[ bsig2node(S) || S<- proplists:get_value(sig, PL,[]) ],
              lists:foldl(
                fun(Node,Acc1) ->
-                   [{T,Node,"blockvote",io_lib:format("blk ~s h=~w",[blockchain:blkid(Hash),H])}|Acc1]
+                   case Acc1 of
+                     [] ->
+                       [
+                        {T,Node,"blockvote",
+                         io_lib:format("blk ~s h=~w",[blockchain:blkid(Hash),H])},
+                        {T,Node,"blockvote",
+                         io_lib:format("sig for ~s",[blockchain:blkid(Hash)])}];
+                     _ ->
+                       [{T,Node,"blockvote",
+                         io_lib:format("blk ~s h=~w",[blockchain:blkid(Hash),H])}|Acc1]
+                   end
                end, [], Sig);
             (T,bv_gotsig, PL) ->
              Hash=proplists:get_value(hash, PL, <<>>),
@@ -26,8 +36,7 @@ bv(BLog,T1,T2) ->
     fun
       (T,_,_,Acc) when T1>0, T<T1 -> Acc;
       (T,_,_,Acc) when T2>0, T>T2 -> Acc;
-      (_,_,_,{50,Acc,M1,M2}) ->
-        {50,Acc,M1,M2};
+      (_,_,_,{500,_,_,_}=Acc) -> Acc;
       (T,Kind, PL, {C,Acc,M1,M2}) ->
         R=MapFun(T,Kind,PL),
         if R==ignore ->
