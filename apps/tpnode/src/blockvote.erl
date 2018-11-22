@@ -188,7 +188,7 @@ is_block_ready(BlockHash, State) ->
 					true ->
 						%throw({notready, nocand1}),
 						lager:info("Probably they went ahead"),
-						blockchain ! checksync,
+						blockchain ! runsync,
 						State;
 					false ->
 						throw({notready, {nocand, maps:size(Sigs), MinSig}})
