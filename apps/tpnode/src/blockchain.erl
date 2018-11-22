@@ -301,11 +301,16 @@ handle_call({get_block, last}, _From, #{tmpblock:=LB}=State) ->
 handle_call({get_block, last}, _From, #{lastblock:=LB}=State) ->
   {reply, LB, State};
 
+handle_call({get_block, LBH}, _From, #{lastblock:=#{hash:=LBH}=LB}=State) ->
+    {reply, LB, State};
+
+handle_call({get_block, TBH}, _From, #{tmpblock:=#{hash:=TBH}=TB}=State) ->
+    {reply, TB, State};
+
 handle_call({get_block, BlockHash}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}=LB}=State)
   when is_binary(BlockHash) ->
     %lager:debug("Get block ~p", [BlockHash]),
-    Block=if BlockHash==last -> LB;
-             BlockHash==LBH -> LB;
+    Block=if BlockHash==LBH -> LB;
              true ->
                  ldb:read_key(LDB,
                               <<"block:", BlockHash/binary>>,
@@ -420,6 +425,7 @@ handle_call({new_block, #{hash:=BlockHash,
                                {sig, SigLen},
                                {height,maps:get(height, maps:get(header, Blk))}
                               ]),
+                  lastblock2ets(BTable, MBlk),
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
@@ -1528,42 +1534,39 @@ block_rel(LDB,Hash,Rel) when Rel==prev orelse Rel==child orelse Rel==self ->
       unknown
   end.
 
-lastblock2ets(TableID, #{header:=Hdr,hash:=Hash,sign:=Sign}=Block) ->
-  case maps:is_key(temporary,Block) of
-    false ->
-      ets:delete(TableID, tmp_temporary),
-      ets:delete(TableID, tmp_header),
-      ets:delete(TableID, tmp_hash),
-      ets:delete(TableID, tmp_sign),
-      ets:insert(TableID,[
-                          {header,Hdr},
-                          {hash,Hash},
-                          {sign,Sign},
-                          {last_meta,
-                           #{
-                             header=>Hdr,
-                             hash=>Hash,
-                             sign=>Sign
-                            }
-                          }
-                         ]);
-    true ->
-      ets:insert(TableID,[
-                          {tmp_temporary, maps:get(temporary, Block)},
-                          {tmp_header,Hdr},
-                          {tmp_hash,Hash},
-                          {tmp_sign,Sign},
-                          {last, Block},
-                          {last_meta,
-                           #{
-                             header=>Hdr,
-                             hash=>Hash,
-                             sign=>Sign,
-                             temporary=>maps:get(temporary, Block)
-                            }
-                          }
-                         ])
-  end.
+lastblock2ets(TableID, #{header:=Hdr,hash:=Hash,sign:=Sign,temporary:=Tmp}) ->
+  ets:insert(TableID,[
+                      {tmp_temporary, Tmp},
+                      {tmp_header,Hdr},
+                      {tmp_hash,Hash},
+                      {tmp_sign,Sign},
+                      {last_meta,
+                       #{
+                         header=>Hdr,
+                         hash=>Hash,
+                         sign=>Sign,
+                         temporary=>Tmp
+                        }
+                      }
+                     ]);
+
+lastblock2ets(TableID, #{header:=Hdr,hash:=Hash,sign:=Sign}) ->
+  ets:delete(TableID, tmp_temporary),
+  ets:delete(TableID, tmp_header),
+  ets:delete(TableID, tmp_hash),
+  ets:delete(TableID, tmp_sign),
+  ets:insert(TableID,[
+                      {header,Hdr},
+                      {hash,Hash},
+                      {sign,Sign},
+                      {last_meta,
+                       #{
+                         header=>Hdr,
+                         hash=>Hash,
+                         sign=>Sign
+                        }
+                      }
+                     ]).
 
 %% ------------------------------------------------------------------
 
