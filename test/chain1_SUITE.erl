@@ -101,8 +101,9 @@ transaction_ping_pong_test(_Config) ->
   Cur = <<"TEST">>,
   Amount = 10,
   
-  % get height
+  % get initial height
   Height = api_get_height(),
+  logger("initial height: ~p~n", [Height]),
   
   % get balance of destination wallet
   #{<<"info">> := #{<<"amount">> := AmountWallet2}} = api_get_wallet(Wallet2),
