@@ -63,69 +63,87 @@ get_format(Req) ->
     end.
 
 
+get_client_ip_headers(Req) ->
+  AllHeaders = #{
+    peer => cowboy_req:peer(Req),
+    cf_connection_id => cowboy_req:header(<<"CF-Connecting-IP">>, Req, undefined),
+    forwarded => cowboy_req:header(<<"X-Forwarded-For">>, Req, undefined)
+  },
+  maps:filter(
+    fun(_K,V) -> V =/= undefined end,
+    AllHeaders
+  ).
+
+
 handle_request(Method, Path, Req, Target, Format, _Opts) ->
-	try
-        Req1 =
-            case Format of
-                <<"json">> ->
-                    parse_reqjs(Req);
-                <<"msgpack">> ->
-                    parse_msgpack(Req);
-                _ ->
-                    Req
-               end,
-        Target:h(Method, Path, Req1)
-	catch
-		throw:{return, Code, MSG} when is_list(MSG) ->
-			{Code, #{error=>list_to_binary(MSG)}};
-		throw:{return, Code, MSG} ->
-			{Code, #{error=>MSG}};
-		throw:{return, MSG} when is_list(MSG) ->
-			{500, #{error=>list_to_binary(MSG)}};
-		throw:{return, MSG} ->
-			{500, #{error=>MSG}};
-		error:function_clause ->
-			case erlang:get_stacktrace() of
+  try
+    stout:log(
+      api_call,
+      [{path, cowboy_req:path(Req)}, {client_addr, get_client_ip_headers(Req)}]
+    ),
+    lager:info("api: ~p ~p", [cowboy_req:path(Req), get_client_ip_headers(Req)]),
+    
+    Req1 =
+      case Format of
+        <<"json">> ->
+          parse_reqjs(Req);
+        <<"msgpack">> ->
+          parse_msgpack(Req);
+        _ ->
+          Req
+      end,
+    Target:h(Method, Path, Req1)
+  catch
+    throw:{return, Code, MSG} when is_list(MSG) ->
+      {Code, #{error=>list_to_binary(MSG)}};
+    throw:{return, Code, MSG} ->
+      {Code, #{error=>MSG}};
+    throw:{return, MSG} when is_list(MSG) ->
+      {500, #{error=>list_to_binary(MSG)}};
+    throw:{return, MSG} ->
+      {500, #{error=>MSG}};
+    error:function_clause ->
+      case erlang:get_stacktrace() of
 %				[{Target, h, _, _}|_] ->
-				[{_, h, _, _}|_] ->
-					ReqPath = cowboy_req:path(Req),
-					{404, #{
-                        error=><<"not found">>,
-                        format=>Format,
-                        path=>ReqPath,
-                        method=>Method,
-                        p=>Path}
-                    };
+        [{_, h, _, _} | _] ->
+          ReqPath = cowboy_req:path(Req),
+          {404, #{
+            error=><<"not found">>,
+            format=>Format,
+            path=>ReqPath,
+            method=>Method,
+            p=>Path}
+          };
 %				[{_, h, [Method, Path, _], _}|_] ->
 %					ReqPath = cowboy_req:path(Req),
 %					{404, #{error=><<"not found">>, path=>ReqPath, method=>Method, p=>Path}};
-				Stack ->
-                    ST = format_stack(Stack),
-                    {500, #{
-                        error=>unknown_fc,
-                        format => Format,
-                        ecee=><<"error:function_clause">>,
-                        stack=>ST}
-                    }
-			end;
-        error:badarg ->
-            case erlang:get_stacktrace() of
-                [{erlang, binary_to_integer, [A |_], _FL} | _] ->
-                    {500, #{
-                        error => bad_integer,
-                        format => Format,
-                        value => A
-                    }};
-                Any ->
-                    EcEe = <<"error:badarg">>,
-                    ST = format_stack(Any),
-                    {500, #{error=>unknown, format=>Format, ecee=>EcEe, stack=>ST}}
-            end;
-		Ec:Ee ->
-			EcEe=iolist_to_binary(io_lib:format("~p:~p", [Ec, Ee])),
-                        ST=format_stack(erlang:get_stacktrace()),
-			{500, #{error=>unknown, format=>Format, ecee=>EcEe, stack=>ST}}
-	end.
+        Stack ->
+          ST = format_stack(Stack),
+          {500, #{
+            error=>unknown_fc,
+            format => Format,
+            ecee=><<"error:function_clause">>,
+            stack=>ST}
+          }
+      end;
+    error:badarg ->
+      case erlang:get_stacktrace() of
+        [{erlang, binary_to_integer, [A | _], _FL} | _] ->
+          {500, #{
+            error => bad_integer,
+            format => Format,
+            value => A
+          }};
+        Any ->
+          EcEe = <<"error:badarg">>,
+          ST = format_stack(Any),
+          {500, #{error=>unknown, format=>Format, ecee=>EcEe, stack=>ST}}
+      end;
+    Ec:Ee ->
+      EcEe = iolist_to_binary(io_lib:format("~p:~p", [Ec, Ee])),
+      ST = format_stack(erlang:get_stacktrace()),
+      {500, #{error=>unknown, format=>Format, ecee=>EcEe, stack=>ST}}
+  end.
 
 format_stack(Stack) ->
     FormatAt=fun(PL) ->
