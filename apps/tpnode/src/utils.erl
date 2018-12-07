@@ -12,6 +12,9 @@ alloc_tcp_port() ->
 
 %% -------------------------------------------------------------------------------------
 
+make_binary(Arg) when is_integer(Arg) ->
+  integer_to_binary(Arg, 10);
+
 make_binary(Arg) when is_binary(Arg) ->
   Arg;
 
