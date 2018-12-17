@@ -84,16 +84,21 @@ try_process([], Settings, Addresses, GetFun,
        true ->
          lager:info("NewEmit ~p", [NewEmit])
     end,
-    Acc#{table=>Addresses2,
-       emit=>Emit ++ NewEmit
-      }
+    Acc#{
+      table=>Addresses2,
+      emit=>Emit ++ NewEmit,
+      new_settings => Settings
+    }
   catch _Ec:_Ee ->
         S=erlang:get_stacktrace(),
         lager:error("Can't save fees: ~p:~p", [_Ec, _Ee]),
         lists:foreach(fun(E) ->
                   lager:info("Can't save fee at ~p", [E])
               end, S),
-        Acc#{table=>Addresses}
+        Acc#{
+          table=>Addresses,
+          new_settings => Settings
+        }
   end;
 
 %process inbound block
@@ -1541,7 +1546,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     pick_block:=PickBlocks,
     fee:=_FeeCollected,
     tip:=_TipCollected,
-    emit:=EmitTXs0
+    emit:=EmitTXs0,
+    new_settings := NewSettings
    }=try_process(TXL, XSettings, Addrs, GetSettings,
                  #{export=>[],
                    failed=>[],
@@ -1590,7 +1596,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
 
   %lager:info("MB NewBal ~p", [NewBal]),
 
-  HedgerHash=ledger_hash(NewBal, LedgerPid),
+  LedgerHash = ledger_hash(NewBal, LedgerPid),
+  SettingsHash = settings_hash(NewSettings),
   _T5=erlang:system_time(),
   Blk=block:mkblock2(#{
         txs=>Success,
@@ -1601,7 +1608,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
         failed=>Failed,
         temporary=>proplists:get_value(temporary,Options),
         retry=>proplists:get_value(retry,Options),
-        ledger_hash=>HedgerHash,
+        ledger_hash=>LedgerHash,
+        settings_hash=>SettingsHash,
         settings=>Settings,
         tx_proof=>[ TxID || {TxID, _ToChain} <- Outbound ],
         inbound_blocks=>lists:foldl(
@@ -1657,7 +1665,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
               block:blkid(maps:get(hash, Blk)),
               length(Success),
               maps:size(NewBal),
-              bin2hex:dbin2hex(HedgerHash),
+              bin2hex:dbin2hex(LedgerHash),
               GetSettings(mychain),
               proplists:get_value(temporary,Options)
              ]),
@@ -1767,3 +1775,6 @@ return_gas(_Tx, {GCur, GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
       Bal0
   end.
 
+
+settings_hash(NewSettings) when is_map(NewSettings) ->
+  maphash:hash(NewSettings).

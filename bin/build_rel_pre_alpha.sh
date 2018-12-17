@@ -14,10 +14,12 @@ git reset --hard
 git checkout ${BUILD_BRANCH}
 git pull
 git describe
+rm -rf _build/default/lib/jsx/ebin
 rm -rf _build/rel/lib/tpnode
 rm apps/tpnode/include/version.hrl
 export VERSION_SUFFIX=${BUILD_SUFFIX}
 escript bin/generate_headers
+JSX_FORCE_MAPS=1 ./rebar3 compile
 ./rebar3 as rel tar
 git checkout master
 EOF1
@@ -34,9 +36,11 @@ git checkout ${BUILD_BRANCH}
 git pull
 git describe
 rm -rf _build/rel/lib/tpnode
+rm -rf _build/default/lib/jsx/ebin
 rm apps/tpnode/include/version.hrl
 export VERSION_SUFFIX=${BUILD_SUFFIX}
 escript bin/generate_headers
+JSX_FORCE_MAPS=1 ./rebar3 compile
 ./rebar3 as rel tar
 git describe --abbrev=0 | sed 's/^v//'
 VER=\$( git describe --abbrev=0 | sed 's/^v//' )

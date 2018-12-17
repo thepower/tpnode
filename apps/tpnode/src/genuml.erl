@@ -1,37 +1,14 @@
 -module(genuml).
 
--export([bv/3, testz/1]).
+-export([bv/3, testz/1, block/3]).
 
-bv(BLog,T1,T2) ->
-  MapFun=fun(T,bv_gotblock, PL) ->
-             Hash=proplists:get_value(hash, PL, <<>>),
-             H=proplists:get_value(height, PL, -1),
-             Sig=[ bsig2node(S) || S<- proplists:get_value(sig, PL,[]) ],
-             lists:foldl(
-               fun(Node,Acc1) ->
-                   case Acc1 of
-                     [] ->
-                       [
-                        {T,Node,"blockvote",
-                         io_lib:format("blk ~s h=~w",[blockchain:blkid(Hash),H])},
-                        {T,Node,"blockvote",
-                         io_lib:format("sig for ~s",[blockchain:blkid(Hash)])}];
-                     _ ->
-                       [{T,Node,"blockvote",
-                         io_lib:format("blk ~s h=~w",[blockchain:blkid(Hash),H])}|Acc1]
-                   end
-               end, [], Sig);
-            (T,bv_gotsig, PL) ->
-             Hash=proplists:get_value(hash, PL, <<>>),
-             Sig=[ bsig2node(S) || S<- proplists:get_value(sig, PL,[]) ],
-             lists:foldl(
-               fun(Node,Acc1) ->
-                   [{T,Node,"blockvote",io_lib:format("sig for ~s",[blockchain:blkid(Hash)])}|Acc1]
-               end, [], Sig);
-            (_,_,_) ->
+block(BLog,T1,T2) ->
+  MapFun=fun(_T,mkblock_done, PL) ->
+             PL;
+            (_,N,_) ->
+             io:format("N ~s~n",[N]),
              ignore
          end,
-
   {Done,Events1,MinT,MaxT}=stout_reader:fold(
     fun
       (T,_,_,Acc) when T1>0, T<T1 -> Acc;
@@ -53,6 +30,65 @@ bv(BLog,T1,T2) ->
              }
         end
     end, {0,[],erlang:system_time(),0}, BLog),
+  io:format("~w done T ~w ... ~w~n",[Done,MinT,MaxT]),
+  Events1.
+
+bv(BLog,T1,T2) ->
+  MapFun=fun(T,bv_gotblock, PL, File) ->
+             Hash=proplists:get_value(hash, PL, <<>>),
+             H=proplists:get_value(height, PL, -1),
+             Sig=[ bsig2node(S) || S<- proplists:get_value(sig, PL,[]) ],
+             lists:foldl(
+               fun(Node,Acc1) ->
+                   case Acc1 of
+                     [] ->
+                       [
+                        {T,Node,"blockvote_"++File,
+                         io_lib:format("blk ~s h=~w",[blockchain:blkid(Hash),H])},
+                        {T,Node,"blockvote_"++File,
+                         io_lib:format("sig for ~s",[blockchain:blkid(Hash)])}];
+                     _ ->
+                       [{T,Node,"blockvote_"++File,
+                         io_lib:format("blk ~s h=~w",[blockchain:blkid(Hash),H])}|Acc1]
+                   end
+               end, [], Sig);
+            (T,bv_gotsig, PL, File) ->
+             Hash=proplists:get_value(hash, PL, <<>>),
+             Sig=[ bsig2node(S) || S<- proplists:get_value(sig, PL,[]) ],
+             lists:foldl(
+               fun(Node,Acc1) ->
+                   [{T,Node,"blockvote_"++File,io_lib:format("sig for ~s",[blockchain:blkid(Hash)])}|Acc1]
+               end, [], Sig);
+            (_,_,_,_) ->
+             ignore
+         end,
+
+  FFun=fun
+      (T,_,_,Acc,_) when T1>0, T<T1 -> Acc;
+      (T,_,_,Acc,_) when T2>0, T>T2 -> Acc;
+      (_,_,_,{500,_,_,_}=Acc,_) -> Acc;
+      (T,Kind, PL, {C,Acc,M1,M2},File) ->
+        R=MapFun(T,Kind,PL,File),
+        if R==ignore ->
+             {C,
+              Acc,
+              M1,
+              M2
+             };
+           is_list(R) ->
+             {C+1,
+              [Acc,R],
+              min(M1,T),
+              max(M2,T)
+             }
+        end
+    end,
+  {Done,Events1,MinT,MaxT}=case BLog of
+                             [[_|_]|_] ->
+                               stout_reader:mfold(FFun, {0,[],erlang:system_time(),0}, BLog);
+                             _ ->
+                               stout_reader:fold(FFun, {0,[],erlang:system_time(),0}, BLog)
+                           end,
   io:format("~w done T ~w ... ~w~n",[Done,MinT,MaxT]),
   Events=lists:flatten(Events1),
   Text=[

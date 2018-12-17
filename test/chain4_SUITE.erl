@@ -16,7 +16,11 @@
 -define(TX_FEE, 0).
 
 % transaction count
+% we'll send TX_COUNT*2 + 1 transactions: fee + TX_COUNT*ping + TX_COUNT*pong
 -define(TX_COUNT, 2000).
+
+% transaction waiting timeout, seconds
+-define(TX_WAIT_TIMEOUT_SEC, 60).
 
 
 all() ->
@@ -56,6 +60,13 @@ get_base_url() ->
 api_get_tx_status(TxId) ->
     tpapi:get_tx_status(TxId, get_base_url()).
 
+% ------------------------------------------------------------------
+
+api_get_tx_status(TxId, TimeoutSec) ->
+  tpapi:get_tx_status(TxId, get_base_url(), TimeoutSec).
+
+% ------------------------------------------------------------------
+
 % get info for wallet
 api_get_wallet(Wallet) ->
     tpapi:get_wallet_info(Wallet, get_base_url()).
@@ -78,6 +89,7 @@ get_wallet_priv_key() ->
     address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>).
 
 % --------------------------------------------------------------------------------
+
 
 make_transaction(From, To, Currency, Amount, _Fee, Message) ->
     Seq = api_get_wallet_seq(From),
@@ -292,36 +304,47 @@ transaction_ping_pong_test(_Config) ->
     AmountPrev = maps:get(Cur, AmountWallet2, 0),
     logger("destination wallet ammount: ~p ~n ~p ~n", [AmountPrev, AmountWallet2]),
 
-    % send money from endless to Wallet2
-    Message = <<"ping">>,
-    TxIds = mass_transaction_sender(Wallet, Wallet2, Cur, Message, TransactionCount),
-    StatusChecker =
-      fun(TxId) ->
-        logger("check status of transaction ~p ~n", [TxId]),
-        {ok, Status, _} = api_get_tx_status(TxId),
-        logger("got status [~p]: ~p ~n", [TxId, Status]),
-        ?assertMatch(#{<<"res">> := <<"ok">>}, Status)
-      end,
-
-    logger("Statuses of money send transactions (ping).~n"),
-    [ StatusChecker(CurTxId) || CurTxId <- TxIds ],
   
+    % first of all, send money for fee from endless to Wallet2
     FeeAmount = ?TX_FEE * TransactionCount,
     logger(
       "Send additional money which will be used as transaction fee on sent money back stage.~n" ++
       "Additional money for fee: ~p",
       [FeeAmount]
     ),
-
+    
     TxId = make_transaction(Wallet, Wallet2, Cur, FeeAmount, ?TX_FEE, <<"for fee">>),
     logger("txid: ~p ~n", [TxId]),
     {ok, Status, _} = api_get_tx_status(TxId),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status),
   
+    % send money from endless to Wallet2
+    Message = <<"ping">>,
+    
+    TxIds = mass_transaction_sender(Wallet, Wallet2, Cur, Message, TransactionCount),
+    StatusChecker =
+      fun(TxId4Check) ->
+        logger("check status of transaction ~p ~n", [TxId4Check]),
+        TxStatus =
+          case api_get_tx_status(TxId4Check) of
+            {ok, StatusFromServer, _Tries} ->
+              StatusFromServer;
+            Other ->
+              Other
+          end,
+        logger("got status [~p]: ~p ~n", [TxId4Check, TxStatus]),
+        ?assertMatch(#{<<"ok">> := true, <<"res">> := <<"ok">>}, TxStatus)
+      end,
+
+    logger("Statuses of money send transactions (ping).~n"),
+    [ StatusChecker(CurTxId) || CurTxId <- TxIds ],
+  
+    % check height
     timer:sleep(5000), % wait 5 sec for wallet data update across all network
     Height2 = api_get_height(),
     ?assertMatch(true, Height2>Height),
-
+  
+    % check amount of transfered tokens
     Wallet2Data1 = api_get_wallet(Wallet2),
     logger("destination wallet after money sent: ~p ~n", [Wallet2Data1]),
     TransferedMoney = lists:sum(lists:seq(1, TransactionCount)),

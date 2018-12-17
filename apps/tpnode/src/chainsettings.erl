@@ -7,6 +7,7 @@
          is_our_node/2,
          settings_to_ets/1,
          all/0, by_path/1]).
+-export([checksum/0]).
 
 is_our_node(PubKey, Settings) ->
   KeyDB=maps:get(keys, Settings, #{}),
@@ -163,3 +164,9 @@ get(Name, Sets, GetChain) ->
        end
   end.
 
+
+
+
+checksum() ->
+  Settings = all(),
+  Settings.
