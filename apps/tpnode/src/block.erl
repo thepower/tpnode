@@ -446,11 +446,19 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
                 FailMT=gb_merkle_trees:from_list(FTxs),
                 [{failed,gb_merkle_trees:root_hash(FailMT)}|TempRoot]
            end,
-  HeaderItems=[{txroot, TxRoot},
+  
+  HeaderItems0=[{txroot, TxRoot},
                {balroot, BalsRoot},
                {ledger_hash, LH},
                {setroot, SettingsRoot}
                |FailRoot],
+  HeaderItems =
+    case maps:get(settings_hash, Req, unknown) of
+      unknown ->
+        HeaderItems0;
+      SettingsHash ->
+        [{settings_hash, SettingsHash} | HeaderItems0]
+    end,
   {BHeader, Hdr}=build_header2(HeaderItems, Parent, H, Chain),
 %  io:format("mHI ~p~n", [Hdr]),
 

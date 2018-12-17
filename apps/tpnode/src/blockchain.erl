@@ -362,7 +362,6 @@ handle_call({new_block, #{hash:=BlockHash,
               is_tuple(PID) -> PID;
               true -> emulator
            end,
-
   lager:info("Arrived block from ~p Verify block with ~p",
              [FromNode, maps:keys(Blk)]),
 
@@ -562,6 +561,7 @@ handle_call({new_block, #{hash:=BlockHash,
                   {reply, ok, S1#{
                                 prevblock=> NewLastBlock,
                                 lastblock=> MBlk,
+                                unksig => 0,
                                 settings=>if Sets==Sets1 ->
                                                Sets;
                                              true ->
@@ -734,7 +734,13 @@ handle_cast({signature, BlockHash, Sigs},
 handle_cast({signature, BlockHash, _Sigs}, State) ->
       lager:info("Got sig for block ~s, but it's not my last block",
                  [blkid(BlockHash) ]),
-      {noreply, State};
+      T=maps:get(unksig,State,0),
+      if(T>=2) ->
+          self() ! checksync,
+          {noreply, State};
+        true ->
+          {noreply, State#{unksig=>T+1}}
+      end;
 
 handle_cast({tpic, Peer, #{null := <<"sync_done">>}},
             #{ldb:=LDB, settings:=Set,
@@ -743,7 +749,7 @@ handle_cast({tpic, Peer, #{null := <<"sync_done">>}},
     save_sets(LDB, Set),
     gen_server:cast(blockvote, blockchain_sync),
     notify_settings(),
-    {noreply, maps:remove(sync, State)};
+    {noreply, maps:remove(sync, State#{unksig=>0})};
 
 handle_cast({tpic, Peer, #{null := <<"continue_sync">>,
                          <<"block">> := BlkId,
@@ -911,7 +917,7 @@ handle_info({inst_sync, done, Log}, #{ldb:=LDB,
     if LH==C ->
            lager:info("Sync done"),
            lager:notice("Verify settings"),
-           CleanState=maps:without([sync, syncblock, syncpeer, syncsettings], State),
+           CleanState=maps:without([sync, syncblock, syncpeer, syncsettings], State#{unksig=>0}),
        SS=maps:get(syncsettings, State),
            %self() ! runsync,
            save_block(LDB, Block, true),
@@ -1081,7 +1087,7 @@ handle_info(
   of
     undefined ->
       lager:notice("No candidates for sync."),
-      {noreply, maps:without([sync, syncblock, syncpeer, sync_candidates], State)};
+      {noreply, maps:without([sync, syncblock, syncpeer, sync_candidates], State#{unksig=>0})};
 
     {Handler,
       #{
@@ -1120,7 +1126,7 @@ handle_info(
         lager:info("Sync done, finish."),
         notify_settings(),
         {noreply,
-          maps:without([sync, syncblock, syncpeer, sync_candidates], State)
+          maps:without([sync, syncblock, syncpeer, sync_candidates], State#{unksig=>0})
         };
         Inst == true ->
           % try instant sync;
