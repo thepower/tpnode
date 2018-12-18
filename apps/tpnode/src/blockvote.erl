@@ -80,7 +80,9 @@ handle_cast({tpic, _From, #{
 handle_cast({signature, BlockHash, Sigs}=WholeSig,
             #{lastblock:=#{hash:=LBH}}=State) when LBH==BlockHash->
     lager:info("BV Got extra sig for ~s ~p", [blkid(BlockHash), WholeSig]),
+    
     stout:log(bv_gotsig, [{hash, BlockHash}, {sig, Sigs}, {extra, true}]),
+  
     gen_server:cast(blockchain, WholeSig),
     {noreply, State};
 
@@ -90,11 +92,14 @@ handle_cast({signature, BlockHash, Sigs}, #{candidatesig:=Candidatesig}=State) -
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
     %lager:debug("BV S CS2 ~p", [maps:keys(CSig)]),
-    stout:log(bv_gotsig, [{hash, BlockHash}, {sig, Sigs}, {extra, false}]),
+  
+    stout:log(bv_gotsig,
+      [{hash, BlockHash}, {sig, Sigs}, {candsig, Candidatesig}, {extra, false}]),
+  
     State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig) },
     {noreply, is_block_ready(BlockHash, State2)};
 
-handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID},
+handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID},
             #{ candidates:=Candidates,
                candidatesig:=Candidatesig
              }=State) ->
@@ -111,7 +116,9 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID},
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
     %lager:debug("BV N CS2 ~p", [maps:keys(CSig)]),
-    stout:log(bv_gotblock, [{hash, BlockHash}, {sig, Sigs}, {height, Height}]),
+
+    stout:log(bv_gotblock, [{hash, BlockHash}, {sig, Sigs}, {height, Height}, {txs_cnt, length(Txs)}]),
+
     State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig),
                    candidates => maps:put(BlockHash, Blk, Candidates)
                  },

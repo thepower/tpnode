@@ -225,7 +225,9 @@ handle_info(process,
                 end
             end, #{}, PreTXL0),
   PreTXL=lists:keysort(1, maps:to_list(PreTXL1)),
-
+  
+  stout:log(mkblock_process, [ {node, nodekey:node_name()} ]),
+  
   AE=maps:get(ae, MySet, 0),
   B=blockchain:last_meta(),
   PTmp=maps:get(temporary,B,false),
