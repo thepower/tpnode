@@ -42,29 +42,33 @@ bv(BLog, T1, T2) ->
   MapFun =
     fun
       (T, sync_ticktimer, _PL, File) ->
-        io:format("T: ~p~n", [T]),
         [{T, File, File, "sync_ticktimer"}];
-    
+
       (T, txqueue_prepare, _PL, File) ->
-        io:format("T: ~p~n", [T]),
         [{T, File, File, "txqueue_prepare"}];
-    
+
       (T, mkblock_process, _PL, File) ->
-        io:format("T: ~p~n", [T]),
         [{T, File, File, "mkblock_process"}];
-      
+
       (T, mkblock_done, _PL, File) ->
-        io:format("T: ~p~n", [T]),
         [{T, File, File, "mkblock_done"}];
-    
-      (T, accept_block, _PL, File) ->
-        io:format("T: ~p~n", [T]),
-        [{T, File, File, "accept_block"}];
-    
-      (T, bv_ready, _PL, File) ->
-        io:format("T: ~p~n", [T]),
-        [{T, File, File, "bv_ready"}];
-      
+
+      (T, accept_block, PL, File) ->
+        Hash=proplists:get_value(hash, PL, <<>>),
+        H=proplists:get_value(height, PL, -1),
+        S=proplists:get_value(sig, PL, 0),
+        [{T, File, File,
+          io_lib:format("accept_block ~s h=~w sig=~w", [blockchain:blkid(Hash), H,S])
+         }];
+      (T, bv_ready, PL, File) ->
+        Hdr=proplists:get_value(header, PL, #{}),
+        Hash = maps:get(hash, Hdr, <<>>),
+        H = maps:get(height, Hdr, -1),
+        %io:format("bv_ready T: ~p~n", [PL]),
+        [{T, File, File,
+          io_lib:format("bv_ready ~s h=~w", [hex:encode(Hash), H])
+         }];
+
     (T, bv_gotblock, PL, File) ->
       Hash = proplists:get_value(hash, PL, <<>>),
       H = proplists:get_value(height, PL, -1),
@@ -93,12 +97,12 @@ bv(BLog, T1, T2) ->
       (_, _, _, _) ->
         ignore
     end,
-  
+
   FFun =
     fun
       (T, _, _, Acc, _) when T1 > 0, T < T1 -> Acc;
       (T, _, _, Acc, _) when T2 > 0, T > T2 -> Acc;
-      (_, _, _, {500, _, _, _} = Acc, _) -> Acc;
+      (_, _, _, {5000, _, _, _} = Acc, _) -> Acc;
       (T, Kind, PL, {C, Acc, M1, M2}, File) ->
         R = MapFun(T, Kind, PL, File),
         if R == ignore ->
@@ -115,8 +119,8 @@ bv(BLog, T1, T2) ->
             }
         end
     end,
-  
-  
+
+
   {Done, Events1, MinT, MaxT} =
     case BLog of
       [[_ | _] | _] ->
@@ -124,7 +128,7 @@ bv(BLog, T1, T2) ->
       _ ->
         stout_reader:fold(FFun, {0, [], erlang:system_time(), 0}, BLog)
     end,
-  
+
   io:format("~w done T ~w ... ~w~n", [Done, MinT, MaxT]),
   Events = lists:flatten(Events1),
   Text = [
@@ -140,7 +144,6 @@ bv(BLog, T1, T2) ->
 % --------------------------------------------------------------------------------
 
 fmt_t(T) ->
-  io:format("T2: ~p~n", [T]),
   Sec=(T div 1000000000),
   Ms=T div 100000 rem 10000,
   {_,{H,M,S}}=calendar:gregorian_seconds_to_datetime(Sec + 62167230000),
