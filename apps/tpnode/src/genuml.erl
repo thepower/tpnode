@@ -4,6 +4,22 @@
 
 % --------------------------------------------------------------------------------
 
+-define(get_node(NodeKey), node_map(proplists:get_value(NodeKey, PL, File))).
+
+% --------------------------------------------------------------------------------
+
+
+node_map(NodeName) when is_binary(NodeName) ->
+  Map = #{
+    <<"node_287nRpYV">> => <<"c4n1">>,
+    <<"node_3NBx74Ed">> => <<"c4n2">>,
+    <<"node_28AFpshz">> => <<"c4n3">>
+  },
+  maps:get(NodeName, Map, NodeName);
+
+node_map(NodeName) ->
+  node_map(utils:make_binary(NodeName)).
+
 
 block(BLog,T1,T2) ->
   MapFun=fun(_T,mkblock_done, PL) ->
@@ -42,26 +58,26 @@ bv(BLog, T1, T2) ->
   MapFun =
     fun
       (T, sync_ticktimer, PL, File) ->
-        Node = proplists:get_value(node, PL, File),
+        Node = ?get_node(node),
         [{T, Node, Node, "sync_ticktimer"}];
     
       (T, txqueue_prepare, PL, File) ->
-        Node = proplists:get_value(node, PL, File),
+        Node = ?get_node(node),
         [{T, Node, Node, "txqueue_prepare"}];
     
       (T, mkblock_process, PL, File) ->
-        Node = proplists:get_value(node, PL, File),
+        Node = ?get_node(node),
         [{T, Node, Node, "mkblock_process"}];
       
       (T, mkblock_done, PL, File) ->
-        Node = proplists:get_value(node_name, PL, File),
+        Node = ?get_node(node_name),
         [{T, Node, Node, "mkblock_done"}];
     
       (T, accept_block, PL, File) ->
         Hash=proplists:get_value(hash, PL, <<>>),
         H=proplists:get_value(height, PL, -1),
         S=proplists:get_value(sig, PL, 0),
-        Node = proplists:get_value(node, PL, File),
+        Node = ?get_node(node),
         [
           {T, Node, Node,
             io_lib:format("accept_block ~s h=~w sig=~w", [blockchain:blkid(Hash), H,S])}
@@ -77,10 +93,12 @@ bv(BLog, T1, T2) ->
     (T, bv_gotblock, PL, File) ->
       Hash = proplists:get_value(hash, PL, <<>>),
       H = proplists:get_value(height, PL, -1),
-      OurNodeName = proplists:get_value(node_name, PL, "blockvote_" ++ File),
+      OurNodeName = node_map(proplists:get_value(node_name, PL, "blockvote_" ++ File)),
       Sig = [bsig2node(S) || S <- proplists:get_value(sig, PL, [])],
       lists:foldl(
-        fun(Node, Acc1) ->
+        fun(Node0, Acc1) ->
+          Node = node_map(Node0),
+          
           case Acc1 of
             [] ->
               [
@@ -97,12 +115,12 @@ bv(BLog, T1, T2) ->
       (T, bv_gotsig, PL, File) ->
         Hash = proplists:get_value(hash, PL, <<>>),
         Sig = [bsig2node(S) || S <- proplists:get_value(sig, PL, [])],
-        OurNodeName = proplists:get_value(node_name, PL, "blockvote_" ++ File),
+        OurNodeName = node_map(proplists:get_value(node_name, PL, "blockvote_" ++ File)),
         
         lists:foldl(
           fun(Node, Acc1) ->
             [
-              {T, Node, OurNodeName,
+              {T, node_map(Node), OurNodeName,
                 io_lib:format("gotsig sig for ~s", [blockchain:blkid(Hash)])} | Acc1]
           end, [], Sig);
       (_, _, _, _) ->
