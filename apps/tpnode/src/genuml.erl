@@ -58,23 +58,21 @@ bv(BLog, T1, T2) ->
         [{T, Node, Node, "mkblock_done"}];
     
       (T, accept_block, PL, File) ->
-%%        io:format("T: ~p~n", [T]),
         Hash=proplists:get_value(hash, PL, <<>>),
         H=proplists:get_value(height, PL, -1),
         S=proplists:get_value(sig, PL, 0),
         Node = proplists:get_value(node, PL, File),
-        [{T, Node, Node,
-          io_lib:format("accept_block ~s h=~w sig=~w", [blockchain:blkid(Hash), H,S])
-        }];
+        [
+          {T, Node, Node,
+            io_lib:format("accept_block ~s h=~w sig=~w", [blockchain:blkid(Hash), H,S])}
+        ];
     
-      (T, bv_ready, _PL, File) ->
+      (T, bv_ready, PL, File) ->
         Hdr=proplists:get_value(header, PL, #{}),
         Hash = maps:get(hash, Hdr, <<>>), H = maps:get(height, Hdr, -1),
-        
-%%        io:format("T: ~p~n", [T]),
-        [{T, File, File,
-          io_lib:format("bv_ready ~s h=~w", [hex:encode(Hash), H])
-        }];
+        [
+          {T, File, File, io_lib:format("bv_ready ~s h=~w", [hex:encode(Hash), H])}
+        ];
       
     (T, bv_gotblock, PL, File) ->
       Hash = proplists:get_value(hash, PL, <<>>),
@@ -103,7 +101,9 @@ bv(BLog, T1, T2) ->
         
         lists:foldl(
           fun(Node, Acc1) ->
-            [{T, Node, OurNodeName, io_lib:format("gotsig sig for ~s", [blockchain:blkid(Hash)])} | Acc1]
+            [
+              {T, Node, OurNodeName,
+                io_lib:format("gotsig sig for ~s", [blockchain:blkid(Hash)])} | Acc1]
           end, [], Sig);
       (_, _, _, _) ->
         ignore
