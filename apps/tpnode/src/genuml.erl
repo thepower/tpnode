@@ -59,12 +59,22 @@ bv(BLog, T1, T2) ->
     
       (T, accept_block, PL, File) ->
 %%        io:format("T: ~p~n", [T]),
+        Hash=proplists:get_value(hash, PL, <<>>),
+        H=proplists:get_value(height, PL, -1),
+        S=proplists:get_value(sig, PL, 0),
         Node = proplists:get_value(node, PL, File),
-        [{T, Node, Node, "accept_block"}];
+        [{T, Node, Node,
+          io_lib:format("accept_block ~s h=~w sig=~w", [blockchain:blkid(Hash), H,S])
+        }];
     
       (T, bv_ready, _PL, File) ->
+        Hdr=proplists:get_value(header, PL, #{}),
+        Hash = maps:get(hash, Hdr, <<>>), H = maps:get(height, Hdr, -1),
+        
 %%        io:format("T: ~p~n", [T]),
-        [{T, File, File, "bv_ready"}];
+        [{T, File, File,
+          io_lib:format("bv_ready ~s h=~w", [hex:encode(Hash), H])
+        }];
       
     (T, bv_gotblock, PL, File) ->
       Hash = proplists:get_value(hash, PL, <<>>),
@@ -98,12 +108,12 @@ bv(BLog, T1, T2) ->
       (_, _, _, _) ->
         ignore
     end,
-  
+
   FFun =
     fun
       (T, _, _, Acc, _) when T1 > 0, T < T1 -> Acc;
       (T, _, _, Acc, _) when T2 > 0, T > T2 -> Acc;
-      (_, _, _, {500, _, _, _} = Acc, _) -> Acc;
+      (_, _, _, {5000, _, _, _} = Acc, _) -> Acc;
       (T, Kind, PL, {C, Acc, M1, M2}, File) ->
         R = MapFun(T, Kind, PL, File),
         if R == ignore ->
@@ -120,8 +130,8 @@ bv(BLog, T1, T2) ->
             }
         end
     end,
-  
-  
+
+
   {Done, Events1, MinT, MaxT} =
     case BLog of
       [[_ | _] | _] ->
@@ -129,7 +139,7 @@ bv(BLog, T1, T2) ->
       _ ->
         stout_reader:fold(FFun, {0, [], erlang:system_time(), 0}, BLog)
     end,
-  
+
   io:format("~w done T ~w ... ~w~n", [Done, MinT, MaxT]),
   Events = lists:flatten(Events1),
   Text = [
