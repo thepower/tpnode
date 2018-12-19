@@ -427,6 +427,7 @@ handle_call({new_block, #{hash:=BlockHash,
                                {temp, maps:get(temporary,Blk,false)},
                                {hash, BlockHash},
                                {sig, SigLen},
+                               {node, nodekey:node_name()},
                                {height,maps:get(height, maps:get(header, Blk))}
                               ]),
                   lastblock2ets(BTable, MBlk),
@@ -513,6 +514,7 @@ handle_call({new_block, #{hash:=BlockHash,
                               [
                                {hash, BlockHash},
                                {sig, SigLen},
+                               {node, nodekey:node_name()},
                                {height,maps:get(height, maps:get(header, Blk))}
                               ]),
                   lager:info("enough confirmations ~w/~w. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",

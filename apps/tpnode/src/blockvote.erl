@@ -81,7 +81,10 @@ handle_cast({signature, BlockHash, Sigs}=WholeSig,
             #{lastblock:=#{hash:=LBH}}=State) when LBH==BlockHash->
     lager:info("BV Got extra sig for ~s ~p", [blkid(BlockHash), WholeSig]),
     
-    stout:log(bv_gotsig, [{hash, BlockHash}, {sig, Sigs}, {extra, true}]),
+    stout:log(
+      bv_gotsig,
+      [{hash, BlockHash}, {sig, Sigs}, {extra, true}, {node_name, nodekey:node_name()}]
+    ),
   
     gen_server:cast(blockchain, WholeSig),
     {noreply, State};
@@ -117,7 +120,15 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID},
     CSig=checksig(BlockHash, Sigs, CSig0),
     %lager:debug("BV N CS2 ~p", [maps:keys(CSig)]),
 
-    stout:log(bv_gotblock, [{hash, BlockHash}, {sig, Sigs}, {height, Height}, {txs_cnt, length(Txs)}]),
+    stout:log(
+      bv_gotblock,
+      [
+        {hash, BlockHash},
+        {sig, Sigs},
+        {node_name, nodekey:node_name()},
+        {height, Height},
+        {txs_cnt, length(Txs)}
+      ]),
 
     State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig),
                    candidates => maps:put(BlockHash, Blk, Candidates)
@@ -231,6 +242,7 @@ is_block_ready(BlockHash, State) ->
         stout:log(bv_ready,
                   [ {hash, BlockHash},
                     {height, Height},
+                    {node, nodekey:node_name()},
                     {header, maps:get(header, Blk)}
                   ]),
 				lager:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",

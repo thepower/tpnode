@@ -41,54 +41,59 @@ block(BLog,T1,T2) ->
 bv(BLog, T1, T2) ->
   MapFun =
     fun
-      (T, sync_ticktimer, _PL, File) ->
-        io:format("T: ~p~n", [T]),
-        [{T, File, File, "sync_ticktimer"}];
+      (T, sync_ticktimer, PL, File) ->
+        Node = proplists:get_value(node, PL, File),
+        [{T, Node, Node, "sync_ticktimer"}];
     
-      (T, txqueue_prepare, _PL, File) ->
-        io:format("T: ~p~n", [T]),
-        [{T, File, File, "txqueue_prepare"}];
+      (T, txqueue_prepare, PL, File) ->
+        Node = proplists:get_value(node, PL, File),
+        [{T, Node, Node, "txqueue_prepare"}];
     
-      (T, mkblock_process, _PL, File) ->
-        io:format("T: ~p~n", [T]),
-        [{T, File, File, "mkblock_process"}];
+      (T, mkblock_process, PL, File) ->
+        Node = proplists:get_value(node, PL, File),
+        [{T, Node, Node, "mkblock_process"}];
       
-      (T, mkblock_done, _PL, File) ->
-        io:format("T: ~p~n", [T]),
-        [{T, File, File, "mkblock_done"}];
+      (T, mkblock_done, PL, File) ->
+        Node = proplists:get_value(node_name, PL, File),
+        [{T, Node, Node, "mkblock_done"}];
     
-      (T, accept_block, _PL, File) ->
-        io:format("T: ~p~n", [T]),
-        [{T, File, File, "accept_block"}];
+      (T, accept_block, PL, File) ->
+%%        io:format("T: ~p~n", [T]),
+        Node = proplists:get_value(node, PL, File),
+        [{T, Node, Node, "accept_block"}];
     
       (T, bv_ready, _PL, File) ->
-        io:format("T: ~p~n", [T]),
+%%        io:format("T: ~p~n", [T]),
         [{T, File, File, "bv_ready"}];
       
     (T, bv_gotblock, PL, File) ->
       Hash = proplists:get_value(hash, PL, <<>>),
       H = proplists:get_value(height, PL, -1),
+      OurNodeName = proplists:get_value(node_name, PL, "blockvote_" ++ File),
       Sig = [bsig2node(S) || S <- proplists:get_value(sig, PL, [])],
       lists:foldl(
         fun(Node, Acc1) ->
           case Acc1 of
             [] ->
               [
-                {T, Node, "blockvote_" ++ File,
-                  io_lib:format("blk ~s h=~w", [blockchain:blkid(Hash), H])},
-                {T, Node, "blockvote_" ++ File,
-                  io_lib:format("sig for ~s", [blockchain:blkid(Hash)])}];
+                {T, Node, OurNodeName,
+                  io_lib:format("gotblock blk ~s h=~w", [blockchain:blkid(Hash), H])},
+                {T, Node, OurNodeName,
+                  io_lib:format("gotblock sig for ~s", [blockchain:blkid(Hash)])}];
             _ ->
-              [{T, Node, "blockvote_" ++ File,
-                io_lib:format("blk ~s h=~w", [blockchain:blkid(Hash), H])} | Acc1]
+              [{T, Node, OurNodeName,
+                io_lib:format("gotblock blk ~s h=~w", [blockchain:blkid(Hash), H])} | Acc1]
           end
         end, [], Sig);
+      
       (T, bv_gotsig, PL, File) ->
         Hash = proplists:get_value(hash, PL, <<>>),
         Sig = [bsig2node(S) || S <- proplists:get_value(sig, PL, [])],
+        OurNodeName = proplists:get_value(node_name, PL, "blockvote_" ++ File),
+        
         lists:foldl(
           fun(Node, Acc1) ->
-            [{T, Node, "blockvote_" ++ File, io_lib:format("sig for ~s", [blockchain:blkid(Hash)])} | Acc1]
+            [{T, Node, OurNodeName, io_lib:format("gotsig sig for ~s", [blockchain:blkid(Hash)])} | Acc1]
           end, [], Sig);
       (_, _, _, _) ->
         ignore
@@ -140,7 +145,7 @@ bv(BLog, T1, T2) ->
 % --------------------------------------------------------------------------------
 
 fmt_t(T) ->
-  io:format("T2: ~p~n", [T]),
+%%  io:format("T2: ~p~n", [T]),
   Sec=(T div 1000000000),
   Ms=T div 100000 rem 10000,
   {_,{H,M,S}}=calendar:gregorian_seconds_to_datetime(Sec + 62167230000),
