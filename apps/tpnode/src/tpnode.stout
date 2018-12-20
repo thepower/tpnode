@@ -14,7 +14,7 @@
 
 {bv_gotblock,
   ["Got block on node ", node_name, ", ", {{blockchain,blkid},hash},
-    ", h= ",height,", txs=", txs_cnt, ", ", sig] }.
+    ", h= ",height,":", tmp, ", txs=", txs_cnt, ", ", sig] }.
 
 {bv_ready, ["Ready block ",{{blockchain,blkid},hash},", node=", node, ", h=",height]}.
 {sync_ticktimer, ["sync tick, node=", node]}.

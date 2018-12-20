@@ -127,7 +127,8 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID},
         {sig, Sigs},
         {node_name, nodekey:node_name()},
         {height, Height},
-        {txs_cnt, length(Txs)}
+        {txs_cnt, length(Txs)},
+        {tmp, maps:get(temporary, Blk, -1)}
       ]),
 
     State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig),

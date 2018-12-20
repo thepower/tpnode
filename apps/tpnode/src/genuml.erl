@@ -71,21 +71,29 @@ bv(BLog, T1, T2) ->
       
       (T, mkblock_done, PL, File) ->
         Node = ?get_node(node_name),
-        [{T, Node, Node, "mkblock_done"}];
+        Hdr = proplists:get_value(block_hdr, PL, #{}),
+        H = proplists:get_value(height, PL, -1),
+        Hash = maps:get(hash, Hdr, <<>>),
+        Tmp = maps:get(temporary, Hdr, -1),
+        [{T, Node, Node,
+          io_lib:format("mkblock_done ~s h=~w:~p", [blockchain:blkid(Hash), H, Tmp])}
+        ];
     
       (T, accept_block, PL, File) ->
         Hash=proplists:get_value(hash, PL, <<>>),
         H=proplists:get_value(height, PL, -1),
         S=proplists:get_value(sig, PL, 0),
+        Tmp=proplists:get_value(temp, PL, -1),
         Node = ?get_node(node),
         [
           {T, Node, Node,
-            io_lib:format("accept_block ~s h=~w sig=~w", [blockchain:blkid(Hash), H,S])}
+            io_lib:format("accept_block ~s h=~w:~p sig=~w", [blockchain:blkid(Hash), H, Tmp, S])}
         ];
     
       (T, bv_ready, PL, File) ->
         Hdr=proplists:get_value(header, PL, #{}),
-        Hash = maps:get(hash, Hdr, <<>>), H = maps:get(height, Hdr, -1),
+        Hash = maps:get(hash, Hdr, <<>>),
+        H = maps:get(height, Hdr, -1),
         Node = ?get_node(node),
         [
           {T, Node, Node, io_lib:format("bv_ready ~s h=~w", [hex:encode(Hash), H])}
@@ -94,6 +102,7 @@ bv(BLog, T1, T2) ->
     (T, bv_gotblock, PL, File) ->
       Hash = proplists:get_value(hash, PL, <<>>),
       H = proplists:get_value(height, PL, -1),
+      Tmp = proplists:get_value(tmp, PL, -1),
       OurNodeName = node_map(proplists:get_value(node_name, PL, "blockvote_" ++ File)),
       Sig = [bsig2node(S) || S <- proplists:get_value(sig, PL, [])],
       lists:foldl(
@@ -104,12 +113,12 @@ bv(BLog, T1, T2) ->
             [] ->
               [
                 {T, Node, OurNodeName,
-                  io_lib:format("gotblock blk ~s h=~w", [blockchain:blkid(Hash), H])},
+                  io_lib:format("gotblock blk ~s h=~w:~p", [blockchain:blkid(Hash), H, Tmp])},
                 {T, Node, OurNodeName,
                   io_lib:format("gotblock sig for ~s", [blockchain:blkid(Hash)])}];
             _ ->
               [{T, Node, OurNodeName,
-                io_lib:format("gotblock blk ~s h=~w", [blockchain:blkid(Hash), H])} | Acc1]
+                io_lib:format("gotblock blk ~s h=~w:~p", [blockchain:blkid(Hash), H, Tmp])} | Acc1]
           end
         end, [], Sig);
       

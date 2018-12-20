@@ -512,6 +512,7 @@ handle_call({new_block, #{hash:=BlockHash,
                   T3=erlang:system_time(),
                   stout:log(accept_block,
                               [
+                               {temp, false},
                                {hash, BlockHash},
                                {sig, SigLen},
                                {node, nodekey:node_name()},
