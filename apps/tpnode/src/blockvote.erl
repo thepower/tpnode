@@ -97,7 +97,7 @@ handle_cast({signature, BlockHash, Sigs}, #{candidatesig:=Candidatesig}=State) -
     %lager:debug("BV S CS2 ~p", [maps:keys(CSig)]),
   
     stout:log(bv_gotsig,
-      [{hash, BlockHash}, {sig, Sigs}, {candsig, Candidatesig}, {extra, false}]),
+      [{hash, BlockHash}, {sig, Sigs}, {candsig, Candidatesig}, {extra, false}, {node_name, nodekey:node_name()}]),
   
     State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig) },
     {noreply, is_block_ready(BlockHash, State2)};

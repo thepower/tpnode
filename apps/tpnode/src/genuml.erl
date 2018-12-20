@@ -86,8 +86,9 @@ bv(BLog, T1, T2) ->
       (T, bv_ready, PL, File) ->
         Hdr=proplists:get_value(header, PL, #{}),
         Hash = maps:get(hash, Hdr, <<>>), H = maps:get(height, Hdr, -1),
+        Node = ?get_node(node),
         [
-          {T, File, File, io_lib:format("bv_ready ~s h=~w", [hex:encode(Hash), H])}
+          {T, Node, Node, io_lib:format("bv_ready ~s h=~w", [hex:encode(Hash), H])}
         ];
       
     (T, bv_gotblock, PL, File) ->

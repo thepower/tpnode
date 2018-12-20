@@ -9,7 +9,8 @@
 {mkblock_done, [ "Built block node=", node_name, ", h=", height, ": ", block_hdr ]}.
 
 {bv_gotsig,
-  ["Got sig for block ", {{blockchain,blkid},hash}, " ", sig, " ", extra, " candsig: ", candsig] }.
+  ["Got sig on node ", node_name, " for block ", {{blockchain,blkid},hash},
+    " ", sig, " ", extra, " candsig: ", candsig] }.
 
 {bv_gotblock,
   ["Got block on node ", node_name, ", ", {{blockchain,blkid},hash},
