@@ -59,7 +59,7 @@ bv(BLog, T1, T2) ->
     fun
       (T, sync_ticktimer, PL, File) ->
         Node = ?get_node(node),
-        [{T, Node, Node, "sync_ticktimer"}];
+        [{T, Node, Node, "sync_ticktimer", #{arrow_type => hnote}}];
     
       (T, txqueue_prepare, PL, File) ->
         Node = ?get_node(node),
@@ -86,8 +86,11 @@ bv(BLog, T1, T2) ->
         Tmp=proplists:get_value(temp, PL, -1),
         Node = ?get_node(node),
         [
-          {T, Node, Node,
-            io_lib:format("accept_block ~s h=~w:~p sig=~w", [blockchain:blkid(Hash), H, Tmp, S])}
+          {
+            T, Node, Node,
+            io_lib:format("accept_block ~s h=~w:~p sig=~w", [blockchain:blkid(Hash), H, Tmp, S]),
+            #{arrow_type => rnote}
+          }
         ];
     
       (T, bv_ready, PL, File) ->
@@ -170,9 +173,25 @@ bv(BLog, T1, T2) ->
 
   io:format("~w done T ~w ... ~w~n", [Done, MinT, MaxT]),
   Events = lists:flatten(Events1),
+  
+  Formater =
+    fun
+      ({TimestampData, FromData, ToData, MessageData, #{arrow_type := hnote}}) when FromData =:= ToData ->
+        io_lib:format("hnote over ~s : ~s ~s~n", [FromData, fmt_t(TimestampData), MessageData]);
+
+      ({TimestampData, FromData, ToData, MessageData, #{arrow_type := rnote}}) when FromData =:= ToData ->
+        io_lib:format("rnote over ~s : ~s ~s~n", [FromData, fmt_t(TimestampData), MessageData]);
+  
+      ({TimestampData, FromData, ToData, MessageData}) ->
+        io_lib:format("~s -> ~s : ~s ~s~n", [FromData, ToData, fmt_t(TimestampData), MessageData]);
+    
+      (InvalidEvent) ->
+        io:format("invalid event: ~p~n", [InvalidEvent])
+    end,
+    
   Text = [
     "@startuml\n",
-    [io_lib:format("~s -> ~s : ~s ~s~n", [From, To, fmt_t(T), Message]) || {T, From, To, Message} <- Events],
+    [ Formater(Event) || Event <- Events],
     "@enduml\n"
   ],
   file:write_file("x.uml", Text),
