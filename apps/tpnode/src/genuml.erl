@@ -238,7 +238,7 @@ fmt_t(T) ->
   Sec=(T div 1000000000),
   Ms=T div 100000 rem 10000,
   {_,{H,M,S}}=calendar:gregorian_seconds_to_datetime(Sec + 62167230000),
-  io_lib:format("[~2.B:~2.B:~2.B.~4.B]",[H,M,S,Ms]).
+  io_lib:format("[~2..0B:~2..0B:~2..0B.~4..0B]",[H,M,S,Ms]).
 
 % --------------------------------------------------------------------------------
 
