@@ -79,7 +79,7 @@ bv(BLog, T1, T2) ->
           io_lib:format("mkblock_done ~s h=~w:~p", [blockchain:blkid(Hash), H, Tmp])}
         ];
       (T, got_new_block, PL, File) ->
-        Node = ?get_node(node_name),
+        Node = ?get_node(node),
         H = proplists:get_value(height, PL, -1),
         Verify = proplists:get_value(verify, PL, -1),
         Hash = proplists:get_value(hash, PL, -1),
