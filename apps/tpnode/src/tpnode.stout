@@ -24,3 +24,5 @@
 {got_new_block, ["got new block ",hash," ver ",verify]}.
 {sync_needed, ["Sync needed"]}.
 
+{runsync, ["run sync at ",where]}.
+
