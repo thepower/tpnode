@@ -225,6 +225,7 @@ handle_call(sync_req, _From, State) ->
   {reply, sync_req(State), State};
 
 handle_call({runsync, NewChain}, _From, State) ->
+  stout:log(runsync, [ {node, nodekey:node_name()}, {where, call} ]),
   self() ! runsync,
   {reply, sync, State#{mychain:=NewChain}};
 
@@ -943,6 +944,7 @@ handle_info({inst_sync, ledger}, State) ->
 handle_info({inst_sync, done, Log}, #{ldb:=LDB,
                                       btable:=BTable
                                      }=State) ->
+  stout:log(runsync, [ {node, nodekey:node_name()}, {where, inst} ]),
     lager:info("BC Sync done ~p", [Log]),
     lager:notice("Check block's keys"),
     {ok, C}=gen_server:call(ledger, {check, []}),
@@ -973,6 +975,7 @@ handle_info({bbyb_sync, Hash},
                syncpeer:=Handler,
                sync_candidates:=Candidates} = State) ->
   flush_bbsync(),
+  stout:log(runsync, [ {node, nodekey:node_name()}, {where, bbsync} ]),
   lager:debug("run bbyb sync from hash: ~p", [blkid(Hash)]),
   case tpiccall(Handler,
     #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
@@ -1031,6 +1034,7 @@ handle_info({bbyb_sync, Hash},
   end;
 
 handle_info(checksync, State) ->
+  stout:log(runsync, [ {node, nodekey:node_name()}, {where, checksync} ]),
   flush_checksync(),
   self() ! runsync,
   {noreply, State};
@@ -1079,6 +1083,7 @@ handle_info(
                #{header:=#{height:=TmpHeight}} ->
                  TmpHeight
              end,
+  stout:log(runsync, [ {node, nodekey:node_name()}, {where, got_info} ]),
   lager:debug("got runsync, myHeight: ~p, myLastHash: ~p", [MyHeight, blkid(MyLastHash)]),
 
   GetDefaultCandidates =
