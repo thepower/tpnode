@@ -20,4 +20,6 @@
 {sync_ticktimer, ["sync tick, node=", node]}.
 {mkblock_process, ["mkblock:process, node=", node]}.
 
+{got_new_block, ["got new block ",hash," ver ",verify]}.
+{sync_needed, ["Sync needed"]}.
 

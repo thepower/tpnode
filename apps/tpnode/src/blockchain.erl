@@ -381,6 +381,13 @@ handle_call({new_block, #{hash:=BlockHash,
     T0=erlang:system_time(),
     case block:verify(Blk) of
       false ->
+        stout:log(got_new_block,
+                  [
+                   {hash, BlockHash},
+                   {node, nodekey:node_name()},
+                   {verify, false},
+                   {height,maps:get(height, maps:get(header, Blk))}
+                  ]),
         T1=erlang:system_time(),
         file:write_file("tmp/bad_block_" ++
                         integer_to_list(maps:get(height, Header)) ++ ".txt",
@@ -390,9 +397,17 @@ handle_call({new_block, #{hash:=BlockHash,
                    [FromNode, Hei, blkid(BlockHash), (T1-T0)/1000000]),
         throw(ignore);
       {true, {Success, _}} ->
+        LenSucc=length(Success),
+        stout:log(got_new_block,
+                  [
+                   {hash, BlockHash},
+                   {node, nodekey:node_name()},
+                   {verify, LenSucc},
+                   {height,maps:get(height, maps:get(header, Blk))}
+                  ]),
         T1=erlang:system_time(),
         Txs=maps:get(txs, Blk, []),
-        if length(Success)>0 ->
+        if LenSucc>0 ->
              lager:info("from ~p New block ~w arrived ~s, txs ~b, verify ~w sig (~.3f ms)",
                    [FromNode, maps:get(height, maps:get(header, Blk)),
                     blkid(BlockHash), length(Txs), length(Success), (T1-T0)/1000000]),
@@ -435,6 +450,7 @@ handle_call({new_block, #{hash:=BlockHash,
                                 tmpblock=>MBlk
                                }};
                 LBlockHash=/=NewPHash ->
+                  stout:log(sync_needed, [ ]),
                   lager:info("Need resynchronize, height ~p/~p new block parent ~s, but my ~s",
                              [
                               maps:get(height, maps:get(header, Blk)),
