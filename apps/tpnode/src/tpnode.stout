@@ -2,7 +2,8 @@
   ["Accepted block ", hash," node=", node, ", h= ",height, " Sigs ",sig], [critical]}.
 
 {mkblock_debug,
-  ["Block created at ",node_name, " H= ",height, " parent= ",phash, " pretx= ",pretxl, " failed= ",fail, " block= ",block],
+  ["Block created at ",node_name, " H= ",height, ":", temporary, " parent= ",phash,
+    " pretx= ",pretxl, " failed= ",fail, " block= ",block],
   []
 }.
 

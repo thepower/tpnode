@@ -337,7 +337,8 @@ handle_info(process,
                 {phash, PHash},
                 {pretxl, PreTXL},
                 {fail, Failed},
-                {block, Block}
+                {block, Block},
+                {temporary, Temporary}
                ]);
       %file:write_file(
       %  "log/"++ utils:make_list(NodeName) ++ "_block_" ++
