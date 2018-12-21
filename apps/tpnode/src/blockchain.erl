@@ -403,7 +403,7 @@ handle_call({new_block, #{hash:=BlockHash,
                    {hash, BlockHash},
                    {node, nodekey:node_name()},
                    {verify, LenSucc},
-                   {height,maps:get(height, maps:get(header, Blk))}
+                   {height, maps:get(height, maps:get(header, Blk))}
                   ]),
         T1=erlang:system_time(),
         Txs=maps:get(txs, Blk, []),
@@ -450,7 +450,15 @@ handle_call({new_block, #{hash:=BlockHash,
                                 tmpblock=>MBlk
                                }};
                 LBlockHash=/=NewPHash ->
-                  stout:log(sync_needed, [ ]),
+                  stout:log(sync_needed, [
+                    {temp, maps:get(temporary,Blk,false)},
+                    {hash, BlockHash},
+                    {phash, NewPHash},
+                    {lblockhash, LBlockHash},
+                    {sig, SigLen},
+                    {node, nodekey:node_name()},
+                    {height,maps:get(height, maps:get(header, Blk))}
+                  ]),
                   lager:info("Need resynchronize, height ~p/~p new block parent ~s, but my ~s",
                              [
                               maps:get(height, maps:get(header, Blk)),

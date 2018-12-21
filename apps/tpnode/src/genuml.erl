@@ -78,7 +78,39 @@ bv(BLog, T1, T2) ->
         [{T, Node, Node,
           io_lib:format("mkblock_done ~s h=~w:~p", [blockchain:blkid(Hash), H, Tmp])}
         ];
-    
+      (T, got_new_block, PL, File) ->
+        Node = ?get_node(node_name),
+        H = proplists:get_value(height, PL, -1),
+        Verify = proplists:get_value(verify, PL, -1),
+        Hash = proplists:get_value(hash, PL, -1),
+        
+        [{T, Node, Node,
+          io_lib:format(
+            "got_new_block ~s h=~w, verify=~p",
+            [blockchain:blkid(Hash), H, Verify]
+          )}
+        ];
+  
+      (T, sync_needed, PL, File) ->
+        Hash=proplists:get_value(hash, PL, <<>>),
+        H=proplists:get_value(height, PL, -1),
+        S=proplists:get_value(sig, PL, 0),
+        Tmp=proplists:get_value(temp, PL, -1),
+        Node = ?get_node(node),
+        LBlockHash = proplists:get_value(lblockhash, PL, 0),
+        PHash = proplists:get_value(phash, PL, 0),
+        [
+          {
+            T, Node, Node,
+            io_lib:format(
+              "sync_needed ~s h=~w:~p sig=~w lhash=~s phash=~s",
+              [
+                blockchain:blkid(Hash), H, Tmp, S,
+                blockchain:blkid(LBlockHash), blockchain:blkid(PHash)
+              ])
+          }
+        ];
+  
       (T, accept_block, PL, File) ->
         Hash=proplists:get_value(hash, PL, <<>>),
         H=proplists:get_value(height, PL, -1),
