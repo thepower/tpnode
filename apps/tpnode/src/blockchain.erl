@@ -626,10 +626,17 @@ handle_call(_Request, _From, State) ->
   lager:info("Unhandled ~p",[_Request]),
   {reply, unhandled_call, State}.
 
-handle_cast({new_block, _BlockPayload,  PID},
+handle_cast({new_block, #{hash:=BlockHash}=Blk,  PID},
             #{ sync:=SyncPid }=State) when self()=/=PID ->
-    lager:info("Ignore block from ~p during sync with ~p", [PID, SyncPid]),
-    {noreply, State};
+  stout:log(got_new_block,
+            [
+             {ignore, sync},
+             {hash, BlockHash},
+             {node, nodekey:node_name()},
+             {height,maps:get(height, maps:get(header, Blk))}
+            ]),
+  lager:info("Ignore block from ~p during sync with ~p", [PID, SyncPid]),
+  {noreply, State};
 
 handle_cast({new_block, #{hash:=_}, _PID}=Message, State) ->
   {reply, _, NewState} = handle_call(Message, self(), State),
