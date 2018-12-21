@@ -83,11 +83,19 @@ bv(BLog, T1, T2) ->
         H = proplists:get_value(height, PL, -1),
         Verify = proplists:get_value(verify, PL, -1),
         Hash = proplists:get_value(hash, PL, -1),
+  
+        IgnoreStr =
+          case proplists:get_value(ignore, PL, undefined) of
+            undefined ->
+              <<>>;
+            AnyStr ->
+              io_lib:format("ignore=~p", [AnyStr])
+          end,
         
         [{T, Node, Node,
           io_lib:format(
-            "got_new_block ~s h=~w, verify=~p",
-            [blockchain:blkid(Hash), H, Verify]
+            "got_new_block ~s h=~w, verify=~p ~s",
+            [blockchain:blkid(Hash), H, Verify, IgnoreStr]
           )}
         ];
   
