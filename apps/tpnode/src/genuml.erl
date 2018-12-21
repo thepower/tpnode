@@ -78,6 +78,12 @@ bv(BLog, T1, T2) ->
         [{T, Node, Node,
           io_lib:format("mkblock_done ~s h=~w:~p", [blockchain:blkid(Hash), H, Tmp])}
         ];
+  
+      (T, runsync, PL, File) ->
+        Node = ?get_node(node),
+        Where = proplists:get_value(where, PL, -1),
+        [ {T, Node, Node, io_lib:format("runsync ~s", [Where])} ];
+      
       (T, got_new_block, PL, File) ->
         Node = ?get_node(node),
         H = proplists:get_value(height, PL, -1),
