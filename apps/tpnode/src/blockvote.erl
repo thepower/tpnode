@@ -240,12 +240,22 @@ is_block_ready(BlockHash, State) ->
 				%enough signs. use block
 				T3=erlang:system_time(),
         Height=maps:get(height, maps:get(header, Blk)),
+        
         stout:log(bv_ready,
-                  [ {hash, BlockHash},
-                    {height, Height},
-                    {node, nodekey:node_name()},
-                    {header, maps:get(header, Blk)}
-                  ]),
+          [
+            {hash, BlockHash},
+            {height, Height},
+            {node, nodekey:node_name()},
+            {header, maps:get(header, Blk)},
+            {blockchain_info,
+              erlang:process_info(
+                whereis(blockchain),
+                [current_function, message_queue_len, status,
+                  heap_size, stack_size, current_stacktrace]
+              )
+            }
+          ]),
+        
 				lager:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
                    [blkid(BlockHash),
                     Height,
@@ -253,6 +263,7 @@ is_block_ready(BlockHash, State) ->
                    ]),
 
 				gen_server:cast(blockchain, {new_block, Blk, self()}),
+    
 				State#{
 				  lastblock=> Blk,
 				  candidates=>#{},
