@@ -68,6 +68,10 @@ handle_tpic(From, blockchain, <<"ledger">>, Payload, _State) ->
   ledger:tpic(From, Payload),
   ok;
 
+handle_tpic(From, blockchain, <<"chainkeeper">>, Payload, _State) ->
+  lager:info("Got chainkeeper beacon From ~p p ~p", [From, Payload]),
+  ok;
+
 handle_tpic(From, To, <<>>, Payload, _State) when To==synchronizer orelse
                                                   To==blockvote orelse
                                                   To==mkblock orelse

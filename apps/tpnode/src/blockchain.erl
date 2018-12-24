@@ -446,7 +446,21 @@ handle_call({new_block, #{hash:=BlockHash,
                                {node, nodekey:node_name()},
                                {height,maps:get(height, maps:get(header, Blk))}
                               ]),
+
                   lastblock2ets(BTable, MBlk),
+                  tpic:cast(tpic, <<"blockchain">>,
+                            {<<"chainkeeper">>,
+                             msgpack:pack(
+                               #{
+                               null=> <<"block_installed">>,
+                               blk => block:pack(#{
+                                        hash=> BlockHash,
+                                        header => Header,
+                                        sig_cnt=>LenSucc
+                                       })
+                              })
+                            }),
+
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
@@ -582,6 +596,19 @@ handle_call({new_block, #{hash:=BlockHash,
                     end, 0, block:outward_mk(MBlk)),
                   gen_server:cast(txpool,{new_height, Hei}),
                   gen_server:cast(txqueue,{new_height, Hei}),
+                  tpic:cast(tpic, <<"blockchain">>,
+                            {<<"chainkeeper">>,
+                             msgpack:pack(
+                               #{
+                               null=> <<"block_installed">>,
+                               blk => block:pack(#{
+                                        hash=> BlockHash,
+                                        header => Header,
+                                        sig_cnt=>LenSucc
+                                       })
+                              })
+                            }),
+
 
                   S1=maps:remove(tmpblock, State),
 
