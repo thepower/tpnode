@@ -68,8 +68,11 @@ handle_tpic(From, blockchain, <<"ledger">>, Payload, _State) ->
   ledger:tpic(From, Payload),
   ok;
 
-handle_tpic(From, blockchain, <<"chainkeeper">>, Payload, _State) ->
-  lager:info("Got chainkeeper beacon From ~p p ~p", [From, Payload]),
+handle_tpic(From, blockchain, <<"chainkeeper">>, Payload, #{authdata:=AD}=_State) ->
+  NodeKey = proplists:get_value(pubkey, AD),
+  NodeName = chainsettings:is_our_node(NodeKey),
+  lager:debug("Got chainkeeper beacon From ~p p ~p", [From, Payload]),
+  gen_server:cast(chainkeeper, {tpic, NodeName, From, Payload}),
   ok;
 
 handle_tpic(From, To, <<>>, Payload, _State) when To==synchronizer orelse

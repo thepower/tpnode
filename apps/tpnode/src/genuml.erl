@@ -6,6 +6,7 @@
 
 -define(get_node(NodeKey), node_map(proplists:get_value(NodeKey, PL, File))).
 
+-define(MAX_MESSAGES, 10000).
 % --------------------------------------------------------------------------------
 
 
@@ -32,7 +33,7 @@ block(BLog,T1,T2) ->
     fun
       (T,_,_,Acc) when T1>0, T<T1 -> Acc;
       (T,_,_,Acc) when T2>0, T>T2 -> Acc;
-      (_,_,_,{500,_,_,_}=Acc) -> Acc;
+      (_,_,_,{?MAX_MESSAGES,_,_,_}=Acc) -> Acc;
       (T,Kind, PL, {C,Acc,M1,M2}) ->
         R=MapFun(T,Kind,PL),
         if R==ignore ->
@@ -138,7 +139,31 @@ bv(BLog, T1, T2) ->
             #{arrow_type => rnote}
           }
         ];
-    
+  
+      (T, ck_sync, PL, File) ->
+        Action = proplists:get_value(action, PL, unknown),
+        MyHeight = proplists:get_value(myheight, PL, unknown),
+        TheirHeight = proplists:get_value(theirheight, PL, unknown),
+        TheirHash =
+          case proplists:get_value(theirhash, PL, unknown) of
+            unknown ->
+              unknown;
+            AnyValidHash ->
+              blockchain:blkid(AnyValidHash)
+          end,
+        Options = proplists:get_value(options, PL, #{}),
+
+        MyNode = node_map(maps:get(theirnode, Options, File)),
+        TheirNode = node_map(maps:get(mynode, Options, unknown)),
+        
+        [
+          {T, TheirNode, MyNode,
+            io_lib:format(
+              "ck_sync ~s ~p<~p ~s",
+              [Action, MyHeight, TheirHeight, TheirHash])
+          }
+        ];
+        
       (T, bv_ready, PL, File) ->
         Hdr=proplists:get_value(header, PL, #{}),
         Hash = maps:get(hash, Hdr, <<>>),
@@ -190,7 +215,7 @@ bv(BLog, T1, T2) ->
     fun
       (T, _, _, Acc, _) when T1 > 0, T < T1 -> Acc;
       (T, _, _, Acc, _) when T2 > 0, T > T2 -> Acc;
-      (_, _, _, {5000, _, _, _} = Acc, _) -> Acc;
+      (_, _, _, {?MAX_MESSAGES, _, _, _} = Acc, _) -> Acc;
       (T, Kind, PL, {C, Acc, M1, M2}, File) ->
         R = MapFun(T, Kind, PL, File),
         if R == ignore ->

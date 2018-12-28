@@ -1,6 +1,7 @@
 -module(block).
 -export([blkid/1]).
 -export([mkblock2/1, mkblock/1, binarizetx/1, extract/1, outward_mk/2, outward_mk/1]).
+-export([verify/2]).
 -export([verify/1, outward_verify/1, sign/2, sign/3, sigverify/2]).
 -export([prepack/1, binarizefail/1]).
 -export([pack/1, unpack/1]).
@@ -268,10 +269,13 @@ verify(#{ header:=#{parent:=Parent,
                    }=_Header,
           hash:=HdrHash,
           sign:=Sigs
-        }=Blk) ->
+        }=Blk, Opts) ->
+  CheckHdr=lists:member(hdronly, Opts),
 
   Roots=lists:map(
     fun
+      (Root) when CheckHdr ->
+        Root;
       ({balroot, Hash}) ->
         Bals=maps:get(bals, Blk, #{}),
         BalsBin=bals2bin(Bals),
@@ -331,7 +335,11 @@ verify(#{ header:=#{parent:=Parent,
        false;
      true ->
        {true, bsig:checksig(Hash, Sigs)}
-  end;
+  end.
+
+
+verify(#{ header:=#{roots:=_}}=Block) ->
+  verify(Block, []);
 
 verify(#{ header:=#{parent:=Parent,
                     height:=H

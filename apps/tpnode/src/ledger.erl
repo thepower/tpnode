@@ -168,7 +168,7 @@ handle_call('_flush', _From, State) ->
                       }};
 
 handle_call({try_restore, Dump, ExpectHash}, _From, State) ->
-    throw('fixme'),
+    throw('fixme_ledger'),
     lager:info("Restore ~p", [Dump]),
     MT1=gb_merkle_trees:balance(
           lists:foldl(fun applykv/2,

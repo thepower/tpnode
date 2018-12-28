@@ -9,6 +9,7 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0, get_state/0]).
+-export([ets_init/1, ets_cleanup/2, ets_lookup/2, ets_lookup/1, ets_put/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -29,6 +30,7 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
+    ets_init(),
     self() ! init,
     {ok, undefined}.
 
@@ -131,6 +133,8 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID},
         {tmp, maps:get(temporary, Blk, -1)}
       ]),
 
+    ets_put([BlockHash]),
+  
     State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig),
                    candidates => maps:put(BlockHash, Blk, Candidates)
                  },
@@ -139,6 +143,10 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID},
 handle_cast(_Msg, State) ->
     lager:info("BV Unknown cast ~p", [_Msg]),
     {noreply, State}.
+
+handle_info(cleanup, State) ->
+    ets_cleanup(0),
+    {noreply, State};
 
 handle_info(init, undefined) ->
     #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
@@ -264,6 +272,8 @@ is_block_ready(BlockHash, State) ->
 
 				gen_server:cast(blockchain, {new_block, Blk, self()}),
     
+        self() ! cleanup,
+        
 				State#{
 				  lastblock=> Blk,
 				  candidates=>#{},
@@ -303,3 +313,48 @@ load_settings(State) ->
 get_state() ->
   gen_server:call(?MODULE, state).
 
+
+%% ------------------------------------------------------------------
+
+ets_init() ->
+  ets_init(?MODULE).
+
+ets_init(EtsTableName) ->
+  Table = ets:new(EtsTableName, [named_table, protected, set, {read_concurrency, true}]),
+  lager:info("created ets table ~p", [Table]).
+
+%% ------------------------------------------------------------------
+
+ets_put(Keys) ->
+  ets_put(?MODULE, Keys).
+
+ets_put(EtsTableName, Keys) when is_list(Keys) ->
+  Now = os:system_time(seconds),
+  ets:insert(EtsTableName, [{Key, Now} || Key <- Keys]),
+  ok.
+
+%% ------------------------------------------------------------------
+
+ets_cleanup(TimeoutSec) ->
+  ets_cleanup(?MODULE, TimeoutSec).
+
+ets_cleanup(EtsTableName, TimeoutSec) when is_integer(TimeoutSec) ->
+  Expiration = os:system_time(seconds) - TimeoutSec,
+  _Deleted = ets:select_delete(
+    EtsTableName,
+    [{{'_', '$1'}, [{'<', '$1', Expiration}], [true]}]
+  ),
+  ok.
+
+%% ------------------------------------------------------------------
+ets_lookup(Key) ->
+  ets_lookup(?MODULE, Key).
+
+ets_lookup(EtsTableName, Key) ->
+  case ets:lookup(EtsTableName, Key) of
+    [{Key, Timestamp}] ->
+      {ok, Timestamp};
+    [] ->
+      error
+  end.
+  

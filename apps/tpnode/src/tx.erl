@@ -15,7 +15,7 @@ mergesig(#{sig:=S1}=Tx1, #{sig:=S2}) when is_map(S1), is_map(S2)->
       };
 
 mergesig(#{sig:=S1}=Tx1, #{sig:=S2}) when is_list(S1), is_list(S2)->
-  throw('fixme'),
+  throw('fixme_tx'),
   Tx1#{sig=>
        maps:merge(S1, S2)
       };

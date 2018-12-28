@@ -26,3 +26,7 @@
 
 {runsync, ["run sync at ",where]}.
 
+{ck_beacon, ["chainkeeper got beacon from node ", node, ", blk=", block]}.
+{ck_sync, ["chainkeeper sync action: ", action,
+  ", myheight=", myheight, ", theirheight=", theirheight,
+  "hash=", {{blockchain,blkid},theirhash}]}.

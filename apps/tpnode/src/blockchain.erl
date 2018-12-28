@@ -1063,7 +1063,7 @@ handle_info({bbyb_sync, Hash},
 handle_info(checksync, State) ->
   stout:log(runsync, [ {node, nodekey:node_name()}, {where, checksync} ]),
   flush_checksync(),
-  self() ! runsync,
+%%  self() ! runsync,
   {noreply, State};
 
 handle_info(checksync__, #{
