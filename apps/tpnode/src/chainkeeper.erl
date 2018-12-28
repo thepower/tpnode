@@ -224,7 +224,8 @@ chain_lookaround(TPIC, Options) ->
           {options, Options},
           {action, lookaround_not_found},
           {myheight, MyHeight}
-        ]);
+        ]),
+      ok;
     [{_, #{
       last_hash:=Hash,
       last_height:=TheirHeight
@@ -238,16 +239,17 @@ chain_lookaround(TPIC, Options) ->
           {theirheight, TheirHeight},
           {theirhash, Hash}
         ]),
-      blockchain ! runsync;
+      blockchain ! runsync,
+      ok;
     _ ->
       stout:log(ck_sync,
         [
           {options, Options},
           {action, lookaround_ok},
           {myheight, MyHeight}
-        ])
-  end,
-  ok.
+        ]),
+      ok
+  end.
 
 %% ------------------------------------------------------------------
 

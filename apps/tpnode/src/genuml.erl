@@ -156,13 +156,18 @@ bv(BLog, T1, T2) ->
         MyNode = node_map(maps:get(theirnode, Options, File)),
         TheirNode = node_map(maps:get(mynode, Options, unknown)),
         
-        [
-          {T, TheirNode, MyNode,
-            io_lib:format(
-              "ck_sync ~s ~p<~p ~s",
-              [Action, MyHeight, TheirHeight, TheirHash])
-          }
-        ];
+        Message =
+          if
+            TheirHeight =:= unknown orelse TheirHash =:= unknown ->
+              io_lib:format("ck_sync ~s my_h=~p", [Action, MyHeight]);
+            
+            true ->
+              io_lib:format(
+                "ck_sync ~s my_h=~p their_h=~p ~s",
+                [Action, MyHeight, TheirHeight, TheirHash])
+          end,
+        
+        [ {T, TheirNode, MyNode, Message} ];
         
       (T, bv_ready, PL, File) ->
         Hdr=proplists:get_value(header, PL, #{}),
