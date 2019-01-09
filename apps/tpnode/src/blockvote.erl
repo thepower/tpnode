@@ -9,6 +9,7 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0, get_state/0]).
+-export([ets_init/1, ets_cleanup/2, ets_lookup/2, ets_lookup/1, ets_put/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -29,6 +30,7 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
+    ets_init(),
     self() ! init,
     {ok, undefined}.
 
@@ -80,7 +82,12 @@ handle_cast({tpic, _From, #{
 handle_cast({signature, BlockHash, Sigs}=WholeSig,
             #{lastblock:=#{hash:=LBH}}=State) when LBH==BlockHash->
     lager:info("BV Got extra sig for ~s ~p", [blkid(BlockHash), WholeSig]),
-    stout:log(bv_gotsig, [{hash, BlockHash}, {sig, Sigs}, {extra, true}]),
+    
+    stout:log(
+      bv_gotsig,
+      [{hash, BlockHash}, {sig, Sigs}, {extra, true}, {node_name, nodekey:node_name()}]
+    ),
+  
     gen_server:cast(blockchain, WholeSig),
     {noreply, State};
 
@@ -90,11 +97,14 @@ handle_cast({signature, BlockHash, Sigs}, #{candidatesig:=Candidatesig}=State) -
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
     %lager:debug("BV S CS2 ~p", [maps:keys(CSig)]),
-    stout:log(bv_gotsig, [{hash, BlockHash}, {sig, Sigs}, {extra, false}]),
+  
+    stout:log(bv_gotsig,
+      [{hash, BlockHash}, {sig, Sigs}, {candsig, Candidatesig}, {extra, false}, {node_name, nodekey:node_name()}]),
+  
     State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig) },
     {noreply, is_block_ready(BlockHash, State2)};
 
-handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID},
+handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID},
             #{ candidates:=Candidates,
                candidatesig:=Candidatesig
              }=State) ->
@@ -111,7 +121,20 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID},
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
     %lager:debug("BV N CS2 ~p", [maps:keys(CSig)]),
-    stout:log(bv_gotblock, [{hash, BlockHash}, {sig, Sigs}, {height, Height}]),
+
+    stout:log(
+      bv_gotblock,
+      [
+        {hash, BlockHash},
+        {sig, Sigs},
+        {node_name, nodekey:node_name()},
+        {height, Height},
+        {txs_cnt, length(Txs)},
+        {tmp, maps:get(temporary, Blk, -1)}
+      ]),
+
+    ets_put([BlockHash]),
+  
     State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig),
                    candidates => maps:put(BlockHash, Blk, Candidates)
                  },
@@ -120,6 +143,10 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs}=Blk, _PID},
 handle_cast(_Msg, State) ->
     lager:info("BV Unknown cast ~p", [_Msg]),
     {noreply, State}.
+
+handle_info(cleanup, State) ->
+    ets_cleanup(0),
+    {noreply, State};
 
 handle_info(init, undefined) ->
     #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
@@ -221,11 +248,22 @@ is_block_ready(BlockHash, State) ->
 				%enough signs. use block
 				T3=erlang:system_time(),
         Height=maps:get(height, maps:get(header, Blk)),
+        
         stout:log(bv_ready,
-                  [ {hash, BlockHash},
-                    {height, Height},
-                    {header, maps:get(header, Blk)}
-                  ]),
+          [
+            {hash, BlockHash},
+            {height, Height},
+            {node, nodekey:node_name()},
+            {header, maps:get(header, Blk)},
+            {blockchain_info,
+              erlang:process_info(
+                whereis(blockchain),
+                [current_function, message_queue_len, status,
+                  heap_size, stack_size, current_stacktrace]
+              )
+            }
+          ]),
+        
 				lager:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
                    [blkid(BlockHash),
                     Height,
@@ -233,6 +271,9 @@ is_block_ready(BlockHash, State) ->
                    ]),
 
 				gen_server:cast(blockchain, {new_block, Blk, self()}),
+    
+        self() ! cleanup,
+        
 				State#{
 				  lastblock=> Blk,
 				  candidates=>#{},
@@ -272,3 +313,48 @@ load_settings(State) ->
 get_state() ->
   gen_server:call(?MODULE, state).
 
+
+%% ------------------------------------------------------------------
+
+ets_init() ->
+  ets_init(?MODULE).
+
+ets_init(EtsTableName) ->
+  Table = ets:new(EtsTableName, [named_table, protected, set, {read_concurrency, true}]),
+  lager:info("created ets table ~p", [Table]).
+
+%% ------------------------------------------------------------------
+
+ets_put(Keys) ->
+  ets_put(?MODULE, Keys).
+
+ets_put(EtsTableName, Keys) when is_list(Keys) ->
+  Now = os:system_time(seconds),
+  ets:insert(EtsTableName, [{Key, Now} || Key <- Keys]),
+  ok.
+
+%% ------------------------------------------------------------------
+
+ets_cleanup(TimeoutSec) ->
+  ets_cleanup(?MODULE, TimeoutSec).
+
+ets_cleanup(EtsTableName, TimeoutSec) when is_integer(TimeoutSec) ->
+  Expiration = os:system_time(seconds) - TimeoutSec,
+  _Deleted = ets:select_delete(
+    EtsTableName,
+    [{{'_', '$1'}, [{'<', '$1', Expiration}], [true]}]
+  ),
+  ok.
+
+%% ------------------------------------------------------------------
+ets_lookup(Key) ->
+  ets_lookup(?MODULE, Key).
+
+ets_lookup(EtsTableName, Key) ->
+  case ets:lookup(EtsTableName, Key) of
+    [{Key, Timestamp}] ->
+      {ok, Timestamp};
+    [] ->
+      error
+  end.
+  

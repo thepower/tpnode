@@ -109,7 +109,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
   {Queue1, TxIds} =
     txpool:pullx({txpool:get_max_pop_tx(), txpool:get_max_tx_size()}, Queue, []),
   
-  stout:log(txqueue_prepare, [ {ids, TxIds} ]),
+  stout:log(txqueue_prepare, [ {ids, TxIds}, {node, nodekey:node_name()} ]),
   
   PK =
     case maps:get(pubkey, State, undefined) of

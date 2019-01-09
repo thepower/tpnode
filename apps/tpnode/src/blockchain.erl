@@ -225,6 +225,7 @@ handle_call(sync_req, _From, State) ->
   {reply, sync_req(State), State};
 
 handle_call({runsync, NewChain}, _From, State) ->
+  stout:log(runsync, [ {node, nodekey:node_name()}, {where, call} ]),
   self() ! runsync,
   {reply, sync, State#{mychain:=NewChain}};
 
@@ -381,6 +382,13 @@ handle_call({new_block, #{hash:=BlockHash,
     T0=erlang:system_time(),
     case block:verify(Blk) of
       false ->
+        stout:log(got_new_block,
+                  [
+                   {hash, BlockHash},
+                   {node, nodekey:node_name()},
+                   {verify, false},
+                   {height,maps:get(height, maps:get(header, Blk))}
+                  ]),
         T1=erlang:system_time(),
         file:write_file("tmp/bad_block_" ++
                         integer_to_list(maps:get(height, Header)) ++ ".txt",
@@ -390,9 +398,17 @@ handle_call({new_block, #{hash:=BlockHash,
                    [FromNode, Hei, blkid(BlockHash), (T1-T0)/1000000]),
         throw(ignore);
       {true, {Success, _}} ->
+        LenSucc=length(Success),
+        stout:log(got_new_block,
+                  [
+                   {hash, BlockHash},
+                   {node, nodekey:node_name()},
+                   {verify, LenSucc},
+                   {height, maps:get(height, maps:get(header, Blk))}
+                  ]),
         T1=erlang:system_time(),
         Txs=maps:get(txs, Blk, []),
-        if length(Success)>0 ->
+        if LenSucc>0 ->
              lager:info("from ~p New block ~w arrived ~s, txs ~b, verify ~w sig (~.3f ms)",
                    [FromNode, maps:get(height, maps:get(header, Blk)),
                     blkid(BlockHash), length(Txs), length(Success), (T1-T0)/1000000]),
@@ -427,13 +443,37 @@ handle_call({new_block, #{hash:=BlockHash,
                                {temp, maps:get(temporary,Blk,false)},
                                {hash, BlockHash},
                                {sig, SigLen},
+                               {node, nodekey:node_name()},
                                {height,maps:get(height, maps:get(header, Blk))}
                               ]),
+
                   lastblock2ets(BTable, MBlk),
+                  tpic:cast(tpic, <<"blockchain">>,
+                            {<<"chainkeeper">>,
+                             msgpack:pack(
+                               #{
+                               null=> <<"block_installed">>,
+                               blk => block:pack(#{
+                                        hash=> BlockHash,
+                                        header => Header,
+                                        sig_cnt=>LenSucc
+                                       })
+                              })
+                            }),
+
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
                 LBlockHash=/=NewPHash ->
+                  stout:log(sync_needed, [
+                    {temp, maps:get(temporary,Blk,false)},
+                    {hash, BlockHash},
+                    {phash, NewPHash},
+                    {lblockhash, LBlockHash},
+                    {sig, SigLen},
+                    {node, nodekey:node_name()},
+                    {height,maps:get(height, maps:get(header, Blk))}
+                  ]),
                   lager:info("Need resynchronize, height ~p/~p new block parent ~s, but my ~s",
                              [
                               maps:get(height, maps:get(header, Blk)),
@@ -511,8 +551,10 @@ handle_call({new_block, #{hash:=BlockHash,
                   T3=erlang:system_time(),
                   stout:log(accept_block,
                               [
+                               {temp, false},
                                {hash, BlockHash},
                                {sig, SigLen},
+                               {node, nodekey:node_name()},
                                {height,maps:get(height, maps:get(header, Blk))}
                               ]),
                   lager:info("enough confirmations ~w/~w. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",
@@ -554,6 +596,19 @@ handle_call({new_block, #{hash:=BlockHash,
                     end, 0, block:outward_mk(MBlk)),
                   gen_server:cast(txpool,{new_height, Hei}),
                   gen_server:cast(txqueue,{new_height, Hei}),
+                  tpic:cast(tpic, <<"blockchain">>,
+                            {<<"chainkeeper">>,
+                             msgpack:pack(
+                               #{
+                               null=> <<"block_installed">>,
+                               blk => block:pack(#{
+                                        hash=> BlockHash,
+                                        header => Header,
+                                        sig_cnt=>LenSucc
+                                       })
+                              })
+                            }),
+
 
                   S1=maps:remove(tmpblock, State),
 
@@ -599,10 +654,17 @@ handle_call(_Request, _From, State) ->
   lager:info("Unhandled ~p",[_Request]),
   {reply, unhandled_call, State}.
 
-handle_cast({new_block, _BlockPayload,  PID},
+handle_cast({new_block, #{hash:=BlockHash}=Blk,  PID},
             #{ sync:=SyncPid }=State) when self()=/=PID ->
-    lager:info("Ignore block from ~p during sync with ~p", [PID, SyncPid]),
-    {noreply, State};
+  stout:log(got_new_block,
+            [
+             {ignore, sync},
+             {hash, BlockHash},
+             {node, nodekey:node_name()},
+             {height,maps:get(height, maps:get(header, Blk))}
+            ]),
+  lager:info("Ignore block from ~p during sync with ~p", [PID, SyncPid]),
+  {noreply, State};
 
 handle_cast({new_block, #{hash:=_}, _PID}=Message, State) ->
   {reply, _, NewState} = handle_call(Message, self(), State),
@@ -909,6 +971,7 @@ handle_info({inst_sync, ledger}, State) ->
 handle_info({inst_sync, done, Log}, #{ldb:=LDB,
                                       btable:=BTable
                                      }=State) ->
+  stout:log(runsync, [ {node, nodekey:node_name()}, {where, inst} ]),
     lager:info("BC Sync done ~p", [Log]),
     lager:notice("Check block's keys"),
     {ok, C}=gen_server:call(ledger, {check, []}),
@@ -939,6 +1002,7 @@ handle_info({bbyb_sync, Hash},
                syncpeer:=Handler,
                sync_candidates:=Candidates} = State) ->
   flush_bbsync(),
+  stout:log(runsync, [ {node, nodekey:node_name()}, {where, bbsync} ]),
   lager:debug("run bbyb sync from hash: ~p", [blkid(Hash)]),
   case tpiccall(Handler,
     #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
@@ -997,8 +1061,9 @@ handle_info({bbyb_sync, Hash},
   end;
 
 handle_info(checksync, State) ->
+  stout:log(runsync, [ {node, nodekey:node_name()}, {where, checksync} ]),
   flush_checksync(),
-  self() ! runsync,
+%%  self() ! runsync,
   {noreply, State};
 
 handle_info(checksync__, #{
@@ -1045,6 +1110,7 @@ handle_info(
                #{header:=#{height:=TmpHeight}} ->
                  TmpHeight
              end,
+  stout:log(runsync, [ {node, nodekey:node_name()}, {where, got_info} ]),
   lager:debug("got runsync, myHeight: ~p, myLastHash: ~p", [MyHeight, blkid(MyLastHash)]),
 
   GetDefaultCandidates =
