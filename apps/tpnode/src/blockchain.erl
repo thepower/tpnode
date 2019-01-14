@@ -1032,9 +1032,13 @@ handle_info({bbyb_sync, Hash},
         false ->
           lager:error("No block part arrived, broken sync ~p", [R]),
 %%          erlang:send_after(10000, self(), runsync), % chainkeeper do that
-          {noreply, State#{
-            sync_candidates => skip_candidate(Candidates)
-          }};
+          stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_block_part} ]),
+  
+          {noreply,
+            maps:without([sync], State#{
+              sync_candidates => skip_candidate(Candidates)
+            })
+          };
         true ->
           lager:info("block found in received bbyb sync data ~p",[R]),
           try
@@ -1053,9 +1057,11 @@ handle_info({bbyb_sync, Hash},
                   error ->
 %%                    erlang:send_after(1000, self(), runsync), % chainkeeper do that
                     lager:info("block ~s no child, sync done?", [blkid(NewH)]),
-                    {noreply, State#{
-                                sync_candidates => skip_candidate(Candidates)
-                               }}
+                    stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_child} ]),
+                    {noreply,
+                      maps:without([sync],
+                        State#{sync_candidates => skip_candidate(Candidates)})
+                    }
                 end;
               false ->
                 lager:error("Broken block ~s got from ~p. Sync stopped",
@@ -1065,19 +1071,30 @@ handle_info({bbyb_sync, Hash},
                   )
                 ]),
 %%              erlang:send_after(10000, self(), runsync), % chainkeeper do that
-              {noreply, State#{
-                sync_candidates => skip_candidate(Candidates)
-              }} end
+                stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_broken_block} ]),
+  
+                {noreply,
+                  maps:without([sync],
+                    State#{sync_candidates => skip_candidate(Candidates)})
+                }
+            end
           catch throw:broken_sync ->
             lager:notice("Broken sync"),
-            {noreply, State}
+            stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_throw_broken_sync} ]),
+
+            {noreply, maps:without([sync], State)}
           end
       end;
     _ ->
-      lager:error("bbyb no response"), erlang:send_after(10000, self(), runsync),
-      {noreply, State#{
-        sync_candidates => skip_candidate(Candidates)
-      }}
+      lager:error("bbyb no response"),
+%%      erlang:send_after(10000, self(), runsync),
+      stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_response} ]),
+      {noreply, maps:without(
+        [sync],
+        State#{
+          sync_candidates => skip_candidate(Candidates)
+        })
+      }
   end;
 
 handle_info(checksync, State) ->
