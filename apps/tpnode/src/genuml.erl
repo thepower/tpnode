@@ -1,6 +1,6 @@
 -module(genuml).
 
--export([bv/3, testz/1, block/3]).
+-export([bv/3, testz/1, block/3, timerange/1]).
 
 % --------------------------------------------------------------------------------
 
@@ -52,6 +52,31 @@ block(BLog,T1,T2) ->
     end, {0,[],erlang:system_time(),0}, BLog),
   io:format("~w done T ~w ... ~w~n",[Done,MinT,MaxT]),
   Events1.
+
+% --------------------------------------------------------------------------------
+
+timerange(BLog) ->
+  FFun =
+    fun
+      (T, _Kind, _PL, {C, M1, M2}, _File) ->
+        {
+          C + 1,
+          min(M1, T),
+          max(M2, T)
+        }
+    end,
+  
+  {Done, MinT, MaxT} =
+    case BLog of
+      [[_ | _] | _] ->
+        stout_reader:mfold(FFun, {0, erlang:system_time(), 0}, BLog);
+      _ ->
+        stout_reader:fold(FFun, {0, erlang:system_time(), 0}, BLog)
+    end,
+  
+  io:format("~w events T ~w ... ~w~n", [Done, MinT, MaxT]),
+  ok.
+  
 
 % --------------------------------------------------------------------------------
 
