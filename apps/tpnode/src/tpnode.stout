@@ -24,7 +24,9 @@
 {got_new_block, ["got new block ",hash," ver ",verify]}.
 {sync_needed, ["Sync needed"]}.
 
-{runsync, ["run sync at ",where]}.
+{runsync, ["run sync at ", where]}.
+
+{inst_sync, ["sync got a ", reason ]}.
 
 {ck_beacon, ["chainkeeper got beacon from node ", node, ", blk=", block]}.
 {ck_sync, ["chainkeeper sync action: ", action,

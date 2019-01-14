@@ -125,7 +125,23 @@ bv(BLog, T1, T2) ->
               ])
           }
         ];
-  
+      (T, inst_sync, PL, File) ->
+        Node = ?get_node(node),
+        Reason = proplists:get_value(reason, PL, unknown),
+        Message =
+          case Reason of
+            block ->
+              LedgerHash = proplists:get_value(lh, PL, <<>>),
+              Height = proplists:get_value(height, PL, -1),
+              io_lib:format(
+                "sync block h=~w lhash=~s",
+                [Height, blockchain:blkid(bin2hex:dbin2hex(LedgerHash))]
+              );
+            AnyOtherReason ->
+              io_lib:format("sync ~p", [AnyOtherReason])
+          end,
+        [ T, Node, Node, Message ];
+      
       (T, accept_block, PL, File) ->
         Hash=proplists:get_value(hash, PL, <<>>),
         H=proplists:get_value(height, PL, -1),
