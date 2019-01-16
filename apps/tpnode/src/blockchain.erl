@@ -1024,76 +1024,78 @@ handle_info({bbyb_sync, Hash},
   stout:log(runsync, [ {node, nodekey:node_name()}, {where, bbsync} ]),
   lager:debug("run bbyb sync from hash: ~p", [blkid(Hash)]),
   case tpiccall(Handler,
-    #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
-    [block]
-  ) of
-    [{_, R}] ->
-      case maps:is_key(block, R) of
-        false ->
-          lager:error("No block part arrived, broken sync ~p", [R]),
-%%          erlang:send_after(10000, self(), runsync), % chainkeeper do that
-          stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_block_part} ]),
-  
-          {noreply,
-            maps:without([sync], State#{
-              sync_candidates => skip_candidate(Candidates)
-            })
-          };
-        true ->
-          lager:info("block found in received bbyb sync data ~p",[R]),
-          try
-            #{block := BlockPart} = R,
-            BinBlock = receive_block(Handler, BlockPart),
-            #{hash:=NewH} = Block = block:unpack(BinBlock),
-            %TODO Check parent of received block
-            case block:verify(Block) of
-              {true, _} ->
-                gen_server:cast(self(), {new_block, Block, self()}),
-                case maps:find(child, Block) of
-                  {ok, Child} ->
-                    self() ! {bbyb_sync, NewH},
-                    lager:info("block ~s have child ~s", [blkid(NewH), blkid(Child)]),
-                    {noreply, State};
-                  error ->
-%%                    erlang:send_after(1000, self(), runsync), % chainkeeper do that
-                    lager:info("block ~s no child, sync done?", [blkid(NewH)]),
-                    stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_child} ]),
-                    {noreply,
-                      maps:without([sync],
-                        State#{sync_candidates => skip_candidate(Candidates)})
-                    }
-                end;
-              false ->
-                lager:error("Broken block ~s got from ~p. Sync stopped",
-                [blkid(NewH),
-                  proplists:get_value(pubkey,
-                    maps:get(authdata, tpic:peer(Handler), [])
-                  )
-                ]),
-%%              erlang:send_after(10000, self(), runsync), % chainkeeper do that
-                stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_broken_block} ]),
-  
-                {noreply,
-                  maps:without([sync],
-                    State#{sync_candidates => skip_candidate(Candidates)})
-                }
-            end
-          catch throw:broken_sync ->
-            lager:notice("Broken sync"),
-            stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_throw_broken_sync} ]),
+                #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
+                [block]
+               ) of
+    [{_, #{error:=Err}=R}] ->
+      lager:error("No block part arrived (~p), broken sync ~p", [Err,R]),
+      %%          erlang:send_after(10000, self(), runsync), % chainkeeper do that
+      stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_block_part} ]),
 
-            {noreply, maps:without([sync], State)}
-          end
+      if(Err == <<"noblock">>) ->
+          gen_server:cast(chainkeeper,possible_fork);
+        true ->
+          ok
+      end,
+      {noreply,
+       maps:without([sync], State#{
+                              sync_candidates => skip_candidate(Candidates)
+                             })
+      };
+
+    [{_, #{block:=BlockPart}=R}] ->
+      lager:info("block found in received bbyb sync data ~p",[R]),
+      try
+        BinBlock = receive_block(Handler, BlockPart),
+        #{hash:=NewH} = Block = block:unpack(BinBlock),
+        %TODO Check parent of received block
+        case block:verify(Block) of
+          {true, _} ->
+            gen_server:cast(self(), {new_block, Block, self()}),
+            case maps:find(child, Block) of
+              {ok, Child} ->
+                self() ! {bbyb_sync, NewH},
+                lager:info("block ~s have child ~s", [blkid(NewH), blkid(Child)]),
+                {noreply, State};
+              error ->
+                %%                    erlang:send_after(1000, self(), runsync), % chainkeeper do that
+                lager:info("block ~s no child, sync done?", [blkid(NewH)]),
+                stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_child} ]),
+                {noreply,
+                 maps:without([sync],
+                              State#{sync_candidates => skip_candidate(Candidates)})
+                }
+            end;
+          false ->
+            lager:error("Broken block ~s got from ~p. Sync stopped",
+                        [blkid(NewH),
+                         proplists:get_value(pubkey,
+                                             maps:get(authdata, tpic:peer(Handler), [])
+                                            )
+                        ]),
+            %%              erlang:send_after(10000, self(), runsync), % chainkeeper do that
+            stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_broken_block} ]),
+
+            {noreply,
+             maps:without([sync],
+                          State#{sync_candidates => skip_candidate(Candidates)})
+            }
+        end
+      catch throw:broken_sync ->
+              lager:notice("Broken sync"),
+              stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_throw_broken_sync} ]),
+
+              {noreply, maps:without([sync], State)}
       end;
     _ ->
       lager:error("bbyb no response"),
-%%      erlang:send_after(10000, self(), runsync),
+      %%      erlang:send_after(10000, self(), runsync),
       stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_response} ]),
       {noreply, maps:without(
-        [sync],
-        State#{
-          sync_candidates => skip_candidate(Candidates)
-        })
+                  [sync],
+                  State#{
+                    sync_candidates => skip_candidate(Candidates)
+                   })
       }
   end;
 
