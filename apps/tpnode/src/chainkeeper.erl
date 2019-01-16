@@ -51,6 +51,18 @@ handle_call(_Request, _From, State) ->
   lager:notice("Unknown call ~p", [_Request]),
   {reply, ok, State}.
 
+handle_cast({possible_fork, #{mymeta := LastMeta, hash := MissingHash}}, State) ->
+  
+  stout:log(forkstate, [
+    {state, possible_fork},
+    {last_meta, LastMeta},
+    {hash, MissingHash},
+    {mynode, nodekey:node_name()}
+  ]),
+  
+  {noreply, State};
+
+
 handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = State) ->
   catch erlang:cancel_timer(Timer),
   Blk =
@@ -143,13 +155,15 @@ setup_timer(Name) ->
 check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
   when is_map(Blk) ->
     #{hash:=_MyHash,
-      header:=MyHeader} = blockchain:last_meta(),
+      header:=MyHeader} = MyMeta = blockchain:last_meta(),
     MyHeight = maps:get(height, MyHeader, 0),
     if
       TheirHeight > MyHeight ->
         case blockvote:ets_lookup(Hash) of
           error ->
             % hash not found
+            % todo: detect forks here
+            % if we can't find _MyHash in the net, fork happened :(
             lager:info("Need sync, hash ~p not found in blockvote", [blockchain:blkid(Hash)]),
             stout:log(ck_sync,
               [
@@ -168,7 +182,7 @@ check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
             stout:log(ck_sync,
               [
                 {options, Options},
-                {action, hash_found},
+                {action, found_in_blockvote},
                 {myheight, MyHeight},
                 {theirheight, TheirHeight},
                 {theirhash, Hash}
@@ -178,19 +192,69 @@ check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
         end;
       true ->
         stout:log(ck_sync,
-          [
+          [sync_needed,
             {options, Options},
             {action, height_ok},
             {myheight, MyHeight},
             {theirheight, TheirHeight},
             {theirhash, Hash}
           ]),
+        check_fork(#{
+          mymeta => MyMeta,
+          theirheight => TheirHeight,
+          theirhash => Hash
+        }, Options),
         ok
     end,
     ok;
 
 check_block(Blk, Options) ->
   lager:error("invalid block: ~p, extra data: ~p", [Blk, Options]).
+
+%% ------------------------------------------------------------------
+
+check_fork(#{mymeta := MyMeta, theirheight := TheirHeight, theirhash := TheirHash}, Options) ->
+  #{hash:=MyHash, header:=MyHeader} = MyMeta,
+  MyHeight = maps:get(height, MyHeader, 0),
+  Tmp = maps:get(temporary, MyMeta, false),
+  
+  ChainState =
+    if
+      MyHeight =:= TheirHeight andalso
+        Tmp =:= false andalso
+        MyHash =/= TheirHash ->
+        {fork, hash_not_equal};
+      MyHeight =:= TheirHeight ->
+        ok;
+      MyHeight < TheirHeight ->
+        case blockchain:exists(TheirHash) of
+          true ->
+            ok;
+          _ ->
+            {fork, hash_not_exists}
+        end;
+      true ->
+        ok
+    end,
+  
+  
+  stout:log(forkstate, [
+    {state, ChainState},
+    {theirnode, maps:get(theirnode, Options, unknown)},
+    {mynode, maps:get(mynode, Options, unknown)},
+    {mymeta, MyMeta},
+    {theirheight, TheirHeight},
+    {theirhash, TheirHash},
+    {myheight, MyHeight},
+    {tmp, Tmp}
+  ]),
+  
+  ChainState.
+  
+  
+  
+
+
 
 %% ------------------------------------------------------------------
 
@@ -212,7 +276,7 @@ check_block(Blk, Options) ->
 chain_lookaround(TPIC, Options) ->
   
   #{hash:=_MyHash,
-    header:=MyHeader} = blockchain:last_meta(),
+    header:=MyHeader} = MyMeta = blockchain:last_meta(),
   
   MyHeight = maps:get(height, MyHeader, 0),
   Tallest = find_tallest(TPIC, chainsettings:get_val(mychain), []),
@@ -239,6 +303,13 @@ chain_lookaround(TPIC, Options) ->
           {theirheight, TheirHeight},
           {theirhash, Hash}
         ]),
+      
+      check_fork(#{
+        mymeta => MyMeta,
+        theirheight => TheirHeight,
+        theirhash => Hash
+      }, Options),
+      
       blockchain ! runsync,
       ok;
     _ ->
@@ -263,28 +334,31 @@ discovery(TPIC) ->
 %% ------------------------------------------------------------------
 
 find_tallest(TPIC, Chain, Opts) ->
-  MinSig=proplists:get_value(minsig,Opts,3),
-  Candidates=discovery(TPIC),
-  CheckedOnly=lists:foldl(
+  MinSig = proplists:get_value(minsig, Opts, 3),
+  Candidates = discovery(TPIC),
+  
+  stout:log(sync_candidates, {candidates, Candidates}),
+  
+  CheckedOnly = lists:foldl(
     fun({_Handle, #{last_height:=Hei,
       chain:=C,
       null:=<<"sync_available">>,
-      lastblk:=LB}=Info}=E, Acc) when C==Chain ->
-      case block:verify(block:unpack(LB),[hdronly]) of
+      lastblk:=LB} = Info} = E, Acc) when C == Chain ->
+      case block:verify(block:unpack(LB), [hdronly]) of
         false ->
           Acc;
         {true, {Valid, _}} when length(Valid) >= MinSig ->
-          Tall=case maps:get(last_temp, Info, undefined) of
-                 Wid when is_integer(Wid) ->
-                   Hei bsl 64 bor Wid;
-                 _ ->
-                   Hei bsl 64
-               end,
-          maps:put(Tall, [E|maps:get(Tall, Acc,[])],Acc);
+          Tall = case maps:get(last_temp, Info, undefined) of
+                   Wid when is_integer(Wid) ->
+                     Hei bsl 64 bor Wid;
+                   _ ->
+                     Hei bsl 64
+                 end,
+          maps:put(Tall, [E | maps:get(Tall, Acc, [])], Acc);
         {true, {_, _}} ->
           Acc
       end;
-      (_,Acc) ->
+      (_, Acc) ->
         Acc
     end,
     #{},
@@ -293,7 +367,7 @@ find_tallest(TPIC, Chain, Opts) ->
     0 ->
       [];
     _ ->
-      [HighPri|_]=lists:reverse(lists:keysort(1,maps:keys(CheckedOnly))),
+      [HighPri | _] = lists:reverse(lists:keysort(1, maps:keys(CheckedOnly))),
       maps:get(HighPri, CheckedOnly)
   end.
 

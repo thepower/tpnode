@@ -15,7 +15,8 @@
          backup/1, restore/1,
          chainstate/0,
          blkid/1,
-         rel/2]).
+         rel/2,
+         exists/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -40,6 +41,10 @@ rel(Hash, Rel) when Rel==prev orelse Rel==child ->
 
 rel(Hash, self) ->
   gen_server:call(blockchain, {get_block, Hash}).
+
+exists(Hash) ->
+  gen_server:call(blockchain, {block_exists, Hash}).
+  
 
 last_meta() ->
   [{last_meta, Blk}]=ets:lookup(lastblock,last_meta),
@@ -334,6 +339,18 @@ handle_call({get_block, BlockHash, Rel}, _From, #{ldb:=LDB, lastblock:=#{hash:=L
     end,
   Res=block_rel(LDB, H, Rel),
   {reply, Res, State};
+
+handle_call({block_exists, BlockHash}, _From, #{ldb:=LDB} = State)
+  when is_binary(BlockHash) ->
+  %lager:debug("Get block ~p", [BlockHash]),
+  Exists =
+    case ldb:read_key(LDB, <<"block:", BlockHash/binary>>, undefined) of
+      undefined ->
+        false;
+      _ ->
+        true
+    end,
+  {reply, Exists, State};
 
 handle_call(state, _From, State) ->
     {reply, State, State};
@@ -1033,7 +1050,11 @@ handle_info({bbyb_sync, Hash},
       stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_block_part} ]),
 
       if(Err == <<"noblock">>) ->
-          gen_server:cast(chainkeeper,possible_fork);
+          gen_server:cast(chainkeeper,
+            {possible_fork, #{
+              hash => Hash, % our hash which not found in current syncing peer
+              mymeta => blockchain:last_meta()
+            }});
         true ->
           ok
       end,

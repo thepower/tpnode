@@ -26,7 +26,10 @@
 
 {runsync, ["run sync at ", where]}.
 
+{forkstate, ["forkstate ", state]}.
+
 {inst_sync, ["sync got a ", reason ]}.
+{sync_candidates, ["sync candidates ", candidates]}.
 
 {ck_beacon, ["chainkeeper got beacon from node ", node, ", blk=", block]}.
 {ck_sync, ["chainkeeper sync action: ", action,

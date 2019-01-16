@@ -150,6 +150,33 @@ bv(BLog, T1, T2) ->
               ])
           }
         ];
+  
+      (T, forkstate, PL, File) ->
+        MyNode = ?get_node(mynode),
+        TheirNode =
+          case proplists:get_value(theirnode, PL, unknown) of
+            unknown ->
+              MyNode;
+            SomeNodeName ->
+              node_map(SomeNodeName)
+          end,
+        State = proplists:get_value(state, PL, unknown),
+        MyHeight = proplists:get_value(myheight, PL, unknown),
+        Tmp = proplists:get_value(tmp, PL, unknown),
+        
+        Message =
+          case State of
+            {fork, ForkReason} ->
+              io_lib:format("fork detected, ~s", [ForkReason]);
+            possible_fork ->
+              ForkHash = proplists:get_value(hash, PL, unknown),
+              io_lib:format("possible fork detected, hash=~p", [blockchain:blkid(ForkHash)]);
+            OtherStatus ->
+              io_lib:format("fork check h=~w:~p ~s", [MyHeight, Tmp, OtherStatus])
+
+          end,
+        [ {T, TheirNode, MyNode, Message} ];
+    
       (T, inst_sync, PL, File) ->
         Node = ?get_node(node),
         Reason = proplists:get_value(reason, PL, unknown),
@@ -160,7 +187,7 @@ bv(BLog, T1, T2) ->
               Height = proplists:get_value(height, PL, -1),
               io_lib:format(
                 "sync block h=~w lhash=~s",
-                [Height, blockchain:blkid(bin2hex:dbin2hex(LedgerHash))]
+                [Height, blockchain:blkid(LedgerHash)]
               );
             AnyOtherReason ->
               io_lib:format("sync ~p", [AnyOtherReason])
