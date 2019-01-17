@@ -100,7 +100,7 @@ bv(BLog, T1, T2) ->
         Hdr = proplists:get_value(block_hdr, PL, #{}),
         H = proplists:get_value(height, PL, -1),
         Hash = maps:get(hash, Hdr, <<>>),
-        Tmp = maps:get(temporary, Hdr, -1),
+        Tmp = maps:get(temporary, Hdr, unknown),
         [{T, Node, Node,
           io_lib:format("mkblock_done ~s h=~w:~p", [blockchain:blkid(Hash), H, Tmp])}
         ];
@@ -150,6 +150,33 @@ bv(BLog, T1, T2) ->
               ])
           }
         ];
+  
+      (T, forkstate, PL, File) ->
+        MyNode = ?get_node(mynode),
+        TheirNode =
+          case proplists:get_value(theirnode, PL, unknown) of
+            unknown ->
+              MyNode;
+            SomeNodeName ->
+              node_map(SomeNodeName)
+          end,
+        State = proplists:get_value(state, PL, unknown),
+        MyHeight = proplists:get_value(myheight, PL, unknown),
+        Tmp = proplists:get_value(tmp, PL, unknown),
+        
+        Message =
+          case State of
+            {fork, ForkReason} ->
+              io_lib:format("fork detected, ~s", [ForkReason]);
+            possible_fork ->
+              ForkHash = proplists:get_value(hash, PL, unknown),
+              io_lib:format("possible fork detected, hash=~p", [blockchain:blkid(ForkHash)]);
+            OtherStatus ->
+              io_lib:format("fork check h=~w:~p ~s", [MyHeight, Tmp, OtherStatus])
+
+          end,
+        [ {T, TheirNode, MyNode, Message} ];
+    
       (T, inst_sync, PL, File) ->
         Node = ?get_node(node),
         Reason = proplists:get_value(reason, PL, unknown),
@@ -160,7 +187,7 @@ bv(BLog, T1, T2) ->
               Height = proplists:get_value(height, PL, -1),
               io_lib:format(
                 "sync block h=~w lhash=~s",
-                [Height, blockchain:blkid(bin2hex:dbin2hex(LedgerHash))]
+                [Height, blockchain:blkid(LedgerHash)]
               );
             AnyOtherReason ->
               io_lib:format("sync ~p", [AnyOtherReason])
@@ -185,6 +212,9 @@ bv(BLog, T1, T2) ->
         Action = proplists:get_value(action, PL, unknown),
         MyHeight = proplists:get_value(myheight, PL, unknown),
         TheirHeight = proplists:get_value(theirheight, PL, unknown),
+        TheirTmp = proplists:get_value(theirtmp, PL, unknown),
+        MyTmp = proplists:get_value(mytmp, PL, unknown),
+        
         TheirHash =
           case proplists:get_value(theirhash, PL, unknown) of
             unknown ->
@@ -204,8 +234,8 @@ bv(BLog, T1, T2) ->
             
             true ->
               io_lib:format(
-                "ck_sync ~s my_h=~p their_h=~p ~s",
-                [Action, MyHeight, TheirHeight, TheirHash])
+                "ck_sync ~s my_h=~p:~p their_h=~p:~p ~s",
+                [Action, MyHeight, MyTmp, TheirHeight, TheirTmp, TheirHash])
           end,
         
         [ {T, TheirNode, MyNode, Message} ];
@@ -222,7 +252,7 @@ bv(BLog, T1, T2) ->
     (T, bv_gotblock, PL, File) ->
       Hash = proplists:get_value(hash, PL, <<>>),
       H = proplists:get_value(height, PL, -1),
-      Tmp = proplists:get_value(tmp, PL, -1),
+      Tmp = proplists:get_value(tmp, PL, unknown),
       OurNodeName = node_map(proplists:get_value(node_name, PL, "blockvote_" ++ File)),
       Sig = [bsig2node(S) || S <- proplists:get_value(sig, PL, [])],
       lists:foldl(
