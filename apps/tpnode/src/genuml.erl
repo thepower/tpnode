@@ -212,6 +212,9 @@ bv(BLog, T1, T2) ->
         Action = proplists:get_value(action, PL, unknown),
         MyHeight = proplists:get_value(myheight, PL, unknown),
         TheirHeight = proplists:get_value(theirheight, PL, unknown),
+        TheirTmp = proplists:get_value(theirtmp, PL, unknown),
+        MyTmp = proplists:get_value(mytmp, PL, unknown),
+        
         TheirHash =
           case proplists:get_value(theirhash, PL, unknown) of
             unknown ->
@@ -231,8 +234,8 @@ bv(BLog, T1, T2) ->
             
             true ->
               io_lib:format(
-                "ck_sync ~s my_h=~p their_h=~p ~s",
-                [Action, MyHeight, TheirHeight, TheirHash])
+                "ck_sync ~s my_h=~p:~p their_h=~p:~p ~s",
+                [Action, MyHeight, MyTmp, TheirHeight, TheirTmp, TheirHash])
           end,
         
         [ {T, TheirNode, MyNode, Message} ];
@@ -249,7 +252,7 @@ bv(BLog, T1, T2) ->
     (T, bv_gotblock, PL, File) ->
       Hash = proplists:get_value(hash, PL, <<>>),
       H = proplists:get_value(height, PL, -1),
-      Tmp = proplists:get_value(tmp, PL, -1),
+      Tmp = proplists:get_value(tmp, PL, unknown),
       OurNodeName = node_map(proplists:get_value(node_name, PL, "blockvote_" ++ File)),
       Sig = [bsig2node(S) || S <- proplists:get_value(sig, PL, [])],
       lists:foldl(

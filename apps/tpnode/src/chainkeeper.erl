@@ -157,6 +157,7 @@ check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
     #{hash:=_MyHash,
       header:=MyHeader} = MyMeta = blockchain:last_meta(),
     MyHeight = maps:get(height, MyHeader, 0),
+    MyTmp = maps:get(temporary, MyMeta, false),
     if
       TheirHeight > MyHeight ->
         case blockvote:ets_lookup(Hash) of
@@ -280,6 +281,7 @@ chain_lookaround(TPIC, Options) ->
   
   MyHeight = maps:get(height, MyHeader, 0),
   Tallest = find_tallest(TPIC, chainsettings:get_val(mychain), []),
+  MyTmp = maps:get(temporary, MyMeta, false),
   
   case Tallest of
     [] ->
@@ -287,27 +289,34 @@ chain_lookaround(TPIC, Options) ->
         [
           {options, Options},
           {action, lookaround_not_found},
-          {myheight, MyHeight}
+          {myheight, MyHeight},
+          {mytmp, MyTmp}
         ]),
       ok;
     [{_, #{
       last_hash:=Hash,
-      last_height:=TheirHeight
-    }} | _] when TheirHeight > MyHeight ->
+      last_height:=TheirHeight,
+      last_temp := TheirTmp
+    }} | _]
+      when TheirHeight > MyHeight
+      orelse (TheirHeight =:= MyHeight andalso TheirTmp =:= false andalso MyTmp =/= false) ->
       
       stout:log(ck_sync,
         [
           {options, Options},
           {action, lookaround_runsync},
           {myheight, MyHeight},
+          {mytmp, MyTmp},
           {theirheight, TheirHeight},
+          {theirtmp, TheirTmp},
           {theirhash, Hash}
         ]),
       
       check_fork(#{
         mymeta => MyMeta,
         theirheight => TheirHeight,
-        theirhash => Hash
+        theirhash => Hash,
+        theirtmp => TheirTmp
       }, Options),
       
       blockchain ! runsync,
@@ -317,7 +326,8 @@ chain_lookaround(TPIC, Options) ->
         [
           {options, Options},
           {action, lookaround_ok},
-          {myheight, MyHeight}
+          {myheight, MyHeight},
+          {mytmp, MyTmp}
         ]),
       ok
   end.
