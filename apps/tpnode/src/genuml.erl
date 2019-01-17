@@ -100,7 +100,7 @@ bv(BLog, T1, T2) ->
         Hdr = proplists:get_value(block_hdr, PL, #{}),
         H = proplists:get_value(height, PL, -1),
         Hash = maps:get(hash, Hdr, <<>>),
-        Tmp = maps:get(temporary, Hdr, -1),
+        Tmp = maps:get(temporary, Hdr, unknown),
         [{T, Node, Node,
           io_lib:format("mkblock_done ~s h=~w:~p", [blockchain:blkid(Hash), H, Tmp])}
         ];
