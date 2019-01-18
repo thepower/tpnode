@@ -230,7 +230,7 @@ bv(BLog, T1, T2) ->
         Message =
           if
             TheirHeight =:= unknown orelse TheirHash =:= unknown ->
-              io_lib:format("ck_sync ~s my_h=~p", [Action, MyHeight]);
+              io_lib:format("ck_sync ~s my_h=~p:~p", [Action, MyHeight, MyTmp]);
             
             true ->
               io_lib:format(
