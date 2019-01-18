@@ -15,6 +15,10 @@
 
 -define(TPIC, tpic).
 
+-define(isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp),
+  TheirHeight > MyHeight
+  orelse (TheirHeight =:= MyHeight andalso TheirTmp =/= false andalso MyTmp =/= false)
+  ).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -160,7 +164,7 @@ check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
     MyTmp = maps:get(temporary, MyMeta, false),
     TheirTmp = maps:get(temporary, Blk, false),
     if
-      TheirHeight > MyHeight ->
+      ?isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp) ->
         case blockvote:ets_lookup(Hash) of
           error ->
             % hash not found
@@ -304,8 +308,7 @@ chain_lookaround(TPIC, Options) ->
       last_height:=TheirHeight,
       last_temp := TheirTmp
     }} | _]
-      when TheirHeight > MyHeight
-      orelse (TheirHeight =:= MyHeight andalso TheirTmp =:= false andalso MyTmp =/= false) ->
+      when ?isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp) ->
       
       stout:log(ck_sync,
         [
@@ -405,3 +408,12 @@ tpiccall(TPIC, Handler, Object, Atoms) ->
 
 %% ------------------------------------------------------------------
 
+%%check_block_exist(TPIC, Hash) ->
+%%  tpiccall(
+%%    TPIC,
+%%    <<"blockchain">>,
+%%    #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>self},
+%%    [block]
+%%  ).
+
+%% ------------------------------------------------------------------
