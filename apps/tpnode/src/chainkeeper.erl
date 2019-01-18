@@ -158,6 +158,7 @@ check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
       header:=MyHeader} = MyMeta = blockchain:last_meta(),
     MyHeight = maps:get(height, MyHeader, 0),
     MyTmp = maps:get(temporary, MyMeta, false),
+    TheirTmp = maps:get(temporary, Blk, false),
     if
       TheirHeight > MyHeight ->
         case blockvote:ets_lookup(Hash) of
@@ -171,9 +172,10 @@ check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
                 {options, Options},
                 {action, runsync},
                 {myheight, MyHeight},
+                {mytmp, MyTmp},
                 {theirheight, TheirHeight},
-                {theirhash, Hash}
-                
+                {theirhash, Hash},
+                {theirtmp, TheirTmp}
               ]),
             stout:log(runsync, [ {node, nodekey:node_name()}, {where, chain_keeper} ]),
             blockchain ! runsync,
@@ -185,9 +187,10 @@ check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
                 {options, Options},
                 {action, found_in_blockvote},
                 {myheight, MyHeight},
+                {mytmp, MyTmp},
                 {theirheight, TheirHeight},
-                {theirhash, Hash}
-    
+                {theirhash, Hash},
+                {theirtmp, TheirTmp}
               ]),
             ok
         end;
@@ -197,13 +200,16 @@ check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
             {options, Options},
             {action, height_ok},
             {myheight, MyHeight},
+            {mytmp, MyTmp},
             {theirheight, TheirHeight},
-            {theirhash, Hash}
+            {theirhash, Hash},
+            {theirtmp, TheirTmp}
           ]),
         check_fork(#{
           mymeta => MyMeta,
           theirheight => TheirHeight,
-          theirhash => Hash
+          theirhash => Hash,
+          theirtmp => TheirTmp
         }, Options),
         ok
     end,
