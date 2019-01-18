@@ -353,7 +353,7 @@ find_tallest(TPIC, Chain, Opts) ->
   MinSig = proplists:get_value(minsig, Opts, 3),
   Candidates = discovery(TPIC),
   
-  stout:log(sync_candidates, {candidates, Candidates}),
+  stout:log(sync_candidates, [{candidates, Candidates}]),
   
   CheckedOnly = lists:foldl(
     fun({_Handle, #{last_height:=Hei,
