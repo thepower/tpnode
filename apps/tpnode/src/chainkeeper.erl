@@ -28,7 +28,7 @@
 
 -export([start_link/0]).
 
--export([check_fork2/3, get_permanent_hash/1, discovery/1]).
+-export([check_fork2/3, get_permanent_hash/1, discovery/1, find_tallest/3]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -430,7 +430,7 @@ find_tallest(TPIC, Chain, Opts) ->
     0 ->
       [];
     _ ->
-      [HighPri | _] = lists:reverse(lists:keysort(1, maps:keys(CheckedOnly))),
+      [HighPri | _] = lists:reverse(lists:sort(maps:keys(CheckedOnly))),
       maps:get(HighPri, CheckedOnly)
   end.
 
