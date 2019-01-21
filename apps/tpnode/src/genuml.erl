@@ -222,6 +222,15 @@ bv(BLog, T1, T2) ->
             AnyValidHash ->
               blockchain:blkid(AnyValidHash)
           end,
+  
+        TheirPermanentHash =
+          case proplists:get_value(theirpermhash, PL, unknown) of
+            unknown ->
+              unknown;
+            AnyValidPermHash ->
+              blockchain:blkid(AnyValidPermHash)
+          end,
+        
         Options = proplists:get_value(options, PL, #{}),
 
         MyNode = node_map(maps:get(theirnode, Options, File)),
@@ -234,8 +243,8 @@ bv(BLog, T1, T2) ->
             
             true ->
               io_lib:format(
-                "ck_sync ~s my_h=~p:~p their_h=~p:~p ~s",
-                [Action, MyHeight, MyTmp, TheirHeight, TheirTmp, TheirHash])
+                "ck_sync ~s my_h=~p:~p their_h=~p:~p ~s ~s",
+                [Action, MyHeight, MyTmp, TheirHeight, TheirTmp, TheirHash, TheirPermanentHash])
           end,
         
         [ {T, TheirNode, MyNode, Message} ];
