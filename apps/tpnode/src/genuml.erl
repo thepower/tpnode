@@ -236,15 +236,23 @@ bv(BLog, T1, T2) ->
         MyNode = node_map(maps:get(theirnode, Options, File)),
         TheirNode = node_map(maps:get(mynode, Options, unknown)),
         
+        TheirHashStr =
+          if
+            TheirHash == TheirPermanentHash ->
+              io_lib:format("~s", [TheirHash]);
+            true ->
+              io_lib:format("~s ~s", [TheirHash, TheirPermanentHash])
+          end,
+  
         Message =
           if
             TheirHeight =:= unknown orelse TheirHash =:= unknown ->
               io_lib:format("ck_sync ~s my_h=~p:~p", [Action, MyHeight, MyTmp]);
-            
+  
             true ->
               io_lib:format(
-                "ck_sync ~s my_h=~p:~p their_h=~p:~p ~s ~s",
-                [Action, MyHeight, MyTmp, TheirHeight, TheirTmp, TheirHash, TheirPermanentHash])
+                "ck_sync ~s my_h=~p:~p their_h=~p:~p ~s",
+                [Action, MyHeight, MyTmp, TheirHeight, TheirTmp, TheirHashStr])
           end,
         
         [ {T, TheirNode, MyNode, Message} ];
