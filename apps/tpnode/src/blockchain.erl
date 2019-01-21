@@ -1590,7 +1590,7 @@ sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}} =
         #{last_height=>Height,
           last_hash=>Hash,
           last_temp=>false,
-          tempblk=>undefined,
+          tempblk=>false,
           lastblk=>BLB,
           prev_hash=>Parent,
           chain=>MyChain

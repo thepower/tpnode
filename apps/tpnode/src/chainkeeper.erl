@@ -160,20 +160,21 @@ setup_timer(Name) ->
 
 %% ------------------------------------------------------------------
 
-check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
+check_block(#{header := #{height := TheirHeight}} = Blk, Options)
   when is_map(Blk) ->
     #{hash:=_MyHash, header:=MyHeader} = MyMeta = blockchain:last_meta(),
     MyHeight = maps:get(height, MyHeader, 0),
     MyTmp = maps:get(temporary, MyMeta, false),
     TheirTmp = maps:get(temporary, Blk, false),
+    TheirHash = get_permanent_hash(Blk),
     if
       ?isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp) ->
-        case blockvote:ets_lookup(Hash) of
+        case blockvote:ets_lookup(TheirHash) of
           error ->
             % hash not found
             % todo: detect forks here
             % if we can't find _MyHash in the net, fork happened :(
-            lager:info("Need sync, hash ~p not found in blockvote", [blockchain:blkid(Hash)]),
+            lager:info("Need sync, hash ~p not found in blockvote", [blockchain:blkid(TheirHash)]),
             stout:log(ck_sync,
               [
                 {options, Options},
@@ -181,7 +182,7 @@ check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
                 {myheight, MyHeight},
                 {mytmp, MyTmp},
                 {theirheight, TheirHeight},
-                {theirhash, Hash},
+                {theirhash, TheirHash},
                 {theirtmp, TheirTmp}
               ]),
             stout:log(runsync, [ {node, nodekey:node_name()}, {where, chain_keeper} ]),
@@ -196,7 +197,7 @@ check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
                 {myheight, MyHeight},
                 {mytmp, MyTmp},
                 {theirheight, TheirHeight},
-                {theirhash, Hash},
+                {theirhash, TheirHash},
                 {theirtmp, TheirTmp}
               ]),
             ok
@@ -209,13 +210,13 @@ check_block(#{hash:=Hash, header := #{height := TheirHeight}} = Blk, Options)
             {myheight, MyHeight},
             {mytmp, MyTmp},
             {theirheight, TheirHeight},
-            {theirhash, Hash},
+            {theirhash, TheirHash},
             {theirtmp, TheirTmp}
           ]),
         check_fork(#{
           mymeta => MyMeta,
           theirheight => TheirHeight,
-          theirhash => Hash,
+          theirhash => TheirHash,
           theirtmp => TheirTmp
         }, Options),
         ok
@@ -350,9 +351,18 @@ chain_lookaround(TPIC, Options) ->
     [{_, #{
       last_hash:=Hash,
       last_height:=TheirHeight,
-      last_temp := TheirTmp
+      last_temp := TheirTmp,
+      prev_hash := TheirParent
     }} | _]
       when ?isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp) ->
+  
+      TheirPermanentHash =
+        case TheirTmp of
+          false ->
+            Hash;
+          _ ->
+            TheirParent
+        end,
       
       stout:log(ck_sync,
         [
@@ -362,13 +372,14 @@ chain_lookaround(TPIC, Options) ->
           {mytmp, MyTmp},
           {theirheight, TheirHeight},
           {theirtmp, TheirTmp},
-          {theirhash, Hash}
+          {theirhash, Hash},
+          {theirpermhash, TheirPermanentHash}
         ]),
       
       check_fork(#{
         mymeta => MyMeta,
         theirheight => TheirHeight,
-        theirhash => Hash,
+        theirhash => TheirPermanentHash,
         theirtmp => TheirTmp
       }, Options),
       
