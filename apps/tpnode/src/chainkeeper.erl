@@ -17,7 +17,9 @@
 
 -define(isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp),
   TheirHeight > MyHeight
-  orelse (TheirHeight =:= MyHeight andalso TheirTmp =/= false andalso MyTmp =/= false)
+  orelse (TheirHeight =:= MyHeight andalso TheirTmp == false andalso MyTmp =/= false)
+  orelse (TheirHeight =:= MyHeight andalso is_integer(TheirTmp)
+            andalso is_integer(MyTmp) andalso TheirTmp > MyTmp)
   ).
 
 %% ------------------------------------------------------------------
@@ -26,7 +28,7 @@
 
 -export([start_link/0]).
 
--export([check_fork2/3]).
+-export([check_fork2/3, get_permanent_hash/1, discovery/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -227,15 +229,16 @@ check_block(Blk, Options) ->
 
 
 check_fork2(TPIC, MyMeta, Options) ->
-  #{hash:=MyHash, header:=MyHeader} = MyMeta,
+  MyPermanentHash = get_permanent_hash(MyMeta),
+  MyHeader = maps:get(header, MyMeta, #{}),
   MyHeight = maps:get(height, MyHeader, 0),
   MyTmp = maps:get(temporary, MyMeta, false),
   
-  % if MyTmp == false try to find MyHash in the net
+  % if MyTmp == false try to find MyPermanentHash in the net
   ChainState =
     if
       MyTmp =:= false ->
-        case check_block_exist(TPIC, MyHash) of
+        case check_block_exist(TPIC, MyPermanentHash) of
           fork ->
             {fork, hash_not_found_in_the_net};
           _ ->
@@ -310,6 +313,16 @@ check_fork(#{mymeta := MyMeta, theirheight := TheirHeight, theirhash := TheirHas
 %%      end
 %%    end, Res).
 %%
+
+%% ------------------------------------------------------------------
+get_permanent_hash(Meta) ->
+  case maps:get(temporary, Meta, false) of
+    false ->
+      maps:get(hash, Meta, <<>>);
+    _ ->
+      Header = maps:get(header, Meta, #{}),
+      maps:get(parent, Header, <<>>)
+  end.
 
 %% ------------------------------------------------------------------
 
@@ -402,7 +415,7 @@ find_tallest(TPIC, Chain, Opts) ->
                    Wid when is_integer(Wid) ->
                      Hei bsl 64 bor Wid;
                    _ ->
-                     Hei bsl 64
+                     Hei bsl 64 bor ((1 bsl 64) - 1)
                  end,
           maps:put(Tall, [E | maps:get(Tall, Acc, [])], Acc);
         {true, {_, _}} ->

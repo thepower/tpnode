@@ -1578,42 +1578,49 @@ tpiccall(Handler, Object, Atoms) ->
 getset(Name,#{settings:=Sets, mychain:=MyChain}=_State) ->
   chainsettings:get(Name, Sets, fun()->MyChain end).
 
-sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}},
-              mychain:=MyChain
-             }=State) ->
-  Template=case maps:find(tmpblock, State) of
-             error ->
-               #{ last_height=>Height,
-                  last_hash=>Hash,
-                  last_temp=>false,
-                  prev_hash=>Parent,
-                  chain=>MyChain
-                };
-             {ok,#{hash:=TH,
-                   header:=#{height:=THei, parent:=TParent},
-                   temporary:=TmpNo}} ->
-               #{ last_height=>THei,
-                  last_hash=>TH,
-                  last_temp=>TmpNo,
-                  prev_hash=>TParent,
-                  chain=>MyChain
-                }
-           end,
-  case maps:is_key(sync, State) of
-    true -> %I am syncing and can't be source for sync
-      Template#{
-        null=><<"sync_unavailable">>,
-        byblock=>false,
-        instant=>false
-       };
-    false -> %I am working and could be source for sync
+sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}} = LastBlock,
+  mychain:=MyChain
+} = State) ->
+  BLB = block:pack(maps:with([hash, header, sign], LastBlock)),
+  TmpBlock = maps:get(tmpblock, State, undefined),
+  Ready=not maps:is_key(sync, State),
+  Template =
+    case TmpBlock of
+      undefined ->
+        #{last_height=>Height,
+          last_hash=>Hash,
+          last_temp=>false,
+          tempblk=>undefined,
+          lastblk=>BLB,
+          prev_hash=>Parent,
+          chain=>MyChain
+        };
+      #{hash:=TH,
+        header:=#{height:=THei, parent:=TParent},
+        temporary:=TmpNo} = Tmp ->
+        #{last_height=>THei,
+          last_hash=>TH,
+          last_temp=>TmpNo,
+          tempblk=>block:pack(Tmp),
+          lastblk=>BLB,
+          prev_hash=>TParent,
+          chain=>MyChain
+        }
+    end,
+  if not Ready -> %I am not ready
+    Template#{
+      null=><<"sync_unavailable">>,
+      byblock=>false,
+      instant=>false
+    };
+    true -> %I am working and could be source for sync
       Template#{
         null=><<"sync_available">>,
         byblock=>true,
         instant=>true
-       }
+      }
   end.
-
+  
 backup(Dir) ->
   {ok,DBH}=gen_server:call(blockchain,get_dbh),
   backup(DBH, Dir, ldb:read_key(DBH,<<"lastblock">>,undefined), 0).
