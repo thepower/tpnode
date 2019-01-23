@@ -163,11 +163,15 @@ bv(BLog, T1, T2) ->
         State = proplists:get_value(state, PL, unknown),
         MyHeight = proplists:get_value(myheight, PL, unknown),
         Tmp = proplists:get_value(tmp, PL, unknown),
-        
+  
+        MyMeta = proplists:get_value(mymeta, PL, #{}),
+        MyPermanentHash = chainkeeper:get_permanent_hash(MyMeta),
+    
         Message =
           case State of
             {fork, ForkReason} ->
-              io_lib:format("fork detected, ~s", [ForkReason]);
+              io_lib:format("fork detected, ~s, my_perm_hash=~s",
+                [ForkReason, blockchain:blkid(MyPermanentHash)]);
             possible_fork ->
               ForkHash = proplists:get_value(hash, PL, unknown),
               io_lib:format("possible fork detected, hash=~p", [blockchain:blkid(ForkHash)]);
