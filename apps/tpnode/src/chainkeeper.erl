@@ -29,6 +29,7 @@
 -export([start_link/0]).
 
 -export([check_fork2/3, get_permanent_hash/1, discovery/1, find_tallest/3]).
+-export([resolve_tpic_assoc/2, resolve_tpic_assoc/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -274,7 +275,7 @@ check_fork(#{mymeta := MyMeta, theirheight := TheirHeight, theirhash := TheirHas
         {fork, hash_not_equal};
       MyHeight =:= TheirHeight ->
         ok;
-      MyHeight < TheirHeight ->
+      MyHeight > TheirHeight ->
         case blockchain:exists(TheirHash) of
           true ->
             ok;
@@ -299,31 +300,15 @@ check_fork(#{mymeta := MyMeta, theirheight := TheirHeight, theirhash := TheirHas
   
   ChainState.
 
-
-%% ------------------------------------------------------------------
-
-
-%%tpiccall(Handler, Object, Atoms) ->
-%%  Res = tpic:call(tpic, Handler, msgpack:pack(Object)),
-%%  lists:filtermap(
-%%    fun({Peer, Bin}) ->
-%%      case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of
-%%        {ok, Decode} ->
-%%          {true, {Peer, Decode}};
-%%        _ -> false
-%%      end
-%%    end, Res).
-%%
-
 %% ------------------------------------------------------------------
 get_permanent_hash(Meta) ->
   case maps:get(temporary, Meta, false) of
-    false ->
-      maps:get(hash, Meta, <<>>);
-    _ ->
+    Wei when is_number(Wei) ->
       Header = maps:get(header, Meta, #{}),
-      maps:get(parent, Header, <<>>)
-  end.
+      maps:get(parent, Header, <<>>);
+    _ ->
+      maps:get(hash, Meta, <<>>)
+end.
 
 %% ------------------------------------------------------------------
 
@@ -349,7 +334,7 @@ chain_lookaround(TPIC, Options) ->
   
       check_fork2(TPIC, MyMeta, Options),
       ok;
-    [{_, #{
+    [{Assoc, #{
       last_hash:=Hash,
       last_height:=TheirHeight,
       last_temp := TheirTmp,
@@ -359,10 +344,10 @@ chain_lookaround(TPIC, Options) ->
   
       TheirPermanentHash =
         case TheirTmp of
-          false ->
-            Hash;
+          _ when is_number(TheirTmp) ->
+            TheirParent;
           _ ->
-            TheirParent
+            Hash
         end,
       
       stout:log(ck_sync,
@@ -376,13 +361,18 @@ chain_lookaround(TPIC, Options) ->
           {theirhash, Hash},
           {theirpermhash, TheirPermanentHash}
         ]),
-      
-      check_fork(#{
-        mymeta => MyMeta,
-        theirheight => TheirHeight,
-        theirhash => TheirPermanentHash,
-        theirtmp => TheirTmp
-      }, Options),
+  
+      check_fork(
+        #{
+          mymeta => MyMeta,
+          theirheight => TheirHeight,
+          theirhash => TheirPermanentHash,
+          theirtmp => TheirTmp
+        },
+        Options#{
+          theirnode => chainkeeper:resolve_tpic_assoc(Assoc)
+        }
+      ),
       
       blockchain ! runsync,
       ok;
@@ -505,3 +495,30 @@ check_block_exist(TPIC, Hash) ->
 
 
 %% ------------------------------------------------------------------
+
+resolve_tpic_assoc({_,_,_} = Assoc) ->
+  resolve_tpic_assoc(?TPIC, {_,_,_} = Assoc).
+
+resolve_tpic_assoc(TPIC, {_,_,_} = Assoc) ->
+  try
+    case tpic:peer(TPIC, Assoc) of
+      #{authdata:=AuthData} ->
+        PubKey =
+          case proplists:get_value(pubkey, AuthData, undefined) of
+            undefined -> throw(pass);
+            ValidPubKey -> ValidPubKey
+          end,
+        
+        case chainsettings:get_setting(chainnodes) of
+          {ok, Nodes} ->
+            maps:get(PubKey, Nodes, undefined);
+          _ -> throw(pass)
+        
+        end;
+        _ ->
+          undefined
+    end
+  catch
+      throw:pass  ->
+        undefined
+  end.
