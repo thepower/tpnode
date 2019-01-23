@@ -331,9 +331,10 @@ chain_lookaround(TPIC, Options) ->
   
   #{hash:=_MyHash,
     header:=MyHeader} = MyMeta = blockchain:last_meta(),
-  
+
   MyHeight = maps:get(height, MyHeader, 0),
-  Tallest = find_tallest(TPIC, chainsettings:get_val(mychain), []),
+  Tallest = find_tallest(TPIC, chainsettings:get_val(mychain),
+              [{minsig, chainsettings:get_val(minsig)}]),
   MyTmp = maps:get(temporary, MyMeta, false),
   
   case Tallest of
