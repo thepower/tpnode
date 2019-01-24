@@ -367,7 +367,11 @@ handle_call(restoreset, _From, #{ldb:=LDB}=State) ->
   notify_settings(),
   {reply, S1, State#{settings=>chainsettings:settings_to_ets(S1)}};
 
-handle_call(rollback, _From, #{lastblock:=#{header:=Parent}, ldb:=LDB}=State) ->
+handle_call(rollback, _From, #{
+                        pre_settings:=PreSets,
+                        btable:=BTable,
+                        lastblock:=#{header:=Parent},
+                        ldb:=LDB}=State) ->
   case block_rel(LDB, Parent, self) of
     Error when is_atom(Error) ->
       {reply, {error, Error}, State};
@@ -376,11 +380,28 @@ handle_call(rollback, _From, #{lastblock:=#{header:=Parent}, ldb:=LDB}=State) ->
       case gen_server:call(ledger,{rollback, LH}) of
         {ok, LH} ->
           save_block(LDB, Blk, true),
-          {reply, {ok, H}, State#{lastblock=>Blk}};
+          chainsettings:settings_to_ets(PreSets),
+          lastblock2ets(BTable, Blk),
+          {reply,
+           {ok, H},
+           maps:without(
+             [pre_settings,tmpblock],
+             State#{
+               lastblock=>Blk,
+               settings=>PreSets
+              }
+            )
+          };
         {error, Err} ->
           {reply, {ledger_error, Err}, State}
       end
   end;
+
+handle_call(rollback, _From, #{
+                        btable:=_,
+                        lastblock:=_,
+                        ldb:=_}=State) ->
+  {reply, {error, no_prev_state}, State};
 
 handle_call({new_block, #{hash:=BlockHash,
                           header:=#{height:=Hei}=Header}=Blk, PID}=_Message,
@@ -649,6 +670,7 @@ handle_call({new_block, #{hash:=BlockHash,
                                 prevblock=> NewLastBlock,
                                 lastblock=> MBlk,
                                 unksig => 0,
+                                pre_settings => Sets,
                                 settings=>if Sets==Sets1 ->
                                                Sets;
                                              true ->
