@@ -261,6 +261,27 @@ check_fork2(TPIC, MyMeta, Options) ->
   ChainState.
 
 %% ------------------------------------------------------------------
+rollback_block(Options) ->
+  case catch gen_server:call(blockchain, rollback) of
+    {ok, NewHash} ->
+      stout:log(rollback,
+        [
+          {options, Options},
+          {action, runsync},
+          {newhash, NewHash}
+        ]),
+      
+      blockchain ! runsync;
+    Err ->
+      stout:log(rollback,
+        [
+          {options, Options},
+          {action, {error, Err}}
+        ])
+  end.
+
+
+%% ------------------------------------------------------------------
 
 check_fork(
   #{mymeta := MyMeta, theirheight := TheirHeight, theirtmp:= TheirTmp, theirhash := TheirHash},
@@ -308,6 +329,18 @@ check_fork(
     {myheight, MyHeight},
     {tmp, MyTmp}
   ]),
+  
+  % do runsync after these statuses
+  RunSyncStatuses = [
+    {fork, hash_not_found_in_the_net}
+  ],
+  
+  case lists:member(ChainState, RunSyncStatuses)  of
+    true ->
+      rollback_block(Options);
+    _ ->
+      ok
+  end,
   
   ChainState.
 

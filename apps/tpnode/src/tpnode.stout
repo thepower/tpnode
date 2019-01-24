@@ -25,8 +25,8 @@
 {sync_needed, ["Sync needed"]}.
 
 {runsync, ["run sync at ", where]}.
-
 {forkstate, ["forkstate ", state]}.
+{rollback, ["rollback ", action]}.
 
 {inst_sync, ["sync got a ", reason ]}.
 {sync_candidates, ["sync candidates ", candidates]}.
