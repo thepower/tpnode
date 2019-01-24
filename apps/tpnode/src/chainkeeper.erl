@@ -52,7 +52,7 @@ start_link() ->
 init(_Args) ->
   {ok,
     #{
-      lookaround_timer => chainsettings:get_val(lookaround_timer)
+      lookaround_timer => setup_timer(lookaround_timer)
     }
   }.
 
