@@ -1096,7 +1096,7 @@ handle_info({bbyb_sync, Hash},
           ok
       end,
       {noreply,
-       maps:without([sync], State#{
+       maps:without([sync, syncblock, syncpeer, sync_candidates], State#{
                               sync_candidates => skip_candidate(Candidates)
                              })
       };
@@ -1120,7 +1120,7 @@ handle_info({bbyb_sync, Hash},
                 lager:info("block ~s no child, sync done?", [blkid(NewH)]),
                 stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_child} ]),
                 {noreply,
-                 maps:without([sync],
+                 maps:without([sync, syncblock, syncpeer, sync_candidates],
                               State#{sync_candidates => skip_candidate(Candidates)})
                 }
             end;
@@ -1135,7 +1135,7 @@ handle_info({bbyb_sync, Hash},
             stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_broken_block} ]),
 
             {noreply,
-             maps:without([sync],
+             maps:without([sync, syncblock, syncpeer, sync_candidates],
                           State#{sync_candidates => skip_candidate(Candidates)})
             }
         end
@@ -1143,14 +1143,14 @@ handle_info({bbyb_sync, Hash},
               lager:notice("Broken sync"),
               stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_throw_broken_sync} ]),
 
-              {noreply, maps:without([sync], State)}
+              {noreply, maps:without([sync, syncblock, syncpeer, sync_candidates], State)}
       end;
     _ ->
       lager:error("bbyb no response"),
       %%      erlang:send_after(10000, self(), runsync),
       stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_response} ]),
       {noreply, maps:without(
-                  [sync],
+                  [sync, syncblock, syncpeer, sync_candidates],
                   State#{
                     sync_candidates => skip_candidate(Candidates)
                    })
@@ -1615,42 +1615,49 @@ tpiccall(Handler, Object, Atoms) ->
 getset(Name,#{settings:=Sets, mychain:=MyChain}=_State) ->
   chainsettings:get(Name, Sets, fun()->MyChain end).
 
-sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}},
-              mychain:=MyChain
-             }=State) ->
-  Template=case maps:find(tmpblock, State) of
-             error ->
-               #{ last_height=>Height,
-                  last_hash=>Hash,
-                  last_temp=>false,
-                  prev_hash=>Parent,
-                  chain=>MyChain
-                };
-             {ok,#{hash:=TH,
-                   header:=#{height:=THei, parent:=TParent},
-                   temporary:=TmpNo}} ->
-               #{ last_height=>THei,
-                  last_hash=>TH,
-                  last_temp=>TmpNo,
-                  prev_hash=>TParent,
-                  chain=>MyChain
-                }
-           end,
-  case maps:is_key(sync, State) of
-    true -> %I am syncing and can't be source for sync
-      Template#{
-        null=><<"sync_unavailable">>,
-        byblock=>false,
-        instant=>false
-       };
-    false -> %I am working and could be source for sync
+sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}} = LastBlock,
+  mychain:=MyChain
+} = State) ->
+  BLB = block:pack(maps:with([hash, header, sign], LastBlock)),
+  TmpBlock = maps:get(tmpblock, State, undefined),
+  Ready=not maps:is_key(sync, State),
+  Template =
+    case TmpBlock of
+      undefined ->
+        #{last_height=>Height,
+          last_hash=>Hash,
+          last_temp=>false,
+          tempblk=>false,
+          lastblk=>BLB,
+          prev_hash=>Parent,
+          chain=>MyChain
+        };
+      #{hash:=TH,
+        header:=#{height:=THei, parent:=TParent},
+        temporary:=TmpNo} = Tmp ->
+        #{last_height=>THei,
+          last_hash=>TH,
+          last_temp=>TmpNo,
+          tempblk=>block:pack(Tmp),
+          lastblk=>BLB,
+          prev_hash=>TParent,
+          chain=>MyChain
+        }
+    end,
+  if not Ready -> %I am not ready
+    Template#{
+      null=><<"sync_unavailable">>,
+      byblock=>false,
+      instant=>false
+    };
+    true -> %I am working and could be source for sync
       Template#{
         null=><<"sync_available">>,
         byblock=>true,
         instant=>true
-       }
+      }
   end.
-
+  
 backup(Dir) ->
   {ok,DBH}=gen_server:call(blockchain,get_dbh),
   backup(DBH, Dir, ldb:read_key(DBH,<<"lastblock">>,undefined), 0).

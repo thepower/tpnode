@@ -163,11 +163,15 @@ bv(BLog, T1, T2) ->
         State = proplists:get_value(state, PL, unknown),
         MyHeight = proplists:get_value(myheight, PL, unknown),
         Tmp = proplists:get_value(tmp, PL, unknown),
-        
+  
+        MyMeta = proplists:get_value(mymeta, PL, #{}),
+        MyPermanentHash = chainkeeper:get_permanent_hash(MyMeta),
+    
         Message =
           case State of
             {fork, ForkReason} ->
-              io_lib:format("fork detected, ~s", [ForkReason]);
+              io_lib:format("fork detected, ~s, my_perm_hash=~s",
+                [ForkReason, blockchain:blkid(MyPermanentHash)]);
             possible_fork ->
               ForkHash = proplists:get_value(hash, PL, unknown),
               io_lib:format("possible fork detected, hash=~p", [blockchain:blkid(ForkHash)]);
@@ -222,20 +226,37 @@ bv(BLog, T1, T2) ->
             AnyValidHash ->
               blockchain:blkid(AnyValidHash)
           end,
+  
+        TheirPermanentHash =
+          case proplists:get_value(theirpermhash, PL, unknown) of
+            unknown ->
+              unknown;
+            AnyValidPermHash ->
+              blockchain:blkid(AnyValidPermHash)
+          end,
+        
         Options = proplists:get_value(options, PL, #{}),
 
         MyNode = node_map(maps:get(theirnode, Options, File)),
         TheirNode = node_map(maps:get(mynode, Options, unknown)),
         
+        TheirHashStr =
+          if
+            TheirHash == TheirPermanentHash ->
+              io_lib:format("~s", [TheirHash]);
+            true ->
+              io_lib:format("~s ~s", [TheirHash, TheirPermanentHash])
+          end,
+  
         Message =
           if
             TheirHeight =:= unknown orelse TheirHash =:= unknown ->
-              io_lib:format("ck_sync ~s my_h=~p", [Action, MyHeight]);
-            
+              io_lib:format("ck_sync ~s my_h=~p:~p", [Action, MyHeight, MyTmp]);
+  
             true ->
               io_lib:format(
                 "ck_sync ~s my_h=~p:~p their_h=~p:~p ~s",
-                [Action, MyHeight, MyTmp, TheirHeight, TheirTmp, TheirHash])
+                [Action, MyHeight, MyTmp, TheirHeight, TheirTmp, TheirHashStr])
           end,
         
         [ {T, TheirNode, MyNode, Message} ];
