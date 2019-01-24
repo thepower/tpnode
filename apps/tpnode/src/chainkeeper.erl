@@ -242,7 +242,7 @@ check_fork2(TPIC, MyMeta, Options) ->
       MyTmp =:= false ->
         case check_block_exist(TPIC, MyPermanentHash) of
           fork ->
-            {fork, hash_not_found_in_the_net};
+            {fork, hash_not_found_in_the_net2};
           _ ->
             ok
         end;
@@ -262,10 +262,14 @@ check_fork2(TPIC, MyMeta, Options) ->
 
 %% ------------------------------------------------------------------
 
-check_fork(#{mymeta := MyMeta, theirheight := TheirHeight, theirhash := TheirHash}, Options) ->
+check_fork(
+  #{mymeta := MyMeta, theirheight := TheirHeight, theirtmp:= TheirTmp, theirhash := TheirHash},
+  Options) ->
+  
   #{hash:=MyHash, header:=MyHeader} = MyMeta,
   MyHeight = maps:get(height, MyHeader, 0),
   MyTmp = maps:get(temporary, MyMeta, false),
+  MyPermanentHash = get_permanent_hash(MyMeta),
   
   ChainState =
     if
@@ -281,6 +285,13 @@ check_fork(#{mymeta := MyMeta, theirheight := TheirHeight, theirhash := TheirHas
             ok;
           _ ->
             {fork, hash_not_exists}
+        end;
+      ?isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp) ->
+        case check_block_exist(?TPIC, MyPermanentHash) of
+          fork ->
+            {fork, hash_not_found_in_the_net};
+          _ ->
+            ok
         end;
       true ->
         ok
