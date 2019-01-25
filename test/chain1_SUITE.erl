@@ -40,7 +40,7 @@ get_node(Name) when is_binary(Name) ->
 
 % base url for chain1 rpc
 get_base_url() ->
-  "http://wallet.thepower.io/api/chain/1".
+  "http://ch1.rpc.testnet.thepower.io:43281/api".
 
 % ------------------------------------------------------------------
 
