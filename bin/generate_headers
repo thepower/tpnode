@@ -64,7 +64,7 @@ main1(_) ->
  gen_purpose(TxPurpose),gen_kind(TxKind)],
     file:write_file("apps/tpnode/include/tx_const.hrl",Consts),
     [GH|_]=filelib:wildcard("**/stout_genhdr.erl"),
-    os:cmd("escript "++GH).
+    os:cmd("escript " ++ GH).
 
 
 gen_purpose(Map) ->
