@@ -52,7 +52,7 @@ start_link() ->
 init(_Args) ->
   {ok,
     #{
-      lookaround_timer => setup_timer(lookaround_timer)
+      lookaround_timer => erlang:send_after(10*1000, self(), lookaround_timer)
     }
   }.
 
@@ -453,7 +453,7 @@ find_tallest(TPIC, Chain, Opts) ->
       ({_Handle, #{last_height:=Hei,
         chain:=C,
         null:=<<"sync_available">>,
-        lastblk:=LB} = Info} = E, Acc) when C == Chain andalso Hei > 0 ->
+        lastblk:=LB} = Info} = E, Acc) when C == Chain andalso Hei > 1 ->
       
         case block:verify(block:unpack(LB), [hdronly]) of
           false ->
