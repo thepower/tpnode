@@ -9,6 +9,7 @@
 -export([split_packet/2, split_packet/1, glue_packet/1]).
 -export([outward_chain/2, outward_ptrs/2]).
 -export([pack_mproof/1, unpack_mproof/1]).
+-export([ledger_hash/1]).
 
 -export([bals2bin/1]).
 
@@ -30,6 +31,9 @@ pack_mproof(M) ->
        is_list(M) ->
          M
     end).
+
+ledger_hash(#{header:=#{roots:=R}}) ->
+  proplists:get_value(ledger_hash, R, <<0:256>>).
 
 prepack(Block) ->
   maps:map(

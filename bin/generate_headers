@@ -14,8 +14,37 @@ get_version() ->
     end.
 
 
-
 main(_) ->
+    try
+        main1(ok)
+    catch
+        Ec:Ee ->
+            print_error("error", Ec, Ee, erlang:get_stacktrace()),
+            ok
+    end.
+
+make_list(Arg) when is_list(Arg) ->
+  Arg;
+
+make_list(Arg) when is_binary(Arg) ->
+  binary_to_list(Arg);
+
+make_list(Arg) when is_atom(Arg) ->
+  atom_to_list(Arg);
+
+make_list(_Arg) ->
+  throw(badarg).
+
+
+print_error(Message, Ec, Ee, StackTrace) ->
+  io:format(make_list(Message) ++ " [~p:~p]~n", [Ec, Ee]),
+  lists:foreach(
+    fun(Where) -> io:format("@ ~p~n", [Where]) end,
+    StackTrace
+  ).
+
+
+main1(_) ->
     I=lists:flatten(io_lib:format(
                       "-define(VERSION, ~p).~n"++
                       "-define(BUILD_TIME, ~p).~n"++
