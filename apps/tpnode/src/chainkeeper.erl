@@ -297,7 +297,12 @@ check_fork(
       MyHeight =:= TheirHeight andalso
         MyTmp =:= false andalso
         MyHash =/= TheirHash ->
-        {fork, hash_not_equal};
+        case check_block_exist(?TPIC, MyHash) of
+          fork ->
+            {fork, hash_not_found_in_the_net3};
+          _ ->
+            {fork, their_hash_possible_fork}
+        end;
       MyHeight =:= TheirHeight ->
         ok;
       MyHeight > TheirHeight ->
@@ -332,7 +337,8 @@ check_fork(
   
   % do runsync after these statuses
   RunSyncStatuses = [
-    {fork, hash_not_found_in_the_net}
+    {fork, hash_not_found_in_the_net},
+    {fork, hash_not_found_in_the_net3}
   ],
   
   case lists:member(ChainState, RunSyncStatuses)  of
