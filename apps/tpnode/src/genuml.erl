@@ -109,6 +109,33 @@ bv(BLog, T1, T2) ->
         Node = ?get_node(node),
         Where = proplists:get_value(where, PL, -1),
         [ {T, Node, Node, io_lib:format("runsync ~s", [Where])} ];
+  
+      (T, rollback, PL, File) ->
+        Options = proplists:get_value(options, PL, #{}),
+        MyNode =
+          case maps:get(mynode, Options, unknown) of
+            unknown -> ?get_node(mynode);
+            CorrectNodeName -> node_map(CorrectNodeName)
+          end,
+        TheirNode =
+          case proplists:get_value(theirnode, PL, unknown) of
+            unknown ->
+              MyNode;
+            SomeNodeName ->
+              node_map(SomeNodeName)
+          end,
+        
+        Action = proplists:get_value(action, PL, unknown),
+        Message =
+          case proplists:get_value(newhash, PL, unknown) of
+            unknown ->
+              io_lib:format("rollback ~p", [Action]);
+            Hash ->
+              io_lib:format("rollback ~p hash=~s", [Action, blockchain:blkid(Hash)])
+          end,
+        
+        [ {T, TheirNode, MyNode, Message} ];
+      
       
       (T, got_new_block, PL, File) ->
         Node = ?get_node(node),

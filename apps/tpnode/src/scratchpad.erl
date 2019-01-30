@@ -460,9 +460,15 @@ r(Module) ->
   M0=Module:module_info(),
   PO=proplists:get_value(compile,M0),
   SRC=proplists:get_value(source,PO),
+
+  io:format("Src ~s args ~p~n",[
+		  SRC,
+		  proplists:get_value(options,PO)
+  ]),
+	Opts=proplists:get_value(options,PO)--[{parse_transform,cth_readable_transform}],
   RC=compile:file(
        SRC,
-       proplists:get_value(options,PO)
+	Opts
       ),
   code:purge(Module),
   code:delete(Module),
