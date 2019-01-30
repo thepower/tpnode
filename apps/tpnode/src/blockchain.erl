@@ -379,7 +379,7 @@ handle_call(rollback, _From, #{
       LH=block:ledger_hash(Blk),
       case gen_server:call(ledger,{rollback, LH}) of
         {ok, LH} ->
-          save_block(LDB, Blk, true),
+          save_block(LDB, maps:remove(child,Blk), true),
           chainsettings:settings_to_ets(PreSets),
           lastblock2ets(BTable, Blk),
           {reply,
