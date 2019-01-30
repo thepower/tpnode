@@ -370,7 +370,7 @@ handle_call(restoreset, _From, #{ldb:=LDB}=State) ->
 handle_call(rollback, _From, #{
                         pre_settings:=PreSets,
                         btable:=BTable,
-                        lastblock:=#{header:=Parent},
+                        lastblock:=#{header:=#{parent:=Parent}},
                         ldb:=LDB}=State) ->
   case block_rel(LDB, Parent, self) of
     Error when is_atom(Error) ->
