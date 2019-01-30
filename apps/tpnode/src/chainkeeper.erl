@@ -52,7 +52,7 @@ start_link() ->
 init(_Args) ->
   {ok,
     #{
-      lookaround_timer => setup_timer(lookaround_timer)
+      lookaround_timer => erlang:send_after(10*1000, self(), lookaround_timer)
     }
   }.
 
@@ -449,24 +449,26 @@ find_tallest(TPIC, Chain, Opts) ->
   stout:log(sync_candidates, [{candidates, Candidates}]),
   
   CheckedOnly = lists:foldl(
-    fun({_Handle, #{last_height:=Hei,
-      chain:=C,
-      null:=<<"sync_available">>,
-      lastblk:=LB} = Info} = E, Acc) when C == Chain ->
-      case block:verify(block:unpack(LB), [hdronly]) of
-        false ->
-          Acc;
-        {true, {Valid, _}} when length(Valid) >= MinSig ->
-          Tall = case maps:get(last_temp, Info, undefined) of
-                   Wid when is_integer(Wid) ->
-                     Hei bsl 64 bor Wid;
-                   _ ->
-                     Hei bsl 64 bor ((1 bsl 64) - 1)
-                 end,
-          maps:put(Tall, [E | maps:get(Tall, Acc, [])], Acc);
-        {true, {_, _}} ->
-          Acc
-      end;
+    fun
+      ({_Handle, #{last_height:=Hei,
+        chain:=C,
+        null:=<<"sync_available">>,
+        lastblk:=LB} = Info} = E, Acc) when C == Chain andalso Hei > 1 ->
+      
+        case block:verify(block:unpack(LB), [hdronly]) of
+          false ->
+            Acc;
+          {true, {Valid, _}} when length(Valid) >= MinSig ->
+            Tall = case maps:get(last_temp, Info, undefined) of
+                     Wid when is_integer(Wid) ->
+                       Hei bsl 64 bor Wid;
+                     _ ->
+                       Hei bsl 64 bor ((1 bsl 64) - 1)
+                   end,
+            maps:put(Tall, [E | maps:get(Tall, Acc, [])], Acc);
+          {true, {_, _}} ->
+            Acc
+        end;
       (_, Acc) ->
         Acc
     end,
