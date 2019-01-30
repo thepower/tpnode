@@ -335,13 +335,13 @@ check_fork(
     {tmp, MyTmp}
   ]),
   
-  % do runsync after these statuses
-  RunSyncStatuses = [
+  % do rollback block after these statuses
+  RollBackStatuses = [
     {fork, hash_not_found_in_the_net},
     {fork, hash_not_found_in_the_net3}
   ],
   
-  case lists:member(ChainState, RunSyncStatuses)  of
+  case lists:member(ChainState, RollBackStatuses) of
     true ->
       rollback_block(Options);
     _ ->
