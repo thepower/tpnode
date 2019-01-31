@@ -738,6 +738,19 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
 
 handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
                                 <<"hash">>:=Hash,
+                                <<"rel">>:=<<"child">>
+                            }},
+            #{tmpblock:=#{header:=#{parent:=Hash}}=TmpBlk} = State) ->
+  BinBlock=block:pack(TmpBlk),
+  lager:info("I was asked for ~s for blk ~s: ~p",[child,blkid(Hash),TmpBlk]),
+  BlockParts = block:split_packet(BinBlock),
+  Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => child}},
+  send_block(tpic, Origin, Map, BlockParts),
+  {noreply, State};
+
+
+handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
+                                <<"hash">>:=Hash,
                                 <<"rel">>:=Rel
                             }},
     #{ldb:=LDB} = State) ->
