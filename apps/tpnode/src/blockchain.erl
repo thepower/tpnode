@@ -490,6 +490,28 @@ handle_call({new_block, #{hash:=BlockHash,
              Header=maps:get(header, Blk),
              %enough signs. Make block.
              NewPHash=maps:get(parent, Header),
+
+             if LBlockHash=/=NewPHash ->
+                  stout:log(sync_needed, [
+                                          {temp, maps:get(temporary,Blk,false)},
+                                          {hash, BlockHash},
+                                          {phash, NewPHash},
+                                          {lblockhash, LBlockHash},
+                                          {sig, SigLen},
+                                          {node, nodekey:node_name()},
+                                          {height,maps:get(height, maps:get(header, Blk))}
+                                         ]),
+                  lager:info("Probably I need to resynchronize, height ~p/~p new block parent ~s, but my ~s",
+                             [
+                              maps:get(height, maps:get(header, Blk)),
+                              maps:get(height, maps:get(header, LastBlock)),
+                              blkid(NewPHash),
+                              blkid(LBlockHash)
+                             ]),
+                  throw({error,need_sync});
+                true ->
+                  ok
+             end,
              if IsTemp ->
                   stout:log(accept_block,
                               [
@@ -517,27 +539,6 @@ handle_call({new_block, #{hash:=BlockHash,
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
-                LBlockHash=/=NewPHash ->
-                  stout:log(sync_needed, [
-                    {temp, maps:get(temporary,Blk,false)},
-                    {hash, BlockHash},
-                    {phash, NewPHash},
-                    {lblockhash, LBlockHash},
-                    {sig, SigLen},
-                    {node, nodekey:node_name()},
-                    {height,maps:get(height, maps:get(header, Blk))}
-                  ]),
-                  lager:info("Need resynchronize, height ~p/~p new block parent ~s, but my ~s",
-                             [
-                              maps:get(height, maps:get(header, Blk)),
-                              maps:get(height, maps:get(header, LastBlock)),
-                              blkid(NewPHash),
-                              blkid(LBlockHash)
-                             ]),
-                  {reply, {error,need_sync}, (State#{ %run_sync
-                               candidates=>#{}
-                              })
-                  };
                 true ->
                   %normal block installation
                   {ok, LHash}=apply_ledger(check, MBlk),
@@ -694,6 +695,8 @@ handle_call({new_block, #{hash:=BlockHash,
     end
   catch throw:ignore ->
           {reply, {ok, ignore}, State};
+        throw:{error, Descr} ->
+          {reply, {error, Descr}, State};
         Ec:Ee ->
           S=erlang:get_stacktrace(),
           lager:error("BC new_block error ~p:~p", [Ec, Ee]),
