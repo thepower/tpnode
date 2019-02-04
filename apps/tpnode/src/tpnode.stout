@@ -35,3 +35,6 @@
 {ck_sync, ["chainkeeper sync action: ", action,
   ", myheight=", myheight, ", theirheight=", theirheight,
   "hash=", {{blockchain,blkid},theirhash}]}.
+
+{ledger_change, ["Ledger changed ",pre_hash," -> ",new_hash]}.
+

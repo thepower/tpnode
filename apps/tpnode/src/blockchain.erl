@@ -490,6 +490,28 @@ handle_call({new_block, #{hash:=BlockHash,
              Header=maps:get(header, Blk),
              %enough signs. Make block.
              NewPHash=maps:get(parent, Header),
+
+             if LBlockHash=/=NewPHash ->
+                  stout:log(sync_needed, [
+                                          {temp, maps:get(temporary,Blk,false)},
+                                          {hash, BlockHash},
+                                          {phash, NewPHash},
+                                          {lblockhash, LBlockHash},
+                                          {sig, SigLen},
+                                          {node, nodekey:node_name()},
+                                          {height,maps:get(height, maps:get(header, Blk))}
+                                         ]),
+                  lager:info("Probably I need to resynchronize, height ~p/~p new block parent ~s, but my ~s",
+                             [
+                              maps:get(height, maps:get(header, Blk)),
+                              maps:get(height, maps:get(header, LastBlock)),
+                              blkid(NewPHash),
+                              blkid(LBlockHash)
+                             ]),
+                  throw({error,need_sync});
+                true ->
+                  ok
+             end,
              if IsTemp ->
                   stout:log(accept_block,
                               [
@@ -517,27 +539,6 @@ handle_call({new_block, #{hash:=BlockHash,
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
-                LBlockHash=/=NewPHash ->
-                  stout:log(sync_needed, [
-                    {temp, maps:get(temporary,Blk,false)},
-                    {hash, BlockHash},
-                    {phash, NewPHash},
-                    {lblockhash, LBlockHash},
-                    {sig, SigLen},
-                    {node, nodekey:node_name()},
-                    {height,maps:get(height, maps:get(header, Blk))}
-                  ]),
-                  lager:info("Need resynchronize, height ~p/~p new block parent ~s, but my ~s",
-                             [
-                              maps:get(height, maps:get(header, Blk)),
-                              maps:get(height, maps:get(header, LastBlock)),
-                              blkid(NewPHash),
-                              blkid(LBlockHash)
-                             ]),
-                  {reply, {error,need_sync}, (State#{ %run_sync
-                               candidates=>#{}
-                              })
-                  };
                 true ->
                   %normal block installation
                   {ok, LHash}=apply_ledger(check, MBlk),
@@ -602,14 +603,6 @@ handle_call({new_block, #{hash:=BlockHash,
                   gen_server:cast(txqueue, {done, proplists:get_keys(Settings)}),
 
                   T3=erlang:system_time(),
-                  stout:log(accept_block,
-                              [
-                               {temp, false},
-                               {hash, BlockHash},
-                               {sig, SigLen},
-                               {node, nodekey:node_name()},
-                               {height,maps:get(height, maps:get(header, Blk))}
-                              ]),
                   lager:info("enough confirmations ~w/~w. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",
                              [
                               SigLen, MinSig,
@@ -622,7 +615,25 @@ handle_call({new_block, #{hash:=BlockHash,
 
                   gen_server:cast(tpnode_ws_dispatcher, {new_block, MBlk}),
 
-                  apply_ledger(put, MBlk),
+                  {ok, LH1} = apply_ledger(put, MBlk),
+                  if(LH1 =/= LHash) ->
+                      lager:error("Ledger error, hash mismatch on check and put"),
+                      lager:error("Database corrupted");
+                    true ->
+                      ok
+                  end,
+
+                  stout:log(accept_block,
+                            [
+                             {temp, false},
+                             {hash, BlockHash},
+                             {sig, SigLen},
+                             {node, nodekey:node_name()},
+                             {height,maps:get(height, maps:get(header, Blk))},
+                             {ledger_hash_actual, LH1},
+                             {ledger_hash_checked, LHash}
+                            ]),
+
 
                   maps:fold(
                     fun(ChainID, OutBlock, _) ->
@@ -679,7 +690,6 @@ handle_call({new_block, #{hash:=BlockHash,
                                 candidates=>#{}
                                }
                   }
-
              end;
            true ->
              %not enough
@@ -694,6 +704,8 @@ handle_call({new_block, #{hash:=BlockHash,
     end
   catch throw:ignore ->
           {reply, {ok, ignore}, State};
+        throw:{error, Descr} ->
+          {reply, {error, Descr}, State};
         Ec:Ee ->
           S=erlang:get_stacktrace(),
           lager:error("BC new_block error ~p:~p", [Ec, Ee]),
@@ -735,6 +747,19 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
   Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => MyRel}},
   send_block(tpic, Origin, Map, BlockParts),
   {noreply, State};
+
+handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
+                                <<"hash">>:=Hash,
+                                <<"rel">>:=<<"child">>
+                            }},
+            #{tmpblock:=#{header:=#{parent:=Hash}}=TmpBlk} = State) ->
+  BinBlock=block:pack(TmpBlk),
+  lager:info("I was asked for ~s for blk ~s: ~p",[child,blkid(Hash),TmpBlk]),
+  BlockParts = block:split_packet(BinBlock),
+  Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => child}},
+  send_block(tpic, Origin, Map, BlockParts),
+  {noreply, State};
+
 
 handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
                                 <<"hash">>:=Hash,

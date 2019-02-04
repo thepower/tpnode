@@ -206,6 +206,9 @@ handle_call({rollback, RootHash}, _From,
       handle_call({put, Rev, undefined}, _From, State)
   end;
 
+handle_call({rollback, _RootHash}, _From, State) ->
+  {reply, {error, no_snap}, State};
+
 handle_call({Action, KVS0}, From, State) when
     Action==put orelse Action==check ->
   handle_call({Action, KVS0, undefined}, From, State);
@@ -269,6 +272,12 @@ handle_call({put, KVS0, BlockID}, _From, #{db:=DB, mt:=MT}=State) ->
        lager:debug("Ledger apply trans ~p", [TR]),
        ok = rocksdb:write_batch(DB, Batch, []),
        ok = rocksdb:close_batch(Batch),
+
+       stout:log(ledger_change,
+                 [
+                  {new_hash, RootHash},
+                  {pre_hash, PreRootHash}
+                 ]),
        {reply, {ok, RootHash},
         State#{ mt => MT1, pre_hash => PreRootHash, rollback => ReverseKVS }
        };

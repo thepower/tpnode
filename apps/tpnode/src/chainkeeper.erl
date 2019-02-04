@@ -241,7 +241,7 @@ check_fork2(TPIC, MyMeta, Options) ->
     if
       MyTmp =:= false ->
         case check_block_exist(TPIC, MyPermanentHash) of
-          fork ->
+          {_, 0, _} -> % NotFound, Found, Errors
             {fork, hash_not_found_in_the_net2};
           _ ->
             ok
@@ -298,7 +298,7 @@ check_fork(
         MyTmp =:= false andalso
         MyHash =/= TheirHash ->
         case check_block_exist(?TPIC, MyHash) of
-          fork ->
+          {_, 0, _} -> % NotFound, Found, Errors
             {fork, hash_not_found_in_the_net3};
           _ ->
             {fork, their_hash_possible_fork}
@@ -314,7 +314,7 @@ check_fork(
         end;
       ?isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp) ->
         case check_block_exist(?TPIC, MyPermanentHash) of
-          fork ->
+          {_, 0, _} -> % NotFound, Found, Errors
             {fork, hash_not_found_in_the_net};
           _ ->
             ok
@@ -459,7 +459,7 @@ find_tallest(TPIC, Chain, Opts) ->
       ({_Handle, #{last_height:=Hei,
         chain:=C,
         null:=<<"sync_available">>,
-        lastblk:=LB} = Info} = E, Acc) when C == Chain andalso Hei > 1 ->
+        lastblk:=LB} = Info} = E, Acc) when C == Chain andalso Hei > 0 ->
       
         case block:verify(block:unpack(LB), [hdronly]) of
           false ->
@@ -534,16 +534,17 @@ check_block_exist(TPIC, Hash) ->
   
   Checker =
     fun
-      (_, exists) ->
-        exists;
-      ({_Peer, #{null := block, <<"error">> := <<"noblock">>}}, Acc) ->
-        Acc;
-      (_, _) ->
-        exists
+      ({_Peer, #{null := block, <<"error">> := <<"noblock">>}}, {NotFound, Found, Errors}) ->
+        {NotFound+1, Found, Errors};
+      ({_Peer, #{null := block, <<"error">> := _}}, {NotFound, Found, Errors}) ->
+        {NotFound, Found, Errors+1};
+      (_, {NotFound, Found, Errors}) ->
+        {NotFound, Found+1, Errors}
     end,
   
-  %% it's fork if all answers contains <<"error">> => <<"noblock">>
-  lists:foldl(Checker, fork, Answers).
+  %% count nodes where this block is absent (answers contains <<"error">> => <<"noblock">>)
+  %% Acc = {NotFound, Found, Errors}
+  lists:foldl(Checker, {0, 0, 0}, Answers).
 
 
 %% ------------------------------------------------------------------
