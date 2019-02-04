@@ -272,12 +272,13 @@ handle_call({put, KVS0, BlockID}, _From, #{db:=DB, mt:=MT}=State) ->
        lager:debug("Ledger apply trans ~p", [TR]),
        ok = rocksdb:write_batch(DB, Batch, []),
        ok = rocksdb:close_batch(Batch),
-
+  
        stout:log(ledger_change,
-                 [
-                  {new_hash, RootHash},
-                  {pre_hash, PreRootHash}
-                 ]),
+          [
+            {node, nodekey:node_name()},
+            {new_hash, RootHash},
+            {pre_hash, PreRootHash}
+          ]),
        {reply, {ok, RootHash},
         State#{ mt => MT1, pre_hash => PreRootHash, rollback => ReverseKVS }
        };
