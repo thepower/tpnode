@@ -459,7 +459,7 @@ find_tallest(TPIC, Chain, Opts) ->
       ({_Handle, #{last_height:=Hei,
         chain:=C,
         null:=<<"sync_available">>,
-        lastblk:=LB} = Info} = E, Acc) when C == Chain andalso Hei > 4 ->
+        lastblk:=LB} = Info} = E, Acc) when C == Chain andalso Hei > 0 ->
       
         case block:verify(block:unpack(LB), [hdronly]) of
           false ->
