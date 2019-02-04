@@ -603,14 +603,6 @@ handle_call({new_block, #{hash:=BlockHash,
                   gen_server:cast(txqueue, {done, proplists:get_keys(Settings)}),
 
                   T3=erlang:system_time(),
-                  stout:log(accept_block,
-                              [
-                               {temp, false},
-                               {hash, BlockHash},
-                               {sig, SigLen},
-                               {node, nodekey:node_name()},
-                               {height,maps:get(height, maps:get(header, Blk))}
-                              ]),
                   lager:info("enough confirmations ~w/~w. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",
                              [
                               SigLen, MinSig,
@@ -623,7 +615,25 @@ handle_call({new_block, #{hash:=BlockHash,
 
                   gen_server:cast(tpnode_ws_dispatcher, {new_block, MBlk}),
 
-                  apply_ledger(put, MBlk),
+                  {ok, LH1} = apply_ledger(put, MBlk),
+                  if(LH1 =/= LHash) ->
+                      lager:error("Ledger error, hash mismatch on check and put"),
+                      lager:error("Database corrupted");
+                    true ->
+                      ok
+                  end,
+
+                  stout:log(accept_block,
+                            [
+                             {temp, false},
+                             {hash, BlockHash},
+                             {sig, SigLen},
+                             {node, nodekey:node_name()},
+                             {height,maps:get(height, maps:get(header, Blk))},
+                             {ledger_hash_actual, LH1},
+                             {ledger_hash_checked, LHash}
+                            ]),
+
 
                   maps:fold(
                     fun(ChainID, OutBlock, _) ->
@@ -680,7 +690,6 @@ handle_call({new_block, #{hash:=BlockHash,
                                 candidates=>#{}
                                }
                   }
-
              end;
            true ->
              %not enough
