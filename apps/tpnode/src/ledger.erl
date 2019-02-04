@@ -206,6 +206,9 @@ handle_call({rollback, RootHash}, _From,
       handle_call({put, Rev, undefined}, _From, State)
   end;
 
+handle_call({rollback, _RootHash}, _From, State) ->
+  {reply, {error, no_snap}, State};
+
 handle_call({Action, KVS0}, From, State) when
     Action==put orelse Action==check ->
   handle_call({Action, KVS0, undefined}, From, State);
