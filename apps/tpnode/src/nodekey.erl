@@ -42,6 +42,7 @@ node_id(PubKey) ->
     base58:encode(Hash).
 
 node_name() ->
+  try
     case application:get_env(tpnode, nodename) of
       undefined -> 
         case chainsettings:is_our_node(get_pub()) of
@@ -52,7 +53,10 @@ node_name() ->
             node_id()
         end;
       {ok, Name} -> Name
-    end.
+    end
+  catch
+    error:{badmatch, _} -> undefined
+  end.
 
 
 

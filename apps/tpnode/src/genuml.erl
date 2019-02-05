@@ -14,7 +14,10 @@ node_map(NodeName) when is_binary(NodeName) ->
   Map = #{
     <<"node_287nRpYV">> => <<"c4n1">>,
     <<"node_3NBx74Ed">> => <<"c4n2">>,
-    <<"node_28AFpshz">> => <<"c4n3">>
+    <<"node_28AFpshz">> => <<"c4n3">>,
+    <<"log/2/uml_test_c4n3@pwr.blog">> => <<"c4n3">>,
+    <<"log/2/uml_test_c4n2@pwr.blog">> => <<"c4n2">>,
+    <<"log/2/uml_test_c4n1@pwr.blog">> => <<"c4n1">>
   },
   maps:get(NodeName, Map, NodeName);
 
@@ -55,248 +58,252 @@ block(BLog,T1,T2) ->
 
 % --------------------------------------------------------------------------------
 
-timerange(BLog) ->
-  FFun =
-    fun
-      (T, _Kind, _PL, {C, M1, M2}, _File) ->
+get_renderer() ->
+  fun
+    (T, sync_ticktimer, PL, File) ->
+      Node = ?get_node(node),
+      [{T, Node, Node, "sync_ticktimer", #{arrow_type => hnote}}];
+    
+    (T, txqueue_prepare, PL, File) ->
+      Node = ?get_node(node),
+      [{T, Node, Node, "txqueue_prepare"}];
+    
+    (T, mkblock_process, PL, File) ->
+      Node = ?get_node(node),
+      [{T, Node, Node, "mkblock_process"}];
+    
+    (T, mkblock_done, PL, File) ->
+      Node = ?get_node(node_name),
+      Hdr = proplists:get_value(block_hdr, PL, #{}),
+      H = proplists:get_value(height, PL, -1),
+      Hash = maps:get(hash, Hdr, <<>>),
+      Tmp = maps:get(temporary, Hdr, unknown),
+      [{T, Node, Node,
+        io_lib:format("mkblock_done ~s h=~w:~p", [blockchain:blkid(Hash), H, Tmp])}
+      ];
+    
+    (T, runsync, PL, File) ->
+      Node = ?get_node(node),
+      Where = proplists:get_value(where, PL, -1),
+      Message =
+        case proplists:get_value(error, PL, unknown) of
+          unknown ->
+            io_lib:format("runsync ~s", [Where]);
+          Error ->
+            io_lib:format("runsync error ~s", [Error])
+        end,
+      [ {T, Node, Node, Message} ];
+    
+    (T, rollback, PL, File) ->
+      Options = proplists:get_value(options, PL, #{}),
+      MyNode =
+        case maps:get(mynode, Options, unknown) of
+          unknown -> ?get_node(mynode);
+          CorrectNodeName -> node_map(CorrectNodeName)
+        end,
+      TheirNode =
+        case proplists:get_value(theirnode, PL, unknown) of
+          unknown ->
+            MyNode;
+          SomeNodeName ->
+            node_map(SomeNodeName)
+        end,
+      
+      Action = proplists:get_value(action, PL, unknown),
+      Message =
+        case proplists:get_value(newhash, PL, unknown) of
+          unknown ->
+            io_lib:format("rollback ~p", [Action]);
+          Hash ->
+            io_lib:format("rollback ~p hash=~s", [Action, blockchain:blkid(Hash)])
+        end,
+      
+      [ {T, TheirNode, MyNode, Message} ];
+    
+    
+    (T, got_new_block, PL, File) ->
+      Node = ?get_node(node),
+      H = proplists:get_value(height, PL, -1),
+      Verify = proplists:get_value(verify, PL, -1),
+      Hash = proplists:get_value(hash, PL, -1),
+      
+      IgnoreStr =
+        case proplists:get_value(ignore, PL, undefined) of
+          undefined ->
+            <<>>;
+          AnyStr ->
+            io_lib:format("ignore=~p", [AnyStr])
+        end,
+      
+      [{T, Node, Node,
+        io_lib:format(
+          "got_new_block ~s h=~w, verify=~p ~s",
+          [blockchain:blkid(Hash), H, Verify, IgnoreStr]
+        )}
+      ];
+    
+    (T, sync_needed, PL, File) ->
+      Hash=proplists:get_value(hash, PL, <<>>),
+      H=proplists:get_value(height, PL, -1),
+      S=proplists:get_value(sig, PL, 0),
+      Tmp=proplists:get_value(temp, PL, -1),
+      Node = ?get_node(node),
+      LBlockHash = proplists:get_value(lblockhash, PL, 0),
+      PHash = proplists:get_value(phash, PL, 0),
+      [
         {
-          C + 1,
-          min(M1, T),
-          max(M2, T)
-        }
-    end,
-  
-  {Done, MinT, MaxT} =
-    case BLog of
-      [[_ | _] | _] ->
-        stout_reader:mfold(FFun, {0, erlang:system_time(), 0}, BLog);
-      _ ->
-        stout_reader:fold(FFun, {0, erlang:system_time(), 0}, BLog)
-    end,
-  
-  io:format("~w events T ~w ... ~w~n", [Done, MinT, MaxT]),
-  ok.
-  
-
-% --------------------------------------------------------------------------------
-
-bv(BLog, T1, T2) ->
-  MapFun =
-    fun
-      (T, sync_ticktimer, PL, File) ->
-        Node = ?get_node(node),
-        [{T, Node, Node, "sync_ticktimer", #{arrow_type => hnote}}];
-    
-      (T, txqueue_prepare, PL, File) ->
-        Node = ?get_node(node),
-        [{T, Node, Node, "txqueue_prepare"}];
-    
-      (T, mkblock_process, PL, File) ->
-        Node = ?get_node(node),
-        [{T, Node, Node, "mkblock_process"}];
-      
-      (T, mkblock_done, PL, File) ->
-        Node = ?get_node(node_name),
-        Hdr = proplists:get_value(block_hdr, PL, #{}),
-        H = proplists:get_value(height, PL, -1),
-        Hash = maps:get(hash, Hdr, <<>>),
-        Tmp = maps:get(temporary, Hdr, unknown),
-        [{T, Node, Node,
-          io_lib:format("mkblock_done ~s h=~w:~p", [blockchain:blkid(Hash), H, Tmp])}
-        ];
-  
-      (T, runsync, PL, File) ->
-        Node = ?get_node(node),
-        Where = proplists:get_value(where, PL, -1),
-        [ {T, Node, Node, io_lib:format("runsync ~s", [Where])} ];
-  
-      (T, rollback, PL, File) ->
-        Options = proplists:get_value(options, PL, #{}),
-        MyNode =
-          case maps:get(mynode, Options, unknown) of
-            unknown -> ?get_node(mynode);
-            CorrectNodeName -> node_map(CorrectNodeName)
-          end,
-        TheirNode =
-          case proplists:get_value(theirnode, PL, unknown) of
-            unknown ->
-              MyNode;
-            SomeNodeName ->
-              node_map(SomeNodeName)
-          end,
-        
-        Action = proplists:get_value(action, PL, unknown),
-        Message =
-          case proplists:get_value(newhash, PL, unknown) of
-            unknown ->
-              io_lib:format("rollback ~p", [Action]);
-            Hash ->
-              io_lib:format("rollback ~p hash=~s", [Action, blockchain:blkid(Hash)])
-          end,
-        
-        [ {T, TheirNode, MyNode, Message} ];
-      
-      
-      (T, got_new_block, PL, File) ->
-        Node = ?get_node(node),
-        H = proplists:get_value(height, PL, -1),
-        Verify = proplists:get_value(verify, PL, -1),
-        Hash = proplists:get_value(hash, PL, -1),
-  
-        IgnoreStr =
-          case proplists:get_value(ignore, PL, undefined) of
-            undefined ->
-              <<>>;
-            AnyStr ->
-              io_lib:format("ignore=~p", [AnyStr])
-          end,
-        
-        [{T, Node, Node,
+          T, Node, Node,
           io_lib:format(
-            "got_new_block ~s h=~w, verify=~p ~s",
-            [blockchain:blkid(Hash), H, Verify, IgnoreStr]
-          )}
-        ];
-  
-      (T, sync_needed, PL, File) ->
-        Hash=proplists:get_value(hash, PL, <<>>),
-        H=proplists:get_value(height, PL, -1),
-        S=proplists:get_value(sig, PL, 0),
-        Tmp=proplists:get_value(temp, PL, -1),
-        Node = ?get_node(node),
-        LBlockHash = proplists:get_value(lblockhash, PL, 0),
-        PHash = proplists:get_value(phash, PL, 0),
-        [
-          {
-            T, Node, Node,
+            "sync_needed ~s h=~w:~p sig=~w lhash=~s phash=~s",
+            [
+              blockchain:blkid(Hash), H, Tmp, S,
+              blockchain:blkid(LBlockHash), blockchain:blkid(PHash)
+            ])
+        }
+      ];
+    
+    (T, forkstate, PL, File) ->
+      MyNode = ?get_node(mynode),
+      TheirNode =
+        case proplists:get_value(theirnode, PL, unknown) of
+          unknown ->
+            MyNode;
+          SomeNodeName ->
+            node_map(SomeNodeName)
+        end,
+      State = proplists:get_value(state, PL, unknown),
+      MyHeight = proplists:get_value(myheight, PL, unknown),
+      Tmp = proplists:get_value(tmp, PL, unknown),
+      
+      MyMeta = proplists:get_value(mymeta, PL, #{}),
+      MyPermanentHash = chainkeeper:get_permanent_hash(MyMeta),
+      
+      Message =
+        case State of
+          {fork, ForkReason} ->
+            io_lib:format("fork detected, ~s, my_perm_hash=~s",
+              [ForkReason, blockchain:blkid(MyPermanentHash)]);
+          possible_fork ->
+            ForkHash = proplists:get_value(hash, PL, unknown),
+            io_lib:format("possible fork detected, hash=~p", [blockchain:blkid(ForkHash)]);
+          OtherStatus ->
+            io_lib:format("fork check h=~w:~p ~s", [MyHeight, Tmp, OtherStatus])
+        
+        end,
+      [ {T, TheirNode, MyNode, Message} ];
+    
+    (T, ledger_change, PL, File) ->
+      Node = ?get_node(node),
+      NewHash = proplists:get_value(new_hash, PL, <<>>),
+      PreHash = proplists:get_value(pre_hash, PL, <<>>),
+      Message = io_lib:format(
+        "ledger ~s -> ~s",
+        [blockchain:blkid(NewHash), blockchain:blkid(PreHash)]
+      ),
+      [ {T, Node, Node, Message} ];
+    
+    (T, inst_sync, PL, File) ->
+      Node = ?get_node(node),
+      Reason = proplists:get_value(reason, PL, unknown),
+      Message =
+        case Reason of
+          block ->
+            LedgerHash = proplists:get_value(lh, PL, <<>>),
+            Height = proplists:get_value(height, PL, -1),
             io_lib:format(
-              "sync_needed ~s h=~w:~p sig=~w lhash=~s phash=~s",
-              [
-                blockchain:blkid(Hash), H, Tmp, S,
-                blockchain:blkid(LBlockHash), blockchain:blkid(PHash)
-              ])
-          }
-        ];
-  
-      (T, forkstate, PL, File) ->
-        MyNode = ?get_node(mynode),
-        TheirNode =
-          case proplists:get_value(theirnode, PL, unknown) of
-            unknown ->
-              MyNode;
-            SomeNodeName ->
-              node_map(SomeNodeName)
-          end,
-        State = proplists:get_value(state, PL, unknown),
-        MyHeight = proplists:get_value(myheight, PL, unknown),
-        Tmp = proplists:get_value(tmp, PL, unknown),
-  
-        MyMeta = proplists:get_value(mymeta, PL, #{}),
-        MyPermanentHash = chainkeeper:get_permanent_hash(MyMeta),
+              "sync block h=~w lhash=~s",
+              [Height, blockchain:blkid(LedgerHash)]
+            );
+          AnyOtherReason ->
+            io_lib:format("sync ~p", [AnyOtherReason])
+        end,
+      [ {T, Node, Node, Message} ];
     
-        Message =
-          case State of
-            {fork, ForkReason} ->
-              io_lib:format("fork detected, ~s, my_perm_hash=~s",
-                [ForkReason, blockchain:blkid(MyPermanentHash)]);
-            possible_fork ->
-              ForkHash = proplists:get_value(hash, PL, unknown),
-              io_lib:format("possible fork detected, hash=~p", [blockchain:blkid(ForkHash)]);
-            OtherStatus ->
-              io_lib:format("fork check h=~w:~p ~s", [MyHeight, Tmp, OtherStatus])
-
-          end,
-        [ {T, TheirNode, MyNode, Message} ];
+    (T, accept_block, PL, File) ->
+      Hash=proplists:get_value(hash, PL, <<>>),
+      H=proplists:get_value(height, PL, -1),
+      S=proplists:get_value(sig, PL, 0),
+      Tmp=proplists:get_value(temp, PL, -1),
+      LHActual = proplists:get_value(ledger_hash_actual, PL, unknown),
+      LHChecked = proplists:get_value(ledger_hash_checked, PL, unknown),
+      
+      Message =
+        case LHChecked of
+          unknown ->
+            io_lib:format(
+              "accept_block ~s h=~w:~p sig=~w",
+              [blockchain:blkid(Hash), H, Tmp, S]
+            );
+          _ ->
+            io_lib:format(
+              "accept_block ~s h=~w:~p sig=~w LHA=~s LHC=~s",
+              [blockchain:blkid(Hash), H, Tmp, S,
+                blockchain:blkid(LHActual), blockchain:blkid(LHChecked)]
+            )
+        end,
+      
+      Node = ?get_node(node),
+      
+      [ { T, Node, Node, Message, #{arrow_type => rnote} } ];
     
-      (T, inst_sync, PL, File) ->
-        Node = ?get_node(node),
-        Reason = proplists:get_value(reason, PL, unknown),
-        Message =
-          case Reason of
-            block ->
-              LedgerHash = proplists:get_value(lh, PL, <<>>),
-              Height = proplists:get_value(height, PL, -1),
-              io_lib:format(
-                "sync block h=~w lhash=~s",
-                [Height, blockchain:blkid(LedgerHash)]
-              );
-            AnyOtherReason ->
-              io_lib:format("sync ~p", [AnyOtherReason])
-          end,
-        [ T, Node, Node, Message ];
+    (T, ck_sync, PL, File) ->
+      Action = proplists:get_value(action, PL, unknown),
+      MyHeight = proplists:get_value(myheight, PL, unknown),
+      TheirHeight = proplists:get_value(theirheight, PL, unknown),
+      TheirTmp = proplists:get_value(theirtmp, PL, unknown),
+      MyTmp = proplists:get_value(mytmp, PL, unknown),
       
-      (T, accept_block, PL, File) ->
-        Hash=proplists:get_value(hash, PL, <<>>),
-        H=proplists:get_value(height, PL, -1),
-        S=proplists:get_value(sig, PL, 0),
-        Tmp=proplists:get_value(temp, PL, -1),
-        Node = ?get_node(node),
-        [
-          {
-            T, Node, Node,
-            io_lib:format("accept_block ~s h=~w:~p sig=~w", [blockchain:blkid(Hash), H, Tmp, S]),
-            #{arrow_type => rnote}
-          }
-        ];
-  
-      (T, ck_sync, PL, File) ->
-        Action = proplists:get_value(action, PL, unknown),
-        MyHeight = proplists:get_value(myheight, PL, unknown),
-        TheirHeight = proplists:get_value(theirheight, PL, unknown),
-        TheirTmp = proplists:get_value(theirtmp, PL, unknown),
-        MyTmp = proplists:get_value(mytmp, PL, unknown),
-        
-        TheirHash =
-          case proplists:get_value(theirhash, PL, unknown) of
-            unknown ->
-              unknown;
-            AnyValidHash ->
-              blockchain:blkid(AnyValidHash)
-          end,
-  
-        TheirPermanentHash =
-          case proplists:get_value(theirpermhash, PL, unknown) of
-            unknown ->
-              unknown;
-            AnyValidPermHash ->
-              blockchain:blkid(AnyValidPermHash)
-          end,
-        
-        Options = proplists:get_value(options, PL, #{}),
-
-        MyNode = node_map(maps:get(theirnode, Options, File)),
-        TheirNode = node_map(maps:get(mynode, Options, unknown)),
-        
-        TheirHashStr =
-          if
-            TheirHash == TheirPermanentHash ->
-              io_lib:format("~s", [TheirHash]);
-            true ->
-              io_lib:format("~s ~s", [TheirHash, TheirPermanentHash])
-          end,
-  
-        Message =
-          if
-            TheirHeight =:= unknown orelse TheirHash =:= unknown ->
-              io_lib:format("ck_sync ~s my_h=~p:~p", [Action, MyHeight, MyTmp]);
-  
-            true ->
-              io_lib:format(
-                "ck_sync ~s my_h=~p:~p their_h=~p:~p ~s",
-                [Action, MyHeight, MyTmp, TheirHeight, TheirTmp, TheirHashStr])
-          end,
-        
-        [ {T, TheirNode, MyNode, Message} ];
-        
-      (T, bv_ready, PL, File) ->
-        Hdr=proplists:get_value(header, PL, #{}),
-        Hash = maps:get(hash, Hdr, <<>>),
-        H = maps:get(height, Hdr, -1),
-        Node = ?get_node(node),
-        [
-          {T, Node, Node, io_lib:format("bv_ready ~s h=~w", [hex:encode(Hash), H])}
-        ];
+      TheirHash =
+        case proplists:get_value(theirhash, PL, unknown) of
+          unknown ->
+            unknown;
+          AnyValidHash ->
+            blockchain:blkid(AnyValidHash)
+        end,
       
+      TheirPermanentHash =
+        case proplists:get_value(theirpermhash, PL, unknown) of
+          unknown ->
+            unknown;
+          AnyValidPermHash ->
+            blockchain:blkid(AnyValidPermHash)
+        end,
+      
+      Options = proplists:get_value(options, PL, #{}),
+      
+      MyNode = node_map(maps:get(theirnode, Options, File)),
+      TheirNode = node_map(maps:get(mynode, Options, unknown)),
+      
+      TheirHashStr =
+        if
+          TheirHash == TheirPermanentHash ->
+            io_lib:format("~s", [TheirHash]);
+          true ->
+            io_lib:format("~s ~s", [TheirHash, TheirPermanentHash])
+        end,
+      
+      Message =
+        if
+          TheirHeight =:= unknown orelse TheirHash =:= unknown ->
+            io_lib:format("ck_sync ~s my_h=~p:~p", [Action, MyHeight, MyTmp]);
+          
+          true ->
+            io_lib:format(
+              "ck_sync ~s my_h=~p:~p their_h=~p:~p ~s",
+              [Action, MyHeight, MyTmp, TheirHeight, TheirTmp, TheirHashStr])
+        end,
+      
+      [ {T, TheirNode, MyNode, Message} ];
+    
+    (T, bv_ready, PL, File) ->
+      Hdr=proplists:get_value(header, PL, #{}),
+      Hash = maps:get(hash, Hdr, <<>>),
+      H = maps:get(height, Hdr, -1),
+      Node = ?get_node(node),
+      [
+        {T, Node, Node, io_lib:format("bv_ready ~s h=~w", [hex:encode(Hash), H])}
+      ];
+    
     (T, bv_gotblock, PL, File) ->
       Hash = proplists:get_value(hash, PL, <<>>),
       H = proplists:get_value(height, PL, -1),
@@ -319,22 +326,72 @@ bv(BLog, T1, T2) ->
                 io_lib:format("gotblock blk ~s h=~w:~p", [blockchain:blkid(Hash), H, Tmp])} | Acc1]
           end
         end, [], Sig);
+    
+    (T, bv_gotsig, PL, File) ->
+      Hash = proplists:get_value(hash, PL, <<>>),
+      Sig = [bsig2node(S) || S <- proplists:get_value(sig, PL, [])],
+      OurNodeName = node_map(proplists:get_value(node_name, PL, "blockvote_" ++ File)),
       
-      (T, bv_gotsig, PL, File) ->
-        Hash = proplists:get_value(hash, PL, <<>>),
-        Sig = [bsig2node(S) || S <- proplists:get_value(sig, PL, [])],
-        OurNodeName = node_map(proplists:get_value(node_name, PL, "blockvote_" ++ File)),
-        
-        lists:foldl(
-          fun(Node, Acc1) ->
-            [
-              {T, node_map(Node), OurNodeName,
-                io_lib:format("gotsig sig for ~s", [blockchain:blkid(Hash)])} | Acc1]
-          end, [], Sig);
-      (_, _, _, _) ->
-        ignore
-    end,
+      lists:foldl(
+        fun(Node, Acc1) ->
+          [
+            {T, node_map(Node), OurNodeName,
+              io_lib:format("gotsig sig for ~s", [blockchain:blkid(Hash)])} | Acc1]
+        end, [], Sig);
+    (_, _, _, _) ->
+      ignore
+  end.
 
+% --------------------------------------------------------------------------------
+
+timerange(BLog) ->
+  Renderer = get_renderer(),
+  
+  FFun =
+    fun
+      (T, _Kind, _PL, {C, M1, M2, EventTimeList}, _File) ->
+        {
+          C + 1,
+          min(M1, T),
+          max(M2, T),
+          
+          case Renderer(T, _Kind, _PL, _File) of
+            ignore ->
+              EventTimeList;
+            _ ->
+              EventTimeList ++ [T]
+          end
+        }
+    end,
+  
+  {Done, MinT, MaxT, LastEvList} =
+    case BLog of
+      [[_ | _] | _] ->
+        stout_reader:mfold(FFun, {0, erlang:system_time(), 0, []}, BLog);
+      _ ->
+        stout_reader:fold(FFun, {0, erlang:system_time(), 0, []}, BLog)
+    end,
+  
+  io:format("~w events T ~w ... ~w~n", [Done, MinT, MaxT]),
+  
+  if
+    length(LastEvList) > ?MAX_MESSAGES ->
+      {_, Trimmed} = lists:split(length(LastEvList) - ?MAX_MESSAGES, lists:sort(LastEvList)),
+      io:format(
+        "last ~w events T ~w, ~w~n",
+        [length(Trimmed), lists:min(Trimmed), lists:max(Trimmed)]
+      );
+    
+    true -> ok
+  end,
+  
+  ok.
+  
+
+% --------------------------------------------------------------------------------
+
+bv(BLog, T1, T2) ->
+  MapFun = get_renderer(),
   FFun =
     fun
       (T, _, _, Acc, _) when T1 > 0, T < T1 -> Acc;

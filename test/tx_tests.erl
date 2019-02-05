@@ -76,6 +76,7 @@ old_digaddr_tx_test() ->
           123, 142, 115, 120, 124, 240, 248, 115, 150, 54, 239,
           58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   PubKey=tpecdsa:calc_pub(Priv, true),
+  application:set_env(tpnode, nodename, <<"testnode">>),
   From=(naddress:construct_public(0, 0, 1)),
   Test=fun(LedgerPID) ->
            To=(naddress:construct_public(0, 0, 2)),

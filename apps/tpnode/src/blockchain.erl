@@ -1419,6 +1419,12 @@ receive_block(Handler, BlockPart, Acc) ->
                 receive_block(Handler, NewBlockPart, NewAcc);
               [] ->
                 lager:notice("Broken sync"),
+                stout:log(runsync,
+                  [
+                    {node, nodekey:node_name()},
+                    {error, broken_sync}
+                  ]),
+                
                 throw('broken_sync')
             end
     end.
@@ -1497,7 +1503,11 @@ apply_block_conf(Block, Conf0) ->
     end, Conf0, S).
 
 blkid(<<X:8/binary, _/binary>>) ->
-    binary_to_list(bin2hex:dbin2hex(X)).
+    binary_to_list(bin2hex:dbin2hex(X));
+
+blkid(X) ->
+  binary_to_list(bin2hex:dbin2hex(X)).
+
 
 rewind(LDB, BlkNo) ->
   CurBlk=ldb:read_key(LDB, <<"lastblock">>, <<0, 0, 0, 0, 0, 0, 0, 0>>),
