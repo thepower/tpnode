@@ -310,6 +310,8 @@ open_db(#{args:=Args}) ->
 
 -ifdef(TEST).
 ledger_test() ->
+    application:set_env(tpnode, nodename, <<"testnode">>),
+  
     NeedStop=case whereis(rdb_dispatcher) of
                  P when is_pid(P) -> false;
                  undefined ->
