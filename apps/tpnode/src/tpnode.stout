@@ -1,13 +1,40 @@
 { accept_block,
-  ["Accepted block ", hash," h= ",height, " Sigs ",sig], [critical]}.
+  ["Accepted block ", hash," node=", node, ", h= ",height, " Sigs ",sig], [critical]}.
 
 {mkblock_debug,
-  ["Block created at ",node_name, " H= ",height, " parent= ",phash, " pretx= ",pretxl, " failed= ",fail, " block= ",block],
+  ["Block created at ",node_name, " H= ",height, ":", temporary, " parent= ",phash,
+    " pretx= ",pretxl, " failed= ",fail, " block= ",block],
   []
 }.
 
-{mkblock_done, [ "Built block h=", height, ": ", block_hdr ]}.
+{mkblock_done, [ "Built block node=", node_name, ", h=", height, ": ", block_hdr ]}.
 
-{bv_gotsig, ["Got sig for block ",{{blockchain,blkid},hash}," ",sig," ",extra] }.
-{bv_gotblock, ["Got block ",{{blockchain,blkid},hash}," h= ",height," ",sig] }.
-{bv_ready, ["Ready block ",{{blockchain,blkid},hash}," h=",height]}.
+{bv_gotsig,
+  ["Got sig on node ", node_name, " for block ", {{blockchain,blkid},hash},
+    " ", sig, " ", extra, " candsig: ", candsig] }.
+
+{bv_gotblock,
+  ["Got block on node ", node_name, ", ", {{blockchain,blkid},hash},
+    ", h= ",height,":", tmp, ", txs=", txs_cnt, ", ", sig] }.
+
+{bv_ready, ["Ready block ",{{blockchain,blkid},hash},", node=", node, ", h=",height]}.
+{sync_ticktimer, ["sync tick, node=", node]}.
+{mkblock_process, ["mkblock:process, node=", node]}.
+
+{got_new_block, ["got new block ",hash," ver ",verify]}.
+{sync_needed, ["Sync needed"]}.
+
+{runsync, ["run sync at ", where]}.
+{forkstate, ["forkstate ", state]}.
+{rollback, ["rollback ", action]}.
+
+{inst_sync, ["sync got a ", reason ]}.
+{sync_candidates, ["sync candidates ", candidates]}.
+
+{ck_beacon, ["chainkeeper got beacon from node ", node, ", blk=", block]}.
+{ck_sync, ["chainkeeper sync action: ", action,
+  ", myheight=", myheight, ", theirheight=", theirheight,
+  "hash=", {{blockchain,blkid},theirhash}]}.
+
+{ledger_change, ["Ledger changed ",pre_hash," -> ",new_hash]}.
+

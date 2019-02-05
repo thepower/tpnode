@@ -5,7 +5,7 @@
 -export([packsig/1, unpacksig/1]).
 -export([pack_sign_ed/1, unpack_sign_ed/1]).
 -export([add_sig/2]).
--export([extract_pubkeys/1]).
+-export([extract_pubkey/1, extract_pubkeys/1]).
 
 checksig1(BlockHash, SrcSig) ->
   checksig1(BlockHash, SrcSig, undefined).
@@ -45,12 +45,11 @@ checksig(BlockHash, Sigs, CheckFun) ->
               end
       end, {[], 0}, Sigs).
 
+extract_pubkey(#{extra:=Xtra}) ->
+        proplists:get_value(pubkey, Xtra).
+
 extract_pubkeys(BSList) ->
-  lists:map(
-    fun(#{extra:=Xtra}) ->
-        proplists:get_value(pubkey, Xtra)
-    end,
-    BSList).
+  lists:map(fun extract_pubkey/1, BSList).
 
 signhash1(MsgHash, ExtraData, PrivKey) ->
     BinExtra=pack_sign_ed(ExtraData),

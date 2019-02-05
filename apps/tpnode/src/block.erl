@@ -1,6 +1,7 @@
 -module(block).
 -export([blkid/1]).
 -export([mkblock2/1, mkblock/1, binarizetx/1, extract/1, outward_mk/2, outward_mk/1]).
+-export([verify/2]).
 -export([verify/1, outward_verify/1, sign/2, sign/3, sigverify/2]).
 -export([prepack/1, binarizefail/1]).
 -export([pack/1, unpack/1]).
@@ -8,6 +9,7 @@
 -export([split_packet/2, split_packet/1, glue_packet/1]).
 -export([outward_chain/2, outward_ptrs/2]).
 -export([pack_mproof/1, unpack_mproof/1]).
+-export([ledger_hash/1]).
 
 -export([bals2bin/1]).
 
@@ -29,6 +31,9 @@ pack_mproof(M) ->
        is_list(M) ->
          M
     end).
+
+ledger_hash(#{header:=#{roots:=R}}) ->
+  proplists:get_value(ledger_hash, R, <<0:256>>).
 
 prepack(Block) ->
   maps:map(
@@ -261,17 +266,20 @@ outward_verify(#{ header:=#{parent:=Parent, height:=H}=Header,
 sigverify(#{hash:=Hash}, Sigs) ->
   bsig:checksig(Hash, Sigs).
 
-verify(#{ header:=#{parent:=Parent,
+verify(#{ header:=#{parent:=Parent, %blkv2
                     height:=H,
                     chain:=Chain,
                     roots:=Roots0
                    }=_Header,
           hash:=HdrHash,
           sign:=Sigs
-        }=Blk) ->
+        }=Blk, Opts) ->
+  CheckHdr=lists:member(hdronly, Opts),
 
   Roots=lists:map(
     fun
+      (Root) when CheckHdr ->
+        Root;
       ({balroot, Hash}) ->
         Bals=maps:get(bals, Blk, #{}),
         BalsBin=bals2bin(Bals),
@@ -333,28 +341,49 @@ verify(#{ header:=#{parent:=Parent,
        {true, bsig:checksig(Hash, Sigs)}
   end;
 
-verify(#{ header:=#{parent:=Parent,
+verify(#{ header:=#{parent:=Parent, %blkv1
                     height:=H
                    }=Header,
           hash:=HdrHash,
           sign:=Sigs
-        }=Blk) ->
+        }=Blk, Opts) ->
+  CheckHdr=lists:member(hdronly, Opts),
 
   HLedgerHash=maps:get(ledger_hash, Header, undefined),
-  Txs=maps:get(txs, Blk, []),
-  Bals=maps:get(bals, Blk, #{}),
-  Settings=maps:get(settings, Blk, []),
 
-  BTxs=binarizetx(Txs),
-  TxMT=gb_merkle_trees:from_list(BTxs),
-  BalsBin=bals2bin(Bals),
-  BalsMT=gb_merkle_trees:from_list(BalsBin),
-  BSettings=binarize_settings(Settings),
-  SettingsMT=gb_merkle_trees:from_list(BSettings),
+  TxRoot=if CheckHdr ->
+            maps:get(txroot, Header, undefined);
+          true ->
+         gb_merkle_trees:root_hash(
+           gb_merkle_trees:from_list(
+              binarizetx(
+                maps:get(txs, Blk, []))
+             )
+          )
+       end,
+  BalsRoot=if CheckHdr ->
+              maps:get(balroot, Header, undefined);
+            true ->
+              gb_merkle_trees:root_hash(
+                gb_merkle_trees:from_list(
+                  bals2bin(
+                    maps:get(bals, Blk, #{})
+                   )
+                 )
+               )
+         end,
+  SetRoot=if CheckHdr ->
+                  maps:get(setroot, Header, undefined);
+                true ->
+                  gb_merkle_trees:root_hash(
+                    gb_merkle_trees:from_list(
+                      binarize_settings(
+                        maps:get(settings, Blk, [])
+                       )
+                     )
+                   )
+             end,
 
-  TxRoot=gb_merkle_trees:root_hash(TxMT),
-  BalsRoot=gb_merkle_trees:root_hash(BalsMT),
-  SetRoot=gb_merkle_trees:root_hash(SettingsMT),
   HeaderItems=[{txroot, TxRoot},
                {balroot, BalsRoot},
                {ledger_hash, HLedgerHash},
@@ -394,12 +423,27 @@ verify(#{ header:=#{parent:=Parent,
                           bin2hex:dbin2hex(HBalsRoot)
                          ]);
           true ->
-            lager:notice("Something mismatch")
+            lager:notice("Something mismatch ~p ~p",[Header,HeaderItems])
        end,
        false;
      true ->
        {true, bsig:checksig(Hash, Sigs)}
   end.
+
+
+
+
+verify(#{ header:=#{roots:=_}}=Block) ->
+  verify(Block, []);
+
+verify(#{ header:=#{parent:=_,
+                    height:=_
+                   },
+          hash:=_,
+          sign:=_
+        }=Block) ->
+  verify(Block, []).
+
 
 
 binarize_settings([]) -> [];
