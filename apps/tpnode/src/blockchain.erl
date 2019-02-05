@@ -1419,6 +1419,12 @@ receive_block(Handler, BlockPart, Acc) ->
                 receive_block(Handler, NewBlockPart, NewAcc);
               [] ->
                 lager:notice("Broken sync"),
+                stout:log(runsync,
+                  [
+                    {node, nodekey:node_name()},
+                    {error, broken_sync}
+                  ]),
+                
                 throw('broken_sync')
             end
     end.

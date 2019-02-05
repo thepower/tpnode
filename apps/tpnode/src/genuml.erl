@@ -85,7 +85,14 @@ get_renderer() ->
     (T, runsync, PL, File) ->
       Node = ?get_node(node),
       Where = proplists:get_value(where, PL, -1),
-      [ {T, Node, Node, io_lib:format("runsync ~s", [Where])} ];
+      Message =
+        case proplists:get_value(error, PL, unknown) of
+          unknown ->
+            io_lib:format("runsync ~s", [Where]);
+          Error ->
+            io_lib:format("runsync error ~s", [Error])
+        end,
+      [ {T, Node, Node, Message} ];
     
     (T, rollback, PL, File) ->
       Options = proplists:get_value(options, PL, #{}),
