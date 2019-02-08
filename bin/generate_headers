@@ -16,7 +16,7 @@ get_version() ->
 
 main(_) ->
     try
-        io:format("generate headers...~n"),
+        io:format("generating headers...~n"),
         main1(ok),
         io:format("done.~n")
     catch
