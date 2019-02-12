@@ -16,6 +16,7 @@
          chainstate/0,
          blkid/1,
          rel/2,
+         send_block_real/4,
          exists/1]).
 
 %% ------------------------------------------------------------------
@@ -1383,15 +1384,20 @@ flush_checksync() ->
           done
   end.
 
-send_block(TPIC, PeerID, Map, [BlockHead|BlockTail]) when BlockTail =:= [] ->
+
+send_block(TPIC, PeerID, Map, Arr) ->
+  spawn(?MODULE,send_block_real,[TPIC, PeerID, Map, Arr]),
+  ok.
+
+send_block_real(TPIC, PeerID, Map, [BlockHead]) ->
     tpic:cast(TPIC, PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead})));
-send_block(TPIC, PeerID, Map, [BlockHead|BlockTail]) ->
+send_block_real(TPIC, PeerID, Map, [BlockHead|BlockTail]) ->
     tpic:cast(TPIC, PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead}))),
     receive
         {'$gen_cast', {TPIC, PeerID, Bin}} ->
             case msgpack:unpack(Bin) of
                 {ok, #{null := <<"pick_next_part">>}} ->
-                    send_block(TPIC, PeerID, Map, BlockTail);
+                    send_block_real(TPIC, PeerID, Map, BlockTail);
                 {error, _} ->
                     error
             end;
