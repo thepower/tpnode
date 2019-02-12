@@ -55,7 +55,8 @@ node_name() ->
       {ok, Name} -> Name
     end
   catch
-    error:{badmatch, _} -> undefined
+    error:{badmatch,_} -> undefined;
+    error:badarg -> undefined
   end.
 
 

@@ -36,7 +36,7 @@ start_link() ->
 init(_Args) ->
     {ok, #{
        nodeid=>nodekey:node_id(),
-       preptxl=>[],
+       preptxm=>#{},
        pre=>#{h=>0, tmp=>0},
        settings=>#{}
       }
@@ -68,8 +68,8 @@ handle_cast({tpic, FromKey, #{
 
 handle_cast({tpic, FromKey, #{
                      null:=<<"mkblock">>,
-           <<"hash">> := ParentHash,
-           <<"signed">> := SignedBy
+                     <<"hash">> := ParentHash,
+                     <<"signed">> := SignedBy
                     }}, State)  ->
   Origin=chainsettings:is_our_node(FromKey),
   lager:debug("MB presig got ~s ~p", [Origin, SignedBy]),
@@ -97,9 +97,26 @@ handle_cast({tpic, Origin, #{
              TXs
             ])
   end,
-  handle_cast({prepare, Origin, TXs, maps:get(<<"lbh">>,Msg,undefined)}, State);
+  case maps:find(<<"lastblk">>,Msg) of
+    error ->
+      handle_cast({prepare, Origin, TXs, undefined}, State);
+    {ok, Bin} ->
+      #{hash:=HisHash}=PreBlk=block:unpack(Bin),
+      MS=chainsettings:get_val(minsig),
+      CheckFun=fun(PubKey,_) ->
+                   chainsettings:is_our_node(PubKey) =/= false
+               end,
+      case block:verify(PreBlk, [hdronly, {checksig, CheckFun}]) of
+        {true, {Sigs,_}} when length(Sigs) >= MS->
+          handle_cast({prepare, Origin, TXs, HisHash}, State);
+        {true, _ } ->
+          {noreply, State};
+        false ->
+          {noreply, State}
+      end
+  end;
 
-handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
+handle_cast({prepare, Node, Txs, HisHash}, #{preptxm:=PreTXM}=State) ->
   Origin=chainsettings:is_our_node(Node),
   if Origin==false ->
        lager:error("Got txs from bad node ~s",
@@ -113,7 +130,6 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
        end,
        MarkTx =
          fun({TxID, TxB0}) ->
-      
            % get transaction body from storage
            TxB =
              try
@@ -175,31 +191,16 @@ handle_cast({prepare, Node, Txs, MH}, #{preptxl:=PreTXL}=State) ->
            end
          end,
 
-       #{header:=#{height:=CHei}}=blockchain:last_meta(),
+%       #{header:=#{height:=CHei}}=blockchain:last_meta(),
 
-       lager:info("Node ~p h=~p, my h=~p", [Origin, MH, CHei]),
-       if CHei == undefined orelse MH == CHei orelse MH == undefined orelse true ->
-         {noreply,
-           State#{
-             preptxl=>PreTXL ++ lists:filtermap(MarkTx, Txs)
-           }
-         };
-         CHei > MH ->
-           tpic:cast(tpic, <<"mkblock">>,
-             msgpack:pack(
-               #{null=> <<"lag">>,
-                 lbh=>CHei
-               }
-             )),
-           lager:notice("Node ~p lagging, my h=~p his=~p",
-             [Origin, CHei, MH]),
-           {noreply, State};
-         CHei < MH ->
-           lager:notice("Am I lagging? I got h=~p, but my h=~p from ~p",
-             [MH, CHei, Origin]),
-           blockchain ! checksync,
-           {noreply, State}
-       end
+         Tx2Put=lists:filtermap(MarkTx, Txs),
+       {noreply,
+        State#{
+          preptxm=> maps:put(HisHash,
+                             maps:get(HisHash,PreTXM, []) ++ Tx2Put,
+                            PreTXM)
+         }
+       }
   end;
 
 handle_cast(settings, State) ->
@@ -210,8 +211,21 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(process,
-  #{settings:=#{mychain:=MyChain, nodename:=NodeName}=MySet, preptxl:=PreTXL0}=State) ->
-  
+  #{settings:=#{mychain:=MyChain, nodename:=NodeName}=MySet, preptxm:=PreTXM}=State) ->
+  PreTXL0=case lists:sort(maps:keys(PreTXM)) of
+            [undefined] ->
+              lager:info("pick txs parent block ~p",[undefined]),
+              maps:get(undefined, PreTXM);
+            [undefined,H0|_] ->
+              lager:info("pick txs parent block ~p",[H0]),
+              maps:get(H0, PreTXM);
+            [H0|_] ->
+              lager:info("pick txs parent block ~p",[H0]),
+              maps:get(H0, PreTXM);
+            [] ->
+              lager:info("no pick txs"),
+              []
+          end,
   PreTXL1=lists:foldl(
             fun({TxID, TXB}, Acc) ->
                 case maps:is_key(TxID, Acc) of
@@ -400,13 +414,13 @@ handle_info(process,
                  ]),
        lager:info("Inject TXs ~p", [Push])
   end,
-  {noreply, State#{preptxl=>[],
+  {noreply, State#{preptxm=>#{},
                    presig=>#{},
                    pre=>#{h=>PHeight, tmp=>PTmp}
                   }}
   catch throw:empty ->
         lager:info("Skip empty block"),
-        {noreply, State#{preptxl=>[],
+        {noreply, State#{preptxm=>#{},
                          presig=>#{},
                          pre=>#{h=>PHeight, tmp=>PTmp}}}
     end;
