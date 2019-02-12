@@ -12,6 +12,7 @@
 -export([ledger_hash/1]).
 
 -export([bals2bin/1]).
+-export([minify/1]).
 
 unpack_mproof(M) ->
   list_to_tuple(
@@ -34,6 +35,9 @@ pack_mproof(M) ->
 
 ledger_hash(#{header:=#{roots:=R}}) ->
   proplists:get_value(ledger_hash, R, <<0:256>>).
+
+minify(#{hash:=_,header:=_,sign:=_}=Block) ->
+  maps:with([hash, header, sign], Block).
 
 prepack(Block) ->
   maps:map(
@@ -338,7 +342,12 @@ verify(#{ header:=#{parent:=Parent, %blkv2
        lager:notice("Block hash mismatch"),
        false;
      true ->
-       {true, bsig:checksig(Hash, Sigs)}
+       case lists:keyfind(checksig,1,Opts) of
+         false ->
+           {true, bsig:checksig(Hash, Sigs)};
+         {checksig, CheckFun} ->
+           {true, bsig:checksig(Hash, Sigs, CheckFun)}
+       end
   end;
 
 verify(#{ header:=#{parent:=Parent, %blkv1
@@ -427,7 +436,12 @@ verify(#{ header:=#{parent:=Parent, %blkv1
        end,
        false;
      true ->
-       {true, bsig:checksig(Hash, Sigs)}
+       case lists:keyfind(checksig,1,Opts) of
+         false ->
+           {true, bsig:checksig(Hash, Sigs)};
+         {checksig, CheckFun} ->
+           {true, bsig:checksig(Hash, Sigs, CheckFun)}
+       end
   end.
 
 
