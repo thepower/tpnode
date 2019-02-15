@@ -109,11 +109,14 @@ handle_cast({tpic, Origin, #{
                end,
       case block:verify(PreBlk, [hdronly, {checksig, CheckFun}]) of
         {true, {Sigs,_}} when length(Sigs) >= MS ->
+          % valid block, enough sigs
           lager:info("Got blk from peer ~p",[PreBlk]),
           handle_cast({prepare, Origin, TXs, HisHash}, State);
         {true, _ } ->
+          % valid block, not enough sigs
           {noreply, State};
         false ->
+          % invalid block
           {noreply, State}
       end
   end;
