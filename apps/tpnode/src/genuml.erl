@@ -198,13 +198,19 @@ get_renderer() ->
           {fork, ForkReason} ->
             io_lib:format("fork detected, ~s, my_perm_hash=~s",
               [ForkReason, blockchain:blkid(MyPermanentHash)]);
+
           possible_fork ->
             ForkHash = proplists:get_value(hash, PL, unknown),
             io_lib:format("possible fork detected, hash=~p", [blockchain:blkid(ForkHash)]);
+
+          are_we_synced ->
+            io_lib:format("got are_we_synced, h=~w:~p myhash=~p",
+              [MyHeight, Tmp, blockchain:blkid(MyPermanentHash)]);
+            
           OtherStatus ->
             io_lib:format("fork check h=~w:~p ~s", [MyHeight, Tmp, OtherStatus])
-        
         end,
+      
       [ {T, TheirNode, MyNode, Message} ];
     
     (T, ledger_change, PL, File) ->

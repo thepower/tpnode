@@ -28,7 +28,8 @@
 
 -export([start_link/0]).
 
--export([check_fork2/3, get_permanent_hash/1, discovery/1, find_tallest/3]).
+%%-export([check_fork2/3]).
+-export([get_permanent_hash/1, discovery/1, find_tallest/3]).
 -export([resolve_tpic_assoc/2, resolve_tpic_assoc/1]).
 -export([check_and_sync/2]).
 
@@ -65,8 +66,16 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(are_we_synced, #{sync_lock := null} = State) ->
   
+  MyMeta = blockchain:last_meta(),
+  MyHeader = maps:get(header, MyMeta, #{}),
+  MyHeight = maps:get(height, MyHeader, 0),
+  MyTmp = maps:get(temporary, MyMeta, false),
+  
   stout:log(forkstate, [
     {state, are_we_synced},
+    {mymeta, MyMeta},
+    {myheight, MyHeight},
+    {tmp, MyTmp},
     {mynode, nodekey:node_name()}
   ]),
   
@@ -310,35 +319,35 @@ is_block_valid(Blk, Options) ->
 %% ------------------------------------------------------------------
 
 
-check_fork2(TPIC, MyMeta, Options) ->
-  MyPermanentHash = get_permanent_hash(MyMeta),
-  MyHeader = maps:get(header, MyMeta, #{}),
-  MyHeight = maps:get(height, MyHeader, 0),
-  MyTmp = maps:get(temporary, MyMeta, false),
-  
-  % if MyTmp == false try to find MyPermanentHash in the net
-  ChainState =
-    if
-      MyTmp =:= false ->
-        case check_block_exist(TPIC, MyPermanentHash) of
-          {_, 0, _} -> % NotFound, Found, Errors
-            {fork, hash_not_found_in_the_net2};
-          _ ->
-            ok
-        end;
-      true ->
-        ok
-    end,
-  
-  stout:log(forkstate, [
-    {state, ChainState},
-    {theirnode, maps:get(theirnode, Options, unknown)},
-    {mynode, maps:get(mynode, Options, unknown)},
-    {mymeta, MyMeta},
-    {myheight, MyHeight},
-    {tmp, MyTmp}
-  ]),
-  ChainState.
+%%check_fork2(TPIC, MyMeta, Options) ->
+%%  MyPermanentHash = get_permanent_hash(MyMeta),
+%%  MyHeader = maps:get(header, MyMeta, #{}),
+%%  MyHeight = maps:get(height, MyHeader, 0),
+%%  MyTmp = maps:get(temporary, MyMeta, false),
+%%
+%%  % if MyTmp == false try to find MyPermanentHash in the net
+%%  ChainState =
+%%    if
+%%      MyTmp =:= false ->
+%%        case check_block_exist(TPIC, MyPermanentHash) of
+%%          {_, 0, _} -> % NotFound, Found, Errors
+%%            {fork, hash_not_found_in_the_net2};
+%%          _ ->
+%%            ok
+%%        end;
+%%      true ->
+%%        ok
+%%    end,
+%%
+%%  stout:log(forkstate, [
+%%    {state, ChainState},
+%%    {theirnode, maps:get(theirnode, Options, unknown)},
+%%    {mynode, maps:get(mynode, Options, unknown)},
+%%    {mymeta, MyMeta},
+%%    {myheight, MyHeight},
+%%    {tmp, MyTmp}
+%%  ]),
+%%  ChainState.
 
 %% ------------------------------------------------------------------
 rollback_block(LoggerOptions) ->
