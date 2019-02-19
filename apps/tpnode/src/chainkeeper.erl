@@ -206,6 +206,12 @@ handle_info(
 handle_info(lookaround_timer, #{lookaround_timer := Timer, sync_lock := Ref} = State)
   when is_reference(Ref) ->
     catch erlang:cancel_timer(Timer),
+  
+    stout:log(ck_fork, [
+      {node, nodekey:node_name()},
+      {action, lookaround_timer_locked}
+    ]),
+  
     {noreply, State#{
       lookaround_timer => setup_timer(lookaround_timer)
     }};
@@ -458,12 +464,23 @@ check_fork(
 
 %% ------------------------------------------------------------------
 runsync() ->
+  stout:log(ck_fork, [
+    {action, runsync_no_list},
+    {node, nodekey:node_name()}
+  ]),
+  
   blockchain ! runsync.
 
 runsync([]) ->
   runsync();
 
 runsync(AssocList) when is_list(AssocList) ->
+  stout:log(ck_fork, [
+    {action, runsync_assoc_list},
+    {assoc_list, resolve_tpic_assoc(AssocList)},
+    {node, nodekey:node_name()}
+  ]),
+
   ConvertedAssocList =
     lists:map(
       fun(Assoc) ->
