@@ -15,7 +15,7 @@
 -export([minify/1]).
 
 %% split large blocks to small packets of that size
--define(SPLIT_PACKET_SIZE, 10*1024).
+-define(SPLIT_PACKET_SIZE, 64*1024).
 
 unpack_mproof(M) ->
   list_to_tuple(
