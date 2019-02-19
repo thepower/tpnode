@@ -60,6 +60,15 @@ block(BLog,T1,T2) ->
 
 get_renderer() ->
   fun
+    (T, ck_fork, PL, File) ->
+      Node = ?get_node(node),
+      TheirNode = proplists:get_value(their_node, PL, Node),
+      Action = proplists:get_value(action, PL, <<>>),
+      
+      Message = io_lib:format("ck_fork ~p", [ Action ]),
+      
+      [{T, TheirNode, Node, Message}];
+
     (T, sync_ticktimer, PL, File) ->
       Node = ?get_node(node),
       [{T, Node, Node, "sync_ticktimer", #{arrow_type => hnote}}];
