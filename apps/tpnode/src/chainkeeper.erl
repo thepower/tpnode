@@ -147,7 +147,7 @@ handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = Sta
     ]
   ),
   
-  is_block_valid(
+  check_block(
     Blk,
     #{
       theirnode => NodeName,
@@ -250,7 +250,7 @@ setup_timer(Name) ->
 
 %% ------------------------------------------------------------------
 
-is_block_valid(#{header := #{height := TheirHeight}} = Blk, Options)
+check_block(#{header := #{height := TheirHeight}} = Blk, Options)
   when is_map(Blk) ->
     #{hash:=_MyHash, header:=MyHeader} = MyMeta = blockchain:last_meta(),
     MyHeight = maps:get(height, MyHeader, 0),
@@ -313,7 +313,7 @@ is_block_valid(#{header := #{height := TheirHeight}} = Blk, Options)
     end,
     ok;
 
-is_block_valid(Blk, Options) ->
+check_block(Blk, Options) ->
   lager:error("invalid block: ~p, extra data: ~p", [Blk, Options]).
 
 %% ------------------------------------------------------------------
@@ -486,7 +486,7 @@ end.
 
 %% ------------------------------------------------------------------
 
-check_block(Blk, MinSigns) ->
+is_block_valid(Blk, MinSigns) ->
   CheckFun =
     fun(PubKey, _) ->
       chainsettings:is_our_node(PubKey) =/= false
