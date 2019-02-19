@@ -734,7 +734,7 @@ choose_hash_to_sync(TPIC, Hashes, MinSig) when is_list(Hashes) ->
               try
                 BinBlock = blockchain:receive_block(Assoc, BlkPart),
                 Blk = block:unpack(BinBlock),
-                  case check_block(Blk, MinSig) of
+                  case is_block_valid(Blk, MinSig) of
                     true ->
                       found;
                     _ ->
