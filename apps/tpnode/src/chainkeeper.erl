@@ -589,6 +589,15 @@ check_and_sync(TPIC, Options) ->
                 Acc
             end
           catch
+            throw:broken ->
+              lager:notice("chainkeeper broken block 1"),
+              stout:log(ck_fork, [
+                {action, broken_block_1},
+                {node, maps:get(mynode, Options, nodekey:node_name())},
+                {their_node, resolve_tpic_assoc(Assoc)}
+              ]),
+              Acc;
+              
             throw:broken_sync ->
               lager:notice("chainkeeper broken sync 1"),
               stout:log(ck_fork, [
@@ -759,6 +768,15 @@ choose_hash_to_sync(TPIC, Hashes, MinSig) when is_list(Hashes) ->
                   end
 
                 catch
+                  throw:broken ->
+                    lager:notice("chainkeeper broken block 1"),
+                    stout:log(ck_fork, [
+                      {action, broken_block_2},
+                      {node, nodekey:node_name()},
+                      {their_node, resolve_tpic_assoc(Assoc)}
+                    ]),
+                    FindChildAcc;
+                
                   throw:broken_sync ->
                     stout:log(ck_fork, [
                       {action, broken_sync_2},
