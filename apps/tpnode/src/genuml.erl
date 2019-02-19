@@ -61,11 +61,11 @@ block(BLog,T1,T2) ->
 get_renderer() ->
   fun
     (T, ck_fork, PL, File) ->
-      Node = ?get_node(node),
+      MyNode = ?get_node(node),
       TheirNode =
         case proplists:get_value(their_node, PL, unknown) of
           unknown ->
-            Node;
+            MyNode;
           SomeNodeName ->
             node_map(SomeNodeName)
         end,
@@ -81,12 +81,27 @@ get_renderer() ->
                 _ -> "error, see crash.log"
               end,
             io_lib:format("ck_fork ~p, reason ~p", [ Action, Reason ]);
+  
+          sync_to_permanent ->
+            Nodes =
+              [ node_map(Node) || Node <- proplists:get_value(assoc_list, PL, []) ],
+  
+            MyHash = proplists:get_value(myhash, PL, <<>>),
+            TheirHash = proplists:get_value(their_hash, PL, <<>>),
+            
+            io_lib:format("ck_fork ~p, my_h=~s, their_h=~s, nodes: ~s",
+              [ Action,
+                blockchain:blkid(MyHash),
+                blockchain:blkid(TheirHash),
+                lists:join(",", Nodes)
+              ]
+            );
             
           _ ->
             io_lib:format("ck_fork ~p", [ Action ])
         end,
       
-      [{T, TheirNode, Node, Message}];
+      [{T, TheirNode, MyNode, Message}];
 
     (T, sync_ticktimer, PL, File) ->
       Node = ?get_node(node),
