@@ -71,7 +71,20 @@ get_renderer() ->
         end,
       
       Action = proplists:get_value(action, PL, <<>>),
-      Message = io_lib:format("ck_fork ~p", [ Action ]),
+      Message =
+        case Action of
+          stop_check_n_sync ->
+            Reason =
+              case proplists:get_value(reason, PL, unknown) of
+                unknown -> unknown;
+                normal -> normal;
+                _ -> "error, see crash.log"
+              end,
+            io_lib:format("ck_fork ~p, reason ~p", [ Action, Reason ]);
+            
+          _ ->
+            io_lib:format("ck_fork ~p", [ Action ])
+        end,
       
       [{T, TheirNode, Node, Message}];
 
