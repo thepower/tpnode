@@ -661,7 +661,7 @@ check_and_sync(TPIC, Options) ->
             {tmp_assoc, resolve_assoc_map(TmpAssoc)}
           ]),
           
-          {WidestTmp, maps:get(WidestTmp, PermAssoc, [])};
+          {WidestTmp, maps:get(WidestTmp, TmpAssoc, [])};
 
         true ->
           stout:log(ck_fork, [
