@@ -62,9 +62,15 @@ get_renderer() ->
   fun
     (T, ck_fork, PL, File) ->
       Node = ?get_node(node),
-      TheirNode = proplists:get_value(their_node, PL, Node),
-      Action = proplists:get_value(action, PL, <<>>),
+      TheirNode =
+        case proplists:get_value(their_node, PL, unknown) of
+          unknown ->
+            Node;
+          SomeNodeName ->
+            node_map(SomeNodeName)
+        end,
       
+      Action = proplists:get_value(action, PL, <<>>),
       Message = io_lib:format("ck_fork ~p", [ Action ]),
       
       [{T, TheirNode, Node, Message}];
