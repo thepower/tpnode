@@ -30,6 +30,7 @@
 
 -export([check_fork2/3, get_permanent_hash/1, discovery/1, find_tallest/3]).
 -export([resolve_tpic_assoc/2, resolve_tpic_assoc/1]).
+-export([check_and_sync/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -52,13 +53,44 @@ start_link() ->
 init(_Args) ->
   {ok,
     #{
-      lookaround_timer => erlang:send_after(10*1000, self(), lookaround_timer)
+      lookaround_timer => erlang:send_after(10*1000, self(), lookaround_timer),
+      sync_lock => null
     }
   }.
 
 handle_call(_Request, _From, State) ->
   lager:notice("Unknown call ~p", [_Request]),
   {reply, ok, State}.
+
+
+handle_cast(are_we_synced, #{sync_lock := null} = State) ->
+  
+  stout:log(forkstate, [
+    {state, are_we_synced},
+    {mynode, nodekey:node_name()}
+  ]),
+  
+  Ref = check_and_sync_runner(
+    ?TPIC,
+    #{
+      theirnode => nodekey:node_name(),
+      mynode => nodekey:node_name(),
+      minsig => chainsettings:get_val(minsig)
+    }),
+  
+  {noreply, State#{sync_lock => Ref}};
+
+
+handle_cast(are_we_synced, #{sync_lock := LockRef} = State) when is_reference(LockRef) ->
+  stout:log(forkstate, [
+    {state, skip_are_we_synced},
+    {mynode, nodekey:node_name()}
+  ]),
+  
+  lager:debug("skip 'are we synced' message because we are syncing"),
+
+  {noreply, State};
+
 
 handle_cast({possible_fork, #{mymeta := LastMeta, hash := MissingHash}}, State) ->
   
@@ -121,6 +153,54 @@ handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = Sta
 handle_cast(_Msg, State) ->
   lager:notice("Unknown cast ~p", [_Msg]),
   {noreply, State}.
+
+
+handle_info(
+  {'DOWN', Ref, process, _Pid, normal},
+  #{sync_lock := Ref, lookaround_timer := Timer} = State) when is_reference(Ref) ->
+  
+%%  lager:debug("chainkeeper check'n'sync ~p finished successfuly", [_Pid]),
+  
+  catch erlang:cancel_timer(Timer),
+  
+  stout:log(ck_fork, [
+    {action, stop_check_n_sync},
+    {reason, normal},
+    {node, nodekey:node_name()}
+  ]),
+  
+  {noreply, State#{
+    sync_lock => null,
+    lookaround_timer => setup_timer(lookaround_timer)
+  }};
+
+handle_info(
+  {'DOWN', Ref, process, _Pid, Reason},
+  #{sync_lock := Ref, lookaround_timer := Timer} = State) when is_reference(Ref) ->
+%%  lager:debug("chainkeeper check'n'sync ~p finished with reason: ~p", [_Pid, Reason]),
+  
+  catch erlang:cancel_timer(Timer),
+  
+  stout:log(ck_fork, [
+    {action, stop_check_n_sync},
+    {reason, Reason},
+    {node, nodekey:node_name()}
+  ]),
+  
+  {noreply, State#{
+    sync_lock => null,
+    lookaround_timer => setup_timer(lookaround_timer)
+  }};
+
+
+% skip round in case we are syncing
+handle_info(lookaround_timer, #{lookaround_timer := Timer, sync_lock := Ref} = State)
+  when is_reference(Ref) ->
+    catch erlang:cancel_timer(Timer),
+    {noreply, State#{
+      lookaround_timer => setup_timer(lookaround_timer)
+    }};
+
 
 handle_info(lookaround_timer, #{lookaround_timer := Timer} = State) ->
   catch erlang:cancel_timer(Timer),
@@ -413,6 +493,17 @@ check_block(Blk, MinSigns) ->
 
 %% ------------------------------------------------------------------
 
+check_and_sync_runner(TPIC, Options) ->
+  stout:log(ck_fork, [
+    {action, start_check_n_sync},
+    {node, maps:get(mynode, Options, nodekey:node_name())}
+  ]),
+  
+  Pid = erlang:spawn(?MODULE, check_and_sync, [TPIC, Options]),
+  erlang:monitor(process, Pid).
+
+%% ------------------------------------------------------------------
+
 check_and_sync(TPIC, Options) ->
   try
     MinSig = maps:get(minsig, Options, chainsettings:get_val(minsig)),
@@ -424,7 +515,7 @@ check_and_sync(TPIC, Options) ->
           % don't need sync if we got temporary
           stout:log(ck_fork, [
               {action, got_temporary},
-              {node, nodekey:node_name()}
+              {node, maps:get(mynode, Options, nodekey:node_name())}
             ]),
           throw(finish);
         _ ->
@@ -433,7 +524,7 @@ check_and_sync(TPIC, Options) ->
   
           stout:log(ck_fork, [
             {action, got_permanent},
-            {node, nodekey:node_name()},
+            {node, maps:get(mynode, Options, nodekey:node_name())},
             {parent, ParentHash}
           ]),
           
@@ -476,7 +567,7 @@ check_and_sync(TPIC, Options) ->
               lager:notice("chainkeeper broken sync 1"),
               stout:log(ck_fork, [
                 {action, broken_sync_1},
-                {node, nodekey:node_name()},
+                {node, maps:get(mynode, Options, nodekey:node_name())},
                 {their_node, resolve_tpic_assoc(Assoc)}
               ]),
               Acc
@@ -484,7 +575,7 @@ check_and_sync(TPIC, Options) ->
         ({Assoc, #{error := Error} = Answer}, Acc) ->
           stout:log(ck_fork, [
             {action, sync_error_1},
-            {node, nodekey:node_name()},
+            {node, maps:get(mynode, Options, nodekey:node_name())},
             {their_node, resolve_tpic_assoc(Assoc)},
             {error, Error},
             {answer, Answer}
@@ -522,7 +613,7 @@ check_and_sync(TPIC, Options) ->
         true ->
           stout:log(ck_fork, [
             {action, cant_find_nodes},
-            {node, nodekey:node_name()},
+            {node, maps:get(mynode, Options, nodekey:node_name())},
             {perm_assoc, PermAssoc},
             {tmp_assoc, TmpAssoc}
           ]),
@@ -534,7 +625,7 @@ check_and_sync(TPIC, Options) ->
       {_, []} -> % can't find associations to sync, give up
         stout:log(ck_fork, [
           {action, empty_list_of_assoc},
-          {node, nodekey:node_name()},
+          {node, maps:get(mynode, Options, nodekey:node_name())},
           {perm_assoc, PermAssoc},
           {tmp_assoc, TmpAssoc}
         ]),
@@ -542,7 +633,7 @@ check_and_sync(TPIC, Options) ->
       {TmpWei, AssocToSync} when is_number(TmpWei) -> % sync to higest(widest) tmp block
         stout:log(ck_fork, [
           {action, sync_to_tmp},
-          {node, nodekey:node_name()},
+          {node, maps:get(mynode, Options, nodekey:node_name())},
           {tmp_wei, TmpWei},
           {assoc_list, resolve_tpic_assoc(AssocToSync)}
         ]),
@@ -564,7 +655,7 @@ check_and_sync(TPIC, Options) ->
     
         stout:log(ck_fork, [
           {action, sync_to_permanent},
-          {node, nodekey:node_name()},
+          {node, maps:get(mynode, Options, nodekey:node_name())},
           {myhash, MyHash},
           {their_hash, PermHash},
           {assoc_list, resolve_tpic_assoc(AssocToSync)}
@@ -577,7 +668,7 @@ check_and_sync(TPIC, Options) ->
     throw:finish ->
       stout:log(ck_fork, [
         {action, stop_ck_fork},
-        {node, nodekey:node_name()}
+        {node, maps:get(mynode, Options, nodekey:node_name())}
       ]),
 
       false
@@ -674,7 +765,8 @@ chain_lookaround(TPIC, Options) ->
           {mytmp, MyTmp}
         ]),
   
-      check_fork2(TPIC, MyMeta, Options),
+%%      check_fork2(TPIC, MyMeta, Options),
+      check_and_sync_runner(TPIC, Options),
       ok;
     [{Assoc, #{
       last_hash:=Hash,
