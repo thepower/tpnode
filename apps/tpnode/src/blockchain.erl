@@ -16,7 +16,9 @@
          chainstate/0,
          blkid/1,
          rel/2,
+         receive_block/2,
          send_block_real/4,
+         tpiccall/3,
          exists/1]).
 
 %% ------------------------------------------------------------------
@@ -483,7 +485,7 @@ handle_call({new_block, #{hash:=BlockHash,
                   }
              end,
         SigLen=length(maps:get(sign, MBlk)),
-        lager:info("Signs ~p", [Success]),
+        lager:debug("Signs ~p", [Success]),
         MinSig=getset(minsig,State),
         lager:info("Sig ~p ~p", [SigLen, MinSig]),
         if SigLen>=MinSig ->
@@ -1226,8 +1228,7 @@ handle_info(
   runsync,
   #{
     lastblock:=#{header:=#{height:=MyHeight0}, hash:=MyLastHash}
-  } = State) ->
-  flush_checksync(),
+   } = State) ->
   MyHeight = case maps:get(tmpblock, State, undefined) of
                undefined -> MyHeight0;
                #{header:=#{height:=TmpHeight}} ->
@@ -1237,54 +1238,82 @@ handle_info(
   lager:debug("got runsync, myHeight: ~p, myLastHash: ~p", [MyHeight, blkid(MyLastHash)]),
 
   GetDefaultCandidates =
-    fun() ->
+  fun() ->
       lager:debug("use default list of candidates"),
       lists:reverse(
         tpiccall(<<"blockchain">>,
-          #{null=><<"sync_request">>},
-          [last_hash, last_height, chain, last_temp]
-        ))
-    end,
+                 #{null=><<"sync_request">>},
+                 [last_hash, last_height, chain, last_temp]
+                ))
+  end,
 
   Candidates =
-    case maps:get(sync_candidates, State, default) of
-      default ->
-        GetDefaultCandidates();
-      [] ->
-        GetDefaultCandidates();
-      SavedCandidates ->
-        lager:debug("use saved list of candidates"),
-        SavedCandidates
-    end,
+  case maps:get(sync_candidates, State, default) of
+    default ->
+      GetDefaultCandidates();
+    [] ->
+      GetDefaultCandidates();
+    SavedCandidates ->
+      lager:debug("use saved list of candidates"),
+      SavedCandidates
+  end,
 
-  lager:debug("runsync candidates: ~p", [Candidates]),
-  case
-    lists:foldl( %first suitable will be the quickest
-      fun({CHandler, #{chain:=_HisChain,
-        last_hash:=_,
-        last_height:=_,
-        null:=<<"sync_available">>} = CInfo}, undefined) ->
-        {CHandler, CInfo};
-        ({_, _}, undefined) ->
-          undefined;
-        ({_, _}, {AccH, AccI}) ->
-          {AccH, AccI}
-      end,
-      undefined,
-      Candidates
-    )
-  of
+  handle_info({runsync, Candidates}, State);
+
+handle_info(
+  {runsync, Candidates},
+  #{
+    lastblock:=#{header:=#{height:=MyHeight0}, hash:=MyLastHash}
+  } = State) ->
+  flush_checksync(),
+
+  MyHeight = case maps:get(tmpblock, State, undefined) of
+               undefined -> MyHeight0;
+               #{header:=#{height:=TmpHeight}} ->
+                 TmpHeight
+             end,
+
+  Candidate=lists:foldl( %first suitable will be the quickest
+              fun({CHandler, undefined}, undefined) ->
+                  Inf=tpiccall(CHandler,
+                               #{null=><<"sync_request">>},
+                               [last_hash, last_height, chain, last_temp]
+                              ),
+                  case Inf of
+                    {CHandler, #{chain:=_HisChain,
+                                 last_hash:=_,
+                                 last_height:=_,
+                                 null:=<<"sync_available">>} = CInfo} ->
+                      {CHandler, CInfo};
+                    _ ->
+                      undefined
+                  end;
+                 ({CHandler, #{chain:=_HisChain,
+                               last_hash:=_,
+                               last_height:=_,
+                               null:=<<"sync_available">>} = CInfo}, undefined) ->
+                  {CHandler, CInfo};
+                 ({_, _}, undefined) ->
+                  undefined;
+                 ({_, _}, {AccH, AccI}) ->
+                  {AccH, AccI}
+              end,
+              undefined,
+              Candidates
+             ),
+  lager:info("runsync candidates: ~p", [proplists:get_keys(Candidates)]),
+  case Candidate of
     undefined ->
       lager:notice("No candidates for sync."),
       {noreply, maps:without([sync, syncblock, syncpeer, sync_candidates], State#{unksig=>0})};
 
     {Handler,
-      #{
-        chain:=_Ch,
-        last_hash:=_,
-        last_height:=Height,
-        last_temp:=Tmp,
-        null:=<<"sync_available">>
+     #{
+       chain:=_Ch,
+       last_hash:=_,
+       last_height:=Height,
+       last_temp:=Tmp,
+       null:=<<"sync_available">>
       } = Info
     } ->
       lager:debug("chosen sync candidate info: ~p", [Info]),
@@ -1310,31 +1339,31 @@ handle_info(
               {ok, #{temporary:=TmpNo}} -> TmpNo
             end,
       lager:info("Found candidate h=~w my ~w, bb ~s inst ~s/~s",
-        [Height, MyHeight, ByBlock, Inst0, Inst]),
+                 [Height, MyHeight, ByBlock, Inst0, Inst]),
       if (Height == MyHeight andalso Tmp == MyTmp) ->
-        lager:info("Sync done, finish."),
-        notify_settings(),
-        {noreply,
-          maps:without([sync, syncblock, syncpeer, sync_candidates], State#{unksig=>0})
-        };
-        Inst == true ->
-          % try instant sync;
-          gen_server:call(ledger, '_flush'),
-          ledger_sync:run_target(tpic, Handler, ledger, undefined),
-          {noreply, State#{
-            sync=>inst,
-            syncpeer=>Handler,
-            sync_candidates => Candidates
-          }};
-        true ->
-          %try block by block
-          lager:error("RUN bbyb sync since ~s", [blkid(MyLastHash)]),
-          self() ! {bbyb_sync, MyLastHash},
-          {noreply, State#{
-            sync=>bbyb,
-            syncpeer=>Handler,
-            sync_candidates => Candidates
-          }}
+           lager:info("Sync done, finish."),
+           notify_settings(),
+           {noreply,
+            maps:without([sync, syncblock, syncpeer, sync_candidates], State#{unksig=>0})
+           };
+         Inst == true ->
+           % try instant sync;
+           gen_server:call(ledger, '_flush'),
+           ledger_sync:run_target(tpic, Handler, ledger, undefined),
+           {noreply, State#{
+                       sync=>inst,
+                       syncpeer=>Handler,
+                       sync_candidates => Candidates
+                      }};
+         true ->
+           %try block by block
+           lager:error("RUN bbyb sync since ~s", [blkid(MyLastHash)]),
+           self() ! {bbyb_sync, MyLastHash},
+           {noreply, State#{
+                       sync=>bbyb,
+                       syncpeer=>Handler,
+                       sync_candidates => Candidates
+                      }}
       end
   end;
 

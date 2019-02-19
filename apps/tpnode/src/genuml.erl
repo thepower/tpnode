@@ -60,6 +60,60 @@ block(BLog,T1,T2) ->
 
 get_renderer() ->
   fun
+    (T, ck_fork, PL, File) ->
+      MyNode = ?get_node(node),
+      TheirNode =
+        case proplists:get_value(their_node, PL, unknown) of
+          unknown ->
+            MyNode;
+          SomeNodeName ->
+            node_map(SomeNodeName)
+        end,
+      
+      Action = proplists:get_value(action, PL, <<>>),
+      Message =
+        case Action of
+          stop_check_n_sync ->
+            Reason =
+              case proplists:get_value(reason, PL, unknown) of
+                unknown -> unknown;
+                normal -> normal;
+                _ -> "error, see crash.log"
+              end,
+            io_lib:format("ck_fork ~p, reason ~p", [ Action, Reason ]);
+  
+          sync_to_permanent ->
+            Nodes =
+              [ node_map(Node) || Node <- proplists:get_value(assoc_list, PL, []) ],
+  
+            MyHash = proplists:get_value(myhash, PL, <<>>),
+            TheirHash = proplists:get_value(their_hash, PL, <<>>),
+            
+            io_lib:format("ck_fork ~p, my_h=~s, their_h=~s, nodes: ~s",
+              [ Action,
+                blockchain:blkid(MyHash),
+                blockchain:blkid(TheirHash),
+                lists:join(",", Nodes)
+              ]
+            );
+  
+          tmp_chosen ->
+            WidestTmp = proplists:get_value(tmp, PL, unknown),
+            io_lib:format("ck_fork ~p, widest_tmp=~p", [ Action, WidestTmp] );
+  
+          permanent_chosen ->
+            HashToSync = proplists:get_value(hash, PL, <<>>),
+            io_lib:format(
+              "ck_fork ~p, widest_tmp=~p",
+              [ Action, blockchain:blkid(HashToSync)]
+            );
+            
+          _ ->
+            io_lib:format("ck_fork ~p", [ Action ])
+        end,
+      
+      [{T, TheirNode, MyNode, Message}];
+
     (T, sync_ticktimer, PL, File) ->
       Node = ?get_node(node),
       [{T, Node, Node, "sync_ticktimer", #{arrow_type => hnote}}];
@@ -183,13 +237,19 @@ get_renderer() ->
           {fork, ForkReason} ->
             io_lib:format("fork detected, ~s, my_perm_hash=~s",
               [ForkReason, blockchain:blkid(MyPermanentHash)]);
+
           possible_fork ->
             ForkHash = proplists:get_value(hash, PL, unknown),
             io_lib:format("possible fork detected, hash=~p", [blockchain:blkid(ForkHash)]);
+
+          are_we_synced ->
+            io_lib:format("got are_we_synced, h=~w:~p myhash=~p",
+              [MyHeight, Tmp, blockchain:blkid(MyPermanentHash)]);
+            
           OtherStatus ->
             io_lib:format("fork check h=~w:~p ~s", [MyHeight, Tmp, OtherStatus])
-        
         end,
+      
       [ {T, TheirNode, MyNode, Message} ];
     
     (T, ledger_change, PL, File) ->
