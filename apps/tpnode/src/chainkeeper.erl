@@ -644,8 +644,8 @@ check_and_sync(TPIC, Options) ->
             {action, permanent_chosen},
             {node, maps:get(mynode, Options, nodekey:node_name())},
             {hash, HashToSync},
-            {perm_assoc, PermAssoc},
-            {tmp_assoc, TmpAssoc}
+            {perm_assoc, resolve_assoc_map(PermAssoc)},
+            {tmp_assoc, resolve_assoc_map(TmpAssoc)}
           ]),
           
           {HashToSync, maps:get(HashToSync, PermAssoc, [])};
@@ -657,8 +657,8 @@ check_and_sync(TPIC, Options) ->
             {action, tmp_chosen},
             {node, maps:get(mynode, Options, nodekey:node_name())},
             {tmp, WidestTmp},
-            {perm_assoc, PermAssoc},
-            {tmp_assoc, TmpAssoc}
+            {perm_assoc, resolve_assoc_map(PermAssoc)},
+            {tmp_assoc, resolve_assoc_map(TmpAssoc)}
           ]),
           
           {WidestTmp, maps:get(WidestTmp, PermAssoc, [])};
@@ -667,8 +667,8 @@ check_and_sync(TPIC, Options) ->
           stout:log(ck_fork, [
             {action, cant_find_nodes},
             {node, maps:get(mynode, Options, nodekey:node_name())},
-            {perm_assoc, PermAssoc},
-            {tmp_assoc, TmpAssoc}
+            {perm_assoc, resolve_assoc_map(PermAssoc)},
+            {tmp_assoc, resolve_assoc_map(TmpAssoc)}
           ]),
           
           throw(finish)
@@ -679,8 +679,8 @@ check_and_sync(TPIC, Options) ->
         stout:log(ck_fork, [
           {action, empty_list_of_assoc},
           {node, maps:get(mynode, Options, nodekey:node_name())},
-          {perm_assoc, PermAssoc},
-          {tmp_assoc, TmpAssoc}
+          {perm_assoc, resolve_assoc_map(PermAssoc)},
+          {tmp_assoc, resolve_assoc_map(TmpAssoc)}
         ]),
         false;
       {TmpWei, AssocToSync} when is_number(TmpWei) -> % sync to higest(widest) tmp block
@@ -992,6 +992,15 @@ check_block_exist(TPIC, Hash) ->
   %% Acc = {NotFound, Found, Errors}
   lists:foldl(Checker, {0, 0, 0}, Answers).
 
+
+%% ------------------------------------------------------------------
+resolve_assoc_map(AssocMap) when is_map(AssocMap) ->
+  maps:map(
+    fun(_Hash, ListOfAssoc) ->
+      resolve_tpic_assoc(ListOfAssoc)
+    end,
+    AssocMap
+  ).
 
 %% ------------------------------------------------------------------
 

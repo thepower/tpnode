@@ -96,6 +96,17 @@ get_renderer() ->
                 lists:join(",", Nodes)
               ]
             );
+  
+          tmp_chosen ->
+            WidestTmp = proplists:get_value(tmp, PL, unknown),
+            io_lib:format("ck_fork ~p, widest_tmp=~p", [ Action, WidestTmp] );
+  
+          permanent_chosen ->
+            HashToSync = proplists:get_value(hash, PL, <<>>),
+            io_lib:format(
+              "ck_fork ~p, widest_tmp=~p",
+              [ Action, blockchain:blkid(HashToSync)]
+            );
             
           _ ->
             io_lib:format("ck_fork ~p", [ Action ])
