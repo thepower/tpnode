@@ -521,18 +521,18 @@ check_and_sync(TPIC, Options) ->
     Answers =
       case maps:get(temporary, MyMeta, false) of
         Wei when is_number(Wei) ->
-          % don't need sync if we got temporary
+          % don't need sync if we have temporary
           stout:log(ck_fork, [
-              {action, got_temporary},
+              {action, have_temporary},
               {node, maps:get(mynode, Options, nodekey:node_name())}
             ]),
           throw(finish);
         _ ->
-          % we got permanent block
+          % we have permanent block
           #{header := #{parent := ParentHash}} = MyMeta,
   
           stout:log(ck_fork, [
-            {action, got_permanent},
+            {action, have_permanent},
             {node, maps:get(mynode, Options, nodekey:node_name())},
             {parent, ParentHash}
           ]),
@@ -613,10 +613,28 @@ check_and_sync(TPIC, Options) ->
       if
         PermSize > 0 -> % choose sync peers from permanent hashes
           HashToSync = choose_hash_to_sync(TPIC, maps:keys(PermAssoc), MinSig),
+
+          stout:log(ck_fork, [
+            {action, permanent_chosen},
+            {node, maps:get(mynode, Options, nodekey:node_name())},
+            {hash, HashToSync},
+            {perm_assoc, PermAssoc},
+            {tmp_assoc, TmpAssoc}
+          ]),
+          
           {HashToSync, maps:get(HashToSync, PermAssoc, [])};
         
         TmpSize > 0 -> % choose node with highest temporary
           WidestTmp = lists:max(maps:keys(TmpAssoc)),
+
+          stout:log(ck_fork, [
+            {action, tmp_chosen},
+            {node, maps:get(mynode, Options, nodekey:node_name())},
+            {tmp, WidestTmp},
+            {perm_assoc, PermAssoc},
+            {tmp_assoc, TmpAssoc}
+          ]),
+          
           {WidestTmp, maps:get(WidestTmp, PermAssoc, [])};
 
         true ->
