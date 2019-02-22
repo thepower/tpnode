@@ -29,6 +29,7 @@ fi
 # save logs
 tar cfj log/test_logs.tar.bz2 ./log/*.log ./log/*.blog
 find ./log -name '*.log' -delete
+find ./log -name '*.blog' -delete
 
 # cleanup
 rm -rf /tmp/ledger_bckups/
