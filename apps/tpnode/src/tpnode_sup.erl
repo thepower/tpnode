@@ -132,6 +132,7 @@ init([]) ->
 
            ] ++ VM_CS
             ++ xchain:childspec()
+            ++ tpic2:childspec()
             ++ tpnode_vmproto:childspec(VMHost, VMPort)
             ++ tpnode_http:childspec(),
     {ok, { {one_for_one, 5, 10}, Childs } }.
