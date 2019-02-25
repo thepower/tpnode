@@ -104,7 +104,7 @@ get_renderer() ->
           permanent_chosen ->
             HashToSync = proplists:get_value(hash, PL, <<>>),
             io_lib:format(
-              "ck_fork ~p, widest_tmp=~p",
+              "ck_fork ~p, hash=~p",
               [ Action, blockchain:blkid(HashToSync)]
             );
             
@@ -219,8 +219,8 @@ get_renderer() ->
     (T, forkstate, PL, File) ->
       MyNode = ?get_node(mynode),
       TheirNode =
-        case proplists:get_value(theirnode, PL, unknown) of
-          unknown ->
+        case proplists:get_value(theirnode, PL, undefined) of
+          undefined ->
             MyNode;
           SomeNodeName ->
             node_map(SomeNodeName)
