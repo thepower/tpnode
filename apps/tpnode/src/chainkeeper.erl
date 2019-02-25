@@ -634,7 +634,10 @@ check_and_sync(TPIC, Options) ->
     {PermAssoc, TmpAssoc} = lists:foldl(FFun, {#{}, #{}}, Answers),
     
     PermSize = maps:size(PermAssoc), TmpSize = maps:size(TmpAssoc),
-    
+    PermAssocResolved = resolve_assoc_map(PermAssoc),
+    TmpAssocResolved = resolve_assoc_map(TmpAssoc),
+
+
     SyncPeers =
       if
         PermSize > 0 -> % choose sync peers from permanent hashes
@@ -644,8 +647,8 @@ check_and_sync(TPIC, Options) ->
             {action, permanent_chosen},
             {node, maps:get(mynode, Options, nodekey:node_name())},
             {hash, HashToSync},
-            {perm_assoc, resolve_assoc_map(PermAssoc)},
-            {tmp_assoc, resolve_assoc_map(TmpAssoc)}
+            {perm_assoc, PermAssocResolved},
+            {tmp_assoc, TmpAssocResolved}
           ]),
           
           {HashToSync, maps:get(HashToSync, PermAssoc, [])};
@@ -657,8 +660,8 @@ check_and_sync(TPIC, Options) ->
             {action, tmp_chosen},
             {node, maps:get(mynode, Options, nodekey:node_name())},
             {tmp, WidestTmp},
-            {perm_assoc, resolve_assoc_map(PermAssoc)},
-            {tmp_assoc, resolve_assoc_map(TmpAssoc)}
+            {perm_assoc, PermAssocResolved},
+            {tmp_assoc, TmpAssocResolved}
           ]),
           
           {WidestTmp, maps:get(WidestTmp, TmpAssoc, [])};
@@ -667,8 +670,8 @@ check_and_sync(TPIC, Options) ->
           stout:log(ck_fork, [
             {action, cant_find_nodes},
             {node, maps:get(mynode, Options, nodekey:node_name())},
-            {perm_assoc, resolve_assoc_map(PermAssoc)},
-            {tmp_assoc, resolve_assoc_map(TmpAssoc)}
+            {perm_assoc, PermAssocResolved},
+            {tmp_assoc, TmpAssocResolved}
           ]),
           
           throw(finish)
@@ -679,8 +682,8 @@ check_and_sync(TPIC, Options) ->
         stout:log(ck_fork, [
           {action, empty_list_of_assoc},
           {node, maps:get(mynode, Options, nodekey:node_name())},
-          {perm_assoc, resolve_assoc_map(PermAssoc)},
-          {tmp_assoc, resolve_assoc_map(TmpAssoc)}
+          {perm_assoc, PermAssocResolved},
+          {tmp_assoc, TmpAssocResolved}
         ]),
         false;
       {TmpWei, AssocToSync} when is_number(TmpWei) -> % sync to higest(widest) tmp block
