@@ -65,7 +65,7 @@ do_sync([], _Options) ->
 
 do_sync(Transactions, #{batch_no := BatchNo} = _Options) when is_list(Transactions) ->
   try
-    lager:info("txsync: start for batch ~p, txcount=~p", [BatchNo, size(Transactions)]),
+    lager:info("txsync: start for batch ~p, txcount=~p", [BatchNo, length(Transactions)]),
     stout:log(batchsync, [{action, start}, {batch, BatchNo}]),
     
     {BatchId, BatchBin} =
