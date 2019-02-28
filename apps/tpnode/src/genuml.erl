@@ -113,7 +113,39 @@ get_renderer() ->
         end,
       
       [{T, TheirNode, MyNode, Message}];
+  
+%%    (T, txqueue_done, PL, File) ->
+%%      Node = ?get_node(node),
+%%      Ids = proplists:get_value(ids, PL, []),
+%%      Result = proplists:get_value(result, PL, undefined),
+%%      Message =
+%%        io_lib:format("txqueue_done tx_cnt=~p result=~p",
+%%          [length(Ids), Result]),
+%%
+%%      [{T, Node, Node, Message}];
+%%
+%%
+%%    (T, txqueue_push, PL, File) ->
+%%      Node = ?get_node(node),
+%%      Ids = proplists:get_value(ids, PL, []),
+%%      BatchNo = proplists:get_value(batch, PL, undefined),
+%%      Storage = proplists:get_value(storage, PL, undefined),
+%%      Message =
+%%        io_lib:format("queue_push tx_cnt=~p batch_no=~p storage=~p",
+%%          [length(Ids), BatchNo, Storage]),
+%%
+%%      [{T, Node, Node, Message}];
 
+    (T, batchsync, PL, File) ->
+      Node = ?get_node(node),
+      Action = proplists:get_value(action, PL, undefined),
+      BatchNo = proplists:get_value(batch, PL, undefined),
+
+      Message =
+        io_lib:format("batch_sync ~p batch_no=~p", [Action, BatchNo]),
+  
+      [{T, Node, Node, Message}];
+      
     (T, sync_ticktimer, PL, File) ->
       Node = ?get_node(node),
       [{T, Node, Node, "sync_ticktimer", #{arrow_type => hnote}}];

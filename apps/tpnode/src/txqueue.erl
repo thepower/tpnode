@@ -56,9 +56,6 @@ handle_cast(
   
   #{holding_storage := Holding, current_batch := CurrentBatch} = BatchState,
   
-%%  lager:debug("push ~p", [TxIds]),
-  stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo} ]),
-  
   case BatchNo of
     CurrentBatch ->
       stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, queue} ]),
