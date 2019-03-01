@@ -113,7 +113,35 @@ get_renderer() ->
         end,
       
       [{T, TheirNode, MyNode, Message}];
+
+    (T, txqueue_mkblock, PL, File) ->
+      Node = ?get_node(node),
+      Ids = proplists:get_value(ids, PL, []),
+      Lbh = proplists:get_value(lbh, PL, <<>>),
+      Message =
+        io_lib:format("txqueue_mkblock tx_cnt=~p lbh=~p",
+          [length(Ids), blockchain:blkid(Lbh)]),
+
+      [{T, Node, Node, Message}];
   
+  
+    (T, txqueue_xsig, PL, File) ->
+      Node = ?get_node(node),
+      Ids = proplists:get_value(ids, PL, []),
+      Message =
+        io_lib:format("txqueue_xsig tx_cnt=~p", [length(Ids)]),
+    
+      [{T, Node, Node, Message}];
+  
+    (T, txqueue_prepare, PL, File) ->
+      Node = ?get_node(node),
+      Ids = proplists:get_value(ids, PL, []),
+      Message =
+        io_lib:format("txqueue_prepare tx_cnt=~p", [length(Ids)]),
+    
+      [{T, Node, Node, Message}];
+    
+    
 %%    (T, txqueue_done, PL, File) ->
 %%      Node = ?get_node(node),
 %%      Ids = proplists:get_value(ids, PL, []),
@@ -149,10 +177,6 @@ get_renderer() ->
     (T, sync_ticktimer, PL, File) ->
       Node = ?get_node(node),
       [{T, Node, Node, "sync_ticktimer", #{arrow_type => hnote}}];
-    
-    (T, txqueue_prepare, PL, File) ->
-      Node = ?get_node(node),
-      [{T, Node, Node, "txqueue_prepare"}];
     
     (T, mkblock_process, PL, File) ->
       Node = ?get_node(node),
