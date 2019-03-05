@@ -1442,18 +1442,20 @@ withdraw(FBal,
   end.
 
 sort_txs(PreTXL) ->
-  Order=fun({_ID,#{hash:=Hash,header:=#{height:=H}}}) ->
-            %sort inbound blocks by height
-            {H,Hash};
-           ({ID,_}) ->
-            {0,ID}
+  Order=fun({_ID,#{hash:=Hash,header:=#{height:=H}}}=TX) ->
+            {{H,Hash},TX};
+           ({ID,_}=TX) ->
+            NID=try
+                  {_,T}=txpool:decode_txid(ID),
+                  T
+                catch _:_ ->
+                        ID
+                end,
+            {{0,NID},TX}
         end,
-  SortFun=fun(A,B) ->
-              OA=Order(A),
-              OB=Order(B),
-              OA=<OB
-          end,
-  lists:sort(SortFun,lists:usort(PreTXL)).
+  [ T || {_,T} <-
+         lists:keysort(1, lists:map(Order, lists:usort(PreTXL)) )
+  ].
 
 generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, ExtraData) ->
   generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, ExtraData, []).
