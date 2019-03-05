@@ -2,7 +2,7 @@
 -behavior(ranch_protocol).
 
 -export([start_link/4]).
--export([connection_process/5,loop/1,send_msg/2]).
+-export([connection_process/5,loop1/1,loop/1,send_msg/2, system_continue/3]).
 
 -spec start_link(ranch:ref(), ssl:sslsocket(), module(), cowboy:opts()) -> {ok, pid()}.
 start_link(Ref, Socket, Transport, Opts) ->
@@ -27,12 +27,23 @@ connection_process(Parent, Ref, Socket, Transport, Opts) ->
           opts=>Opts
          },
   tpic2_tls:send_msg({hello, server}, State),
-  ?MODULE:loop(State).
+  ?MODULE:loop1(State).
 
-loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=Opts,
+loop1(State=#{socket:=Socket,role:=_Role}) ->
+  {ok,PC}=ssl:peercert(Socket),
+  DCert=tpic2:extract_cert_info(public_key:pkix_decode_cert(PC,otp)),
+  Pubkey=case DCert of
+           #{pubkey:={'ECPoint', Point}} ->
+             tpecdsa:minify(Point);
+           _ ->
+             undefined
+         end,
+  lager:info("Peer PubKey ~p ~p",[Pubkey,chainsettings:is_our_node(Pubkey)]),
+  ?MODULE:loop(State#{pubkey=>Pubkey}).
+
+loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
              timer:=TimerRef}) ->
   {OK, Closed, Error} = Transport:messages(),
-  InactivityTimeout = maps:get(inactivity_timeout, Opts, 300000),
   receive
     %% Socket messages.
     {OK, Socket, Data} ->
@@ -71,17 +82,21 @@ loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=Opts,
     Msg ->
       error_logger:error_msg("Received stray message ~p.~n", [Msg]),
       ?MODULE:loop(State)
-  after InactivityTimeout ->
-          terminate(State, {internal_error, timeout, 'No message or data received before timeout.'})
+  after 10000 -> %to avoid killing on code change
+          ?MODULE:loop(State)
   end.
 
-send_msg({hello, Role}, #{socket:=Socket}) ->
-  ssl:send(Socket,msgpack:pack(#{null=><<"hello">>, i=>Role}));
+system_continue(_PID,_,{State}) ->
+  ?MODULE:loop(State).
+
+send_msg({hello, Role}, #{socket:=Socket, opts:=Opts}) ->
+  Stream=maps:get(stream, Opts, undefined),
+  ssl:send(Socket,msgpack:pack(#{null=><<"hello">>, i=>Role, s=>Stream}));
 
 send_msg(Msg, #{socket:=Socket}) when is_map(Msg) ->
   ssl:send(Socket,msgpack:pack(Msg)).
 
-handle_msg(#{null:=<<"hello">>, <<"stream_id">>:=SID},State) ->
+handle_msg(#{null:=<<"hello">>, <<"s">>:=SID},State) ->
   send_msg(#{null=><<"hello_ack">>}, State),
   State#{
     sid=>SID

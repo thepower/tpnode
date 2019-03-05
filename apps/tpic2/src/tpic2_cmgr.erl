@@ -32,7 +32,7 @@ init(_Args) ->
       }
     }.
 
-handle_call({register, PubKey, _Stream, _Direction, _PID}=Msg, From, State) ->
+handle_call({peer, PubKey, Msg}, From, State) ->
   {PID, State2} = get_conn(PubKey, State),
   PID ! {'$gen_call', From, Msg},
   {noreply, State2};

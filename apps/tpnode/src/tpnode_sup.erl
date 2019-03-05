@@ -87,13 +87,13 @@ init([]) ->
 
             { mkblock, {mkblock, start_link, []},
               permanent, 5000, worker, []},
-        
+
             { txqueue, {txqueue, start_link, []},
               permanent, 5000, worker, []},
-        
+
             { txstorage, {txstorage, start_link, [#{}]},
               permanent, 5000, worker, []},
-      
+
             { txpool, {txpool, start_link, []},
               permanent, 5000, worker, []},
 
@@ -105,7 +105,7 @@ init([]) ->
 
             { topology, {topology, start_link, []},
               permanent, 5000, worker, []},
-      
+
             { ledger, {ledger, start_link, []},
               permanent, 5000, worker, []},
 
@@ -123,10 +123,10 @@ init([]) ->
 
             { tpnode_cert, {tpnode_cert, start_link, []},
               permanent, 5000, worker, []},
-  
+
             { chainkeeper, {chainkeeper, start_link, []},
               permanent, 5000, worker, []},
-        
+
             { tpnode_vmsrv, {tpnode_vmsrv, start_link, []},
               permanent, 5000, worker, []}
 

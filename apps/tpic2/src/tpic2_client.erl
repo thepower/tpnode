@@ -1,14 +1,43 @@
 -module(tpic2_client).
 
--export([start_link/3]).
+-export([start/3,start_link/3,childspec/0,init/1]).
 -export([connection_process/4]).
 
 start_link(Host, Port, Opts) when is_map(Opts) ->
   Pid = proc_lib:spawn_link(?MODULE,
                             connection_process,
-                            [self(), Host, Port, Opts]
+                            [maps:get(parent, Opts, self()),
+                             Host, Port, Opts]
                            ),
   {ok, Pid}.
+
+start(Host, Port, Opts) when is_map(Opts) ->
+  {ok,Pid}=supervisor:start_child(tpic2_out_sup,
+                                  #{id=>{Host,Port,make_ref()},
+                                    start=>{
+                                      ?MODULE,
+                                      start_link,
+                                      [Host, Port, Opts]
+                                     }
+                                   }
+                                 ),
+  {ok, Pid}.
+
+init([]) ->
+  {ok,
+   {_SupFlags = {one_for_one, 1, 1000},
+    [ ] 
+   }
+  }.
+
+childspec() ->
+  [
+   { tpic2_out_sup, { supervisor, start_link,
+                      [ {local, tpic2_out_sup}, ?MODULE, [] ]
+                    },
+     permanent, 20000, supervisor, []
+   }
+  ].
 
 connection_process(Parent, Host, Port, Opts) ->
   Key=nodekey:get_priv(),
@@ -19,6 +48,8 @@ connection_process(Parent, Host, Port, Opts) ->
            {verify, verify_peer},
            %{fail_if_no_peer_cert, true},
            {verify_fun, {fun tpic2:verfun/3, []}},
+           {fail_if_no_peer_cert, true},
+           %{alpn_preferred_protocols, [<<"tpctl">>,<<"tpstream">>]},
            {active, true},
            {key, {'ECPrivateKey', DerKey}},
            {cert, DerCert}
@@ -26,8 +57,6 @@ connection_process(Parent, Host, Port, Opts) ->
   {ok, TCPSocket} = gen_tcp:connect(Host, Port, [binary, {packet,4}]),
   {ok, Socket} = ssl:connect(TCPSocket, SSLOpts),
   ssl:setopts(Socket, [{active, once}]),
-  {ok,PeerInfo}=ssl:connection_information(Socket),
-  lager:info("Peer ~p",[proplists:get_keys(PeerInfo)]),
   {ok,PeerInfo}=ssl:connection_information(Socket),
   State=#{
     ref=>maps:get(ref, Opts, undefined),
@@ -40,5 +69,5 @@ connection_process(Parent, Host, Port, Opts) ->
     opts=>Opts
    },
   tpic2_tls:send_msg({hello, client}, State),
-  tpic2_tls:loop(State).
+  tpic2_tls:loop1(State).
 

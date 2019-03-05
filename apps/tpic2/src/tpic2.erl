@@ -5,12 +5,14 @@
 certificate() ->
   Priv=nodekey:get_priv(),
   DERKey=tpecdsa:export(Priv,der),
-  Cert=cert(Priv,nodekey:node_name()),
+  Cert=cert(Priv,<<"nodekey:node_name()">>),
   [{'Certificate',DerCert,not_encrypted}]=public_key:pem_decode(Cert),
   [
    {key, {'ECPrivateKey', DERKey}},
    {cert, DerCert},
    {verify_fun, {fun tpic2:verfun/3, []}},
+   {fail_if_no_peer_cert, true},
+   {alpn_preferred_protocols, [<<"tpctl">>,<<"tpstream">>]},
    {verify, verify_peer},
    {cacerts, [DerCert]}
   ].
@@ -23,14 +25,15 @@ childspec() ->
              {connection_type, supervisor},
              {port, Port}
              | SSLOpts ],
+  tpic2_client:childspec() ++
   [
    ranch:child_spec(
-    tpic_tls,
-    ranch_ssl,
-    HTTPOpts,
-    tpic2_tls,
-    #{}
-   )
+     tpic_tls,
+     ranch_ssl,
+     HTTPOpts,
+     tpic2_tls,
+     #{}
+    )
   ].
 
 cert(Key, Subject) ->
@@ -57,7 +60,6 @@ cert_loop(Handle) ->
     {Handle, eof} ->
       <<>>
   end.
-
 
 extract_cert_info(
   #'OTPCertificate'{

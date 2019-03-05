@@ -29,8 +29,11 @@ start_link(Args) ->
 init(Args) ->
   lager:info("args ~p",[Args]),
   {ok, #{
+     tmr=>erlang:send_after(100,self(),tmr),
      peer_ipport=>init_ipport(Args),
      pubkey=>maps:get(pubkey, Args, undefined),
+     inctl=>undefined,
+     outctl=>undefined,
      clients=>[],
      streams=>[],
      servers=>[],
@@ -45,8 +48,13 @@ init_ipport(#{ip:=IPList,port:=Port}) ->
 init_ipport(_) ->
   [].
 
-handle_call({register, _, StreamID, Dir, PID}, _From, #{mpid:=MPID,
-                                                        streams:=Str}=State) ->
+handle_call({add, _, IP, Port}, _From, #{peer_ipport:=IPP}=State) ->
+  IPP2=[{IP,Port}|(IPP--{IP,Port})],
+  {reply, IPP2, State#{peer_ipport=>IPP2}};
+
+handle_call({register, StreamID, Dir, PID},
+            _From,
+            #{mpid:=MPID, streams:=Str}=State) ->
   case maps:find(PID,MPID) of
     {ok, _} ->
       {reply, {exists, self()}, State};
@@ -55,7 +63,8 @@ handle_call({register, _, StreamID, Dir, PID}, _From, #{mpid:=MPID,
       {reply, {ok, self()},
        State#{
          streams=>[{StreamID,Dir,PID}|Str],
-         mpid=>maps:put(PID,{StreamID,Dir},
+         mpid=>maps:put(PID,
+                        {StreamID,Dir},
                         maps:get(mpid,State,#{})
                        )
         }
@@ -64,10 +73,26 @@ handle_call({register, _, StreamID, Dir, PID}, _From, #{mpid:=MPID,
 
 handle_call(_Request, _From, State) ->
   lager:info("Unhandled call ~p",[_Request]),
-  {reply, ok, State}.
+  {reply, unhandled, State}.
 
 handle_cast(_Msg, State) ->
   {noreply, State}.
+
+handle_info(tmr, #{tmr:=Tmr}=State) ->
+  erlang:cancel_timer(Tmr),
+  lager:info("tmr"),
+
+  OCState=case maps:get(outctl,State,undefined) of
+       undefined ->
+         open_control(State);
+       _ ->
+         State
+     end,
+
+  {noreply, OCState#{
+              tmr=>erlang:send_after(10000,self(),tmr)
+             }
+  };
 
 handle_info({'DOWN',_Ref,process,PID,_Reason}, #{mpid:=MPID,
                                                streams:=Str}=State) ->
@@ -95,4 +120,14 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+open_control(#{peer_ipport:=[{Host,Port}|RestIPP]}=State) ->
+  {ok, PID}=tpic2_client:start(Host, Port, #{stream=>0}),
+  State#{
+    peer_ipport=>RestIPP++[{Host,Port}],
+    outctl=>PID
+   }.
+
+
+
 
