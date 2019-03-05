@@ -262,6 +262,12 @@ handle_info(sync_tx,
     _ ->
       % peers count is OK, sync transactions
       {NewQueue, Transactions} = pullx({MaxPop, get_max_tx_size()}, Queue, []),
+  
+      txlog:log(
+        [TxId1 || {TxId1, _TxBody1} <- Transactions],
+        #{where => txpool}
+      ),
+      
       NewBatchNo =
         case Transactions of
           [] ->
@@ -337,7 +343,8 @@ decode_ints(Bin) ->
 
 decode_txid(Txta) ->
   [N0,N1]=binary:split(Txta,<<"-">>),
-  Bin=base58:decode(N0),
+%%  Bin=base58:decode(N0),
+  Bin=hex:decode(N0),
   {N1, decode_ints(Bin)}.
 
 %% ------------------------------------------------------------------
@@ -350,7 +357,8 @@ generate_txid(#{mychain:=MyChain}=State) ->
   %  Timestamp=base58:encode(binary:encode_unsigned(os:system_time())),
   %  Number=base58:encode(binary:encode_unsigned(erlang:unique_integer([positive]))),
   %  iolist_to_binary([Timestamp, "-", Node, "-", Number]).
-  I=base58:encode(
+%%  I=base58:encode(
+  I=hex:encode(
       iolist_to_binary(
         [encode_int(MyChain),
          encode_int(LBH),
@@ -364,7 +372,7 @@ generate_txid(#{}) ->
 %% ------------------------------------------------------------------
 
 pullx({0, _}, Q, Acc) ->
-    {Q, Acc};
+    {Q, lists:reverse(Acc)};
 
 pullx({N, MaxSize}, Q, Acc) ->
     {Element, Q1}=queue:out(Q),
@@ -373,13 +381,13 @@ pullx({N, MaxSize}, Q, Acc) ->
           MaxSize1 = MaxSize - size(E1),
           if
             MaxSize1 < 0 ->
-              {Q, Acc};
+              {Q, lists:reverse(Acc)};
             true ->
               %lager:debug("Pull tx ~p", [E1]),
               pullx({N - 1, MaxSize1}, Q1, [E1 | Acc])
           end;
         empty ->
-            {Q, Acc}
+            {Q, lists:reverse(Acc)}
     end.
 
 %% ------------------------------------------------------------------

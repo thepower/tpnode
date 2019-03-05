@@ -226,11 +226,11 @@ store_tx_batch(Txs, Nodes, Table, ValidUntil) when is_list(Nodes) ->
   store_tx_batch(Txs, Nodes, Table, ValidUntil, []).
 
 store_tx_batch([], _FromPubKey, _Table, _ValidUntil, StoredIds) ->
-  StoredIds;
+  lists:reverse(StoredIds);
 
 store_tx_batch([{TxId, Tx}|Rest], Nodes, Table, ValidUntil, StoredIds)
   when is_list(Nodes) ->
-    NewStoredIds = StoredIds ++ [store_tx({TxId, Tx, Nodes}, Table, ValidUntil)],
+    NewStoredIds = [store_tx({TxId, Tx, Nodes}, Table, ValidUntil) | StoredIds],
     store_tx_batch(Rest, Nodes, Table, ValidUntil, NewStoredIds);
 
 store_tx_batch([{TxId, Tx}|Rest], FromPubKey, Table, ValidUntil, StoredIds)
