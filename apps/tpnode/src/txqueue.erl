@@ -165,7 +165,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
   
   Time = erlang:system_time(seconds),
   {InProc1, Queue1} = recovery_lost(InProc0, Queue, Time),
-  ETime = Time + 20,
+  ETime = Time + 1,
   
   {Queue2, TxIds} =
     txpool:pullx({txpool:get_max_pop_tx(), txpool:get_max_tx_size()}, Queue1, []),

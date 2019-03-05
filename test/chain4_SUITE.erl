@@ -306,7 +306,7 @@ transaction_ping_pong_test(_Config) ->
 
   
     % first of all, send money for fee from endless to Wallet2
-    FeeAmount = ?TX_FEE * TransactionCount,
+    FeeAmount = ?TX_FEE * TransactionCount + 1,
     logger(
       "Send additional money which will be used as transaction fee on sent money back stage.~n" ++
       "Additional money for fee: ~p",

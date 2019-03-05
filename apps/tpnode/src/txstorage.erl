@@ -142,7 +142,8 @@ handle_cast({store, Txs, Nodes, Options}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName}
 
   try
     ValidUntil = os:system_time(second) + Ttl,
-    TxIds = store_tx_batch(Txs, Nodes, EtsName, ValidUntil),
+    % we should sort tx ids here
+    TxIds = txpool:sort_txs(store_tx_batch(Txs, Nodes, EtsName, ValidUntil)),
     ParseOptions =
       fun
         (#{push_queue := _, batch_no := BatchNo}) when length(TxIds) > 0 ->

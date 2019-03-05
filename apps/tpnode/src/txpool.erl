@@ -11,7 +11,7 @@
 
 -export([start_link/0]).
 -export([new_tx/1, get_pack/0, inbound_block/1, get_max_tx_size/0, get_max_pop_tx/0, pullx/3]).
--export([get_state/0]).
+-export([get_state/0, sort_txs/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -343,8 +343,7 @@ decode_ints(Bin) ->
 
 decode_txid(Txta) ->
   [N0,N1]=binary:split(Txta,<<"-">>),
-%%  Bin=base58:decode(N0),
-  Bin=hex:decode(N0),
+  Bin=base58:decode(N0),
   {N1, decode_ints(Bin)}.
 
 %% ------------------------------------------------------------------
@@ -357,8 +356,7 @@ generate_txid(#{mychain:=MyChain}=State) ->
   %  Timestamp=base58:encode(binary:encode_unsigned(os:system_time())),
   %  Number=base58:encode(binary:encode_unsigned(erlang:unique_integer([positive]))),
   %  iolist_to_binary([Timestamp, "-", Node, "-", Number]).
-%%  I=base58:encode(
-  I=hex:encode(
+  I=base58:encode(
       iolist_to_binary(
         [encode_int(MyChain),
          encode_int(LBH),
@@ -368,6 +366,24 @@ generate_txid(#{mychain:=MyChain}=State) ->
 
 generate_txid(#{}) ->
   error.
+
+%% ------------------------------------------------------------------
+sort_txs([]) ->
+  [];
+
+sort_txs(Txs) when is_list(Txs) ->
+  Unpacked =
+    lists:map(
+      fun(TxId) ->
+        {_NodeId, [_Chain, _Height, Timestamp]} = decode_txid(TxId),
+        {Timestamp, TxId}
+      end,
+      Txs
+    ),
+  Sorted = lists:keysort(1, Unpacked),
+  [TxId2 || {_, TxId2} <- Sorted ].
+  
+
 
 %% ------------------------------------------------------------------
 
