@@ -1279,12 +1279,13 @@ handle_info(
                                #{null=><<"sync_request">>},
                                [last_hash, last_height, chain, last_temp]
                               ),
+                  lager:debug("sync from ~p",[Inf]),
                   case Inf of
-                    {CHandler, #{chain:=_HisChain,
+                    [{CHandler1, #{chain:=_HisChain,
                                  last_hash:=_,
                                  last_height:=_,
-                                 null:=<<"sync_available">>} = CInfo} ->
-                      {CHandler, CInfo};
+                                 null:=<<"sync_available">>} = CInfo}] ->
+                      {CHandler1, CInfo};
                     _ ->
                       undefined
                   end;
@@ -1302,6 +1303,7 @@ handle_info(
               Candidates
              ),
   lager:info("runsync candidates: ~p", [proplists:get_keys(Candidates)]),
+  lager:debug("runsync candidate: ~p", [Candidate]),
   case Candidate of
     undefined ->
       lager:notice("No candidates for sync."),
