@@ -154,7 +154,7 @@ handle_cast({new_height, H}, State) ->
 handle_cast({inbound_block, #{hash:=Hash} = Block}, #{sync_timer:=Tmr, queue:=Queue} = State) ->
   TxId = bin2hex:dbin2hex(Hash),
   lager:info("Inbound block ~p", [{TxId, Block}]),
-  % we need syncronise inbound blocks as well as incoming transaction from user
+  % we need synchronise inbound blocks as well as incoming transaction from user
   % inbound blocks may arrive at two nodes or more at the same time
   % so, we may already have this inbound block in storage
   NewQueue =
