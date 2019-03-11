@@ -3,11 +3,13 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
+-define(MAX_REASSEMBLY_TRIES, 30).
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0, get_lbh/1, get_state/0]).
+-export([start_link/0, get_lbh/1, get_state/0, get_max_reassembly_tries/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -30,8 +32,13 @@ start_link() ->
 init(_Args) ->
   {ok,
     #{
-      queue=>queue:new(),
-      inprocess=>hashqueue:new()
+      queue => queue:new(),
+      inprocess => hashqueue:new(),
+      batch_state => #{
+        holding_storage => #{},
+        current_batch => 0,
+        try_count => 0
+      }
     }
   }.
 
@@ -43,19 +50,68 @@ handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
 
-handle_cast({push, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
-%%  lager:debug("push ~p", [TxIds]),
-  stout:log(txqueue_push, [ {ids, TxIds} ]),
-  {noreply, State#{
-    queue=>lists:foldl( fun queue:in/2, Queue, TxIds)
-  }};
+handle_cast(
+  {push, BatchNo, TxIds}, #{queue:=Queue, batch_state := BatchState} = State)
+  when is_list(TxIds) and is_number(BatchNo) ->
+  
+  #{holding_storage := Holding, current_batch := CurrentBatch} = BatchState,
+  
+  case BatchNo of
+    CurrentBatch ->
+      stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, queue} ]),
+  
+      txlog:log(TxIds, #{where => queue_push_current}),
+      
+      % trying reassemble the hold storage after the last batch was added
+      #{queue := NewQueue} = NewBatchState =
+        reassembly_batch(
+          BatchState#{
+            queue => lists:foldl( fun queue:in/2, Queue, TxIds),
+            current_batch => BatchNo + 1,
+            try_count => 0
+          }),
 
+      {noreply, State#{
+        queue => NewQueue,
+        batch_state => maps:without([queue], NewBatchState)
+      }};
+    
+    _ when BatchNo < CurrentBatch -> % skip batch with number less than current
+      stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, skip} ]),
+      {noreply, State};
+    
+    _ ->
+      stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, hold} ]),
+      
+      txlog:log(TxIds, #{where => queue_push_hold}),
+      
+      % trying reassemble the hold storage
+      % (we can exceed number of tries, so should force reassemble the hold storage)
+  
+      #{queue := NewQueue2} = NewBatchState2 =
+        reassembly_batch(
+          BatchState#{
+            queue => Queue,
+            holding_storage => maps:put(BatchNo, TxIds, Holding)
+          }
+        ),
+  
+      {noreply, State#{
+        queue => NewQueue2,
+        batch_state => maps:without([queue], NewBatchState2)
+      }}
+  end;
 
 handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
 %%  lager:debug("push head ~p", [TxIds]),
   stout:log(txqueue_pushhead, [ {ids, TxIds} ]),
+
+  RevIds = lists:reverse(TxIds),
+  
+  txlog:log(RevIds, #{where => queue_push_head}),
+  
   {noreply, State#{
-    queue=>lists:foldl( fun queue:in_r/2, Queue, TxIds)
+    queue=>lists:foldl( fun queue:in_r/2, Queue, RevIds)
   }};
 
 handle_cast({done, Txs}, #{inprocess:=InProc0} = State) ->
@@ -106,8 +162,15 @@ handle_cast(settings, State) ->
   {noreply, load_settings(State)};
 
 handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = State) ->
-  {Queue1, TxIds} =
-    txpool:pullx({txpool:get_max_pop_tx(), txpool:get_max_tx_size()}, Queue, []),
+  
+  Time = erlang:system_time(seconds),
+  {InProc1, Queue1} = recovery_lost(InProc0, Queue, Time),
+  ETime = Time + 1,
+  
+  {Queue2, TxIds} =
+    txpool:pullx({txpool:get_max_pop_tx(), txpool:get_max_tx_size()}, Queue1, []),
+  
+  txlog:log(TxIds, #{where => txqueue_prepare}),
   
   stout:log(txqueue_prepare, [ {ids, TxIds}, {node, nodekey:node_name()} ]),
   
@@ -159,10 +222,6 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
       utils:print_error("Can't encode", Ec1, Ee1, erlang:get_stacktrace())
   end,
   
-  Time = erlang:system_time(seconds),
-  {InProc1, Queue2} = recovery_lost(InProc0, Queue1, Time),
-  ETime = Time + 20,
-  
   {noreply,
     State#{
       queue=>Queue2,
@@ -191,8 +250,8 @@ handle_cast(_Msg, State) ->
 handle_info(prepare, State) ->
   handle_cast(prepare, State);
 
-handle_info({push, TxIds}, State) when is_list(TxIds) ->
-  handle_cast({push, TxIds}, State);
+handle_info({push, BatchNo, TxIds}, State) when is_list(TxIds) ->
+  handle_cast({push, BatchNo, TxIds}, State);
 
 handle_info({push_head, TxIds}, State) when is_list(TxIds) ->
   handle_cast({push_head, TxIds}, State);
@@ -211,19 +270,29 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+push_queue_head(Txs, Queue) ->
+%%  RevTxs = lists:reverse(Txs),
+  RevTxs = Txs,
+  txlog:log(lists:reverse(RevTxs), #{where => txqueue_recovery2}),
+  lists:foldl(fun queue:in_r/2, Queue, RevTxs).
+
 
 recovery_lost(InProc, Queue, Now) ->
+  recovery_lost(InProc, Queue, Now, []).
+
+recovery_lost(InProc, Queue, Now, AccTxs) ->
   case hashqueue:head(InProc) of
     empty ->
-      {InProc, Queue};
+      {InProc, push_queue_head(AccTxs, Queue)};
     I when is_integer(I) andalso I >= Now ->
-      {InProc, Queue};
+      {InProc, push_queue_head(AccTxs, Queue)};
     I when is_integer(I) ->
       case hashqueue:pop(InProc) of
         {InProc1, empty} ->
-          {InProc1, Queue};
+          {InProc1, push_queue_head(AccTxs, Queue)};
         {InProc1, {TxID, _TxBody}} ->
-          recovery_lost(InProc1, queue:in(TxID, Queue), Now)
+          txlog:log([TxID], #{where => txqueue_recovery1}),
+          recovery_lost(InProc1, Queue, Now, [TxID | AccTxs])
       end
   end.
 
@@ -253,4 +322,51 @@ get_lbh(State) ->
 
 get_state() ->
   gen_server:call(?MODULE, state).
+
+%% ------------------------------------------------------------------
+
+reassembly_batch(#{try_count := ?MAX_REASSEMBLY_TRIES} = BatchState) ->
+  #{holding_storage := Holding} = BatchState,
+  
+  case lists:sort(maps:keys(Holding)) of
+    [] ->
+      BatchState#{try_count => 0};
+    [FirstBatchNo | _] ->
+      % if tries count reached, then patch current batch number to restart processes
+      reassembly_batch(BatchState#{current_batch => FirstBatchNo, try_count => 0})
+  end;
+
+reassembly_batch(#{
+    queue := Queue,
+    current_batch := CurrentBatch,
+    holding_storage := Holding,
+    try_count := TryCount
+  } = BatchState) ->
+
+    case maps:get(CurrentBatch, Holding, undefined) of
+      undefined -> BatchState#{try_count := TryCount + 1};
+      TxIds ->
+        txlog:log(TxIds,
+          #{where => reassembly_batch,
+            batchno => CurrentBatch,
+            trycount => TryCount}),
+  
+        reassembly_batch(
+          BatchState#{
+            queue => lists:foldl(fun queue:in/2, Queue, TxIds),
+            holding_storage => maps:remove(CurrentBatch, Holding),
+            current_batch => CurrentBatch + 1,
+            try_count => 0
+          }
+        )
+    end;
+
+reassembly_batch(#{try_count := TryCount} = BatchState) ->
+  BatchState#{try_count := TryCount + 1}.
+
+
+%% ------------------------------------------------------------------
+
+get_max_reassembly_tries() ->
+  ?MAX_REASSEMBLY_TRIES.
 

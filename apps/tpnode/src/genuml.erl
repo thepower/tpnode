@@ -57,6 +57,39 @@ block(BLog,T1,T2) ->
   Events1.
 
 % --------------------------------------------------------------------------------
+tx_map(TxIds) when is_list(TxIds) ->
+  State =
+    case get(tx_map_state) of
+      undefined -> #{ cnt => 0 };
+      MapState ->
+        MapState
+    end,
+  Sorted = lists:sort(TxIds),
+  % make sure all txs already have number
+  State1 =
+    lists:foldl(
+    fun(El, Acc) ->
+      case maps:get(El, Acc, undefined) of
+        undefined ->
+          Cnt = maps:get(cnt, Acc, 0),
+          Acc1 = maps:put(El, Cnt, Acc),
+          maps:put(cnt, Cnt+1, Acc1);
+        _ ->
+          Acc
+      end
+    end,
+    State,
+    Sorted
+  ),
+  
+  % save new state
+  put(tx_map_state, State1),
+  
+  % convert tx timestamp to number
+  [maps:get(TxId, State1, 0) || TxId <- TxIds].
+
+
+% --------------------------------------------------------------------------------
 
 get_renderer() ->
   fun
@@ -114,13 +147,133 @@ get_renderer() ->
       
       [{T, TheirNode, MyNode, Message}];
 
-    (T, sync_ticktimer, PL, File) ->
+    (T, txqueue_mkblock, PL, File) ->
       Node = ?get_node(node),
-      [{T, Node, Node, "sync_ticktimer", #{arrow_type => hnote}}];
+      Ids = proplists:get_value(ids, PL, []),
+      Lbh = proplists:get_value(lbh, PL, <<>>),
+      Message =
+        io_lib:format("txqueue_mkblock tx_cnt=~p lbh=~p",
+          [length(Ids), Lbh]),
+
+      [{T, Node, Node, Message}];
+  
+  
+    (T, txqueue_xsig, PL, File) ->
+      Node = ?get_node(node),
+      Ids = proplists:get_value(ids, PL, []),
+      Message =
+        io_lib:format("txqueue_xsig tx_cnt=~p", [length(Ids)]),
+    
+      [{T, Node, Node, Message}];
+  
+    (T, txlog, PL, File) ->
+      Node = ?get_node(node),
+      TxIds = proplists:get_value(ts, PL, []),
+      Ts =
+        lists:map(
+          fun(TxId) ->
+            {_,[_,_,T1]} = txpool:decode_txid(TxId),
+            T1
+          end,
+          TxIds),
+  
+      Opts = proplists:get_value(options, PL, #{}),
+      Where = maps:get(where, Opts, undefined),
+      
+      Order =
+        lists:foldl(
+          fun
+            (El, undefined) ->
+              El;
+            (_, incorrect) ->
+              incorrect;
+            (El, PreEl) ->
+              if
+                El =< PreEl ->
+                  incorrect;
+                true ->
+                  El
+              end
+          end,
+          undefined,
+          Ts
+        ),
+      
+      OrderMsg =
+        if
+          is_number(Order) ->
+            ok;
+          true ->
+            Order
+        end,
+      
+      TsMsg = tx_map(Ts),
+      
+      Message =
+        case Where of
+          undefined ->
+            io_lib:format("txlog ~p ~w", [OrderMsg, TsMsg]);
+          _ ->
+%%            io_lib:format("txlog ~p ~p ~w", [OrderMsg, Where, TsMsg])
+  
+            case OrderMsg of
+              incorrect ->
+                io_lib:format(
+                  "txlog ~p ~p ~w ~10000p",
+                  [OrderMsg, Where, TsMsg, TxIds]);
+              _ ->
+                io_lib:format("txlog ~p ~p ~w", [OrderMsg, Where, TsMsg])
+            end
+        end,
+
+      
+      
+      [{T, Node, Node, Message}];
     
     (T, txqueue_prepare, PL, File) ->
       Node = ?get_node(node),
-      [{T, Node, Node, "txqueue_prepare"}];
+      Ids = proplists:get_value(ids, PL, []),
+      Message =
+        io_lib:format("txqueue_prepare tx_cnt=~p", [length(Ids)]),
+    
+      [{T, Node, Node, Message}];
+    
+    
+%%    (T, txqueue_done, PL, File) ->
+%%      Node = ?get_node(node),
+%%      Ids = proplists:get_value(ids, PL, []),
+%%      Result = proplists:get_value(result, PL, undefined),
+%%      Message =
+%%        io_lib:format("txqueue_done tx_cnt=~p result=~p",
+%%          [length(Ids), Result]),
+%%
+%%      [{T, Node, Node, Message}];
+%%
+%%
+%%    (T, txqueue_push, PL, File) ->
+%%      Node = ?get_node(node),
+%%      Ids = proplists:get_value(ids, PL, []),
+%%      BatchNo = proplists:get_value(batch, PL, undefined),
+%%      Storage = proplists:get_value(storage, PL, undefined),
+%%      Message =
+%%        io_lib:format("queue_push tx_cnt=~p batch_no=~p storage=~p",
+%%          [length(Ids), BatchNo, Storage]),
+%%
+%%      [{T, Node, Node, Message}];
+
+    (T, batchsync, PL, File) ->
+      Node = ?get_node(node),
+      Action = proplists:get_value(action, PL, undefined),
+      BatchNo = proplists:get_value(batch, PL, undefined),
+
+      Message =
+        io_lib:format("batch_sync ~p batch_no=~p", [Action, BatchNo]),
+  
+      [{T, Node, Node, Message}];
+      
+    (T, sync_ticktimer, PL, File) ->
+      Node = ?get_node(node),
+      [{T, Node, Node, "sync_ticktimer", #{arrow_type => hnote}}];
     
     (T, mkblock_process, PL, File) ->
       Node = ?get_node(node),

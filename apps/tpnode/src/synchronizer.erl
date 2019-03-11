@@ -151,7 +151,12 @@ handle_info(selftimer5, #{mychain:=_MyChain, tickms:=Ms, timer5:=Tmr, offsets:=O
     try
       gen_server:call(blockchain, ready, 50)
     catch Ec:Ee ->
+      StackTrace = erlang:process_info(whereis(blockchain), current_stacktrace),
+      ProcInfo = erlang:process_info(whereis(blockchain)),
       lager:error("SYNC BC is not ready err ~p:~p ", [Ec, Ee]),
+      lager:error("BC process info: ~p", [ProcInfo]),
+      lager:error("BC stack trace: ~p", [StackTrace]),
+      
       false
     end,
   MeanMs = round((T - MeanDiff) / 1000),
@@ -213,7 +218,12 @@ load_settings(State) ->
     try
       gen_server:call(blockchain, ready, 50)
     catch Ec:Ee ->
+      StackTrace = erlang:process_info(whereis(blockchain), current_stacktrace),
+      ProcInfo = erlang:process_info(whereis(blockchain)),
       lager:error("SYNC BC is not ready err ~p:~p ", [Ec, Ee]),
+      lager:error("BC process info: ~p", [ProcInfo]),
+      lager:error("BC stack trace: ~p", [StackTrace]),
+      
       false
     end,
   State#{
