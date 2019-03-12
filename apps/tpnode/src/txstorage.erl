@@ -145,14 +145,14 @@ handle_cast({store, Txs, Nodes, Options}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName}
     TxIds = store_tx_batch(Txs, Nodes, EtsName, ValidUntil),
     ParseOptions =
       fun
-        (#{push_queue := _}) when length(TxIds) > 0 ->
-          lager:info("push ids to txqueue: ~p", [TxIds]),
-          gen_server:cast(txqueue, {push, TxIds});
+        (#{push_queue := _, batch_no := BatchNo}) when length(TxIds) > 0 ->
+          lager:info("push ids to txqueue, batch=~p, ids: ~p", [BatchNo, TxIds]),
+          gen_server:cast(txqueue, {push, BatchNo, TxIds});
         (#{push_head_queue := _}) when length(TxIds) > 0 ->
           lager:info("push head ids to txqueue: ~p", [TxIds]),
           gen_server:cast(txqueue, {push_head, TxIds});
         (_Opt) ->
-          lager:debug("txstorage EndOfOptions TxIds: ~p, options: ~p", [TxIds, _Opt]),
+          lager:error("txstorage EndOfOptions TxIds: ~p, options: ~p", [TxIds, _Opt]),
           ok
       end,
     ParseOptions(Options)

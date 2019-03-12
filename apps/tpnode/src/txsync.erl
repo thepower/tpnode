@@ -60,12 +60,13 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 
 do_sync([], _Options) ->
-  lager:info("txsync: skip empty transactions list"),
-  ok;
+  lager:error("txsync: empty transactions list"),
+  error;
 
-do_sync(Transactions, _Options) when is_list(Transactions) ->
+do_sync(Transactions, #{batch_no := BatchNo} = _Options) when is_list(Transactions) ->
   try
-    lager:info("txsync: start for ~p", [Transactions]),
+    lager:info("txsync: start for batch ~p, txcount=~p", [BatchNo, length(Transactions)]),
+    stout:log(batchsync, [{action, start}, {batch, BatchNo}]),
     
     {BatchId, BatchBin} =
       case make_batch(Transactions) of
@@ -112,11 +113,16 @@ do_sync(Transactions, _Options) when is_list(Transactions) ->
         confirmed => #{},
         conf_timeout_ms => get_wait_confs_timeout_ms(),
         batchid => BatchId,
+        batchno => BatchNo,
         txs => maps:from_list(Transactions)
       }
     ),
     ok
   catch
+    throw:empty_batch ->
+      lager:error("do_sync: empty batch"),
+      error;
+      
     Ec:Ee ->
       utils:print_error("do_sync error", Ec, Ee, erlang:get_stacktrace()),
       error
@@ -128,6 +134,7 @@ wait_response(
     confirmed := Confirmed,
     conf_timeout_ms := TimeoutMs,
     batchid := BatchId,
+    batchno := BatchNo,
     txs := TxMap} = State) ->
   
   receive
@@ -147,7 +154,8 @@ wait_response(
         0 ->
           % all confirmations received
           lager:info("got all confirmations for ~p", [BatchId]),
-          store_batch(TxMap, Confirmed, #{push_queue => true}),
+          store_batch(TxMap, Confirmed, #{push_queue => true, batch_no => BatchNo}),
+          stout:log(batchsync, [{action, done_ok}, {batch, BatchNo}]),
           ok;
         _ ->
           wait_response(
@@ -162,7 +170,8 @@ wait_response(
       wait_response(State)
     after TimeoutMs ->
       % confirmations waiting cycle timeout
-      store_batch(TxMap, Confirmed, #{push_queue => true}),
+      store_batch(TxMap, Confirmed, #{push_queue => true, batch_no => BatchNo}),
+      stout:log(batchsync, [{action, done_timeout}, {batch, BatchNo}]),
       lager:error("EOF for batch ~p", [BatchId])
   end,
   ok.

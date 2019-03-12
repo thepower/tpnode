@@ -45,10 +45,11 @@ start_link() ->
 
 init(_Args) ->
   State = #{
-    queue=>queue:new(),
-    nodeid=>nodekey:node_id(),
-    pubkey=>nodekey:get_pub(),
-    sync_timer=>undefined
+    queue => queue:new(),
+    batch_no => 0,
+    nodeid => nodekey:node_id(),
+    pubkey => nodekey:get_pub(),
+    sync_timer => undefined
   },
   {ok, load_settings(State)}.
 
@@ -240,7 +241,8 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(sync_tx,
-  #{sync_timer:=Tmr, mychain:=_MyChain, minsig:=MinSig, queue:=Queue} = State) ->
+  #{sync_timer:=Tmr, mychain:=_MyChain,
+    minsig:=MinSig, queue:=Queue, batch_no:=BatchNo} = State) ->
   
   catch erlang:cancel_timer(Tmr),
   lager:info("run tx sync"),
@@ -260,17 +262,20 @@ handle_info(sync_tx,
     _ ->
       % peers count is OK, sync transactions
       {NewQueue, Transactions} = pullx({MaxPop, get_max_tx_size()}, Queue, []),
-      case Transactions of
-        [] ->
-          pass;
-        _ ->
-          erlang:spawn(txsync, do_sync, [Transactions, #{}]),
-          self() ! sync_tx
-      end,
+      NewBatchNo =
+        case Transactions of
+          [] ->
+            BatchNo; % don't increase batch id number
+          _ ->
+            erlang:spawn(txsync, do_sync, [Transactions, #{ batch_no => BatchNo }]),
+            self() ! sync_tx,
+            BatchNo + 1   % increase batch id
+        end,
       {noreply,
         State#{
           sync_timer => undefined,
-          queue => NewQueue
+          queue => NewQueue,
+          batch_no => NewBatchNo
         }
       }
   end;

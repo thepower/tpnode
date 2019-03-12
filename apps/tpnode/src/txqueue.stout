@@ -6,6 +6,7 @@
 {txqueue_mkblock, ["txqueue sent to mkblok, lbh=", lbh, ", ids: ", ids]}.
 {txstatus_done, ["txstatus got done, result=", result, ", ids: ", ids ]}.
 {blockchain_success, ["blockchain sent done, failed=", failed, ", result=", result]}.
+{batchsync, ["batchsync ", action, ", batch=", batch]}.
 
 
 

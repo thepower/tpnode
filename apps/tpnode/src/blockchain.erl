@@ -16,6 +16,7 @@
          chainstate/0,
          blkid/1,
          rel/2,
+         receive_block/2,
          send_block_real/4,
          tpiccall/3,
          exists/1]).

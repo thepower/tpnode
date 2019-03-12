@@ -14,6 +14,9 @@
 -export([bals2bin/1]).
 -export([minify/1]).
 
+%% split large blocks to small packets of that size
+-define(SPLIT_PACKET_SIZE, 64*1024).
+
 unpack_mproof(M) ->
   list_to_tuple(
     lists:map(
@@ -888,7 +891,7 @@ packsig(Block) ->
     end, Block).
 
 split_packet(Data) ->
-  Size = 1024,
+  Size = ?SPLIT_PACKET_SIZE,
   Length = erlang:ceil(byte_size(Data) / Size),
   split_packet(Size, Data, 1, Length).
 split_packet(Size, Data) ->

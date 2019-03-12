@@ -741,7 +741,14 @@ filter_block(Block, Address) ->
     fun(bals, B) ->
         maps:with([Address], B);
        (txs, B) ->
-        [ {TxID, TX} || {TxID, #{from:=F, to:=T}=TX} <- B, F==Address orelse T==Address ];
+        lists:filter(
+          fun({_TxID, #{from:=F, to:=T}}) when F==Address orelse T==Address ->
+              true;
+             ({_TxID, #{kind:=register, extdata:=#{<<"addr">>:=F}}}) when F==Address ->
+              true;
+             (_) ->
+              false
+          end, B);
        (_, V) -> V
     end, Block).
 
