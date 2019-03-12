@@ -1,11 +1,16 @@
 -module(tpic2).
--export([childspec/0,certificate/0,cert/2,extract_cert_info/1, verfun/3]).
+-export([childspec/0,certificate/0,cert/2,extract_cert_info/1, verfun/3,
+        node_addresses/0]).
 -include("/usr/local/lib/erlang20/lib/public_key-1.5.2/include/public_key.hrl").
 
 certificate() ->
   Priv=nodekey:get_priv(),
   DERKey=tpecdsa:export(Priv,der),
-  Cert=cert(Priv,<<"nodekey:node_name()">>),
+  Cert=cert(Priv,try
+                   nodekey:node_name()
+                 catch _:_ ->
+                         iolist_to_binary(net_adm:localhost())
+                 end),
   [{'Certificate',DerCert,not_encrypted}]=public_key:pem_decode(Cert),
   [
    {key, {'ECPrivateKey', DERKey}},
@@ -27,6 +32,10 @@ childspec() ->
              | SSLOpts ],
   tpic2_client:childspec() ++
   [
+   {tpic2_cmgr,
+    {tpic2_cmgr,start_link, []},
+    permanent,20000,worker,[]
+   },
    ranch:child_spec(
      tpic_tls,
      ranch_ssl,
@@ -35,6 +44,28 @@ childspec() ->
      #{}
     )
   ].
+
+node_addresses() ->
+  {ok,IA}=inet:getifaddrs(),
+  lists:foldl(
+    fun({_IFName,Attrs},Acc) ->
+        Flags=proplists:get_value(flags,Attrs,[]),
+        case not lists:member(loopback,Flags)
+             andalso lists:member(running,Flags)
+        of false ->
+             Acc; true
+           ->
+             lists:foldl(
+               fun({addr, {65152,_,_,_,_,_,_,_}}, Acc1) ->
+                   Acc1;
+                  ({addr, ADDR}, Acc1) ->
+                   [list_to_binary(inet:ntoa(ADDR)) | Acc1];
+                  (_,Acc1) -> Acc1
+               end,
+               Acc,
+               Attrs)
+        end end, [],
+    IA).
 
 cert(Key, Subject) ->
   H=erlang:open_port(

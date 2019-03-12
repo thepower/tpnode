@@ -48,7 +48,7 @@ init_ipport(#{ip:=IPList,port:=Port}) ->
 init_ipport(_) ->
   [].
 
-handle_call({add, _, IP, Port}, _From, #{peer_ipport:=IPP}=State) ->
+handle_call({add, IP, Port}, _From, #{peer_ipport:=IPP}=State) ->
   IPP2=[{IP,Port}|(IPP--{IP,Port})],
   {reply, IPP2, State#{peer_ipport=>IPP2}};
 
@@ -56,18 +56,34 @@ handle_call({register, StreamID, Dir, PID},
             _From,
             #{mpid:=MPID, streams:=Str}=State) ->
   case maps:find(PID,MPID) of
+    {ok, {undefined,Dir1}} -> %replace with new stream id
+      {reply, {ok, self()},
+       apply_ctl(
+         State#{
+           streams=>[{StreamID,Dir,PID}|Str]--[{undefined,Dir1,PID}],
+           mpid=>maps:put(PID,
+                          {StreamID,Dir},
+                          maps:get(mpid,State,#{})
+                         )
+          },
+         StreamID, Dir, PID
+        )
+      };
     {ok, _} ->
       {reply, {exists, self()}, State};
     error ->
       monitor(process,PID),
       {reply, {ok, self()},
-       State#{
-         streams=>[{StreamID,Dir,PID}|Str],
-         mpid=>maps:put(PID,
-                        {StreamID,Dir},
-                        maps:get(mpid,State,#{})
-                       )
-        }
+       apply_ctl(
+         State#{
+           streams=>[{StreamID,Dir,PID}|Str],
+           mpid=>maps:put(PID,
+                          {StreamID,Dir},
+                          maps:get(mpid,State,#{})
+                         )
+          },
+         StreamID, Dir, PID
+        )
       }
   end;
 
@@ -121,13 +137,25 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+open_control(#{peer_ipport:=[]}=State) ->
+  State;
+
 open_control(#{peer_ipport:=[{Host,Port}|RestIPP]}=State) ->
-  {ok, PID}=tpic2_client:start(Host, Port, #{stream=>0}),
+  {ok, PID}=tpic2_client:start(Host, Port, #{
+                                       stream=>0,
+                                       announce=>[]
+                                      }),
   State#{
     peer_ipport=>RestIPP++[{Host,Port}],
     outctl=>PID
    }.
 
+apply_ctl(State, 0, in, PID) ->
+  State#{inctl => PID};
 
+apply_ctl(State, 0, out, PID) ->
+  State#{outctl => PID};
 
+apply_ctl(State, _StreamID, _Dir, _PID) ->
+  State.
 

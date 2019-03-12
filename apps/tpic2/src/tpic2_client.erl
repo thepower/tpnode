@@ -68,6 +68,6 @@ connection_process(Parent, Host, Port, Opts) ->
     role=>client,
     opts=>Opts
    },
-  tpic2_tls:send_msg({hello, client}, State),
+  tpic2_tls:send_msg(hello, State),
   tpic2_tls:loop1(State).
 

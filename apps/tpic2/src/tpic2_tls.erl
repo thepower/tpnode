@@ -26,10 +26,10 @@ connection_process(Parent, Ref, Socket, Transport, Opts) ->
           role=>server,
           opts=>Opts
          },
-  tpic2_tls:send_msg({hello, server}, State),
+  tpic2_tls:send_msg(hello, State),
   ?MODULE:loop1(State).
 
-loop1(State=#{socket:=Socket,role:=_Role}) ->
+loop1(State=#{socket:=Socket,role:=Role}) ->
   {ok,PC}=ssl:peercert(Socket),
   DCert=tpic2:extract_cert_info(public_key:pkix_decode_cert(PC,otp)),
   Pubkey=case DCert of
@@ -39,7 +39,13 @@ loop1(State=#{socket:=Socket,role:=_Role}) ->
              undefined
          end,
   lager:info("Peer PubKey ~p ~p",[Pubkey,chainsettings:is_our_node(Pubkey)]),
-  ?MODULE:loop(State#{pubkey=>Pubkey}).
+  case Role of
+    server ->
+      {ok,PPID}=gen_server:call(tpic2_cmgr, {peer,Pubkey, {register, undefined, in, self()}}),
+      ?MODULE:loop(State#{pubkey=>Pubkey,peerpid=>PPID});
+    _ ->
+      ?MODULE:loop(State#{pubkey=>Pubkey})
+  end.
 
 loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
              timer:=TimerRef}) ->
@@ -83,24 +89,55 @@ loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
       error_logger:error_msg("Received stray message ~p.~n", [Msg]),
       ?MODULE:loop(State)
   after 10000 -> %to avoid killing on code change
+          send_msg(#{null=><<"KA">>},State),
           ?MODULE:loop(State)
   end.
 
 system_continue(_PID,_,{State}) ->
   ?MODULE:loop(State).
 
-send_msg({hello, Role}, #{socket:=Socket, opts:=Opts}) ->
-  Stream=maps:get(stream, Opts, undefined),
-  ssl:send(Socket,msgpack:pack(#{null=><<"hello">>, i=>Role, s=>Stream}));
+send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
+  lager:info("Hello opts ~p",[Opts]),
+  Stream=maps:get(stream, Opts, null),
+  Announce=maps:get(announce, Opts, []),
+  Cfg=application:get_env(tpnode,tpic,#{}),
+  Port=maps:get(port,Cfg,40000),
+  Hello=#{null=><<"hello">>,
+          addrs=>tpic2:node_addresses(),
+          port=>Port,
+          sid=>Stream,
+          services=>Announce
+         },
+  lager:info("Hello ~p",[Hello]),
+  ssl:send(Socket,msgpack:pack(Hello));
 
 send_msg(Msg, #{socket:=Socket}) when is_map(Msg) ->
   ssl:send(Socket,msgpack:pack(Msg)).
 
-handle_msg(#{null:=<<"hello">>, <<"s">>:=SID},State) ->
+handle_msg(#{null:=<<"KA">>}, State) ->
+  State;
+
+handle_msg(#{null:=<<"hello">>,
+             <<"sid">>:=SID,
+             <<"addrs">>:=Addrs,
+             <<"port">>:=Port
+            },
+           #{pubkey:=PK,
+            role:=server}=State) ->
+  {ok, PPID}=gen_server:call(tpic2_cmgr, {peer,PK, {register, SID, in, self()}}),
+  lists:foreach(fun(Addr) ->
+                    gen_server:call(PPID, {add, Addr, Port})
+                end,
+                Addrs),
   send_msg(#{null=><<"hello_ack">>}, State),
-  State#{
-    sid=>SID
-   };
+  State#{ sid=>SID };
+
+handle_msg(#{null:=<<"hello">>,
+             <<"sid">>:=SID},
+           #{pubkey:=PK}=State) ->
+  {ok, _PPID}=gen_server:call(tpic2_cmgr, {peer,PK, {register, SID, out, self()}}),
+  send_msg(#{null=><<"hello_ack">>}, State),
+  State#{ sid=>SID };
 
 handle_msg(Any,State) ->
   lager:error("Unknown message ~p",[Any]),
