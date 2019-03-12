@@ -103,7 +103,7 @@ handle_cast({tpic, Origin, #{
       PreBlk=block:unpack(Bin),
       MS=chainsettings:get_val(minsig),
 
-      {_, HisHash}=hei_and_has(PreBlk),
+      {_, _, HeiHas}=hei_and_has(PreBlk),
       CheckFun=fun(PubKey,_) ->
                    chainsettings:is_our_node(PubKey) =/= false
                end,
@@ -111,7 +111,7 @@ handle_cast({tpic, Origin, #{
         {true, {Sigs,_}} when length(Sigs) >= MS ->
           % valid block, enough sigs
           lager:info("Got blk from peer ~p",[PreBlk]),
-          handle_cast({prepare, Origin, TXs, HisHash}, State);
+          handle_cast({prepare, Origin, TXs, HeiHas}, State);
         {true, _ } ->
           % valid block, not enough sigs
           {noreply, State};
@@ -121,7 +121,7 @@ handle_cast({tpic, Origin, #{
       end
   end;
 
-handle_cast({prepare, Node, Txs, HisHash}, #{preptxm:=PreTXM}=State) ->
+handle_cast({prepare, Node, Txs, HeiHash}, #{preptxm:=PreTXM}=State) ->
   Origin=chainsettings:is_our_node(Node),
   if Origin==false ->
        lager:error("Got txs from bad node ~s",
@@ -201,8 +201,8 @@ handle_cast({prepare, Node, Txs, HisHash}, #{preptxm:=PreTXM}=State) ->
          Tx2Put=lists:filtermap(MarkTx, Txs),
        {noreply,
         State#{
-          preptxm=> maps:put(HisHash,
-                             maps:get(HisHash,PreTXM, []) ++ Tx2Put,
+          preptxm=> maps:put(HeiHash,
+                             maps:get(HeiHash,PreTXM, []) ++ Tx2Put,
                             PreTXM)
          }
        }
@@ -217,14 +217,14 @@ handle_cast(_Msg, State) ->
 
 handle_info(process,
             #{settings:=#{mychain:=MyChain, nodename:=NodeName}=MySet, preptxm:=PreTXM}=State) ->
-  BestHash=case lists:sort(maps:keys(PreTXM)) of
+  BestHeiHash=case lists:sort(maps:keys(PreTXM)) of
              [undefined] -> undefined;
              [undefined,H0|_] -> H0;
              [H0|_] -> H0;
              [] -> undefined
            end,
-  lager:info("pick txs parent block ~p",[BestHash]),
-  PreTXL0=maps:get(BestHash, PreTXM, []),
+  lager:info("pick txs parent block ~p",[BestHeiHash]),
+  PreTXL0=maps:get(BestHeiHash, PreTXM, []),
   PreTXL1=lists:foldl(
             fun({TxID, TXB}, Acc) ->
                 case maps:is_key(TxID, Acc) of
@@ -245,7 +245,7 @@ handle_info(process,
   B=blockchain:last_meta(),
   lager:info("Got blk from our blockchain ~p",[B]),
 
-  {PHeight, PHash}=hei_and_has(B),
+  {PHeight, PHash, PHeiHash}=hei_and_has(B),
   PTmp=maps:get(temporary,B,false),
 
   lager:info("-------[MAKE BLOCK h=~w tmp=~p]-------",[PHeight,PTmp]),
@@ -267,11 +267,11 @@ handle_info(process,
            end,
 
   try
-    if BestHash == undefined -> ok;
-       BestHash == PHash -> ok;
+    if BestHeiHash == undefined -> ok;
+       BestHeiHash == PHeiHash -> ok;
        true ->
          gen_server:cast(chainkeeper, are_we_synced),
-         throw({'unsync',BestHash,PHash})
+         throw({'unsync',BestHeiHash,PHeiHash})
     end,
     T1=erlang:system_time(),
     lager:debug("MB pre nodes ~p", [PreNodes]),
@@ -487,11 +487,15 @@ hei_and_has(B) ->
   case PTmp of false ->
                  lager:info("Prev block is permanent, make child"),
                  #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=B,
-                 {Last_Height1, Last_Hash1};
+                 {Last_Height1,
+                  Last_Hash1,
+                  <<(bnot Last_Height1):64/big,Last_Hash1/binary>>};
                X when is_integer(X) ->
                  lager:info("Prev block is temporary, make replacement"),
                  #{header:=#{height:=Last_Height1, parent:=Last_Hash1}}=B,
-                 {Last_Height1-1, Last_Hash1}
+                 {Last_Height1-1,
+                  Last_Hash1,
+                  <<(bnot Last_Height1-1):64/big,Last_Hash1/binary>>}
   end.
 
 
