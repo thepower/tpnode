@@ -368,6 +368,7 @@ rollback_block(LoggerOptions, RollbackOptions) ->
           {action, ok},
           {newhash, NewHash}
         ]),
+      lager:notice("rollback new hash ~p", [NewHash]),
       
       case proplists:get_value(no_runsync, RollbackOptions, false) of
         false ->
@@ -389,6 +390,8 @@ rollback_block(LoggerOptions, RollbackOptions) ->
           {options, LoggerOptions},
           {action, {error, Err}}
         ]),
+      lager:error("rollback error ~p", [Err]),
+      
       {error, Err}
   end.
 
