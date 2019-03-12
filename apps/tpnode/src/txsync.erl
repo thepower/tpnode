@@ -107,6 +107,7 @@ do_sync(Transactions, #{batch_no := BatchNo} = _Options) when is_list(Transactio
         #{},
         Peers),
     tpic:cast(tpic, <<"mkblock">>, {<<"txbatch">>, MRes}),
+    
     wait_response(
       #{
         unconfirmed => Unconfirmed,
@@ -184,7 +185,11 @@ wait_response(
 %%  store_batch(Txs, Nodes, #{}).
 
 store_batch(Txs, Nodes, Options) ->
-  gen_server:cast(txstorage, {store, maps:to_list(Txs), maps:keys(Nodes), Options}).
+  % txs order may be invalid after maps:to_list.
+  % we'll sort txids at the moment of adding to queue in txstorage store cast
+  TxsPList = maps:to_list(Txs),
+%%  txlog:log([ K || {K,_} <- TxsPList ], #{where => store_batch}),
+  gen_server:cast(txstorage, {store, TxsPList, maps:keys(Nodes), Options}).
 
 
 %% ------------------------------------------------------------------

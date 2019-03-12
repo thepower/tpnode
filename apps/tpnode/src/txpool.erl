@@ -11,7 +11,7 @@
 
 -export([start_link/0]).
 -export([new_tx/1, get_pack/0, inbound_block/1, get_max_tx_size/0, get_max_pop_tx/0, pullx/3]).
--export([get_state/0]).
+-export([get_state/0, sort_txs/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -154,7 +154,7 @@ handle_cast({new_height, H}, State) ->
 handle_cast({inbound_block, #{hash:=Hash} = Block}, #{sync_timer:=Tmr, queue:=Queue} = State) ->
   TxId = bin2hex:dbin2hex(Hash),
   lager:info("Inbound block ~p", [{TxId, Block}]),
-  % we need syncronise inbound blocks as well as incoming transaction from user
+  % we need synchronise inbound blocks as well as incoming transaction from user
   % inbound blocks may arrive at two nodes or more at the same time
   % so, we may already have this inbound block in storage
   NewQueue =
@@ -262,6 +262,12 @@ handle_info(sync_tx,
     _ ->
       % peers count is OK, sync transactions
       {NewQueue, Transactions} = pullx({MaxPop, get_max_tx_size()}, Queue, []),
+  
+      txlog:log(
+        [TxId1 || {TxId1, _TxBody1} <- Transactions],
+        #{where => txpool}
+      ),
+      
       NewBatchNo =
         case Transactions of
           [] ->
@@ -362,9 +368,27 @@ generate_txid(#{}) ->
   error.
 
 %% ------------------------------------------------------------------
+sort_txs([]) ->
+  [];
+
+sort_txs(Txs) when is_list(Txs) ->
+  Unpacked =
+    lists:map(
+      fun(TxId) ->
+        {_NodeId, [_Chain, _Height, Timestamp]} = decode_txid(TxId),
+        {Timestamp, TxId}
+      end,
+      Txs
+    ),
+  Sorted = lists:keysort(1, Unpacked),
+  [TxId2 || {_, TxId2} <- Sorted ].
+  
+
+
+%% ------------------------------------------------------------------
 
 pullx({0, _}, Q, Acc) ->
-    {Q, Acc};
+    {Q, lists:reverse(Acc)};
 
 pullx({N, MaxSize}, Q, Acc) ->
     {Element, Q1}=queue:out(Q),
@@ -373,13 +397,13 @@ pullx({N, MaxSize}, Q, Acc) ->
           MaxSize1 = MaxSize - size(E1),
           if
             MaxSize1 < 0 ->
-              {Q, Acc};
+              {Q, lists:reverse(Acc)};
             true ->
               %lager:debug("Pull tx ~p", [E1]),
               pullx({N - 1, MaxSize1}, Q1, [E1 | Acc])
           end;
         empty ->
-            {Q, Acc}
+            {Q, lists:reverse(Acc)}
     end.
 
 %% ------------------------------------------------------------------
