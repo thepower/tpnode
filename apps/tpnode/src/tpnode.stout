@@ -31,6 +31,9 @@
 {inst_sync, ["sync got a ", reason ]}.
 {sync_candidates, ["sync candidates ", candidates]}.
 
+{txlog, ["txlog ", ts]}.
+
+
 {ck_fork, ["chainkeeper fork: ", action]}.
 {ck_beacon, ["chainkeeper got beacon from node ", node, ", blk=", block]}.
 {ck_sync, ["chainkeeper sync action: ", action,

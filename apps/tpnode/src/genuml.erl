@@ -57,6 +57,39 @@ block(BLog,T1,T2) ->
   Events1.
 
 % --------------------------------------------------------------------------------
+tx_map(TxIds) when is_list(TxIds) ->
+  State =
+    case get(tx_map_state) of
+      undefined -> #{ cnt => 0 };
+      MapState ->
+        MapState
+    end,
+  Sorted = lists:sort(TxIds),
+  % make sure all txs already have number
+  State1 =
+    lists:foldl(
+    fun(El, Acc) ->
+      case maps:get(El, Acc, undefined) of
+        undefined ->
+          Cnt = maps:get(cnt, Acc, 0),
+          Acc1 = maps:put(El, Cnt, Acc),
+          maps:put(cnt, Cnt+1, Acc1);
+        _ ->
+          Acc
+      end
+    end,
+    State,
+    Sorted
+  ),
+  
+  % save new state
+  put(tx_map_state, State1),
+  
+  % convert tx timestamp to number
+  [maps:get(TxId, State1, 0) || TxId <- TxIds].
+
+
+% --------------------------------------------------------------------------------
 
 get_renderer() ->
   fun
@@ -120,7 +153,7 @@ get_renderer() ->
       Lbh = proplists:get_value(lbh, PL, <<>>),
       Message =
         io_lib:format("txqueue_mkblock tx_cnt=~p lbh=~p",
-          [length(Ids), blockchain:blkid(Lbh)]),
+          [length(Ids), Lbh]),
 
       [{T, Node, Node, Message}];
   
@@ -133,6 +166,70 @@ get_renderer() ->
     
       [{T, Node, Node, Message}];
   
+    (T, txlog, PL, File) ->
+      Node = ?get_node(node),
+      TxIds = proplists:get_value(ts, PL, []),
+      Ts =
+        lists:map(
+          fun(TxId) ->
+            {_,[_,_,T1]} = txpool:decode_txid(TxId),
+            T1
+          end,
+          TxIds),
+  
+      Opts = proplists:get_value(options, PL, #{}),
+      Where = maps:get(where, Opts, undefined),
+      
+      Order =
+        lists:foldl(
+          fun
+            (El, undefined) ->
+              El;
+            (_, incorrect) ->
+              incorrect;
+            (El, PreEl) ->
+              if
+                El =< PreEl ->
+                  incorrect;
+                true ->
+                  El
+              end
+          end,
+          undefined,
+          Ts
+        ),
+      
+      OrderMsg =
+        if
+          is_number(Order) ->
+            ok;
+          true ->
+            Order
+        end,
+      
+      TsMsg = tx_map(Ts),
+      
+      Message =
+        case Where of
+          undefined ->
+            io_lib:format("txlog ~p ~w", [OrderMsg, TsMsg]);
+          _ ->
+%%            io_lib:format("txlog ~p ~p ~w", [OrderMsg, Where, TsMsg])
+  
+            case OrderMsg of
+              incorrect ->
+                io_lib:format(
+                  "txlog ~p ~p ~w ~10000p",
+                  [OrderMsg, Where, TsMsg, TxIds]);
+              _ ->
+                io_lib:format("txlog ~p ~p ~w", [OrderMsg, Where, TsMsg])
+            end
+        end,
+
+      
+      
+      [{T, Node, Node, Message}];
+    
     (T, txqueue_prepare, PL, File) ->
       Node = ?get_node(node),
       Ids = proplists:get_value(ids, PL, []),

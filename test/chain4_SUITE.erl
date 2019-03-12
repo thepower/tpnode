@@ -12,6 +12,9 @@
 %% <<128,1,64,0,4,0,0,2>>
 -define(TO_WALLET, <<"AA100000006710886608">>).
 
+% destination bonus (extra SK for destination wallet)
+-define(SK_BONUS, 100000).
+
 % each transaction fee
 -define(TX_FEE, 0).
 
@@ -316,7 +319,14 @@ transaction_ping_pong_test(_Config) ->
     TxId = make_transaction(Wallet, Wallet2, Cur, FeeAmount, ?TX_FEE, <<"for fee">>),
     logger("txid: ~p ~n", [TxId]),
     {ok, Status, _} = api_get_tx_status(TxId),
-    ?assertMatch(#{<<"res">> := <<"ok">>}, Status),
+    ?assertMatch(#{<<"ok">> := true, <<"res">> := <<"ok">>}, Status),
+  
+    % send additional SK to Wallet2
+    logger("Send additional SK: ~p", [?SK_BONUS]),
+    TxIdBonus = make_transaction(Wallet, Wallet2, <<"SK">>, ?SK_BONUS, ?TX_FEE, <<"for fee">>),
+    logger("txid: ~p ~n", [TxIdBonus]),
+    {ok, StatusBonus, _} = api_get_tx_status(TxIdBonus),
+    ?assertMatch(#{<<"ok">> := true, <<"res">> := <<"ok">>}, StatusBonus),
   
     % send money from endless to Wallet2
     Message = <<"ping">>,
@@ -351,7 +361,7 @@ transaction_ping_pong_test(_Config) ->
     logger("transfered money: ~p ~n", [TransferedMoney]),
     logger("fee amount: ~p ~n", [FeeAmount]),
   
-    NewAmount = AmountPrev + TransferedMoney + FeeAmount,
+    NewAmount = AmountPrev + TransferedMoney + FeeAmount + ?SK_BONUS,
     logger("expected new amount: ~p ~n", [NewAmount]),
     ?assertMatch(
         #{<<"info">> := #{<<"amount">> := #{Cur := NewAmount}}},
@@ -378,10 +388,12 @@ transaction_ping_pong_test(_Config) ->
 
     Wallet2Data2 = api_get_wallet(Wallet2),
     logger("destination wallet after the money were sent back: ~p ~n", [Wallet2Data2]),
-    logger("expected amount (prev dest wallet amount): ~p~n", [AmountPrev]),
+    logger("expected amount (prev dest wallet amount): ~p, sk_bonus: ~p~n", [AmountPrev, ?SK_BONUS]),
   
+    ExpectedBalance = AmountPrev + ?SK_BONUS,
+    
     ?assertMatch(
-        #{<<"info">> := #{<<"amount">> := #{Cur := AmountPrev}}},
+        #{<<"info">> := #{<<"amount">> := #{Cur := ExpectedBalance}}},
         Wallet2Data2
     ).
 

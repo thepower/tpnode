@@ -142,7 +142,8 @@ handle_cast({store, Txs, Nodes, Options}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName}
 
   try
     ValidUntil = os:system_time(second) + Ttl,
-    TxIds = store_tx_batch(Txs, Nodes, EtsName, ValidUntil),
+    % we should sort tx ids here
+    TxIds = txpool:sort_txs(store_tx_batch(Txs, Nodes, EtsName, ValidUntil)),
     ParseOptions =
       fun
         (#{push_queue := _, batch_no := BatchNo}) when length(TxIds) > 0 ->
@@ -226,11 +227,11 @@ store_tx_batch(Txs, Nodes, Table, ValidUntil) when is_list(Nodes) ->
   store_tx_batch(Txs, Nodes, Table, ValidUntil, []).
 
 store_tx_batch([], _FromPubKey, _Table, _ValidUntil, StoredIds) ->
-  StoredIds;
+  lists:reverse(StoredIds);
 
 store_tx_batch([{TxId, Tx}|Rest], Nodes, Table, ValidUntil, StoredIds)
   when is_list(Nodes) ->
-    NewStoredIds = StoredIds ++ [store_tx({TxId, Tx, Nodes}, Table, ValidUntil)],
+    NewStoredIds = [store_tx({TxId, Tx, Nodes}, Table, ValidUntil) | StoredIds],
     store_tx_batch(Rest, Nodes, Table, ValidUntil, NewStoredIds);
 
 store_tx_batch([{TxId, Tx}|Rest], FromPubKey, Table, ValidUntil, StoredIds)
