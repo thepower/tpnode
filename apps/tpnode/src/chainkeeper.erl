@@ -536,35 +536,40 @@ check_and_sync_runner(TPIC, Options) ->
 check_and_sync(TPIC, Options) ->
   try
     MinSig = maps:get(minsig, Options, chainsettings:get_val(minsig)),
-    #{hash := MyHash} = MyMeta = blockchain:last_meta(),
-
-    Answers =
-      case maps:get(temporary, MyMeta, false) of
-        Wei when is_number(Wei) ->
-          % don't need sync if we have temporary
-          stout:log(ck_fork, [
-              {action, have_temporary},
-              {node, maps:get(mynode, Options, nodekey:node_name())}
-            ]),
-          throw(finish);
-        _ ->
-          % we have permanent block
-          #{header := #{parent := ParentHash}} = MyMeta,
-  
-          stout:log(ck_fork, [
-            {action, have_permanent},
-            {node, maps:get(mynode, Options, nodekey:node_name())},
-            {parent, ParentHash}
-          ]),
-          
-          tpiccall(
-            TPIC,
-            <<"blockchain">>,
-            #{null => <<"pick_block">>, <<"hash">> => ParentHash, <<"rel">> => child},
-            [block, error]
-          )
-      end,
     
+    #{hash := MyHash,
+      header := #{parent := ParentHash}
+    } = MyMeta = blockchain:last_meta(),
+
+    case maps:get(temporary, MyMeta, false) of
+      Wei when is_number(Wei) ->
+        % Last our block is temporary
+        stout:log(ck_fork, [
+            {action, have_temporary},
+            {node, maps:get(mynode, Options, nodekey:node_name())}
+          ]);
+
+%%          throw(finish);
+      _ ->
+        % we have permanent block
+        stout:log(ck_fork, [
+          {action, have_permanent},
+          {node, maps:get(mynode, Options, nodekey:node_name())},
+          {parent, ParentHash}
+        ])
+    end,
+
+    % In both cases rather we have tmp or permanent block we need look up child of parent
+    % Please note, parent hash of tmp block is hash of the last permanent block.
+    % Parent hash of permanent block is hash of the previous permanent block.
+    Answers =
+      tpiccall(
+        TPIC,
+        <<"blockchain">>,
+        #{null => <<"pick_block">>, <<"hash">> => ParentHash, <<"rel">> => child},
+        [block, error]
+      ),
+      
     PushAssoc =
       fun(Hash, Assoc, HashToAssocMap) ->
         Old = maps:get(Hash, HashToAssocMap, []),
