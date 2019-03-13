@@ -46,8 +46,12 @@ rel(Hash, self) ->
   gen_server:call(blockchain, {get_block, Hash}).
 
 exists(Hash) ->
-  gen_server:call(blockchain, {block_exists, Hash}).
-  
+  try
+    gen_server:call(blockchain, {block_exists, Hash})
+  catch
+    exit:{timeout,{gen_server,call,[blockchain,block_exists,_]}} ->
+      timeout
+  end.
 
 last_meta() ->
   [{last_meta, Blk}]=ets:lookup(lastblock,last_meta),

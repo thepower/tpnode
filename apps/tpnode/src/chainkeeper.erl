@@ -421,9 +421,11 @@ check_fork(
       MyHeight =:= TheirHeight ->
         ok;
       MyHeight > TheirHeight ->
-        case blockchain:exists(TheirHash) of
+        case catch blockchain:exists(TheirHash) of
           true ->
             ok;
+          timeout ->
+            {fork, timeout};
           _ ->
             {fork, hash_not_exists}
         end;
