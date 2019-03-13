@@ -191,6 +191,9 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
     tpic:cast(tpic, <<"mkblock">>, MResX),
     stout:log(txqueue_xsig, [ {ids, TxIds} ])
   catch
+    exit:{timeout,{gen_server,call,[blockchain,lastsig]}} ->
+      lager:error("can't send xsig, blockchain timeout");
+    
     Ec:Ee ->
       utils:print_error("Can't send xsig", Ec, Ee, erlang:get_stacktrace())
   end,
