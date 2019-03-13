@@ -11,6 +11,7 @@
          apply_block_conf_meta/2,
          apply_ledger/2,
          last_meta/0,
+         bbyb_sync/4,
          last/0, last/1, chain/0,
          backup/1, restore/1,
          chainstate/0,
@@ -1109,91 +1110,38 @@ handle_info({bbyb_sync, Hash},
   flush_bbsync(),
   stout:log(runsync, [ {node, nodekey:node_name()}, {where, bbsync} ]),
   lager:debug("run bbyb sync from hash: ~p", [blkid(Hash)]),
-  case tpiccall(Handler,
-                #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
-                [block]
-               ) of
-    [{_, #{error:=Err}=R}] ->
-      lager:error("No block part arrived (~p), broken sync ~p", [Err,R]),
-      %%          erlang:send_after(10000, self(), runsync), % chainkeeper do that
-      stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_block_part} ]),
-
-      if(Err == <<"noblock">>) ->
-          gen_server:cast(chainkeeper,
-            {possible_fork, #{
-              hash => Hash, % our hash which not found in current syncing peer
-              mymeta => blockchain:last_meta()
-            }});
-        true ->
-          ok
-      end,
-      {noreply,
-       maps:without([sync, syncblock, syncpeer, sync_candidates], State#{
-                              sync_candidates => skip_candidate(Candidates)
-                             })
-      };
-
-    [{_, #{block:=BlockPart}=R}] ->
-      lager:info("block found in received bbyb sync data ~p",[R]),
-      try
-        BinBlock = receive_block(Handler, BlockPart),
-        #{hash:=NewH} = Block = block:unpack(BinBlock),
-        %TODO Check parent of received block
-        case block:verify(Block) of
-          {true, _} ->
-            gen_server:cast(self(), {new_block, Block, self()}),
-            case maps:find(child, Block) of
-              {ok, Child} ->
-                self() ! {bbyb_sync, NewH},
-                lager:info("block ~s have child ~s", [blkid(NewH), blkid(Child)]),
-                {noreply, State};
-              error ->
-                %%                    erlang:send_after(1000, self(), runsync), % chainkeeper do that
-                lager:info("block ~s no child, sync done?", [blkid(NewH)]),
-                stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_child} ]),
-                {noreply,
-                 maps:without([sync, syncblock, syncpeer, sync_candidates],
-                              State#{sync_candidates => skip_candidate(Candidates)})
-                }
-            end;
-          false ->
-            lager:error("Broken block ~s got from ~p. Sync stopped",
-                        [blkid(NewH),
-                         proplists:get_value(pubkey,
-                                             maps:get(authdata, tpic:peer(Handler), [])
-                                            )
-                        ]),
-            %%              erlang:send_after(10000, self(), runsync), % chainkeeper do that
-            stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_broken_block} ]),
-
-            {noreply,
-             maps:without([sync, syncblock, syncpeer, sync_candidates],
-                          State#{sync_candidates => skip_candidate(Candidates)})
-            }
-        end
-      catch throw:broken_sync ->
-              lager:notice("Broken sync"),
-              stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_throw_broken_sync} ]),
-
-              {noreply, maps:without([sync, syncblock, syncpeer, sync_candidates], State)}
-      end;
-    _ ->
-      lager:error("bbyb no response"),
-      %%      erlang:send_after(10000, self(), runsync),
-      stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_response} ]),
-      {noreply, maps:without(
-                  [sync, syncblock, syncpeer, sync_candidates],
-                  State#{
-                    sync_candidates => skip_candidate(Candidates)
-                   })
-      }
-  end;
+  {PID,_Ref}=erlang:spawn_monitor(?MODULE,bbyb_sync,[self(), Hash, Handler, Candidates]),
+  {noreply, State#{bbsync_pid=>PID}};
 
 handle_info(checksync, State) ->
   stout:log(runsync, [ {node, nodekey:node_name()}, {where, checksync} ]),
   flush_checksync(),
 %%  self() ! runsync,
   {noreply, State};
+
+handle_info({sync,PID,broken_sync,C1}, #{bbsync_pid:=BBSPid}=State) when PID==BBSPid ->
+  {noreply,
+   maps:without([sync, syncblock, syncpeer, sync_candidates, bbsync_pid],
+                State#{
+                  sync_candidates => C1
+                 })
+  };
+
+handle_info({sync,PID,sync_cont}, #{bbsync_pid:=BBSPid}=State) when PID==BBSPid ->
+  {noreply,
+   maps:without([bbsync_pid], State)
+  };
+
+handle_info({sync,PID,sync_done, _Reason}, #{bbsync_pid:=BBSPid}=State) when PID==BBSPid ->
+  {noreply,
+   maps:without([sync, syncblock, syncpeer, sync_candidates, bbsync_pid], State)
+  };
+
+handle_info({'DOWN',_,process,PID, _Reason}, #{bbsync_pid:=BBSPid}=State) when PID==BBSPid ->
+  lager:error("bbsync went down unexpected"),
+  {noreply, 
+   maps:without([bbsync_pid], State)
+  };
 
 handle_info(checksync__, #{
         lastblock:=#{header:=#{height:=MyHeight}, hash:=_MyLastHash}
@@ -1398,6 +1346,72 @@ format_status(_Opt, [_PDict, State]) ->
     State#{
       ldb=>handler
      }.
+
+bbyb_sync(Parent, Hash, Handler, Candidates) ->
+  case tpiccall(Handler,
+                #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
+                [block]
+               ) of
+    [{_, #{error:=Err}=R}] ->
+      lager:error("No block part arrived (~p), broken sync ~p", [Err,R]),
+      %%          erlang:send_after(10000, self(), runsync), % chainkeeper do that
+      stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_block_part} ]),
+
+      if(Err == <<"noblock">>) ->
+          gen_server:cast(chainkeeper,
+            {possible_fork, #{
+              hash => Hash, % our hash which not found in current syncing peer
+              mymeta => blockchain:last_meta()
+            }});
+        true ->
+          ok
+      end,
+      Parent ! {sync, self(), broken_sync, skip_candidate(Candidates)};
+    [{_, #{block:=BlockPart}=R}] ->
+      lager:info("block found in received bbyb sync data ~p",[R]),
+      try
+        BinBlock = receive_block(Handler, BlockPart),
+        #{hash:=NewH} = Block = block:unpack(BinBlock),
+        %TODO Check parent of received block
+        case block:verify(Block) of
+          {true, _} ->
+            gen_server:cast(Parent, {new_block, Block, Parent}),
+            case maps:find(child, Block) of
+              {ok, Child} ->
+                Parent ! {sync, self(), sync_cont},
+                Parent ! {bbyb_sync, NewH},
+                lager:info("block ~s have child ~s", [blkid(NewH), blkid(Child)]);
+
+              error ->
+                %%                    erlang:send_after(1000, self(), runsync), % chainkeeper do that
+                lager:info("block ~s no child, sync done?", [blkid(NewH)]),
+                stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_child} ]),
+                Parent ! {sync, self(), sync_done, done}
+            end;
+          false ->
+            lager:error("Broken block ~s got from ~p. Sync stopped",
+                        [blkid(NewH),
+                         proplists:get_value(pubkey,
+                                             maps:get(authdata, tpic:peer(Handler), [])
+                                            )
+                        ]),
+            %%              erlang:send_after(10000, self(), runsync), % chainkeeper do that
+            stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_broken_block} ]),
+
+            Parent ! {sync, self(), sync_done, broken_block}
+        end
+      catch throw:broken_sync ->
+              lager:notice("Broken sync"),
+              stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_throw_broken_sync} ]),
+
+              Parent ! {sync, self(), sync_done, broken_sync}
+      end;
+    _ ->
+      lager:error("bbyb no response"),
+      %%      erlang:send_after(10000, self(), runsync),
+      stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_response} ]),
+      Parent ! {sync, self(), sync_done, noresponse}
+  end.
 
 
 %% ------------------------------------------------------------------
