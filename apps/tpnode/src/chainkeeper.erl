@@ -309,12 +309,12 @@ check_block(#{header := #{height := TheirHeight}} = Blk, Options)
             {theirhash, TheirHash},
             {theirtmp, TheirTmp}
           ]),
-        check_fork(#{
-          mymeta => MyMeta,
-          theirheight => TheirHeight,
-          theirhash => TheirHash,
-          theirtmp => TheirTmp
-        }, Options),
+%%        check_fork(#{
+%%          mymeta => MyMeta,
+%%          theirheight => TheirHeight,
+%%          theirhash => TheirHash,
+%%          theirtmp => TheirTmp
+%%        }, Options),
         ok
     end,
     ok;
