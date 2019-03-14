@@ -112,52 +112,63 @@ handle_cast({possible_fork, #{mymeta := LastMeta, hash := MissingHash}}, State) 
   
   {noreply, State};
 
+handle_cast({tpic, _NodeName, _From, _Payload}, #{lookaround_timer := _Timer} = State) ->
+  {noreply, State};
 
-handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = State) ->
-  catch erlang:cancel_timer(Timer),
-  Blk =
-    try
-      case msgpack:unpack(Payload, [{known_atoms, []}]) of
-        {ok, Decode} when is_map(Decode) ->
-          case Decode of
-            #{null := <<"block_installed">>,<<"blk">> := ReceivedBlk} ->
-              lager:info("got ck_beacon from ~s, block: ~p", [NodeName, Payload]),
-              block:unpack(ReceivedBlk);
-            _ ->
-              lager:info("got ck_beacon from ~s, unpacked payload: ~p", [NodeName, Decode]),
-              #{}
-          end;
-        _ ->
-          lager:error("can't decode msgpack: ~p", [Payload]),
-          #{}
-      end
-    catch
-      Ec:Ee ->
-        utils:print_error(
-          "msgpack decode error/can't unpack block", Ec, Ee, erlang:get_stacktrace()),
-        #{}
-    end,
-  
-  lager:info("Blk: ~p", [Blk]),
-  
-  stout:log(ck_beacon,
-    [
-      {node, NodeName},
-      {block, Blk}
-    ]
-  ),
-  
-%%  check_block(
-%%    Blk,
-%%    #{
-%%      theirnode => NodeName,
-%%      mynode => nodekey:node_name()
-%%    }
+%%handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = State) ->
+%%  catch erlang:cancel_timer(Timer),
+%%  Blk =
+%%    try
+%%      case msgpack:unpack(Payload, [{known_atoms, []}]) of
+%%        {ok, Decode} when is_map(Decode) ->
+%%          case Decode of
+%%            #{null := <<"block_installed">>,<<"blk">> := ReceivedBlk} ->
+%%              lager:info("got ck_beacon from ~s, block: ~p", [NodeName, Payload]),
+%%              block:unpack(ReceivedBlk);
+%%            _ ->
+%%              lager:info("got ck_beacon from ~s, unpacked payload: ~p", [NodeName, Decode]),
+%%              #{}
+%%          end;
+%%        _ ->
+%%          lager:error("can't decode msgpack: ~p", [Payload]),
+%%          #{}
+%%      end
+%%    catch
+%%      Ec:Ee ->
+%%        utils:print_error(
+%%          "msgpack decode error/can't unpack block", Ec, Ee, erlang:get_stacktrace()),
+%%        #{}
+%%    end,
+%%
+%%  lager:info("Blk: ~p", [Blk]),
+%%
+%%  stout:log(ck_beacon,
+%%    [
+%%      {node, NodeName},
+%%      {block, Blk}
+%%    ]
 %%  ),
-  
+%%
+%%%%  check_block(
+%%%%    Blk,
+%%%%    #{
+%%%%      theirnode => NodeName,
+%%%%      mynode => nodekey:node_name()
+%%%%    }
+%%%%  ),
+%%
+%%  {noreply, State#{
+%%    lookaround_timer => setup_timer(lookaround_timer)
+%%  }};
+
+
+% we update timer on new block setup
+handle_cast(accept_block, #{lookaround_timer := Timer} = State) ->
+  catch erlang:cancel_timer(Timer),
   {noreply, State#{
     lookaround_timer => setup_timer(lookaround_timer)
   }};
+
 
 handle_cast(_Msg, State) ->
   lager:notice("Unknown cast ~p", [_Msg]),

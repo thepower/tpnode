@@ -631,6 +631,8 @@ handle_call({new_block, #{hash:=BlockHash,
                       ok
                   end,
 
+                  gen_server:cast(chainkeeper, accept_block),
+                  
                   stout:log(accept_block,
                             [
                              {temp, false},
