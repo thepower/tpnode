@@ -147,13 +147,13 @@ handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = Sta
     ]
   ),
   
-  check_block(
-    Blk,
-    #{
-      theirnode => NodeName,
-      mynode => nodekey:node_name()
-    }
-  ),
+%%  check_block(
+%%    Blk,
+%%    #{
+%%      theirnode => NodeName,
+%%      mynode => nodekey:node_name()
+%%    }
+%%  ),
   
   {noreply, State#{
     lookaround_timer => setup_timer(lookaround_timer)
@@ -256,71 +256,71 @@ setup_timer(Name) ->
 
 %% ------------------------------------------------------------------
 
-check_block(#{header := #{height := TheirHeight}} = Blk, Options)
-  when is_map(Blk) ->
-    #{hash:=_MyHash, header:=MyHeader} = MyMeta = blockchain:last_meta(),
-    MyHeight = maps:get(height, MyHeader, 0),
-    MyTmp = maps:get(temporary, MyMeta, false),
-    TheirTmp = maps:get(temporary, Blk, false),
-    TheirHash = get_permanent_hash(Blk),
-    if
-      ?isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp) ->
-        case blockvote:ets_lookup(TheirHash) of
-          error ->
-            % hash not found
-            % todo: detect forks here
-            % if we can't find _MyHash in the net, fork happened :(
-            lager:info("Need sync, hash ~p not found in blockvote", [blockchain:blkid(TheirHash)]),
-            stout:log(ck_sync,
-              [
-                {options, Options},
-                {action, runsync},
-                {myheight, MyHeight},
-                {mytmp, MyTmp},
-                {theirheight, TheirHeight},
-                {theirhash, TheirHash},
-                {theirtmp, TheirTmp}
-              ]),
-            stout:log(runsync, [ {node, nodekey:node_name()}, {where, chain_keeper} ]),
-            runsync(),
-            ok;
-          _ ->
-            % hash exist in blockvote
-            stout:log(ck_sync,
-              [
-                {options, Options},
-                {action, found_in_blockvote},
-                {myheight, MyHeight},
-                {mytmp, MyTmp},
-                {theirheight, TheirHeight},
-                {theirhash, TheirHash},
-                {theirtmp, TheirTmp}
-              ]),
-            ok
-        end;
-      true ->
-        stout:log(ck_sync,
-          [sync_needed,
-            {options, Options},
-            {action, height_ok},
-            {myheight, MyHeight},
-            {mytmp, MyTmp},
-            {theirheight, TheirHeight},
-            {theirhash, TheirHash},
-            {theirtmp, TheirTmp}
-          ]),
-%%        check_fork(#{
-%%          mymeta => MyMeta,
-%%          theirheight => TheirHeight,
-%%          theirhash => TheirHash,
-%%          theirtmp => TheirTmp
-%%        }, Options),
-        ok
-    end,
-    ok;
-
-check_block(Blk, Options) ->
-  lager:error("invalid block: ~p, extra data: ~p", [Blk, Options]).
+%%check_block(#{header := #{height := TheirHeight}} = Blk, Options)
+%%  when is_map(Blk) ->
+%%    #{hash:=_MyHash, header:=MyHeader} = MyMeta = blockchain:last_meta(),
+%%    MyHeight = maps:get(height, MyHeader, 0),
+%%    MyTmp = maps:get(temporary, MyMeta, false),
+%%    TheirTmp = maps:get(temporary, Blk, false),
+%%    TheirHash = get_permanent_hash(Blk),
+%%    if
+%%      ?isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp) ->
+%%        case blockvote:ets_lookup(TheirHash) of
+%%          error ->
+%%            % hash not found
+%%            % todo: detect forks here
+%%            % if we can't find _MyHash in the net, fork happened :(
+%%            lager:info("Need sync, hash ~p not found in blockvote", [blockchain:blkid(TheirHash)]),
+%%            stout:log(ck_sync,
+%%              [
+%%                {options, Options},
+%%                {action, runsync},
+%%                {myheight, MyHeight},
+%%                {mytmp, MyTmp},
+%%                {theirheight, TheirHeight},
+%%                {theirhash, TheirHash},
+%%                {theirtmp, TheirTmp}
+%%              ]),
+%%            stout:log(runsync, [ {node, nodekey:node_name()}, {where, chain_keeper} ]),
+%%            runsync(),
+%%            ok;
+%%          _ ->
+%%            % hash exist in blockvote
+%%            stout:log(ck_sync,
+%%              [
+%%                {options, Options},
+%%                {action, found_in_blockvote},
+%%                {myheight, MyHeight},
+%%                {mytmp, MyTmp},
+%%                {theirheight, TheirHeight},
+%%                {theirhash, TheirHash},
+%%                {theirtmp, TheirTmp}
+%%              ]),
+%%            ok
+%%        end;
+%%      true ->
+%%        stout:log(ck_sync,
+%%          [sync_needed,
+%%            {options, Options},
+%%            {action, height_ok},
+%%            {myheight, MyHeight},
+%%            {mytmp, MyTmp},
+%%            {theirheight, TheirHeight},
+%%            {theirhash, TheirHash},
+%%            {theirtmp, TheirTmp}
+%%          ]),
+%%%%        check_fork(#{
+%%%%          mymeta => MyMeta,
+%%%%          theirheight => TheirHeight,
+%%%%          theirhash => TheirHash,
+%%%%          theirtmp => TheirTmp
+%%%%        }, Options),
+%%        ok
+%%    end,
+%%    ok;
+%%
+%%check_block(Blk, Options) ->
+%%  lager:error("invalid block: ~p, extra data: ~p", [Blk, Options]).
 
 %% ------------------------------------------------------------------
 
