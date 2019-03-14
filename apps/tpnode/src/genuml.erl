@@ -72,7 +72,9 @@ node_map(NodeName) when is_binary(NodeName) ->
     <<"log/3/all_testrel@scw-9dafbe-c7n2.blog">> => <<"c7n2">>,
     <<"log/3/all_testrel@scw-802ea4-c7n1.blog">> => <<"c7n1">>
   },
-  maps:get(NodeName, Map, NodeName);
+  
+  CleanNodeName = iolist_to_binary(re:replace(NodeName, "blog\.[01-9]+$","blog")),
+  maps:get(CleanNodeName, Map, CleanNodeName);
 
 node_map(NodeName) ->
   node_map(utils:make_binary(NodeName)).
