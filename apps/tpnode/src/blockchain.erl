@@ -898,6 +898,7 @@ handle_cast({tpic, Peer, #{null := <<"sync_done">>}},
     save_sets(LDB, Set),
     gen_server:cast(blockvote, blockchain_sync),
     notify_settings(),
+    synchronizer ! imready,
     {noreply, maps:remove(sync, State#{unksig=>0})};
 
 handle_cast({tpic, Peer, #{null := <<"continue_sync">>,
@@ -1087,11 +1088,12 @@ handle_info({inst_sync, done, Log}, #{ldb:=LDB,
            lager:info("Sync done"),
            lager:notice("Verify settings"),
            CleanState=maps:without([sync, syncblock, syncpeer, syncsettings], State#{unksig=>0}),
-       SS=maps:get(syncsettings, State),
+           SS=maps:get(syncsettings, State),
            %self() ! runsync,
            save_block(LDB, Block, true),
            save_sets(LDB, SS),
            lastblock2ets(BTable, Block),
+           synchronizer ! imready,
            {noreply, CleanState#{
                        settings=>chainsettings:settings_to_ets(SS),
                        lastblock=>Block,
@@ -1120,6 +1122,7 @@ handle_info(checksync, State) ->
   {noreply, State};
 
 handle_info({sync,PID,broken_sync,C1}, #{bbsync_pid:=BBSPid}=State) when PID==BBSPid ->
+  synchronizer ! imready,
   {noreply,
    maps:without([sync, syncblock, syncpeer, sync_candidates, bbsync_pid],
                 State#{
@@ -1133,6 +1136,7 @@ handle_info({sync,PID,sync_cont}, #{bbsync_pid:=BBSPid}=State) when PID==BBSPid 
   };
 
 handle_info({sync,PID,sync_done, _Reason}, #{bbsync_pid:=BBSPid}=State) when PID==BBSPid ->
+  synchronizer ! imready,
   {noreply,
    maps:without([sync, syncblock, syncpeer, sync_candidates, bbsync_pid], State)
   };
@@ -1259,6 +1263,7 @@ handle_info(
   case Candidate of
     undefined ->
       lager:notice("No candidates for sync."),
+      synchronizer ! imready,
       {noreply, maps:without([sync, syncblock, syncpeer, sync_candidates], State#{unksig=>0})};
 
     {Handler,
@@ -1297,6 +1302,7 @@ handle_info(
       if (Height == MyHeight andalso Tmp == MyTmp) ->
            lager:info("Sync done, finish."),
            notify_settings(),
+           synchronizer ! imready,
            {noreply,
             maps:without([sync, syncblock, syncpeer, sync_candidates], State#{unksig=>0})
            };
