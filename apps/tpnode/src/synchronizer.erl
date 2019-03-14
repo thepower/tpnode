@@ -82,7 +82,7 @@ handle_cast(_Msg, State) ->
   {noreply, State}.
 
 handle_info(imready, State) ->
-  {noreply, State#{ bcready => BCReady }};
+  {noreply, State#{ bcready => true }};
 
 handle_info(ticktimer,
   #{meandiff:=MeanDiff, ticktimer:=Tmr, tickms:=Delay, prevtick:=_T0} = State) ->
