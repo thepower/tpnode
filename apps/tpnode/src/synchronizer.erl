@@ -86,7 +86,9 @@ handle_info(imready, State) ->
 
 handle_info(ticktimer,
   #{meandiff:=MeanDiff, ticktimer:=Tmr, tickms:=Delay, prevtick:=_T0} = State) ->
-
+  
+  catch erlang:cancel_timer(Tmr),
+  
   T = erlang:system_time(microsecond),
   MeanMs = round((T + MeanDiff) / 1000),
   Wait = Delay - (MeanMs rem Delay),
@@ -116,9 +118,7 @@ handle_info(ticktimer,
       erlang:send_after(MBD, whereis(mkblock), flush),
       lager:info("Time to tick. But we not in sync. wait ~w", [Wait])
   end,
-
-  catch erlang:cancel_timer(Tmr),
-
+  
   {noreply,
     State#{
       ticktimer => erlang:send_after(Wait, self(), ticktimer),
