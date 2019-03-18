@@ -15,6 +15,7 @@
          last/0, last/1, chain/0,
          backup/1, restore/1,
          chainstate/0,
+         runsync/5,
          blkid/1,
          rel/2,
          receive_block/2,
@@ -1182,12 +1183,62 @@ handle_info(checksync__, #{
   end,
   {noreply, State};
 
-handle_info(
-  runsync,
-  #{
-    lastblock:=#{header:=#{height:=MyHeight0}, hash:=MyLastHash}
-   } = State) ->
-  MyHeight = case maps:get(tmpblock, State, undefined) of
+handle_info( runsync, #{ lastblock:=LastBlock } = State) ->
+  {PID,_Ref}=erlang:spawn_monitor(?MODULE,runsync,
+                                  [self(), undefined,
+                                   LastBlock,
+                                   maps:get(tmpblock, State, undefined),
+                                   maps:get(sync_candidates, State, default)
+                                  ]),
+  {noreply, State#{bbsync_pid=>PID}};
+
+handle_info( {runsync, Candidates}, #{ lastblock:=LastBlock } = State) ->
+  flush_checksync(),
+  {PID,_Ref}=erlang:spawn_monitor(?MODULE,runsync,
+                                  [self(), Candidates,
+                                   LastBlock,
+                                   maps:get(tmpblock, State, undefined),
+                                   maps:get(sync_candidates, State, default)
+                                  ]),
+  {noreply, State#{bbsync_pid=>PID}};
+
+%begin of temporary code for debugging
+handle_info(block2ets, #{btable:=BTable, tmpblock:=LB}=State) ->
+  lastblock2ets(BTable, LB),
+  {noreply, State};
+
+handle_info(block2ets, #{btable:=BTable, lastblock:=LB}=State) ->
+  lastblock2ets(BTable, LB),
+  {noreply, State};
+%end of temporary code
+
+handle_info(_Info, State) ->
+    lager:info("BC unhandled info ~p", [_Info]),
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    lager:error("Terminate blockchain ~p", [_Reason]),
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+format_status(_Opt, [_PDict, State]) ->
+    State#{
+      ldb=>handler
+     }.
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
+
+runsync(Parent,
+        undefined,
+        #{header:=#{height:=MyHeight0}, hash:=MyLastHash}=LastBlock,
+        TmpBlock,
+        SCandidates
+       ) ->
+  MyHeight = case TmpBlock of
                undefined -> MyHeight0;
                #{header:=#{height:=TmpHeight}} ->
                  TmpHeight
@@ -1205,27 +1256,25 @@ handle_info(
                 ))
   end,
 
-  Candidates =
-  case maps:get(sync_candidates, State, default) of
-    default ->
-      GetDefaultCandidates();
-    [] ->
-      GetDefaultCandidates();
-    SavedCandidates ->
-      lager:debug("use saved list of candidates"),
-      SavedCandidates
-  end,
+  Candidates = case SCandidates of
+                 default ->
+                   GetDefaultCandidates();
+                 [] ->
+                   GetDefaultCandidates();
+                 SavedCandidates ->
+                   lager:debug("use saved list of candidates"),
+                   SavedCandidates
+               end,
 
-  handle_info({runsync, Candidates}, State);
+  runsync(Parent, Candidates, LastBlock, TmpBlock, SCandidates);
 
-handle_info(
-  {runsync, Candidates},
-  #{
-    lastblock:=#{header:=#{height:=MyHeight0}, hash:=MyLastHash}
-  } = State) ->
-  flush_checksync(),
-
-  MyHeight = case maps:get(tmpblock, State, undefined) of
+runsync(Parent,
+        Candidates,
+        #{header:=#{height:=MyHeight0}, hash:=MyLastHash}=_LastBlock,
+        TmpBlock,
+        _SCandidates
+       ) ->
+  MyHeight = case TmpBlock of
                undefined -> MyHeight0;
                #{header:=#{height:=TmpHeight}} ->
                  TmpHeight
@@ -1266,8 +1315,7 @@ handle_info(
     undefined ->
       lager:notice("No candidates for sync."),
       synchronizer ! imready,
-      {noreply, maps:without([sync, syncblock, syncpeer, sync_candidates], State#{unksig=>0})};
-
+      Parent ! {sync, self(), sync_done, done};
     {Handler,
      #{
        chain:=_Ch,
@@ -1295,9 +1343,9 @@ handle_info(
                      false
                  end
              end,
-      MyTmp=case maps:find(tmpblock, State) of
-              error -> false;
-              {ok, #{temporary:=TmpNo}} -> TmpNo
+      MyTmp=case TmpBlock of
+              undefined -> false;
+              #{temporary:=TmpNo} -> TmpNo
             end,
       lager:info("Found candidate h=~w my ~w, bb ~s inst ~s/~s",
                  [Height, MyHeight, ByBlock, Inst0, Inst]),
@@ -1305,55 +1353,34 @@ handle_info(
            lager:info("Sync done, finish."),
            notify_settings(),
            synchronizer ! imready,
-           {noreply,
-            maps:without([sync, syncblock, syncpeer, sync_candidates], State#{unksig=>0})
-           };
+           Parent ! {sync, self(), sync_done, done};
          Inst == true ->
            % try instant sync;
            gen_server:call(ledger, '_flush'),
-           ledger_sync:run_target(tpic, Handler, ledger, undefined),
-           {noreply, State#{
+           Parent ! {sync,
+                     self(),
+                     sync_run,
+                     #{
                        sync=>inst,
                        syncpeer=>Handler,
                        sync_candidates => Candidates
-                      }};
+                      }},
+           ledger_sync:run_target(tpic, Handler, ledger, undefined);
          true ->
            %try block by block
            lager:error("RUN bbyb sync since ~s", [blkid(MyLastHash)]),
-           self() ! {bbyb_sync, MyLastHash},
-           {noreply, State#{
+           Parent ! {sync,
+                     self(),
+                     sync_run,
+                     #{
                        sync=>bbyb,
                        syncpeer=>Handler,
                        sync_candidates => Candidates
-                      }}
+                      }
+                    },
+           Parent ! {bbyb_sync, MyLastHash}
       end
-  end;
-
-%begin of temporary code for debugging
-handle_info(block2ets, #{btable:=BTable, tmpblock:=LB}=State) ->
-  lastblock2ets(BTable, LB),
-  {noreply, State};
-
-handle_info(block2ets, #{btable:=BTable, lastblock:=LB}=State) ->
-  lastblock2ets(BTable, LB),
-  {noreply, State};
-%end of temporary code
-
-handle_info(_Info, State) ->
-    lager:info("BC unhandled info ~p", [_Info]),
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    lager:error("Terminate blockchain ~p", [_Reason]),
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-format_status(_Opt, [_PDict, State]) ->
-    State#{
-      ldb=>handler
-     }.
+  end.
 
 bbyb_sync(Parent, Hash, Handler, Candidates) ->
   case tpiccall(Handler,
@@ -1422,9 +1449,6 @@ bbyb_sync(Parent, Hash, Handler, Candidates) ->
   end.
 
 
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
 flush_bbsync() ->
   receive {bbyb_sync, _} ->
             flush_bbsync()
@@ -1755,7 +1779,7 @@ sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}} =
         instant=>true
       }
   end.
-  
+
 backup(Dir) ->
   {ok,DBH}=gen_server:call(blockchain,get_dbh),
   backup(DBH, Dir, ldb:read_key(DBH,<<"lastblock">>,undefined), 0).
