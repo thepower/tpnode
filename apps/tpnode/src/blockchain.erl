@@ -1133,6 +1133,12 @@ handle_info({sync,PID,broken_sync,C1}, #{bbsync_pid:=BBSPid}=State) when PID==BB
                  })
   };
 
+handle_info({sync, PID, sync_run, Add},
+            #{bbsync_pid:=BBSPid}=State) when PID==BBSPid ->
+  {noreply, maps:merge(maps:remove(bbsync_pid,State),
+                       maps:with([sync, syncpeer, sync_candidates], Add)
+                      )};
+
 handle_info({sync,PID,sync_cont}, #{bbsync_pid:=BBSPid}=State) when PID==BBSPid ->
   {noreply,
    maps:without([bbsync_pid], State)
