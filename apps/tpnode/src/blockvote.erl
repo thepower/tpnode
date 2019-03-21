@@ -174,9 +174,9 @@ handle_info(cleanup_timer,
   {NewCandTS, NewCandidates, NewCandidateSig} =
     remove_expired_candidates(CandTS, Candidates, CandidateSig, TimeoutSec),
   
-  lager:info("BV cleaned ~p expired candidates", [
-    maps:size(CandidateSig) - maps:size(NewCandidateSig)
-  ]),
+%%  lager:info("BV cleaned ~p expired candidates", [
+%%    maps:size(CandidateSig) - maps:size(NewCandidateSig)
+%%  ]),
   
   {noreply, State#{
     candidatets => NewCandTS,
