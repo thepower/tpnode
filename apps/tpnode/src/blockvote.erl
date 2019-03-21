@@ -4,6 +4,10 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
+%% cleanup blockvote state in 3 blocktime interval
+-define(BV_CLEANUP_TIMER_FACTOR, 3).
+
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -92,7 +96,8 @@ handle_cast({signature, BlockHash, Sigs}=WholeSig,
     {noreply, State};
 
 
-handle_cast({signature, BlockHash, Sigs}, #{candidatesig:=Candidatesig}=State) ->
+handle_cast({signature, BlockHash, Sigs},
+    #{candidatesig:=Candidatesig, candidatets:=CandidateTS}=State) ->
     lager:info("BV Got sig for ~s", [blkid(BlockHash)]),
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
@@ -101,12 +106,16 @@ handle_cast({signature, BlockHash, Sigs}, #{candidatesig:=Candidatesig}=State) -
     stout:log(bv_gotsig,
       [{hash, BlockHash}, {sig, Sigs}, {candsig, Candidatesig}, {extra, false}, {node_name, nodekey:node_name()}]),
   
-    State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig) },
+    State2=State#{
+      candidatesig=>maps:put(BlockHash, CSig, Candidatesig),
+      candidatets => maps:put(os:system_time(microsecond), BlockHash, CandidateTS)
+    },
     {noreply, is_block_ready(BlockHash, State2)};
 
 handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID},
             #{ candidates:=Candidates,
-               candidatesig:=Candidatesig
+               candidatesig:=Candidatesig,
+               candidatets := CandidateTS
              }=State) ->
 
     #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
@@ -135,9 +144,12 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID},
 
     ets_put([BlockHash]),
   
-    State2=State#{ candidatesig=>maps:put(BlockHash, CSig, Candidatesig),
-                   candidates => maps:put(BlockHash, Blk, Candidates)
-                 },
+    State2=
+      State#{
+        candidatesig=>maps:put(BlockHash, CSig, Candidatesig),
+        candidates => maps:put(BlockHash, Blk, Candidates),
+        candidatets => maps:put(os:system_time(microsecond), BlockHash, CandidateTS)
+      },
     {noreply, is_block_ready(BlockHash, State2)};
 
 handle_cast(_Msg, State) ->
@@ -148,15 +160,43 @@ handle_info(cleanup, State) ->
     ets_cleanup(0),
     {noreply, State};
 
+handle_info(cleanup_timer,
+  #{candidatets := CandTS,
+    candidates := Candidates,
+    candidatesig := CandidateSig,
+    blocktime := BlockTime,
+    cleanup_timer := Timer} = State) ->
+  
+  catch erlang:cancel_timer(Timer),
+  
+  TimeoutSec = BlockTime + ?BV_CLEANUP_TIMER_FACTOR,
+  
+  {NewCandTS, NewCandidates, NewCandidateSig} =
+    remove_expired_candidates(CandTS, Candidates, CandidateSig, TimeoutSec),
+  
+  lager:info("BV cleaned ~p expired candidates", [
+    maps:size(CandidateSig) - maps:size(NewCandidateSig)
+  ]),
+  
+  {noreply, State#{
+    candidatets => NewCandTS,
+    candidates => NewCandidates,
+    candidatesig => NewCandidateSig,
+    cleanup_timer => setup_timer(cleanup_timer)
+  }};
+  
+
 handle_info(init, undefined) ->
     #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
     lager:info("BV My last block hash ~s",
                [bin2hex:dbin2hex(LBlockHash)]),
-    Res=#{
-      candidatesig=>#{},
+    Res = #{
+      candidatesig => #{},
       candidates=>#{},
+      candidatets=>#{},
+      cleanup_timer => setup_timer(cleanup_timer),
       lastblock=>LastBlock
-     },
+    },
     {noreply, load_settings(Res)};
 
 handle_info(_Info, State) ->
@@ -277,7 +317,8 @@ is_block_ready(BlockHash, State) ->
 				State#{
 				  lastblock=> Blk,
 				  candidates=>#{},
-				  candidatesig=>#{}
+				  candidatesig=>#{},
+          candidatets => #{}
 				 }
 		end
 	catch throw:{notready, Where} ->
@@ -297,16 +338,21 @@ is_block_ready(BlockHash, State) ->
 
 load_settings(State) ->
   {ok, MyChain} = chainsettings:get_setting(mychain),
-  MinSig=chainsettings:get_val(minsig,1000),
-  LastBlock=blockchain:last_meta(),
+
+  MinSig = chainsettings:get_val(minsig, 1000),
+  LastBlock = blockchain:last_meta(),
+
   %LastBlock=gen_server:call(blockchain, last_block),
+
   lager:info("BV My last block hash ~s",
-             [bin2hex:dbin2hex(maps:get(hash, LastBlock))]),
+    [bin2hex:dbin2hex(maps:get(hash, LastBlock))]),
+
   State#{
     mychain=>MyChain,
     minsig=>MinSig,
-    lastblock=>LastBlock
-   }.
+    lastblock=>LastBlock,
+    blocktime => chainsettings:get_val(blocktime)
+  }.
 
 %% ------------------------------------------------------------------
 
@@ -357,4 +403,34 @@ ets_lookup(EtsTableName, Key) ->
     [] ->
       error
   end.
-  
+
+%% ------------------------------------------------------------------
+
+setup_timer(Name) ->
+  erlang:send_after(
+    ?BV_CLEANUP_TIMER_FACTOR * 1000 * chainsettings:get_val(blocktime),
+    self(),
+    Name
+  ).
+
+
+%% ------------------------------------------------------------------
+
+remove_expired_candidates(CandTS, Candidates, CandidateSig, TimeoutSec) ->
+  Timeout = os:system_time(microsecond) - TimeoutSec * 1000000,
+
+  maps:fold(
+    fun
+      (SavedTS, Hash, {TS, Cand, Sigs} = _Acc) when SavedTS < Timeout ->
+        {
+          maps:remove(SavedTS, TS),
+          maps:remove(Hash, Cand),
+          maps:remove(Hash, Sigs)
+        };
+      
+      (_K, _V, Acc) ->
+        Acc
+    end,
+    {CandTS, Candidates, CandidateSig},
+    CandTS
+  ).
