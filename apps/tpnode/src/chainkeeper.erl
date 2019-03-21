@@ -79,7 +79,7 @@ handle_cast(are_we_synced, #{sync_lock := null} = State) ->
     {mynode, nodekey:node_name()}
   ]),
   
-  Ref = check_and_sync_runner(
+  Pid = check_and_sync_runner(
     ?TPIC,
     #{
       theirnode => nodekey:node_name(),
@@ -87,10 +87,10 @@ handle_cast(are_we_synced, #{sync_lock := null} = State) ->
       minsig => chainsettings:get_val(minsig)
     }),
   
-  {noreply, State#{sync_lock => Ref}};
+  {noreply, State#{sync_lock => Pid}};
 
 
-handle_cast(are_we_synced, #{sync_lock := LockRef} = State) when is_reference(LockRef) ->
+handle_cast(are_we_synced, #{sync_lock := LockPid} = State) when is_pid(LockPid) ->
   stout:log(forkstate, [
     {state, skip_are_we_synced},
     {mynode, nodekey:node_name()}
@@ -176,27 +176,8 @@ handle_cast(_Msg, State) ->
 
 
 handle_info(
-  {'DOWN', Ref, process, _Pid, normal},
-  #{sync_lock := Ref, lookaround_timer := Timer} = State) when is_reference(Ref) ->
-  
-%%  lager:debug("chainkeeper check'n'sync ~p finished successfuly", [_Pid]),
-  
-  catch erlang:cancel_timer(Timer),
-  
-  stout:log(ck_fork, [
-    {action, stop_check_n_sync},
-    {reason, normal},
-    {node, nodekey:node_name()}
-  ]),
-  
-  {noreply, State#{
-    sync_lock => null,
-    lookaround_timer => setup_timer(lookaround_timer)
-  }};
-
-handle_info(
-  {'DOWN', Ref, process, _Pid, Reason},
-  #{sync_lock := Ref, lookaround_timer := Timer} = State) when is_reference(Ref) ->
+  {'DOWN', _Ref, process, Pid, Reason},
+  #{sync_lock := Pid, lookaround_timer := Timer} = State) when is_pid(Pid) ->
 %%  lager:debug("chainkeeper check'n'sync ~p finished with reason: ~p", [_Pid, Reason]),
   
   catch erlang:cancel_timer(Timer),
@@ -214,8 +195,8 @@ handle_info(
 
 
 % skip round in case we are syncing
-handle_info(lookaround_timer, #{lookaround_timer := Timer, sync_lock := Ref} = State)
-  when is_reference(Ref) ->
+handle_info(lookaround_timer, #{lookaround_timer := Timer, sync_lock := Pid} = State)
+  when is_pid(Pid) ->
     catch erlang:cancel_timer(Timer),
   
     stout:log(ck_fork, [
