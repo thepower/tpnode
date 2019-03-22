@@ -88,7 +88,7 @@ handle_cast({signature, BlockHash, Sigs}=WholeSig,
       [{hash, BlockHash}, {sig, Sigs}, {extra, true}, {node_name, nodekey:node_name()}]
     ),
   
-    gen_server:cast(blockchain, WholeSig),
+    gen_server:cast(blockchain_updater, WholeSig),
     {noreply, State};
 
 
@@ -215,7 +215,7 @@ is_block_ready(BlockHash, State) ->
 					true ->
 						%throw({notready, nocand1}),
 						lager:info("Probably they went ahead"),
-						blockchain ! checksync,
+						blockchain_sync ! checksync,
 						State;
 					false ->
 						throw({notready, {nocand, maps:size(Sigs), MinSig}})
@@ -254,14 +254,7 @@ is_block_ready(BlockHash, State) ->
             {hash, BlockHash},
             {height, Height},
             {node, nodekey:node_name()},
-            {header, maps:get(header, Blk)},
-            {blockchain_info,
-              erlang:process_info(
-                whereis(blockchain),
-                [current_function, message_queue_len, status,
-                  heap_size, stack_size, current_stacktrace]
-              )
-            }
+            {header, maps:get(header, Blk)}
           ]),
         
 				lager:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
@@ -270,7 +263,7 @@ is_block_ready(BlockHash, State) ->
                     (T3-T0)/1000000
                    ]),
 
-				gen_server:cast(blockchain, {new_block, Blk, self()}),
+				gen_server:cast(blockchain_updater, {new_block, Blk, self()}),
     
         self() ! cleanup,
         
@@ -299,7 +292,6 @@ load_settings(State) ->
   {ok, MyChain} = chainsettings:get_setting(mychain),
   MinSig=chainsettings:get_val(minsig,1000),
   LastBlock=blockchain:last_meta(),
-  %LastBlock=gen_server:call(blockchain, last_block),
   lager:info("BV My last block hash ~s",
              [bin2hex:dbin2hex(maps:get(hash, LastBlock))]),
   State#{

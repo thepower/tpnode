@@ -7,13 +7,9 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
--export([last_meta/0,
-         last/0, last/1, chain/0,
-         blkid/1,
-         rel/2,
-         mychain/1,
-         send_block_real/4,
-         exists/1]).
+-export([blkid/1,
+         mychain/0,
+         send_block_real/4]).
 
 
 %% ------------------------------------------------------------------
@@ -29,35 +25,6 @@
 
 start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
-chain() ->
-  {ok, Chain} = chainsettings:get_setting(mychain),
-  Chain.
-
-rel(Hash, Rel) when Rel==prev orelse Rel==child ->
-  gen_server:call(?MODULE, {get_block, Hash, Rel});
-
-rel(Hash, self) ->
-  gen_server:call(?MODULE, {get_block, Hash}).
-
-exists(Hash) ->
-  try
-    gen_server:call(?MODULE, {block_exists, Hash})
-  catch
-    exit:{timeout,{gen_server,call,[?MODULE,block_exists,_]}} ->
-      timeout
-  end.
-
-last_meta() ->
-  [{last_meta, Blk}]=ets:lookup(lastblock,last_meta),
-  Blk.
-
-last(N) ->
-  gen_server:call(?MODULE, {last_block, N}).
-
-last() ->
-  gen_server:call(?MODULE, last_block).
-
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -158,6 +125,10 @@ handle_call({block_exists, BlockHash}, _From, #{ldb:=LDB} = State)
       true
   end,
   {reply, Exists, State};
+
+handle_call(sync_req, _From, State) ->
+  MaySync=sync_req(State),
+  {reply, MaySync, State};
 
 handle_call(_Request, _From, State) ->
   lager:info("Unhandled ~p",[_Request]),
@@ -359,15 +330,14 @@ handle_cast({tpic, From, #{
                                       })),
   {noreply, State};
 
+handle_cast(update, State) ->
+  {noreply, get_last(State)};
 
 handle_cast(_Msg, State) ->
   lager:info("Unknown cast ~p", [_Msg]),
   file:write_file("tmp/unknown_cast_msg.txt", io_lib:format("~p.~n", [_Msg])),
   file:write_file("tmp/unknown_cast_state.txt", io_lib:format("~p.~n", [State])),
   {noreply, State}.
-
-handle_info(update, State) ->
-  {noreply, get_last(State)};
 
 handle_info(_Info, State) ->
   lager:info("BC unhandled info ~p", [_Info]),
@@ -521,7 +491,7 @@ get_last(#{ldb:=LDB}=State) ->
     State#{lastblock=>LastBlock}
    ).
 
-mychain(State) ->
+mychain() ->
   KeyDB=chainsettings:by_path([keys]),
   NodeChain=chainsettings:by_path([nodechain]),
   PubKey=nodekey:get_pub(),
@@ -536,6 +506,10 @@ mychain(State) ->
                fun(_PubKey, Name) ->
                    maps:get(Name, NodeChain, 0) == MyChain
                end, ChainNodes0),
+  {MyChain, MyName, ChainNodes}.
+
+mychain(State) ->
+  {MyChain, MyName, ChainNodes}=mychain(),
   lager:info("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
   maps:merge(State,
              #{myname=>MyName,

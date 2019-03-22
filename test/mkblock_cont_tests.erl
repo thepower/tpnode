@@ -118,7 +118,7 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun, Workers) ->
                              abs(os:system_time(millisecond)-(TS-86400000))<3600000;
                             ({get_block, Back}) when 20>=Back ->
                              FindBlock=fun FB(H, N) ->
-                             case gen_server:call(blockchain, {get_block, H}) of
+                             case blockchain:rel(H, self) of
                                undefined ->
                                  undefined;
                                #{header:=#{parent:=P}}=Blk ->
@@ -525,7 +525,7 @@ xchain_test_callingblock() ->
                            abs(os:system_time(millisecond)-(TS-86400000))<3600000;
                           ({get_block, Back}) when 20>=Back ->
                            FindBlock=fun FB(H, N) ->
-                           case gen_server:call(blockchain, {get_block, H}) of
+                           case blockchain:rel(H, self) of
                              undefined ->
                                undefined;
                              #{header:=#{parent:=P}}=Blk ->

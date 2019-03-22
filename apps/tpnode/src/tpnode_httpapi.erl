@@ -117,12 +117,6 @@ h(Method, [<<"api">>|Path], Req) ->
   h(Method, Path, Req);
 
 h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
-%  {Chain, Hash, Header1} = case catch gen_server:call(blockchain, status) of
-%                             {A, B, C} -> {A, B, C};
-%                             _Err ->
-%                               lager:info("Error ~p", [_Err]),
-%                               {-1, <<0, 0, 0, 0, 0, 0, 0, 0>>, #{}}
-%                           end,
   Chain=chainsettings:get_val(mychain),
   #{hash:=Hash,
     header:=Header1}=Blk=blockchain:last_meta(),
@@ -514,7 +508,7 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
                true ->
                  hex:parse(BlockId)
              end,
-  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+  case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
             1,
@@ -539,7 +533,7 @@ h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
   BlockHash0=if(BlockId == <<"last">>) -> last;
                true -> hex:parse(BlockId)
              end,
-  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+  case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
             10006,
@@ -558,7 +552,7 @@ h(<<"GET">>, [<<"txtblock">>, BlockId], _Req) ->
   BlockHash0=if(BlockId == <<"last">>) -> last;
                true -> hex:parse(BlockId)
              end,
-  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+  case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
             10006,
@@ -587,7 +581,7 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
                true ->
                  hex:parse(BlockId)
              end,
-  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+  case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
             10006,

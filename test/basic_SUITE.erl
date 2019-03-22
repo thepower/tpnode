@@ -84,7 +84,7 @@ save_bckups() ->
 %%        filelib:ensure_dir("../../../../" ++ BckupDir),
             filelib:ensure_dir(BckupDir),
             logger("saving bckup for node ~p to dir ~p", [Node, BckupDir]),
-            rpc:call(get_node(Node), blockchain, backup, [BckupDir])
+            rpc:call(get_node(Node), blockchain_updater, backup, [BckupDir])
         end,
     lists:foreach(SaveBckupForNode, get_testnet_nodenames()),
     ok.
