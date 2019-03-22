@@ -79,7 +79,7 @@ handle_cast(are_we_synced, #{sync_lock := null} = State) ->
     {mynode, nodekey:node_name()}
   ]),
   
-  Ref = check_and_sync_runner(
+  Pid = check_and_sync_runner(
     ?TPIC,
     #{
       theirnode => nodekey:node_name(),
@@ -87,10 +87,10 @@ handle_cast(are_we_synced, #{sync_lock := null} = State) ->
       minsig => chainsettings:get_val(minsig)
     }),
   
-  {noreply, State#{sync_lock => Ref}};
+  {noreply, State#{sync_lock => Pid}};
 
 
-handle_cast(are_we_synced, #{sync_lock := LockRef} = State) when is_reference(LockRef) ->
+handle_cast(are_we_synced, #{sync_lock := LockPid} = State) when is_pid(LockPid) ->
   stout:log(forkstate, [
     {state, skip_are_we_synced},
     {mynode, nodekey:node_name()}
@@ -112,52 +112,63 @@ handle_cast({possible_fork, #{mymeta := LastMeta, hash := MissingHash}}, State) 
   
   {noreply, State};
 
+handle_cast({tpic, _NodeName, _From, _Payload}, #{lookaround_timer := _Timer} = State) ->
+  {noreply, State};
 
-handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = State) ->
+%%handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = State) ->
+%%  catch erlang:cancel_timer(Timer),
+%%  Blk =
+%%    try
+%%      case msgpack:unpack(Payload, [{known_atoms, []}]) of
+%%        {ok, Decode} when is_map(Decode) ->
+%%          case Decode of
+%%            #{null := <<"block_installed">>,<<"blk">> := ReceivedBlk} ->
+%%              lager:info("got ck_beacon from ~s, block: ~p", [NodeName, Payload]),
+%%              block:unpack(ReceivedBlk);
+%%            _ ->
+%%              lager:info("got ck_beacon from ~s, unpacked payload: ~p", [NodeName, Decode]),
+%%              #{}
+%%          end;
+%%        _ ->
+%%          lager:error("can't decode msgpack: ~p", [Payload]),
+%%          #{}
+%%      end
+%%    catch
+%%      Ec:Ee ->
+%%        utils:print_error(
+%%          "msgpack decode error/can't unpack block", Ec, Ee, erlang:get_stacktrace()),
+%%        #{}
+%%    end,
+%%
+%%  lager:info("Blk: ~p", [Blk]),
+%%
+%%  stout:log(ck_beacon,
+%%    [
+%%      {node, NodeName},
+%%      {block, Blk}
+%%    ]
+%%  ),
+%%
+%%%%  check_block(
+%%%%    Blk,
+%%%%    #{
+%%%%      theirnode => NodeName,
+%%%%      mynode => nodekey:node_name()
+%%%%    }
+%%%%  ),
+%%
+%%  {noreply, State#{
+%%    lookaround_timer => setup_timer(lookaround_timer)
+%%  }};
+
+
+% we update timer on new block setup
+handle_cast(accept_block, #{lookaround_timer := Timer} = State) ->
   catch erlang:cancel_timer(Timer),
-  Blk =
-    try
-      case msgpack:unpack(Payload, [{known_atoms, []}]) of
-        {ok, Decode} when is_map(Decode) ->
-          case Decode of
-            #{null := <<"block_installed">>,<<"blk">> := ReceivedBlk} ->
-              lager:info("got ck_beacon from ~s, block: ~p", [NodeName, Payload]),
-              block:unpack(ReceivedBlk);
-            _ ->
-              lager:info("got ck_beacon from ~s, unpacked payload: ~p", [NodeName, Decode]),
-              #{}
-          end;
-        _ ->
-          lager:error("can't decode msgpack: ~p", [Payload]),
-          #{}
-      end
-    catch
-      Ec:Ee ->
-        utils:print_error(
-          "msgpack decode error/can't unpack block", Ec, Ee, erlang:get_stacktrace()),
-        #{}
-    end,
-  
-  lager:info("Blk: ~p", [Blk]),
-  
-  stout:log(ck_beacon,
-    [
-      {node, NodeName},
-      {block, Blk}
-    ]
-  ),
-  
-  check_block(
-    Blk,
-    #{
-      theirnode => NodeName,
-      mynode => nodekey:node_name()
-    }
-  ),
-  
   {noreply, State#{
     lookaround_timer => setup_timer(lookaround_timer)
   }};
+
 
 handle_cast(_Msg, State) ->
   lager:notice("Unknown cast ~p", [_Msg]),
@@ -165,27 +176,8 @@ handle_cast(_Msg, State) ->
 
 
 handle_info(
-  {'DOWN', Ref, process, _Pid, normal},
-  #{sync_lock := Ref, lookaround_timer := Timer} = State) when is_reference(Ref) ->
-  
-%%  lager:debug("chainkeeper check'n'sync ~p finished successfuly", [_Pid]),
-  
-  catch erlang:cancel_timer(Timer),
-  
-  stout:log(ck_fork, [
-    {action, stop_check_n_sync},
-    {reason, normal},
-    {node, nodekey:node_name()}
-  ]),
-  
-  {noreply, State#{
-    sync_lock => null,
-    lookaround_timer => setup_timer(lookaround_timer)
-  }};
-
-handle_info(
-  {'DOWN', Ref, process, _Pid, Reason},
-  #{sync_lock := Ref, lookaround_timer := Timer} = State) when is_reference(Ref) ->
+  {'DOWN', _Ref, process, Pid, Reason},
+  #{sync_lock := Pid, lookaround_timer := Timer} = State) when is_pid(Pid) ->
 %%  lager:debug("chainkeeper check'n'sync ~p finished with reason: ~p", [_Pid, Reason]),
   
   catch erlang:cancel_timer(Timer),
@@ -203,8 +195,8 @@ handle_info(
 
 
 % skip round in case we are syncing
-handle_info(lookaround_timer, #{lookaround_timer := Timer, sync_lock := Ref} = State)
-  when is_reference(Ref) ->
+handle_info(lookaround_timer, #{lookaround_timer := Timer, sync_lock := Pid} = State)
+  when is_pid(Pid) ->
     catch erlang:cancel_timer(Timer),
   
     stout:log(ck_fork, [
@@ -256,71 +248,71 @@ setup_timer(Name) ->
 
 %% ------------------------------------------------------------------
 
-check_block(#{header := #{height := TheirHeight}} = Blk, Options)
-  when is_map(Blk) ->
-    #{hash:=_MyHash, header:=MyHeader} = MyMeta = blockchain:last_meta(),
-    MyHeight = maps:get(height, MyHeader, 0),
-    MyTmp = maps:get(temporary, MyMeta, false),
-    TheirTmp = maps:get(temporary, Blk, false),
-    TheirHash = get_permanent_hash(Blk),
-    if
-      ?isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp) ->
-        case blockvote:ets_lookup(TheirHash) of
-          error ->
-            % hash not found
-            % todo: detect forks here
-            % if we can't find _MyHash in the net, fork happened :(
-            lager:info("Need sync, hash ~p not found in blockvote", [blockchain:blkid(TheirHash)]),
-            stout:log(ck_sync,
-              [
-                {options, Options},
-                {action, runsync},
-                {myheight, MyHeight},
-                {mytmp, MyTmp},
-                {theirheight, TheirHeight},
-                {theirhash, TheirHash},
-                {theirtmp, TheirTmp}
-              ]),
-            stout:log(runsync, [ {node, nodekey:node_name()}, {where, chain_keeper} ]),
-            runsync(),
-            ok;
-          _ ->
-            % hash exist in blockvote
-            stout:log(ck_sync,
-              [
-                {options, Options},
-                {action, found_in_blockvote},
-                {myheight, MyHeight},
-                {mytmp, MyTmp},
-                {theirheight, TheirHeight},
-                {theirhash, TheirHash},
-                {theirtmp, TheirTmp}
-              ]),
-            ok
-        end;
-      true ->
-        stout:log(ck_sync,
-          [sync_needed,
-            {options, Options},
-            {action, height_ok},
-            {myheight, MyHeight},
-            {mytmp, MyTmp},
-            {theirheight, TheirHeight},
-            {theirhash, TheirHash},
-            {theirtmp, TheirTmp}
-          ]),
-        check_fork(#{
-          mymeta => MyMeta,
-          theirheight => TheirHeight,
-          theirhash => TheirHash,
-          theirtmp => TheirTmp
-        }, Options),
-        ok
-    end,
-    ok;
-
-check_block(Blk, Options) ->
-  lager:error("invalid block: ~p, extra data: ~p", [Blk, Options]).
+%%check_block(#{header := #{height := TheirHeight}} = Blk, Options)
+%%  when is_map(Blk) ->
+%%    #{hash:=_MyHash, header:=MyHeader} = MyMeta = blockchain:last_meta(),
+%%    MyHeight = maps:get(height, MyHeader, 0),
+%%    MyTmp = maps:get(temporary, MyMeta, false),
+%%    TheirTmp = maps:get(temporary, Blk, false),
+%%    TheirHash = get_permanent_hash(Blk),
+%%    if
+%%      ?isTheirHigher(TheirHeight, MyHeight, TheirTmp, MyTmp) ->
+%%        case blockvote:ets_lookup(TheirHash) of
+%%          error ->
+%%            % hash not found
+%%            % todo: detect forks here
+%%            % if we can't find _MyHash in the net, fork happened :(
+%%            lager:info("Need sync, hash ~p not found in blockvote", [blockchain:blkid(TheirHash)]),
+%%            stout:log(ck_sync,
+%%              [
+%%                {options, Options},
+%%                {action, runsync},
+%%                {myheight, MyHeight},
+%%                {mytmp, MyTmp},
+%%                {theirheight, TheirHeight},
+%%                {theirhash, TheirHash},
+%%                {theirtmp, TheirTmp}
+%%              ]),
+%%            stout:log(runsync, [ {node, nodekey:node_name()}, {where, chain_keeper} ]),
+%%            runsync(),
+%%            ok;
+%%          _ ->
+%%            % hash exist in blockvote
+%%            stout:log(ck_sync,
+%%              [
+%%                {options, Options},
+%%                {action, found_in_blockvote},
+%%                {myheight, MyHeight},
+%%                {mytmp, MyTmp},
+%%                {theirheight, TheirHeight},
+%%                {theirhash, TheirHash},
+%%                {theirtmp, TheirTmp}
+%%              ]),
+%%            ok
+%%        end;
+%%      true ->
+%%        stout:log(ck_sync,
+%%          [sync_needed,
+%%            {options, Options},
+%%            {action, height_ok},
+%%            {myheight, MyHeight},
+%%            {mytmp, MyTmp},
+%%            {theirheight, TheirHeight},
+%%            {theirhash, TheirHash},
+%%            {theirtmp, TheirTmp}
+%%          ]),
+%%%%        check_fork(#{
+%%%%          mymeta => MyMeta,
+%%%%          theirheight => TheirHeight,
+%%%%          theirhash => TheirHash,
+%%%%          theirtmp => TheirTmp
+%%%%        }, Options),
+%%        ok
+%%    end,
+%%    ok;
+%%
+%%check_block(Blk, Options) ->
+%%  lager:error("invalid block: ~p, extra data: ~p", [Blk, Options]).
 
 %% ------------------------------------------------------------------
 
@@ -368,6 +360,7 @@ rollback_block(LoggerOptions, RollbackOptions) ->
           {action, ok},
           {newhash, NewHash}
         ]),
+      lager:notice("rollback new hash ~p", [NewHash]),
       
       case proplists:get_value(no_runsync, RollbackOptions, false) of
         false ->
@@ -389,6 +382,8 @@ rollback_block(LoggerOptions, RollbackOptions) ->
           {options, LoggerOptions},
           {action, {error, Err}}
         ]),
+      lager:error("rollback error ~p", [Err]),
+      
       {error, Err}
   end.
 
@@ -418,9 +413,11 @@ check_fork(
       MyHeight =:= TheirHeight ->
         ok;
       MyHeight > TheirHeight ->
-        case blockchain:exists(TheirHash) of
+        case catch blockchain:exists(TheirHash) of
           true ->
             ok;
+          timeout ->
+            {fork, timeout};
           _ ->
             {fork, hash_not_exists}
         end;
@@ -533,35 +530,40 @@ check_and_sync_runner(TPIC, Options) ->
 check_and_sync(TPIC, Options) ->
   try
     MinSig = maps:get(minsig, Options, chainsettings:get_val(minsig)),
-    #{hash := MyHash} = MyMeta = blockchain:last_meta(),
-
-    Answers =
-      case maps:get(temporary, MyMeta, false) of
-        Wei when is_number(Wei) ->
-          % don't need sync if we have temporary
-          stout:log(ck_fork, [
-              {action, have_temporary},
-              {node, maps:get(mynode, Options, nodekey:node_name())}
-            ]),
-          throw(finish);
-        _ ->
-          % we have permanent block
-          #{header := #{parent := ParentHash}} = MyMeta,
-  
-          stout:log(ck_fork, [
-            {action, have_permanent},
-            {node, maps:get(mynode, Options, nodekey:node_name())},
-            {parent, ParentHash}
-          ]),
-          
-          tpiccall(
-            TPIC,
-            <<"blockchain">>,
-            #{null => <<"pick_block">>, <<"hash">> => ParentHash, <<"rel">> => child},
-            [block, error]
-          )
-      end,
     
+    #{hash := MyHash,
+      header := #{parent := ParentHash}
+    } = MyMeta = blockchain:last_meta(),
+
+    case maps:get(temporary, MyMeta, false) of
+      Wei when is_number(Wei) ->
+        % Last our block is temporary
+        stout:log(ck_fork, [
+            {action, have_temporary},
+            {node, maps:get(mynode, Options, nodekey:node_name())}
+          ]);
+
+%%          throw(finish);
+      _ ->
+        % we have permanent block
+        stout:log(ck_fork, [
+          {action, have_permanent},
+          {node, maps:get(mynode, Options, nodekey:node_name())},
+          {parent, ParentHash}
+        ])
+    end,
+
+    % In both cases rather we have tmp or permanent block we need look up child of parent
+    % Please note, parent hash of tmp block is hash of the last permanent block.
+    % Parent hash of permanent block is hash of the previous permanent block.
+    Answers =
+      tpiccall(
+        TPIC,
+        <<"blockchain">>,
+        #{null => <<"pick_block">>, <<"hash">> => ParentHash, <<"rel">> => child},
+        [block, error]
+      ),
+      
     PushAssoc =
       fun(Hash, Assoc, HashToAssocMap) ->
         Old = maps:get(Hash, HashToAssocMap, []),
