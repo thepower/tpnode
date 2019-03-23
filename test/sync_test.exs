@@ -5,13 +5,18 @@
 # 4. get hash of last block from 1st node
 # 5. we should get the same hash from 3rd node until the timeout
 
-
-
 Application.ensure_all_started(:inets)
 
-ExUnit.start()
+ExUnit.start
 
-defmodule AssertionTest do
+{:ok, files} = File.ls("./test/support")
+
+Enum.each files, fn(file) ->
+  Code.require_file "support/#{file}", __DIR__
+end
+
+
+defmodule SyncTest do
   use ExUnit.Case, async: false
 
   # <<128,1,64,0,4,0,0,1>>
@@ -27,15 +32,24 @@ defmodule AssertionTest do
   @tx_fee 0
 
 
-  #  @tag :skip
-  test "sync test" do
+  def setup_all do
     start_node "c4n1"
     start_node "c4n2"
 
-    wait_nodes(["c4n1", "c4n2"])
+    status = wait_nodes(["c4n1", "c4n2"])
+    logger "nodes status: #{status}"
+
+    assert :ok == status
 
     ensure_wallet_exist @from_wallet
     ensure_wallet_exist @to_wallet
+  end
+
+
+
+#  @tag :skip
+  test "sync test" do
+    setup_all()
 
     tx_id =
       make_transaction(@from_wallet, @to_wallet, @currency, 10, @tx_fee, "sync test tx")
@@ -50,27 +64,52 @@ defmodule AssertionTest do
 
 
   def start_node(node) do
-    case is_node_alive?(node) do
+    case TPHelpers.is_node_alive?(node) do
       true -> IO.puts "Skiping alive node #{node}"
       _ ->
-        :io.format("Starting the node ~p~n", [node])
+        IO.puts("Starting the node #{node}")
 
-        dir = "examples/test_chain4"
+        dir = "./examples/test_chain4"
 
-        exec_str =
-          "erl -config '#{dir}/#{node}.config' -sname #{node} -detached " <>
-          "-noshell -pa _build/test/lib/*/ebin +SDcpu 2:2: -s lager -s tpnode"
+        bindirs = Path.wildcard("_build/test/lib/*/ebin/")
 
-        :io.format("the run_string is:~n~p~n", [exec_str])
-        :os.cmd(exec_str)
+        exec_args =
+          ["-config", "#{dir}/test_#{node}.config", "-sname", "test_#{node}", "-noshell"] ++
+          Enum.reduce(bindirs, [], fn x, acc -> ["-pa", x | acc] end) ++
+          ["-detached", "+SDcpu", "2:2:", "-s", "lager", "-s", "tpnode"]
+
+        System.put_env("TPNODE_RESTORE", dir)
+
+        result = System.cmd("erl", exec_args)
+        logger "result: ~p", [result]
     end
 
     :ok
   end
 
-  def get_base_url do
-    to_charlist :os.getenv("API_BASE_URL", "http://pwr.local:49841")
+  def get_base_url(), do: get_base_url("c4n1")
+  def get_base_url(node) do
+    nodes_map = %{
+      "c4n1" => "http://pwr.local:49841",
+      "c4n2" => "http://pwr.local:49842",
+      "c4n3" => "http://pwr.local:49843",
+      "c5n1" => "http://pwr.local:49851",
+      "c5n2" => "http://pwr.local:49852",
+      "c5n3" => "http://pwr.local:49853",
+      "c6n1" => "http://pwr.local:49861",
+      "c6n2" => "http://pwr.local:49862",
+      "c6n3" => "http://pwr.local:49863"
+    }
+
+     url =
+       case :os.getenv("API_BASE_URL", nil) do
+         nil -> Map.get(nodes_map, node)
+         url_from_env -> url_from_env
+       end
+
+     to_charlist(url)
   end
+
 
   def api_get_tx_status(tx_id) do
     :tpapi.get_tx_status(tx_id, get_base_url())
@@ -81,12 +120,6 @@ defmodule AssertionTest do
     :tpapi.commit_transaction(transaction, get_base_url())
   end
 
-  def is_node_alive?(node) do
-    case :erl_epmd.port_please(:erlang.binary_to_list("test_#{node}"), 'pwr') do
-      {:port, _, _} -> true
-      _ -> false
-    end
-  end
 
   def get_wallet_priv_key() do
     :address.parsekey("5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK")
@@ -239,9 +272,37 @@ defmodule AssertionTest do
     )
   end
 
+  def is_node_functioning?(node) do
+    try do
+      :tpapi.ping(get_base_url(node))
+    catch
+      ec, ee ->
+        logger("node #{node} answer: ~p:~p", [ec, ee])
+        false
+    end
+  end
 
-  def wait_nodes(_nodes) do
-    :ok
+  def wait_nodes(nodes), do: wait_nodes(nodes, 10)
+  def wait_nodes([], _timeout), do: :ok
+  def wait_nodes(_, 0), do: :timeout
+
+  def wait_nodes([node | tail] = nodes, timeout) do
+    case TPHelpers.is_node_alive?(node) do
+      false ->
+        :timer.sleep(1000)
+        wait_nodes(nodes, timeout - 1)
+      _ ->
+        case is_node_functioning?(node) do
+          false ->
+            :timer.sleep(1000)
+            wait_nodes(nodes, timeout - 1)
+          _ ->
+            wait_nodes(tail, timeout)
+        end
+    end
   end
 
 end
+
+
+#SyncTest.start_node "c4n1"
