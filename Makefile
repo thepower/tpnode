@@ -77,6 +77,9 @@ tests: rebar
 #	$(REBAR) as test cover --verbose
 #	$(TESTNET) stop
 
+synctest:
+	@elixir -pa '_build/test/lib/*/ebin/' --sname tester test/sync_test.exs
+
 cleantest:
 	$(RM) -rf _build/test
 	@$(MKDIR) -p _build/test/cover
