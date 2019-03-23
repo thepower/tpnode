@@ -182,7 +182,7 @@ handle_info(cleanup_timer,
     candidatets => NewCandTS,
     candidates => NewCandidates,
     candidatesig => NewCandidateSig,
-    cleanup_timer => setup_timer(cleanup_timer)
+    cleanup_timer => setup_timer(cleanup_timer, BlockTime)
   }};
   
 
@@ -194,7 +194,7 @@ handle_info(init, undefined) ->
       candidatesig => #{},
       candidates=>#{},
       candidatets=>#{},
-      cleanup_timer => setup_timer(cleanup_timer),
+      cleanup_timer => setup_timer(cleanup_timer, 5),
       lastblock=>LastBlock
     },
     {noreply, load_settings(Res)};
@@ -351,7 +351,7 @@ load_settings(State) ->
     mychain=>MyChain,
     minsig=>MinSig,
     lastblock=>LastBlock,
-    blocktime => chainsettings:get_val(blocktime)
+    blocktime => chainsettings:get_val(blocktime, 3)
   }.
 
 %% ------------------------------------------------------------------
@@ -406,9 +406,9 @@ ets_lookup(EtsTableName, Key) ->
 
 %% ------------------------------------------------------------------
 
-setup_timer(Name) ->
+setup_timer(Name, Blocktime) ->
   erlang:send_after(
-    ?BV_CLEANUP_TIMER_FACTOR * 1000 * chainsettings:get_val(blocktime),
+    ?BV_CLEANUP_TIMER_FACTOR * 1000 * Blocktime,
     self(),
     Name
   ).
