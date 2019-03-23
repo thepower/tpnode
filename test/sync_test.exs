@@ -33,8 +33,7 @@ defmodule SyncTest do
 
 
   def setup_all do
-    start_node "c4n1"
-    start_node "c4n2"
+    Enum.each(["c4n1", "c4n2"], fn x -> start_node(x) end)
 
     status = wait_nodes(["c4n1", "c4n2"])
     logger "nodes status: #{status}"
@@ -45,6 +44,9 @@ defmodule SyncTest do
     ensure_wallet_exist @to_wallet
   end
 
+  def clear_all do
+    Enum.each(["c4n1", "c4n2"], fn x -> stop_node(x) end)
+  end
 
 
 #  @tag :skip
@@ -60,6 +62,19 @@ defmodule SyncTest do
     logger "api call status: ~p~n", [status]
 
     assert match?(%{"ok" => true, "res" => "ok"}, status)
+
+    clear_all()
+  end
+
+  def stop_node(node) do
+    case TPHelpers.is_node_alive?(node) do
+      false -> IO.puts "node #{node} is already down"
+      _ ->
+        logger("Stopping the node #{node}")
+#        :rpc.call(String.to_atom("test_c4n1@pwr"), :init, :stop, [])
+        result = :rpc.call(String.to_atom("test_#{node}@pwr"), :init, :stop, [])
+        logger("result: ~p", [result])
+    end
   end
 
 
@@ -277,7 +292,7 @@ defmodule SyncTest do
       :tpapi.ping(get_base_url(node))
     catch
       ec, ee ->
-        logger("node #{node} answer: ~p:~p", [ec, ee])
+        logger("node #{node} answer: ~p:~1000p", [ec, ee])
         false
     end
   end
@@ -306,3 +321,4 @@ end
 
 
 #SyncTest.start_node "c4n1"
+#SyncTest.stop_node "c4n1"
