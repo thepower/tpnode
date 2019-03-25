@@ -53,6 +53,8 @@ defmodule SyncTest do
 
     assert :ok == status
 
+    stop_node("c4n3")
+
     for x <- [@from_wallet, @to_wallet], do: ensure_wallet_exist(x)
   end
 
@@ -91,17 +93,24 @@ defmodule SyncTest do
     start_node("c4n3")
     assert :ok == wait_nodes(["c4n3"])
 
+    # force start synchronization on c4n3
+    c4n3_blockchain = :rpc.call(String.to_atom("test_c4n3@pwr"), :erlang, :whereis, [:blockchain])
+    send(c4n3_blockchain, :runsync)
+
     # waiting until the node reach the height after wallets where creation
     :ok = wait_for_height(initial_height, @sync_wait_timeout_sec, node: "c4n3")
 
-    before_round1 = :os.system_time(:seconds)
+    logger("initial height reached")
 
+    before_round1 = :os.system_time(:seconds)
     # wait for block hash on c4n3
     wait_result = wait_for_hash(hash, @sync_wait_timeout_sec, node: "c4n3", height: height)
-
     after_round1 = :os.system_time(:seconds)
 
+    logger("---------------------------------------------")
     logger("hash wait result: ~p, waited: ~p sec", [wait_result, after_round1 - before_round1])
+    logger("---------------------------------------------")
+
     assert :ok == wait_result
 
     # make more blocks on c4n1
@@ -128,7 +137,10 @@ defmodule SyncTest do
     wait_result2 = wait_for_hash(hash2, @sync_wait_timeout_sec, node: "c4n3", height: height2)
     after_round2 = :os.system_time(:seconds)
 
-    logger("hash2 wait result: ~p, waited: ~p", [wait_result2, after_round2 - before_round2])
+    logger("---------------------------------------------")
+    logger("hash2 wait result: ~p, waited: ~p sec", [wait_result2, after_round2 - before_round2])
+    logger("---------------------------------------------")
+
     assert :ok == wait_result2
 
     clear_all()
