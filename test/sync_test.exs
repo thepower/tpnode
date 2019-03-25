@@ -57,17 +57,19 @@ defmodule SyncTest do
     for x <- ["c4n1", "c4n2", "c4n3"], do: stop_node(x)
   end
 
-  def make_blocks(blocks_count) do
+    def make_blocks(blocks_count), do: make_blocks(blocks_count, "c4n1")
+    def make_blocks(blocks_count, node) do
     for block_no <- 1..blocks_count do
       logger("---- making block no: ~p", [block_no])
 
       tx_id =
         make_transaction(
-          @from_wallet, @to_wallet, @currency, block_no, @tx_fee, "sync test tx")
+          @from_wallet, @to_wallet, @currency, block_no,
+          @tx_fee, "sync test tx", node: node)
 
       logger "sent tx: #{tx_id}"
 
-      {:ok, status, _} = api_get_tx_status(tx_id)
+      {:ok, status, _} = api_get_tx_status(tx_id, get_base_url(node))
       logger "api call status: ~p~n", [status]
 
       assert match?(%{"ok" => true, "res" => "ok"}, status)
@@ -75,7 +77,6 @@ defmodule SyncTest do
   end
 
   def get_block_info(hash, opts \\ []) do
-
     node = Keyword.get(opts, :node, "c4n1")
 
     :tpapi.get_blockinfo(hash, get_base_url(node))
@@ -85,14 +86,39 @@ defmodule SyncTest do
   def wait_for_hash(_hash, 0, _opts), do: :timeout
   def wait_for_hash(hash, timeout, opts) do
     node = Keyword.get(opts, :node, "c4n1")
+    height = Keyword.get(opts, :height, nil)
 
-    result = try do
-      :tpapi.get_blockinfo(hash, get_base_url(node))
-      catch
-        ec, ee ->
-          logger("get blockinfo: ~p:~p~n", [ec, ee])
-          false
-    end
+    height_check =
+      case height do
+        _ when is_number(height) -> # wait for height first
+          try do
+          case :tpapi.get_height(get_base_url(node)) do
+            cur_height when cur_height >= height -> :ok
+            cur_height ->
+              logger("current height: ~p", [cur_height])
+              false
+          end
+          catch
+            ec, ee ->
+              logger("can't get height for node ~p : ~p:~p",[node, ec, ee])
+              false
+          end
+        _ -> :ok  # in this case we shouldn't check height, because user didn't ask us for that
+      end
+
+    # try to get block with target hash
+    result =
+      case height_check do
+        :ok ->
+          try do
+            :tpapi.get_blockinfo(hash, get_base_url(node))
+          catch
+            ec, ee ->
+              logger("get blockinfo: ~p:~p~n", [ec, ee])
+              false
+          end
+        _ -> %{} # we didn't reach the target height yet
+      end
 
     case result do
       %{"block" => _} when hash == :last -> :ok
@@ -121,7 +147,7 @@ defmodule SyncTest do
   end
 
 #  @tag :skip
-  @tag timeout: 180000
+  @tag timeout: 600000
   test "sync test" do
     setup_all()
 
@@ -146,10 +172,11 @@ defmodule SyncTest do
     logger("hash: ~p, height: ~p, tmp: ~p", [hash, height, tmp])
 
     # start 3rd node
-    start_node "c4n3"
+    start_node("c4n3")
+    assert :ok == wait_nodes(["c4n3"])
 
     # wait for block hash on c4n3
-    wait_result = wait_for_hash(hash, @sync_wait_timeout_sec, node: "c4n3")
+    wait_result = wait_for_hash(hash, @sync_wait_timeout_sec, node: "c4n3", height: height)
 
     logger("hash waiting result: ~p", [wait_result])
     assert :ok == wait_result
@@ -192,8 +219,7 @@ defmodule SyncTest do
     :ok
   end
 
-  def get_base_url(), do: get_base_url("c4n1")
-  def get_base_url(node) do
+  def get_base_url(node \\ "c4n1") do
     nodes_map = %{
       "c4n1" => "http://pwr.local:49841",
       "c4n2" => "http://pwr.local:49842",
@@ -215,25 +241,37 @@ defmodule SyncTest do
      to_charlist(url)
   end
 
+  # get current transaction status
+  def api_get_tx_status(tx_id), do: api_get_tx_status(tx_id, get_base_url())
+  def api_get_tx_status(tx_id, base_url), do: :tpapi.get_tx_status(tx_id, base_url)
 
-  def api_get_tx_status(tx_id) do
-    :tpapi.get_tx_status(tx_id, get_base_url())
-  end
 
   # post encoded and signed transaction using API
   def api_post_transaction(transaction) do
-    :tpapi.commit_transaction(transaction, get_base_url())
+    api_post_transaction(transaction, get_base_url())
+  end
+  def api_post_transaction(transaction, base_url) do
+    :tpapi.commit_transaction(transaction, base_url)
   end
 
 
-  def get_wallet_priv_key() do
+  # wallet private key settings
+  def get_wallet_priv_key(), do: get_wallet_priv_key("c4n1")
+  def get_wallet_priv_key(_node) do
     :address.parsekey("5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK")
   end
 
-  def api_get_wallet_seq(wallet), do: :tpapi.get_wallet_seq(wallet, get_base_url())
+  # get current seq for wallet
+  def api_get_wallet_seq(wallet), do: api_get_wallet_seq(wallet, get_base_url())
+  def api_get_wallet_seq(wallet, base_url), do: :tpapi.get_wallet_seq(wallet, base_url)
 
-  def make_transaction(from, to, currency, amount, _fee, message) do
-    seq = api_get_wallet_seq(from)
+
+  # make, encode, sign and post transaction
+  def make_transaction(from, to, currency, amount, _fee, message, opts \\ []) do
+    node = Keyword.get(opts, :node, "c4n1")
+    logger("posting tx to node: ~p", [node])
+
+    seq = api_get_wallet_seq(from, get_base_url(node))
     tx_seq = max(seq, :os.system_time(:millisecond))
     logger("seq for wallet ~p is ~p, use ~p for transaction ~n", [from, seq, tx_seq])
     tx = :tx.construct_tx(
@@ -251,7 +289,7 @@ defmodule SyncTest do
       }
     )
     signed_tx = :tx.sign(tx, get_wallet_priv_key())
-    res = api_post_transaction(:tx.pack(signed_tx))
+    res = api_post_transaction(:tx.pack(signed_tx), get_base_url(node))
     Map.get(res, "txid", :unknown)
   end
 
