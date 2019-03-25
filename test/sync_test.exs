@@ -5,6 +5,10 @@
 # 4. get hash of last block from 1st node
 # 5. we should get the same hash from 3rd node until the timeout
 
+# TODO:
+# * make a little more transactions to c4n1
+# * wait untile the c4n3 node became synchronized
+
 Application.ensure_all_started(:inets)
 
 ExUnit.start
@@ -19,6 +23,7 @@ end
 defmodule SyncTest do
   use ExUnit.Case, async: false
 
+
   # <<128,1,64,0,4,0,0,1>>
   @from_wallet "AA100000006710886518"
 
@@ -31,47 +36,132 @@ defmodule SyncTest do
   # chain 4 fee
   @tx_fee 0
 
+  # blocks we need to sync
+  @blocks_before_sync 10
+
+  # synchronization waiting timeout in seconds
+  @sync_wait_timeout_sec 80
 
   def setup_all do
-    Enum.each(["c4n1", "c4n2"], fn x -> start_node(x) end)
+    for x <- ["c4n1", "c4n2"], do: start_node(x)
 
-    status = wait_nodes(["c4n1", "c4n2"])
-    logger "nodes status: #{status}"
+    status = ["c4n1", "c4n2"] |> wait_nodes
+    logger "nodes status: ~p", [status]
 
     assert :ok == status
 
-    ensure_wallet_exist @from_wallet
-    ensure_wallet_exist @to_wallet
+    for x <- [@from_wallet, @to_wallet], do: ensure_wallet_exist(x)
   end
 
   def clear_all do
-    Enum.each(["c4n1", "c4n2"], fn x -> stop_node(x) end)
+    for x <- ["c4n1", "c4n2", "c4n3"], do: stop_node(x)
   end
 
+  def make_blocks(blocks_count) do
+    for block_no <- 1..blocks_count do
+      logger("---- making block no: ~p", [block_no])
+
+      tx_id =
+        make_transaction(
+          @from_wallet, @to_wallet, @currency, block_no, @tx_fee, "sync test tx")
+
+      logger "sent tx: #{tx_id}"
+
+      {:ok, status, _} = api_get_tx_status(tx_id)
+      logger "api call status: ~p~n", [status]
+
+      assert match?(%{"ok" => true, "res" => "ok"}, status)
+    end
+  end
+
+  def get_block_info(hash, opts \\ []) do
+
+    node = Keyword.get(opts, :node, "c4n1")
+
+    :tpapi.get_blockinfo(hash, get_base_url(node))
+  end
+
+  def wait_for_hash(hash, timeout, opts \\ [])
+  def wait_for_hash(_hash, 0, _opts), do: :timeout
+  def wait_for_hash(hash, timeout, opts) do
+    node = Keyword.get(opts, :node, "c4n1")
+
+    result = try do
+      :tpapi.get_blockinfo(hash, get_base_url(node))
+      catch
+        ec, ee ->
+          logger("get blockinfo: ~p:~p~n", [ec, ee])
+          false
+    end
+
+    case result do
+      %{"block" => _} when hash == :last -> :ok
+      %{"block" => block_info} ->
+        case get_perm_hash(block_info) do
+          ^hash -> :ok
+          _ ->
+            :timer.sleep(1000)
+            wait_for_hash(hash, timeout - 1, opts)
+        end
+      _ ->
+        :timer.sleep(1000)
+        wait_for_hash(hash, timeout - 1, opts)
+    end
+  end
+
+  def get_perm_hash(block_info) when is_map(block_info) do
+    block_hash = Map.get(block_info, "hash", nil)
+    header = Map.get(block_info, "header", %{})
+    parent_hash = Map.get(header, "parent", nil)
+
+    case Map.get(block_info, "temporary", false) do
+      false -> block_hash
+      _ -> parent_hash
+    end
+  end
 
 #  @tag :skip
+  @tag timeout: 180000
   test "sync test" do
     setup_all()
 
-    tx_id =
-      make_transaction(@from_wallet, @to_wallet, @currency, 10, @tx_fee, "sync test tx")
+    # make blocks
+    make_blocks(@blocks_before_sync)
 
-    logger "sent tx: #{tx_id}"
+    # get last block hash
+    %{"block" => %{
+      "hash" => block_hash,
+      "header" => %{ "height" => height, "parent" => parent_hash}}}
+      = block_info
+      = get_block_info(:last, [node: "c4n1"])
 
-    {:ok, status, _} = api_get_tx_status(tx_id)
-    logger "api call status: ~p~n", [status]
+    tmp = Map.get(block_info, "temporary", false)
 
-    assert match?(%{"ok" => true, "res" => "ok"}, status)
+    hash = case tmp do
+      false -> block_hash
+      _ -> parent_hash
+    end
+
+    logger("got block_info: ~p", [block_info])
+    logger("hash: ~p, height: ~p, tmp: ~p", [hash, height, tmp])
+
+    # start 3rd node
+    start_node "c4n3"
+
+    # wait for block hash on c4n3
+    wait_result = wait_for_hash(hash, @sync_wait_timeout_sec, node: "c4n3")
+
+    logger("hash waiting result: ~p", [wait_result])
+    assert :ok == wait_result
 
     clear_all()
   end
 
   def stop_node(node) do
     case TPHelpers.is_node_alive?(node) do
-      false -> IO.puts "node #{node} is already down"
+      false -> logger("node #{node} is already down")
       _ ->
         logger("Stopping the node #{node}")
-#        :rpc.call(String.to_atom("test_c4n1@pwr"), :init, :stop, [])
         result = :rpc.call(String.to_atom("test_#{node}@pwr"), :init, :stop, [])
         logger("result: ~p", [result])
     end
