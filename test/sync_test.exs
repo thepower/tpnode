@@ -1,13 +1,12 @@
 # testing plan
 # 1. start 2 nodes
-# 2. make transaction, wait until it became completed
-# 3. starting one more node
+# 2. create 10 blocks (to create block we make transaction and wait until it became completed)
+# 3. start 3rd node
 # 4. get hash of last block from 1st node
-# 5. we should get the same hash from 3rd node until the timeout
+# 5. we should get the same hash until the timeout
+# 6. create 10 more blocks
+# 7. wait until 3rd node get synchronized
 
-# TODO:
-# * make a little more transactions to c4n1
-# * wait untile the c4n3 node became synchronized
 
 Application.ensure_all_started(:inets)
 
