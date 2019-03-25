@@ -42,6 +42,9 @@ defmodule SyncTest do
   # synchronization waiting timeout in seconds
   @sync_wait_timeout_sec 80
 
+  # default node we send transactions to
+  @default_node "c4n1"
+
   def setup_all do
     for x <- ["c4n1", "c4n2"], do: start_node(x)
 
@@ -57,8 +60,79 @@ defmodule SyncTest do
     for x <- ["c4n1", "c4n2", "c4n3"], do: stop_node(x)
   end
 
-    def make_blocks(blocks_count), do: make_blocks(blocks_count, "c4n1")
-    def make_blocks(blocks_count, node) do
+  #  @tag :skip
+  @tag timeout: 600000
+  test "sync test" do
+    setup_all()
+
+    initial_height = api_get_height()
+
+    # make blocks
+    make_blocks(@blocks_before_sync)
+
+    # get last block hash
+    %{"block" => %{
+      "hash" => block_hash,
+      "header" => %{ "height" => height, "parent" => parent_hash}}}
+    = block_info
+    = get_block_info(:last, [node: @default_node])
+
+    tmp = Map.get(block_info, "temporary", false)
+
+    hash = case tmp do
+      false -> block_hash
+      _ -> parent_hash
+    end
+
+    logger("got block_info: ~p", [block_info])
+    logger("hash: ~p, height: ~p, tmp: ~p", [hash, height, tmp])
+
+    # start 3rd node
+    start_node("c4n3")
+    assert :ok == wait_nodes(["c4n3"])
+
+    # waiting until the node reach the height after wallets where creation
+    :ok = wait_for_height(initial_height, @sync_wait_timeout_sec, node: "c4n3")
+
+    # wait for block hash on c4n3
+    wait_result = wait_for_hash(hash, @sync_wait_timeout_sec, node: "c4n3", height: height)
+
+    logger("hash waiting result: ~p", [wait_result])
+    assert :ok == wait_result
+
+    # make more blocks on c4n1
+    make_blocks(@blocks_before_sync)
+
+    %{"block" => %{
+      "hash" => block_hash2,
+      "header" => %{ "height" => height2, "parent" => parent_hash2}}}
+    = block_info2
+    = get_block_info(:last, [node: @default_node])
+
+    tmp2 = Map.get(block_info2, "temporary", false)
+
+    hash2 = case tmp2 do
+      false -> block_hash2
+      _ -> parent_hash2
+    end
+
+    logger("got block_info2: ~p", [block_info2])
+    logger("hash2: ~p, height2: ~p, tmp2: ~p", [hash2, height2, tmp2])
+
+    # wait for block hash on c4n3
+    wait_result2 = wait_for_hash(hash2, @sync_wait_timeout_sec, node: "c4n3", height: height2)
+
+    logger("hash2 waiting result: ~p", [wait_result2])
+    assert :ok == wait_result2
+    
+    clear_all()
+  end
+
+
+  # generate blocks_count transactions and wait each transaction to be included in block
+  # so, we instruct blockchain to create at least block_count blocks
+  def make_blocks(blocks_count), do: make_blocks(blocks_count, @default_node)
+  def make_blocks(blocks_count, node) do
     for block_no <- 1..blocks_count do
       logger("---- making block no: ~p", [block_no])
 
@@ -77,30 +151,60 @@ defmodule SyncTest do
   end
 
   def get_block_info(hash, opts \\ []) do
-    node = Keyword.get(opts, :node, "c4n1")
+    node = Keyword.get(opts, :node, @default_node)
 
     :tpapi.get_blockinfo(hash, get_base_url(node))
   end
 
-  def wait_for_hash(hash, timeout, opts \\ [])
-  def wait_for_hash(_hash, 0, _opts), do: :timeout
-  def wait_for_hash(hash, timeout, opts) do
-    node = Keyword.get(opts, :node, "c4n1")
+  # get the blockchain height
+  def api_get_height(), do: api_get_height(get_base_url(@default_node))
+  def api_get_height(base_url), do: :tpapi.get_height(base_url)
+
+  # wait for node until it create a block with the height target_height
+  def wait_for_height(target_height, timeout, opts \\ [])
+  def wait_for_height(_target_height, 0, _opts), do: :timeout
+  def wait_for_height(target_height, timeout, opts) do
+    node = Keyword.get(opts, :node, @default_node)
+
+    try do
+      case api_get_height(get_base_url(node)) do
+        cur_height when cur_height >= target_height -> :ok
+        cur_height ->
+          logger("current height: ~p", [cur_height])
+
+          :timer.sleep(1000)
+          wait_for_height(target_height, timeout - 1, opts)
+      end
+      catch
+        ec, ee ->
+          logger("can't get height for node ~p : ~p:~p", [node, ec, ee])
+          :timer.sleep(1000)
+          wait_for_height(target_height, timeout - 1, opts)
+    end
+  end
+
+
+
+  # wait for node until it create a block with the hash target_hash
+  def wait_for_hash(target_hash, timeout, opts \\ [])
+  def wait_for_hash(_target_hash, 0, _opts), do: :timeout
+  def wait_for_hash(target_hash, timeout, opts) do
+    node = Keyword.get(opts, :node, @default_node)
     height = Keyword.get(opts, :height, nil)
 
     height_check =
       case height do
         _ when is_number(height) -> # wait for height first
           try do
-          case :tpapi.get_height(get_base_url(node)) do
-            cur_height when cur_height >= height -> :ok
-            cur_height ->
-              logger("current height: ~p", [cur_height])
-              false
-          end
+            case api_get_height(get_base_url(node)) do
+              cur_height when cur_height >= height -> :ok
+              cur_height ->
+                logger("current height: ~p", [cur_height])
+                false
+            end
           catch
             ec, ee ->
-              logger("can't get height for node ~p : ~p:~p",[node, ec, ee])
+              logger("can't get height for node ~p : ~p:~p", [node, ec, ee])
               false
           end
         _ -> :ok  # in this case we shouldn't check height, because user didn't ask us for that
@@ -111,7 +215,7 @@ defmodule SyncTest do
       case height_check do
         :ok ->
           try do
-            :tpapi.get_blockinfo(hash, get_base_url(node))
+            :tpapi.get_blockinfo(target_hash, get_base_url(node))
           catch
             ec, ee ->
               logger("get blockinfo: ~p:~p~n", [ec, ee])
@@ -121,17 +225,17 @@ defmodule SyncTest do
       end
 
     case result do
-      %{"block" => _} when hash == :last -> :ok
+      %{"block" => _} when target_hash == :last -> :ok
       %{"block" => block_info} ->
         case get_perm_hash(block_info) do
-          ^hash -> :ok
+          ^target_hash -> :ok
           _ ->
             :timer.sleep(1000)
-            wait_for_hash(hash, timeout - 1, opts)
+            wait_for_hash(target_hash, timeout - 1, opts)
         end
       _ ->
         :timer.sleep(1000)
-        wait_for_hash(hash, timeout - 1, opts)
+        wait_for_hash(target_hash, timeout - 1, opts)
     end
   end
 
@@ -146,43 +250,6 @@ defmodule SyncTest do
     end
   end
 
-#  @tag :skip
-  @tag timeout: 600000
-  test "sync test" do
-    setup_all()
-
-    # make blocks
-    make_blocks(@blocks_before_sync)
-
-    # get last block hash
-    %{"block" => %{
-      "hash" => block_hash,
-      "header" => %{ "height" => height, "parent" => parent_hash}}}
-      = block_info
-      = get_block_info(:last, [node: "c4n1"])
-
-    tmp = Map.get(block_info, "temporary", false)
-
-    hash = case tmp do
-      false -> block_hash
-      _ -> parent_hash
-    end
-
-    logger("got block_info: ~p", [block_info])
-    logger("hash: ~p, height: ~p, tmp: ~p", [hash, height, tmp])
-
-    # start 3rd node
-    start_node("c4n3")
-    assert :ok == wait_nodes(["c4n3"])
-
-    # wait for block hash on c4n3
-    wait_result = wait_for_hash(hash, @sync_wait_timeout_sec, node: "c4n3", height: height)
-
-    logger("hash waiting result: ~p", [wait_result])
-    assert :ok == wait_result
-
-    clear_all()
-  end
 
   def stop_node(node) do
     case TPHelpers.is_node_alive?(node) do
@@ -219,7 +286,7 @@ defmodule SyncTest do
     :ok
   end
 
-  def get_base_url(node \\ "c4n1") do
+  def get_base_url(node \\ @default_node) do
     nodes_map = %{
       "c4n1" => "http://pwr.local:49841",
       "c4n2" => "http://pwr.local:49842",
@@ -256,7 +323,7 @@ defmodule SyncTest do
 
 
   # wallet private key settings
-  def get_wallet_priv_key(), do: get_wallet_priv_key("c4n1")
+  def get_wallet_priv_key(), do: get_wallet_priv_key(@default_node)
   def get_wallet_priv_key(_node) do
     :address.parsekey("5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK")
   end
@@ -268,7 +335,7 @@ defmodule SyncTest do
 
   # make, encode, sign and post transaction
   def make_transaction(from, to, currency, amount, _fee, message, opts \\ []) do
-    node = Keyword.get(opts, :node, "c4n1")
+    node = Keyword.get(opts, :node, @default_node)
     logger("posting tx to node: ~p", [node])
 
     seq = api_get_wallet_seq(from, get_base_url(node))
