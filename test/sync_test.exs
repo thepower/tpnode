@@ -94,10 +94,14 @@ defmodule SyncTest do
     # waiting until the node reach the height after wallets where creation
     :ok = wait_for_height(initial_height, @sync_wait_timeout_sec, node: "c4n3")
 
+    before_round1 = :os.system_time(:seconds)
+
     # wait for block hash on c4n3
     wait_result = wait_for_hash(hash, @sync_wait_timeout_sec, node: "c4n3", height: height)
 
-    logger("hash waiting result: ~p", [wait_result])
+    after_round1 = :os.system_time(:seconds)
+
+    logger("hash wait result: ~p, waited: ~p sec", [wait_result, after_round1 - before_round1])
     assert :ok == wait_result
 
     # make more blocks on c4n1
@@ -119,12 +123,14 @@ defmodule SyncTest do
     logger("got block_info2: ~p", [block_info2])
     logger("hash2: ~p, height2: ~p, tmp2: ~p", [hash2, height2, tmp2])
 
+    before_round2 = :os.system_time(:seconds)
     # wait for block hash on c4n3
     wait_result2 = wait_for_hash(hash2, @sync_wait_timeout_sec, node: "c4n3", height: height2)
+    after_round2 = :os.system_time(:seconds)
 
-    logger("hash2 waiting result: ~p", [wait_result2])
+    logger("hash2 wait result: ~p, waited: ~p", [wait_result2, after_round2 - before_round2])
     assert :ok == wait_result2
-    
+
     clear_all()
   end
 
