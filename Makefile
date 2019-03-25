@@ -6,6 +6,8 @@ SED = $(shell which sed)
 CT_RUN = $(shell which ct_run)
 RM = $(shell which rm)
 MKDIR = $(shell which mkdir)
+ELIXIR = $(shell which elixir)
+SLEEP = $(shell which sleep)
 TESTNET=./bin/testnet.sh
 
 LOG_DIR=_build/test/logs
@@ -40,8 +42,14 @@ deps:
 
 rebar:
 ifeq ($(REBAR),)
-$(error "rebar3 not available on this system")
+$(error "rebar3 isn't available on this system")
 endif
+
+elixir:
+ifeq ($(ELIXIR),)
+$(error "elixir isn't available on this system")
+endif
+
 
 
 run1:
@@ -77,8 +85,11 @@ tests: rebar
 #	$(REBAR) as test cover --verbose
 #	$(TESTNET) stop
 
-synctest:
-	@elixir -pa '_build/test/lib/*/ebin/' --sname tester test/sync_test.exs
+coffebreak:
+	@$(SLEEP) 5
+
+synctest: elixir
+	@$(ELIXIR) -pa '_build/test/lib/*/ebin/' --sname tester test/sync_test.exs
 
 cleantest:
 	$(RM) -rf _build/test
