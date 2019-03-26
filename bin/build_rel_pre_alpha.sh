@@ -15,6 +15,7 @@ git checkout ${BUILD_BRANCH}
 git pull
 git describe
 rm -rf _build/default/lib/jsx/ebin
+rm -rf _build/default/lib/tpnode
 rm -rf _build/rel/lib/tpnode
 rm apps/tpnode/include/version.hrl
 export VERSION_SUFFIX=${BUILD_SUFFIX}
@@ -27,7 +28,9 @@ EOF1
 
 echo "**** build arm64 version"
 
-ssh root@ascw.cleverfox.ru "cat > build.sh && sh build.sh" << EOF2
+# ssh root@ascw.cleverfox.ru
+
+ssh root@dist.thepower.io "cat > build.sh && sh build.sh" << EOF2
 cd blochchaintest
 . /opt/erl/activate
 git fetch origin
@@ -36,6 +39,7 @@ git checkout ${BUILD_BRANCH}
 git pull
 git describe
 rm -rf _build/rel/lib/tpnode
+rm -rf _build/default/lib/tpnode
 rm -rf _build/default/lib/jsx/ebin
 rm apps/tpnode/include/version.hrl
 export VERSION_SUFFIX=${BUILD_SUFFIX}
