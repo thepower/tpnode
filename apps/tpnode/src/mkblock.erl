@@ -359,7 +359,7 @@ handle_info(process,
         {timestamp, Timestamp},
         {createduration, T2-T1}
        ],
-    SignedBlock=sign(Block, ED),
+    SignedBlock=blocksign(Block, ED),
     #{header:=#{height:=NewH}}=Block,
     %cast whole block to my local blockvote
     stout:log(mkblock_done,
@@ -436,9 +436,28 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-sign(Blk, ED) when is_map(Blk) ->
-    PrivKey=nodekey:get_priv(),
-    block:sign(Blk, ED, PrivKey).
+blocksign(Blk, ED) when is_map(Blk) ->
+  case nodekey:get_privs() of
+    [K0] ->
+      block:sign(Blk, ED, K0);
+    [K0|Extra] ->
+      %Ability to sign mutiple times for smart developers of smarcontracts only!!!!!
+      %NEVER USE ON NETWORK CONNECTED NODE!!!
+      block:sign(
+        lists:foldl(
+          fun(ExtraKey,Acc) ->
+              ED2=[ {timestamp, proplists:get_value(timestamp, ED)+
+                     trunc(-100+rand:uniform()*200)},
+                    {createduration, proplists:get_value(createduration, ED)+
+                     trunc(-250000000+rand:uniform()*500000000)}
+                  ],
+              block:sign(Acc, ED2, ExtraKey)
+          end, Blk, Extra), ED, K0)
+  end.
+
+%blocksign(Blk, ED) when is_map(Blk) ->
+%  PrivKey=nodekey:get_priv(),
+%  block:sign(Blk, ED, PrivKey).
 
 %% ------------------------------------------------------------------
 

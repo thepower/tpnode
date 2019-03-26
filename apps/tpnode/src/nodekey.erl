@@ -1,11 +1,25 @@
 -module(nodekey).
 
 -export([get_priv/0,
+         get_privs/0,
          get_pub/0,
          node_id/0,
          node_id/1,
          node_name/0
         ]).
+
+get_privs() ->
+  case application:get_env(tpnode, privkeys) of
+    {ok, K1} ->
+      case K1 of
+        [N|_] when is_list(N) ->
+          [ hex:parse(K) || K <- K1 ];
+        _ ->
+          [hex:parse(K1)]
+      end;
+    undefined ->
+      [get_priv()]
+  end.
 
 get_priv() ->
   {ok, K1}=application:get_env(tpnode, privkey),
