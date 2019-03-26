@@ -21,7 +21,7 @@ end
 
 defmodule SyncTest do
   use ExUnit.Case, async: false
-
+  import TPHelpers
 
   # <<128,1,64,0,4,0,0,1>>
   @from_wallet "AA100000006710886518"
@@ -167,6 +167,7 @@ defmodule SyncTest do
     end
   end
 
+  # get block headers for the hash
   def get_block_info(hash, opts \\ []) do
     node = Keyword.get(opts, :node, @default_node)
 
@@ -192,11 +193,11 @@ defmodule SyncTest do
           :timer.sleep(1000)
           wait_for_height(target_height, timeout - 1, opts)
       end
-      catch
-        ec, ee ->
-          logger("can't get height for node ~p : ~p:~p", [node, ec, ee])
-          :timer.sleep(1000)
-          wait_for_height(target_height, timeout - 1, opts)
+    catch
+      ec, ee ->
+        logger("can't get height for node ~p : ~p:~p", [node, ec, ee])
+        :timer.sleep(1000)
+        wait_for_height(target_height, timeout - 1, opts)
     end
   end
 
@@ -256,54 +257,9 @@ defmodule SyncTest do
     end
   end
 
-  def get_perm_hash(block_info) when is_map(block_info) do
-    block_hash = Map.get(block_info, "hash", nil)
-    header = Map.get(block_info, "header", %{})
-    parent_hash = Map.get(header, "parent", nil)
 
-    case Map.get(block_info, "temporary", false) do
-      false -> block_hash
-      _ -> parent_hash
-    end
-  end
-
-
-  def stop_node(node) do
-    case TPHelpers.is_node_alive?(node) do
-      false -> logger("node #{node} is already down")
-      _ ->
-        logger("Stopping the node #{node}")
-        result = :rpc.call(String.to_atom("test_#{node}@pwr"), :init, :stop, [])
-        logger("result: ~p", [result])
-    end
-  end
-
-
-  def start_node(node) do
-    case TPHelpers.is_node_alive?(node) do
-      true -> IO.puts "Skiping alive node #{node}"
-      _ ->
-        IO.puts("Starting the node #{node}")
-
-        dir = "./examples/test_chain4"
-
-        bindirs = Path.wildcard("_build/test/lib/*/ebin/")
-
-        exec_args =
-          ["-config", "#{dir}/test_#{node}.config", "-sname", "test_#{node}", "-noshell"] ++
-          Enum.reduce(bindirs, [], fn x, acc -> ["-pa", x | acc] end) ++
-          ["-detached", "+SDcpu", "2:2:", "-s", "lager", "-s", "tpnode"]
-
-        System.put_env("TPNODE_RESTORE", dir)
-
-        result = System.cmd("erl", exec_args)
-        logger "result: ~p", [result]
-    end
-
-    :ok
-  end
-
-  def get_base_url(node \\ @default_node) do
+  def get_base_url(node \\ @default_node)
+  def get_base_url(node) do
     nodes_map = %{
       "c4n1" => "http://pwr.local:49841",
       "c4n2" => "http://pwr.local:49842",
@@ -375,12 +331,6 @@ defmodule SyncTest do
     signed_tx = :tx.sign(tx, get_wallet_priv_key())
     res = api_post_transaction(:tx.pack(signed_tx), get_base_url(node))
     Map.get(res, "txid", :unknown)
-  end
-
-  def logger(format), do: logger(format, [])
-
-  def logger(format, args) do
-    :utils.logger(to_charlist(format), args)
   end
 
 
@@ -514,7 +464,7 @@ defmodule SyncTest do
   def wait_nodes(_, 0), do: :timeout
 
   def wait_nodes([node | tail] = nodes, timeout) do
-    case TPHelpers.is_node_alive?(node) do
+    case is_node_alive?(node) do
       false ->
         :timer.sleep(1000)
         wait_nodes(nodes, timeout - 1)
