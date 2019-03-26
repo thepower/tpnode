@@ -1,5 +1,5 @@
 -module(genesis).
--export([genesis/0, new/2, new/1, settings/0]).
+-export([genesis/0, new/2, new/1, settings/0, settings/1]).
 
 genesis() ->
     {ok, [Genesis]}=file:consult(application:get_env(tpnode,genesis,"genesis.txt")),
