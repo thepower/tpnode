@@ -485,11 +485,25 @@ sync_req(#{lastblock:=#{hash:=Hash, header:=#{height:=Height, parent:=Parent}} =
   end.
 
 get_last(#{ldb:=LDB}=State) ->
+  M=blockchain:last_meta(),
   LastBlockHash=ldb:read_key(LDB, <<"lastblock">>, <<0, 0, 0, 0, 0, 0, 0, 0>>),
   LastBlock=ldb:read_key(LDB, <<"block:", LastBlockHash/binary>>, undefined),
-  mychain(
-    State#{lastblock=>LastBlock}
-   ).
+  case M of
+    #{temporary:=_Tmp} ->
+      mychain(
+        State#{
+          tmpblock=>M,
+          lastblock=>LastBlock
+         }
+       );
+    _ ->
+      mychain(
+        maps:remove(
+          tmpblock,
+          State#{lastblock=>LastBlock}
+         )
+       )
+  end.
 
 mychain() ->
   KeyDB=chainsettings:by_path([keys]),

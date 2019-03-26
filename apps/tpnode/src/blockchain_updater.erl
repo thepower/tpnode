@@ -296,6 +296,7 @@ handle_call({new_block, #{hash:=BlockHash,
                                        })
                               })
                             }),
+                  gen_server:cast(blockchain_reader,update),
 
                   {reply, ok, State#{
                                 tmpblock=>MBlk

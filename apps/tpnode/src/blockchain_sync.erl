@@ -230,16 +230,8 @@ handle_info({'DOWN',_,process,PID, _Reason}, #{bbsync_pid:=BBSPid}=State) when P
    maps:without([bbsync_pid], State)
   };
 
-handle_info(
-  runsync,
-  #{
-    lastblock:=#{header:=#{height:=MyHeight0}, hash:=MyLastHash}
-   } = State) ->
-  MyHeight = case maps:get(tmpblock, State, undefined) of
-               undefined -> MyHeight0;
-               #{header:=#{height:=TmpHeight}} ->
-                 TmpHeight
-             end,
+handle_info(runsync, State) ->
+  #{header:=#{height:=MyHeight}, hash:=MyLastHash}=blockchain:last_meta(),
   stout:log(runsync, [ {node, nodekey:node_name()}, {where, got_info} ]),
   lager:debug("got runsync, myHeight: ~p, myLastHash: ~p", [MyHeight, blkid(MyLastHash)]),
 
@@ -255,28 +247,45 @@ handle_info(
                    lager:debug("use saved list of candidates"),
                    SavedCandidates
                end,
-
   handle_info({runsync, Candidates}, State);
 
-handle_info(
-  {runsync, Candidates},
-  #{ lastblock:=#{header:=#{height:=MyHeight0}, hash:=MyLastHash}
-   } = State) ->
+handle_info({runsync, Candidates}, State) ->
   flush_checksync(),
+  flush_runsync(),
+  #{header:=#{height:=MyHeight}, hash:=MyLastHash}=MyLast=blockchain:last_meta(),
 
-  MyHeight = case maps:get(tmpblock, State, undefined) of
-               undefined -> MyHeight0;
-               #{header:=#{height:=TmpHeight}} ->
-                 TmpHeight
-             end,
+  B=tpiccall(<<"blockchain">>,
+           #{null=><<"sync_request">>},
+           [last_hash, last_height, chain, last_temp]
+          ),
+  Hack_Candidates=lists:foldl(
+                    fun({{A1,B1,_},_}=Elem, Acc) ->
+                        maps:put({A1,B1},Elem,Acc)
+                    end, #{}, B),
 
   Candidate=lists:foldl( %first suitable will be the quickest
-              fun({CHandler, undefined}, undefined) ->
+              fun
+                ({{A2,B2,_}, undefined}, undefined) ->
+                  case maps:find({A2,B2},Hack_Candidates) of
+                    error ->
+                      undefined;
+                    {ok, {CHandler1, #{chain:=_HisChain,
+                                       last_hash:=_,
+                                       last_height:=_,
+                                       null:=<<"sync_available">>} = CInfo}} ->
+                      lager:notice("Hacked version of candidate selection was used"),
+                      {CHandler1, CInfo};
+                    _ ->
+                      undefined
+                  end;
+                ({CHandler, undefined}, undefined) ->
+                  T1=erlang:system_time(),
                   Inf=tpiccall(CHandler,
                                #{null=><<"sync_request">>},
                                [last_hash, last_height, chain, last_temp]
                               ),
-                  lager:debug("sync from ~p",[Inf]),
+                  T2=erlang:system_time(),
+                  lager:debug("sync from ~p ~p",[Inf,T2-T1]),
                   case Inf of
                     [{CHandler1, #{chain:=_HisChain,
                                    last_hash:=_,
@@ -335,15 +344,17 @@ handle_info(
                      false
                  end
              end,
-      MyTmp=case maps:find(tmpblock, State) of
+      MyTmp=case maps:find(temporary, MyLast) of
               error -> false;
-              {ok, #{temporary:=TmpNo}} -> TmpNo
+              {ok, TmpNo} -> TmpNo
             end,
       lager:info("Found candidate h=~w my ~w, bb ~s inst ~s/~s",
                  [Height, MyHeight, ByBlock, Inst0, Inst]),
       if (Height == MyHeight andalso Tmp == MyTmp) ->
            lager:info("Sync done, finish."),
            synchronizer ! imready,
+           flush_bbsync(),
+           flush_checksync(),
            {noreply,
             maps:without([sync, syncblock, sync_peer, sync_candidates], State#{unksig=>0})
            };
@@ -351,6 +362,8 @@ handle_info(
            % try instant sync;
            gen_server:call(ledger, '_flush'),
            ledger_sync:run_target(tpic, Handler, ledger, undefined),
+           flush_bbsync(),
+           flush_checksync(),
            {noreply, State#{
                        sync=>inst,
                        sync_peer=>Handler,
@@ -359,12 +372,12 @@ handle_info(
          true ->
            %try block by block
            lager:info("RUN bbyb sync since ~s", [blkid(MyLastHash)]),
-           self() ! {bbyb_sync, MyLastHash},
-           {noreply, State#{
-                       sync=>bbyb,
-                       sync_peer=>Handler,
-                       sync_candidates => Candidates
-                      }}
+           handle_info({bbyb_sync, MyLastHash},
+                       State#{
+                         sync=>bbyb,
+                         sync_peer=>Handler,
+                         sync_candidates => Candidates
+                        })
       end
   end;
 
@@ -408,18 +421,20 @@ bbyb_sync(Hash, Handler, Candidates) ->
       lager:info("block found in received bbyb sync data ~p",[R]),
       try
         BinBlock = receive_block(Handler, BlockPart),
-        #{hash:=NewH} = Block = block:unpack(BinBlock),
+        #{hash:=NewH, header:=#{height:=NewHei}} = Block = block:unpack(BinBlock),
         %TODO Check parent of received block
         case block:verify(Block) of
           {true, _} ->
             %gen_server:cast(blockchain_updater, {new_block, Block, self()}),
+            lager:info("Got block ~w ~s",[NewHei,blkid(NewH)]),
             CRes=gen_server:call(blockchain_updater, {new_block, Block, self()}),
             lager:info("CRes ~p",[CRes]),
             case maps:find(child, Block) of
               {ok, Child} ->
-                self() ! {bbyb_sync, NewH},
                 lager:info("block ~s have child ~s", [blkid(NewH), blkid(Child)]),
-                sync_cont;
+                bbyb_sync(NewH, Handler, Candidates);
+%                self() ! {bbyb_sync, NewH},
+%                sync_cont;
 
               error ->
                 %%                    erlang:send_after(1000, self(), runsync), % chainkeeper do that
@@ -463,9 +478,20 @@ get_last(#{ldb:=LDB}=State) ->
     State#{lastblock=>LastBlock}
    ).
 
+flush_runsync() ->
+  receive
+    runsync  ->
+      flush_runsync();
+    {runsync,_}  ->
+      flush_runsync()
+  after 0 ->
+          done
+  end.
+
 flush_bbsync() ->
-  receive {bbyb_sync, _} ->
-            flush_bbsync()
+  receive
+    {bbyb_sync, _} ->
+      flush_bbsync()
   after 0 ->
           done
   end.
