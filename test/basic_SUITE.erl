@@ -34,8 +34,8 @@ all() ->
         discovery_lookup_test,
         discovery_unregister_by_name_test,
         discovery_unregister_by_pid_test,
-        discovery_ssl_test,
-        instant_sync_test
+        discovery_ssl_test
+        %instant_sync_test
     ].
 
 % -----------------------------------------------------------------------------
@@ -660,79 +660,79 @@ tpiccall(TPIC, Handler, Object, Atoms) ->
               end
       end, Res).
 
-instant_sync_test(_Config) ->
-  %instant synchronization
-  rdb_dispatcher:start_link(),
-  TPIC=rpc:call(get_node(get_default_nodename()),erlang,whereis,[tpic]),
-  Cs=tpiccall(TPIC, <<"blockchain">>,
-              #{null=><<"sync_request">>},
-              [last_hash, last_height, chain]
-             ),
-  [{Handler, Candidate}|_]=lists:filter( %first suitable will be the quickest
-                             fun({_Handler, #{chain:=_Ch,
-                                              last_hash:=_,
-                                              last_height:=_,
-                                              null:=<<"sync_available">>}}) -> true;
-                                (_) -> false
-                             end, Cs),
-  #{null:=Avail,
-    chain:=Chain,
-    last_hash:=Hash,
-    last_height:=Height}=Candidate,
-  logger("~s chain ~w h= ~w hash= ~s ~n",
-            [ Avail, Chain, Height, bin2hex:dbin2hex(Hash) ]),
-
-  Name=test_sync_ledger,
-  {ok, Pid}=ledger:start_link(
-              [{filename, "db/ledger_test_syncx2"},
-               {name, Name}
-              ]
-             ),
-  gen_server:call(Pid, '_flush'),
-  
-  Hash2=rpc:call(get_node(get_default_nodename()),ledger,check,[[]]),
-  Hash2=rpc:call(get_node(get_default_nodename()),ledger,check,[[]]),
-
-  ledger_sync:run_target(TPIC, Handler, Pid, undefined),
-
-  {ok, #{blk:=BinBlk}}=inst_sync_wait_more(#{}),
-  Hash0=case block:unpack(BinBlk) of
-          #{header:=#{ledger_hash:=V1LH}} -> V1LH;
-          #{header:=#{roots:=Roots}} -> proplists:get_value(ledger_hash,Roots)
-        end,
-  Hash1=ledger:check(Pid,[]),
-  logger("Hash ~p ~p~n",[Hash1,Hash2]),
-  ?assertMatch({ok,_},Hash1),
-  ?assertMatch({ok,_},Hash2),
-  ?assertEqual(Hash1,{ok,Hash0}),
-  ?assertEqual(Hash1,Hash2),
-  gen_server:cast(Pid, terminate),
-  done.
-  
-
-inst_sync_wait_more(A) ->
-  receive
-    {inst_sync, block, Blk} ->
-      logger("Block~n"),
-      inst_sync_wait_more(A#{blk=>Blk});
-    {inst_sync, settings} ->
-      logger("settings~n"),
-      inst_sync_wait_more(A);
-    {inst_sync, ledger} ->
-      logger("Ledger~n"),
-      inst_sync_wait_more(A);
-    {inst_sync, settings, _} ->
-      logger("Settings~n"),
-      inst_sync_wait_more(A);
-    {inst_sync, done, Res} ->
-      logger("Done ~p~n", [Res]),
-      {ok,A};
-    Any ->
-      logger("error: ~p~n", [Any]),
-      {error, Any}
-  after 10000 ->
-          timeout
-  end.
+%instant_sync_test(_Config) ->
+%  %instant synchronization
+%  rdb_dispatcher:start_link(),
+%  TPIC=rpc:call(get_node(get_default_nodename()),erlang,whereis,[tpic]),
+%  Cs=tpiccall(TPIC, <<"blockchain">>,
+%              #{null=><<"sync_request">>},
+%              [last_hash, last_height, chain]
+%             ),
+%  [{Handler, Candidate}|_]=lists:filter( %first suitable will be the quickest
+%                             fun({_Handler, #{chain:=_Ch,
+%                                              last_hash:=_,
+%                                              last_height:=_,
+%                                              null:=<<"sync_available">>}}) -> true;
+%                                (_) -> false
+%                             end, Cs),
+%  #{null:=Avail,
+%    chain:=Chain,
+%    last_hash:=Hash,
+%    last_height:=Height}=Candidate,
+%  logger("~s chain ~w h= ~w hash= ~s ~n",
+%            [ Avail, Chain, Height, bin2hex:dbin2hex(Hash) ]),
+%
+%  Name=test_sync_ledger,
+%  {ok, Pid}=ledger:start_link(
+%              [{filename, "db/ledger_test_syncx2"},
+%               {name, Name}
+%              ]
+%             ),
+%  gen_server:call(Pid, '_flush'),
+%  
+%  Hash2=rpc:call(get_node(get_default_nodename()),ledger,check,[[]]),
+%  Hash2=rpc:call(get_node(get_default_nodename()),ledger,check,[[]]),
+%
+%  ledger_sync:run_target(TPIC, Handler, Pid, undefined),
+%
+%  {ok, #{blk:=BinBlk}}=inst_sync_wait_more(#{}),
+%  Hash0=case block:unpack(BinBlk) of
+%          #{header:=#{ledger_hash:=V1LH}} -> V1LH;
+%          #{header:=#{roots:=Roots}} -> proplists:get_value(ledger_hash,Roots)
+%        end,
+%  Hash1=ledger:check(Pid,[]),
+%  logger("Hash ~p ~p~n",[Hash1,Hash2]),
+%  ?assertMatch({ok,_},Hash1),
+%  ?assertMatch({ok,_},Hash2),
+%  ?assertEqual(Hash1,{ok,Hash0}),
+%  ?assertEqual(Hash1,Hash2),
+%  gen_server:cast(Pid, terminate),
+%  done.
+%  
+%
+%inst_sync_wait_more(A) ->
+%  receive
+%    {inst_sync, block, Blk} ->
+%      logger("Block~n"),
+%      inst_sync_wait_more(A#{blk=>Blk});
+%    {inst_sync, settings} ->
+%      logger("settings~n"),
+%      inst_sync_wait_more(A);
+%    {inst_sync, ledger} ->
+%      logger("Ledger~n"),
+%      inst_sync_wait_more(A);
+%    {inst_sync, settings, _} ->
+%      logger("Settings~n"),
+%      inst_sync_wait_more(A);
+%    {inst_sync, done, Res} ->
+%      logger("Done ~p~n", [Res]),
+%      {ok,A};
+%    Any ->
+%      logger("error: ~p~n", [Any]),
+%      {error, Any}
+%  after 10000 ->
+%          timeout
+%  end.
 
 
 % -----------------------------------------------------------------------------
