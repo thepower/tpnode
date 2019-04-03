@@ -196,8 +196,6 @@ handle_cast({prepare, Node, Txs, HeiHash}, #{preptxm:=PreTXM}=State) ->
            end
          end,
 
-%       #{header:=#{height:=CHei}}=blockchain:last_meta(),
-
          Tx2Put=lists:filtermap(MarkTx, Txs),
        {noreply,
         State#{
@@ -277,7 +275,7 @@ handle_info(process,
     lager:debug("MB pre nodes ~p", [PreNodes]),
 
     FindBlock=fun FB(H, N) ->
-                  case gen_server:call(blockchain, {get_block, H}) of
+                  case blockchain:rel(H, self) of
                     undefined ->
                       undefined;
                     #{header:=#{parent:=P}}=Blk ->

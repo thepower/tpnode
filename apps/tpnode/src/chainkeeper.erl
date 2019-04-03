@@ -352,7 +352,7 @@ rollback_block(LoggerOptions) ->
   rollback_block(LoggerOptions, []).
 
 rollback_block(LoggerOptions, RollbackOptions) ->
-  case catch gen_server:call(blockchain, rollback) of
+  case catch gen_server:call(blockchain_updater, rollback) of
     {ok, NewHash} ->
       stout:log(rollback,
         [
@@ -466,7 +466,7 @@ runsync() ->
     {node, nodekey:node_name()}
   ]),
   
-  blockchain ! runsync.
+  blockchain_sync ! runsync.
 
 runsync([]) ->
   runsync();
@@ -485,7 +485,7 @@ runsync(AssocList) when is_list(AssocList) ->
       end,
       AssocList
     ),
-  blockchain ! {runsync, ConvertedAssocList}.
+  blockchain_sync ! {runsync, ConvertedAssocList}.
 
 
 %% ------------------------------------------------------------------

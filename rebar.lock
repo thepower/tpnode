@@ -65,7 +65,7 @@
   0},
  {<<"tpapi">>,
   {git,"ssh://git@git.thepower.io:/thepower/tpapi.git",
-       {ref,"0c9c3056554ebb09f0d15c52a4eda29cb6fddf95"}},
+       {ref,"7f20cee3227da9b7aa8974d1b1ca034e62a80814"}},
   0},
  {<<"tpecdsa">>,
   {git,"ssh://git@git.wtf-rg.com:15616/thepower/tpecdsa.git",

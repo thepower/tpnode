@@ -352,7 +352,7 @@ contract_test() ->
             abs(os:system_time(millisecond)-(TS-86400000))<3600000;
            ({get_block, Back}) when 20>=Back ->
             FindBlock=fun FB(H, N) ->
-            case gen_server:call(blockchain, {get_block, H}) of
+                  case blockchain:rel(H, self) of
               undefined ->
                 undefined;
               #{header:=#{parent:=P}}=Blk ->
@@ -1206,9 +1206,9 @@ xchain_test() ->
               ),
   SignedBlock1=block:sign(Block1, C1N1),
   C5NS=
-  blockchain:apply_block_conf_meta(
+  blockchain_updater:apply_block_conf_meta(
     SignedBlock1,
-    blockchain:apply_block_conf(
+    blockchain_updater:apply_block_conf(
       SignedBlock1,
       get(ch5set)
      )
@@ -1248,9 +1248,9 @@ xchain_test() ->
                                              []),
   %io:format("BB ~p~n",[RBlock1bad]),
   C6NS=
-  blockchain:apply_block_conf_meta(
+  blockchain_updater:apply_block_conf_meta(
     RBlock1,
-    blockchain:apply_block_conf(
+    blockchain_updater:apply_block_conf(
       RBlock1,
       get(ch6set)
      )
