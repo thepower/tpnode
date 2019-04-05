@@ -22,6 +22,8 @@ end
 defmodule SyncTest do
   use ExUnit.Case, async: false
   import TPHelpers
+  import TPHelpers.API
+  alias TPHelpers.Resolver
 
   # <<128,1,64,0,4,0,0,1>>
   @from_wallet "AA100000006710886518"
@@ -76,7 +78,7 @@ defmodule SyncTest do
       "hash" => block_hash,
       "header" => %{ "height" => height, "parent" => parent_hash}}}
     = block_info
-    = get_block_info(:last, [node: @default_node])
+    = api_get_block_info(:last, [node: @default_node])
 
     tmp = Map.get(block_info, "temporary", false)
 
@@ -119,7 +121,7 @@ defmodule SyncTest do
       "hash" => block_hash2,
       "header" => %{ "height" => height2, "parent" => parent_hash2}}}
     = block_info2
-    = get_block_info(:last, [node: @default_node])
+    = api_get_block_info(:last, [node: @default_node])
 
     tmp2 = Map.get(block_info2, "temporary", false)
 
@@ -166,17 +168,6 @@ defmodule SyncTest do
       assert match?(%{"ok" => true, "res" => "ok"}, status)
     end
   end
-
-  # get block headers for the hash
-  def get_block_info(hash, opts \\ []) do
-    node = Keyword.get(opts, :node, @default_node)
-
-    :tpapi.get_blockinfo(hash, get_base_url(node))
-  end
-
-  # get the blockchain height
-  def api_get_height(), do: api_get_height(get_base_url(@default_node))
-  def api_get_height(base_url), do: :tpapi.get_height(base_url)
 
   # wait for node until it create a block with the height target_height
   def wait_for_height(target_height, timeout, opts \\ [])
@@ -260,51 +251,14 @@ defmodule SyncTest do
 
   def get_base_url(node \\ @default_node)
   def get_base_url(node) do
-    nodes_map = %{
-      "c4n1" => "http://pwr.local:49841",
-      "c4n2" => "http://pwr.local:49842",
-      "c4n3" => "http://pwr.local:49843",
-      "c5n1" => "http://pwr.local:49851",
-      "c5n2" => "http://pwr.local:49852",
-      "c5n3" => "http://pwr.local:49853",
-      "c6n1" => "http://pwr.local:49861",
-      "c6n2" => "http://pwr.local:49862",
-      "c6n3" => "http://pwr.local:49863"
-    }
-
-     url =
-       case :os.getenv("API_BASE_URL", nil) do
-         nil -> Map.get(nodes_map, node)
-         url_from_env -> url_from_env
-       end
-
-     to_charlist(url)
+    Resolver.get_base_url(node)
   end
-
-  # get current transaction status
-  def api_get_tx_status(tx_id), do: api_get_tx_status(tx_id, get_base_url())
-  def api_get_tx_status(tx_id, base_url), do: :tpapi.get_tx_status(tx_id, base_url)
-
-
-  # post encoded and signed transaction using API
-  def api_post_transaction(transaction) do
-    api_post_transaction(transaction, get_base_url())
-  end
-  def api_post_transaction(transaction, base_url) do
-    :tpapi.commit_transaction(transaction, base_url)
-  end
-
 
   # wallet private key settings
   def get_wallet_priv_key(), do: get_wallet_priv_key(@default_node)
   def get_wallet_priv_key(_node) do
     :address.parsekey("5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK")
   end
-
-  # get current seq for wallet
-  def api_get_wallet_seq(wallet), do: api_get_wallet_seq(wallet, get_base_url())
-  def api_get_wallet_seq(wallet, base_url), do: :tpapi.get_wallet_seq(wallet, base_url)
-
 
   # make, encode, sign and post transaction
   def make_transaction(from, to, currency, amount, _fee, message, opts \\ []) do
