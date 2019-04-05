@@ -21,9 +21,11 @@ end
 
 defmodule SyncTest do
   use ExUnit.Case, async: false
+
+  alias TPHelpers.Resolver
+
   import TPHelpers
   import TPHelpers.API
-  alias TPHelpers.Resolver
 
   # <<128,1,64,0,4,0,0,1>>
   @from_wallet "AA100000006710886518"
@@ -249,8 +251,8 @@ defmodule SyncTest do
   end
 
 
-  def get_base_url(node \\ @default_node)
-  def get_base_url(node) do
+  defp get_base_url(node \\ @default_node)
+  defp get_base_url(node) do
     Resolver.get_base_url(node)
   end
 
@@ -409,6 +411,7 @@ defmodule SyncTest do
     catch
       ec, ee ->
         logger("node #{node} answer: ~p:~1000p", [ec, ee])
+
         false
     end
   end
