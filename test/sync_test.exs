@@ -224,7 +224,7 @@ defmodule SyncTest do
     # try to get block with target hash
     result =
       with :ok <- height_check,
-           {:ok, block_info} <- api_get_blockinfo(target_hash, node) do
+           {:ok, block_info} <- api_get_blockinfo(target_hash, node: node) do
         block_info # we've got block info for block with hash target_hash
       else
         _ -> %{} # target hash wasn't found
