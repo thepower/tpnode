@@ -25,12 +25,12 @@ defmodule TPHelpers.API do
     :tpapi.get_blockinfo(hash, get_base_url(get_node(opts)))
   end
 
-  @spec api_ping(keyword) :: boolean
+  @spec api_ping(keyword()) :: boolean()
   def api_ping(opts \\ []) do
     :tpapi.ping(get_base_url(get_node(opts)))
   end
 
-  @spec api_get_blockinfo(binary | :last, keyword) :: {:ok, map} | {:error, binary}
+  @spec api_get_blockinfo(binary() | :last, keyword()) :: {:ok, map()} | {:error, binary()}
   def api_get_blockinfo(target_hash, opts \\ []) do
     try do
       res = :tpapi.get_blockinfo(target_hash, get_base_url(get_node(opts)))

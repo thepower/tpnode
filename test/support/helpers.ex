@@ -2,7 +2,7 @@ defmodule TPHelpers do
 
   import TPHelpers.API
 
-  @spec start_node(binary, keyword) :: :ok
+  @spec start_node(binary(), keyword()) :: :ok
   def start_node(node, opts \\ []) do
     case is_node_alive?(node) do
       true -> logger("Skiping alive node ~p", [node])
@@ -29,7 +29,7 @@ defmodule TPHelpers do
   end
 
 
-  @spec stop_node(binary) :: :error | :ok
+  @spec stop_node(binary()) :: :error | :ok
   def stop_node(node) do
     case is_node_alive?(node) do
       false ->
@@ -44,7 +44,7 @@ defmodule TPHelpers do
   end
 
 
-  @spec get_perm_hash(map) :: binary
+  @spec get_perm_hash(map()) :: binary()
   def get_perm_hash(block_info) when is_map(block_info) do
     block_hash = Map.get(block_info, "hash", nil)
     header = Map.get(block_info, "header", %{})
@@ -57,7 +57,7 @@ defmodule TPHelpers do
   end
 
 
-  @spec is_node_alive?(binary, keyword) :: boolean
+  @spec is_node_alive?(binary(), keyword()) :: boolean()
   def is_node_alive?(node, opts \\ []) do
     host = Keyword.get(opts, :node, 'pwr')
     node_prefix = Keyword.get(opts, :node_prefix, 'test_')
@@ -68,7 +68,7 @@ defmodule TPHelpers do
   end
 
 
-  @spec is_node_functioning?(binary) :: :ok | {:error, binary}
+  @spec is_node_functioning?(binary()) :: :ok | {:error, binary()}
   def is_node_functioning?(node) do
     try do
       case api_ping(node: node) do
