@@ -21,7 +21,7 @@ end
 
 defmodule SyncTest do
   use ExUnit.Case, async: false
-  
+
   import TPHelpers
   import TPHelpers.{API, TxGen}
 
@@ -325,72 +325,27 @@ defmodule SyncTest do
 
         case endless_cur do
           false -> :ok
-          _ -> make_endless(address, endless_cur)
+          _ -> make_endless(wallet_address, endless_cur)
         end
       _ -> :ok
     end
   end
 
-  def make_endless(address, cur) do
-    patch =
-      sign_patchv2(
-        :tx.construct_tx(
-          %{
-            kind: :patch,
-            ver: 2,
-            patches: [
-              %{
-                "t" => "set",
-                "p" => [
-                  "current",
-                  "endless",
-                  address,
-                  cur
-                ],
-                "v" => true
-              }
-            ]
+  def make_endless(address, currency, opts \\ []) do
+    signed_tx = get_tx_make_endless(address, currency, Keyword.take(opts, [:node_key_regex]))
+    logger("endless patch tx: ~p~n", [signed_tx])
 
-          }
-        ),
-        './examples/test_chain4/c4n?.conf'
-      )
-    logger("PK ~p~n", [:tx.verify(patch)])
+    res = api_post_transaction(:tx.pack(signed_tx), Keyword.take(opts, [:node]))
+    tx_id = Map.get(res, "txid", :unknown)
+
+    {:ok, status, _} = api_get_tx_status(tx_id, Keyword.take(opts, [:node]))
+    logger "api call status: ~p~n", [status]
+
+    assert match?(%{"ok" => true, "res" => "ok"}, status)
   end
 
 
-  def sign_patchv2(patch), do: sign_patchv2(patch, 'c4*.config')
-
-  def sign_patchv2(patch, wildcard) do
-    priv_keys = :lists.usort(get_all_nodes_keys(wildcard))
-    :lists.foldl(
-      fn (key, acc) ->
-        :tx.sign(acc, key)
-      end,
-      patch,
-      priv_keys
-    )
-  end
-
-  def get_all_nodes_keys(wildcard) do
-    :lists.filtermap(
-      fn (filename) ->
-        try do
-          {:ok, e} = :file.consult(filename)
-          case :proplists.get_value(:privkey, e) do
-            :undefined -> false
-            val -> {true, :hex.decode(val)}
-
-          end
-        catch
-          _, _ -> false
-        end
-      end,
-      :filelib.wildcard(wildcard)
-    )
-  end
-
-
+  
   def wait_nodes(nodes), do: wait_nodes(nodes, 10)
   def wait_nodes([], _timeout), do: :ok
   def wait_nodes(_, 0), do: :timeout

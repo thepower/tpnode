@@ -54,13 +54,56 @@ defmodule TPHelpers.API do
     end
   end
 
+  @spec sign_patch(map(), list(binary())) :: map()
+  def sign_patch(patch_map, node_priv_keys) do
+    node_priv_keys
+    |> Enum.sort
+    |> Enum.reduce(patch_map, fn (key, acc) -> :tx.sign(acc, key) end)
+  end
+
+  @spec get_tx_make_endless(binary(), binary(), keyword()) :: any()
+  def get_tx_make_endless(wallet, currency, opts \\ []) do
+    address = :naddress.decode(wallet)
+    node_regex = Keyword.get(opts, :node_key_regex, ~r/c4n.+/)
+    priv_keys = @resolver.get_all_priv_keys(node_regex)
+
+    patch =
+      :tx.construct_tx(
+        %{
+          kind: :patch,
+          ver: 2,
+          patches: [
+            %{
+              "t" => "set",
+              "p" => [
+                "current",
+                "endless",
+                address,
+                currency
+              ],
+              "v" => true
+            }
+          ]
+        })
+
+    sign_patch(patch, priv_keys)
+  end
+
+
+  @spec get_base_url(binary()) :: binary()
   defp get_base_url(node) do
     @resolver.get_base_url(node)
   end
 
+  @spec get_node(keyword()) :: binary() | nil
   defp get_node(opts) do
     Keyword.get(opts, :node, nil)
   end
+
+#  @spec get_node_priv(binary() | nil) :: binary()
+#  defp get_node_priv(node \\ nil) do
+#    @resolver.get_priv_key(node)
+#  end
 
   defp logger(fmt, args), do: :utils.logger(to_charlist(fmt), args)
 end

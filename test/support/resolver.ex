@@ -12,6 +12,12 @@ defmodule TPHelpers.Resolver do
     "c6n3" => "http://pwr.local:49863"
   }
 
+  @node_keys_map %{
+    "c4n1" => "CF2BD71347FA5D645FD6586CD4FE426AF5DCC2A604C5CC2529AB6861DC948D54",
+    "c4n2" => "15A48B170FBDAC808BA80D1692305A8EFC758CBC11252A4338131FC68AFAED6B",
+    "c4n3" => "2ACC7ACDBFFA92C252ADC21D8469CC08013EBE74924AB9FEA8627AE512B0A1E0"
+  }
+
   def get_base_url(node \\ nil) do
     node_to_resolve =
       case node do
@@ -37,4 +43,25 @@ defmodule TPHelpers.Resolver do
     |> hd
   end
 
+  @spec get_priv_key(binary() | nil) :: binary
+  def get_priv_key(node \\ nil) do
+    node_to_resolve =
+      unless node do
+        get_default_node()
+      else
+        node
+      end
+
+    {:ok, binary_key} = Base.decode16(Map.get(@node_keys_map, node_to_resolve, ""))
+    binary_key
+  end
+
+  def get_all_priv_keys(node_regex \\ ~r/.+/) do
+    Map.keys(@node_keys_map)
+    |> Enum.filter(&Regex.match?(node_regex, &1))
+    |> Enum.reduce(
+         [],
+         fn (node_name, acc) -> [:hex.decode(Map.get(@node_keys_map, node_name, [])) | acc] end)
+    |> List.flatten
+  end
 end
