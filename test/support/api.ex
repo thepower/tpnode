@@ -23,6 +23,11 @@ defmodule TPHelpers.API do
     :tpapi.get_blockinfo(hash, get_base_url(get_node(opts)))
   end
 
+  @spec api_ping(binary) :: boolean
+  def api_ping(node \\ nil) do
+    :tpapi.ping(get_base_url(node))
+  end
+
   defp get_base_url(node \\ nil) do
     @resolver.get_base_url(node)
   end

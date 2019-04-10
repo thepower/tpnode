@@ -405,16 +405,6 @@ defmodule SyncTest do
     )
   end
 
-  def is_node_functioning?(node) do
-    try do
-      :tpapi.ping(get_base_url(node))
-    catch
-      ec, ee ->
-        logger("node #{node} answer: ~p:~1000p", [ec, ee])
-
-        false
-    end
-  end
 
   def wait_nodes(nodes), do: wait_nodes(nodes, 10)
   def wait_nodes([], _timeout), do: :ok
@@ -427,11 +417,11 @@ defmodule SyncTest do
         wait_nodes(nodes, timeout - 1)
       _ ->
         case is_node_functioning?(node) do
-          false ->
+          :ok ->
+            wait_nodes(tail, timeout)
+          _ ->
             :timer.sleep(1000)
             wait_nodes(nodes, timeout - 1)
-          _ ->
-            wait_nodes(tail, timeout)
         end
     end
   end
