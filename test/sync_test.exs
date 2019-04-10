@@ -21,9 +21,7 @@ end
 
 defmodule SyncTest do
   use ExUnit.Case, async: false
-
-  alias TPHelpers.Resolver
-
+  
   import TPHelpers
   import TPHelpers.{API, TxGen}
 
@@ -58,7 +56,7 @@ defmodule SyncTest do
 
     stop_node("c4n3")
 
-    for x <- [@from_wallet, @to_wallet], do: ensure_wallet_exist(x)
+    for x <- [@from_wallet, @to_wallet], do: ensure_wallet_exist(x, node: @default_node)
   end
 
   def clear_all do
@@ -252,11 +250,6 @@ defmodule SyncTest do
   end
 
 
-  defp get_base_url(node \\ @default_node)
-  defp get_base_url(node) do
-    Resolver.get_base_url(node)
-  end
-
   # wallet private key settings
   def get_wallet_priv_key(), do: get_wallet_priv_key(@default_node)
   def get_wallet_priv_key(_node) do
@@ -308,25 +301,25 @@ defmodule SyncTest do
   end
 
 
-  def ensure_wallet_exist(address), do: ensure_wallet_exist(address, false)
+  def ensure_wallet_exist(address, opts \\ []) do
+    endless_cur = Keyword.get(opts, :endless, false)
+    node = Keyword.get(opts, :node, nil)
 
-  def ensure_wallet_exist(address, endless_cur) do
-    # check existing
+    # check if wallet exist
     wallet_data =
-      try do
-        :tpapi.get_wallet_info(address, get_base_url())
-      catch
-        ec, ee ->
-          :utils.print_error("error getting wallet data", ec, ee, :erlang.get_stacktrace())
-          logger("Wallet not exists: ~p", [address])
-          nil
+      unless is_nil(address) do
+        case api_get_wallet_info(address, node: node) do
+          {:ok, data} -> data
+          _ ->
+            logger("Wallet isn't exists: ~p", [address])
+            nil
+        end
       end
 
     # register new wallet in case of error
-
     case wallet_data do
       nil ->
-        logger("register new wallet, base_url = ~p", [get_base_url()])
+        logger("register new wallet, node = ~p", [node])
         wallet_address = api_register_wallet()
         assert address == wallet_address
 

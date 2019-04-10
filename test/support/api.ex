@@ -25,6 +25,18 @@ defmodule TPHelpers.API do
     :tpapi.get_blockinfo(hash, get_base_url(get_node(opts)))
   end
 
+  @spec api_get_wallet_info(binary()|nil, keyword()) :: {:ok, map()} | {:error, any()}
+  def api_get_wallet_info(address, opts \\ []) do
+    try do
+      {:ok, :tpapi.get_wallet_info(address, get_base_url(get_node(opts)))}
+    catch
+      _ec, ee ->
+#        :utils.print_error("error getting wallet data", _ec, ee, :erlang.get_stacktrace())
+        {:error, ee}
+    end
+  end
+
+
   @spec api_ping(keyword()) :: boolean()
   def api_ping(opts \\ []) do
     :tpapi.ping(get_base_url(get_node(opts)))
