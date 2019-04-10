@@ -25,7 +25,7 @@ defmodule SyncTest do
   alias TPHelpers.Resolver
 
   import TPHelpers
-  import TPHelpers.API
+  import TPHelpers.{API, TxGen}
 
   # <<128,1,64,0,4,0,0,1>>
   @from_wallet "AA100000006710886518"
@@ -159,8 +159,14 @@ defmodule SyncTest do
 
       tx_id =
         make_transaction(
-          @from_wallet, @to_wallet, @currency, block_no,
-          @tx_fee, "sync test tx", node: node)
+          @from_wallet,
+          @to_wallet,
+          @currency,
+          block_no,
+          fee: @tx_fee,
+          message: "sync test tx block #{block_no}}",
+          node: node
+        )
 
       logger "sent tx: #{tx_id}"
 
@@ -258,28 +264,19 @@ defmodule SyncTest do
   end
 
   # make, encode, sign and post transaction
-  def make_transaction(from, to, currency, amount, _fee, message, opts \\ []) do
+  def make_transaction(from, to, currency, amount, opts \\ []) do
     node = Keyword.get(opts, :node, @default_node)
+
+    signed_tx = construct_and_sign_tx(
+      from,
+      to,
+      currency,
+      amount,
+      Keyword.merge(opts, priv_key: get_wallet_priv_key())
+    )
+
     logger("posting tx to node: ~p", [node])
 
-    seq = api_get_wallet_seq(from, node: node)
-    tx_seq = max(seq, :os.system_time(:millisecond))
-    logger("seq for wallet ~p is ~p, use ~p for transaction ~n", [from, seq, tx_seq])
-    tx = :tx.construct_tx(
-      %{
-        kind: :generic,
-        ver: 2,
-        t: :os.system_time(:millisecond),
-        seq: tx_seq,
-        from: :naddress.decode(from),
-        to: :naddress.decode(to),
-        txext: %{
-          "message" => message
-        },
-        payload: [%{amount: amount, cur: currency, purpose: :transfer}]
-      }
-    )
-    signed_tx = :tx.sign(tx, get_wallet_priv_key())
     res = api_post_transaction(:tx.pack(signed_tx), node: node)
     Map.get(res, "txid", :unknown)
   end
