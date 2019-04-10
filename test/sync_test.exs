@@ -76,11 +76,11 @@ defmodule SyncTest do
     make_blocks(@blocks_before_sync)
 
     # get last block hash
-    %{"block" => %{
+    {:ok, %{"block" => %{
       "hash" => block_hash,
-      "header" => %{ "height" => height, "parent" => parent_hash}}}
-    = block_info
-    = api_get_block_info(:last, [node: @default_node])
+      "header" => %{ "height" => height, "parent" => parent_hash}}}}
+    = {:ok, block_info}
+    = api_get_blockinfo(:last)
 
     tmp = Map.get(block_info, "temporary", false)
 
@@ -119,11 +119,11 @@ defmodule SyncTest do
     # make more blocks on c4n1
     make_blocks(@blocks_before_sync)
 
-    %{"block" => %{
+    {:ok, %{"block" => %{
       "hash" => block_hash2,
-      "header" => %{ "height" => height2, "parent" => parent_hash2}}}
-    = block_info2
-    = api_get_block_info(:last, [node: @default_node])
+      "header" => %{ "height" => height2, "parent" => parent_hash2}}}}
+    = {:ok, block_info2}
+    = api_get_blockinfo(:last)
 
     tmp2 = Map.get(block_info2, "temporary", false)
 
@@ -223,16 +223,11 @@ defmodule SyncTest do
 
     # try to get block with target hash
     result =
-      case height_check do
-        :ok ->
-          try do
-            :tpapi.get_blockinfo(target_hash, get_base_url(node))
-          catch
-            ec, ee ->
-              logger("get blockinfo: ~p:~p~n", [ec, ee])
-              false
-          end
-        _ -> %{} # we didn't reach the target height yet
+      with :ok <- height_check,
+           {:ok, block_info} <- api_get_blockinfo(target_hash, node) do
+        block_info # we've got block info for block with hash target_hash
+      else
+        _ -> %{} # target hash wasn't found
       end
 
     case result do

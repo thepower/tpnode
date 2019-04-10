@@ -30,6 +30,18 @@ defmodule TPHelpers.API do
     :tpapi.ping(get_base_url(get_node(opts)))
   end
 
+  @spec api_get_blockinfo(binary | :last, keyword) :: {:ok, map} | {:error, binary}
+  def api_get_blockinfo(target_hash, opts \\ []) do
+    try do
+      res = :tpapi.get_blockinfo(target_hash, get_base_url(get_node(opts)))
+      {:ok, res}
+    catch
+      ec, ee ->
+        logger("get blockinfo: ~p:~p~n", [ec, ee])
+        {:error, ee}
+    end
+  end
+
   defp get_base_url(node) do
     @resolver.get_base_url(node)
   end
@@ -37,4 +49,6 @@ defmodule TPHelpers.API do
   defp get_node(opts) do
     Keyword.get(opts, :node, nil)
   end
+
+  defp logger(fmt, args), do: :utils.logger(to_charlist(fmt), args)
 end
