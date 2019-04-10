@@ -164,7 +164,7 @@ defmodule SyncTest do
 
       logger "sent tx: #{tx_id}"
 
-      {:ok, status, _} = api_get_tx_status(tx_id, get_base_url(node))
+      {:ok, status, _} = api_get_tx_status(tx_id, node: node)
       logger "api call status: ~p~n", [status]
 
       assert match?(%{"ok" => true, "res" => "ok"}, status)
@@ -178,7 +178,7 @@ defmodule SyncTest do
     node = Keyword.get(opts, :node, @default_node)
 
     try do
-      case api_get_height(get_base_url(node)) do
+      case api_get_height(node: node) do
         cur_height when cur_height >= target_height -> :ok
         cur_height ->
           logger("current height: ~p", [cur_height])
@@ -207,7 +207,7 @@ defmodule SyncTest do
       case height do
         _ when is_number(height) -> # wait for height first
           try do
-            case api_get_height(get_base_url(node)) do
+            case api_get_height(node: node) do
               cur_height when cur_height >= height -> :ok
               cur_height ->
                 logger("current height: ~p", [cur_height])
@@ -267,7 +267,7 @@ defmodule SyncTest do
     node = Keyword.get(opts, :node, @default_node)
     logger("posting tx to node: ~p", [node])
 
-    seq = api_get_wallet_seq(from, get_base_url(node))
+    seq = api_get_wallet_seq(from, node: node)
     tx_seq = max(seq, :os.system_time(:millisecond))
     logger("seq for wallet ~p is ~p, use ~p for transaction ~n", [from, seq, tx_seq])
     tx = :tx.construct_tx(
@@ -285,7 +285,7 @@ defmodule SyncTest do
       }
     )
     signed_tx = :tx.sign(tx, get_wallet_priv_key())
-    res = api_post_transaction(:tx.pack(signed_tx), get_base_url(node))
+    res = api_post_transaction(:tx.pack(signed_tx), node: node)
     Map.get(res, "txid", :unknown)
   end
 

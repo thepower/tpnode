@@ -71,7 +71,7 @@ defmodule TPHelpers do
   @spec is_node_functioning?(binary) :: :ok | {:error, binary}
   def is_node_functioning?(node) do
     try do
-      case api_ping(node) do
+      case api_ping(node: node) do
         true ->
           :ok
         _ ->
