@@ -275,20 +275,10 @@ defmodule SyncTest do
   end
 
 
-  def get_register_wallet_transaction() do
-    priv_key = get_wallet_priv_key()
-    :tpapi.get_register_wallet_transaction(priv_key, %{promo: "TEST5"})
-  end
-
   # --------------------------------------------------------------------------------
   # register new wallet using API
-  def api_register_wallet() do
-    register_tx = get_register_wallet_transaction()
-    res = api_post_transaction(register_tx)
-    tx_id = Map.get(res, "txid", :unknown)
-    refute tx_id == :unknown
-
-    {:ok, status, _} = api_get_tx_status(tx_id)
+  def get_new_wallet() do
+    status = register_wallet(get_wallet_priv_key())
     logger("register wallet transaction status: ~p ~n", [status])
 
     assert match?(%{"ok" => true}, status)
@@ -320,7 +310,7 @@ defmodule SyncTest do
     case wallet_data do
       nil ->
         logger("register new wallet, node = ~p", [node])
-        wallet_address = api_register_wallet()
+        wallet_address = get_new_wallet()
         assert address == wallet_address
 
         case endless_cur do
@@ -330,27 +320,6 @@ defmodule SyncTest do
             assert match?(%{"ok" => true, "res" => "ok"}, status)
         end
       _ -> :ok
-    end
-  end
-
-
-  def wait_nodes(nodes), do: wait_nodes(nodes, 10)
-  def wait_nodes([], _timeout), do: :ok
-  def wait_nodes(_, 0), do: :timeout
-
-  def wait_nodes([node | tail] = nodes, timeout) do
-    case is_node_alive?(node) do
-      false ->
-        :timer.sleep(1000)
-        wait_nodes(nodes, timeout - 1)
-      _ ->
-        case is_node_functioning?(node) do
-          :ok ->
-            wait_nodes(tail, timeout)
-          _ ->
-            :timer.sleep(1000)
-            wait_nodes(nodes, timeout - 1)
-        end
     end
   end
 
