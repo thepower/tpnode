@@ -36,7 +36,6 @@ defmodule TPHelpers.API do
     end
   end
 
-
   @spec api_ping(keyword()) :: boolean()
   def api_ping(opts \\ []) do
     :tpapi.ping(get_base_url(get_node(opts)))

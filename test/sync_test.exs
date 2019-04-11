@@ -325,27 +325,15 @@ defmodule SyncTest do
 
         case endless_cur do
           false -> :ok
-          _ -> make_endless(wallet_address, endless_cur)
+          _ ->
+            status = make_endless(wallet_address, endless_cur)
+            assert match?(%{"ok" => true, "res" => "ok"}, status)
         end
       _ -> :ok
     end
   end
 
-  def make_endless(address, currency, opts \\ []) do
-    signed_tx = get_tx_make_endless(address, currency, Keyword.take(opts, [:node_key_regex]))
-    logger("endless patch tx: ~p~n", [signed_tx])
 
-    res = api_post_transaction(:tx.pack(signed_tx), Keyword.take(opts, [:node]))
-    tx_id = Map.get(res, "txid", :unknown)
-
-    {:ok, status, _} = api_get_tx_status(tx_id, Keyword.take(opts, [:node]))
-    logger "api call status: ~p~n", [status]
-
-    assert match?(%{"ok" => true, "res" => "ok"}, status)
-  end
-
-
-  
   def wait_nodes(nodes), do: wait_nodes(nodes, 10)
   def wait_nodes([], _timeout), do: :ok
   def wait_nodes(_, 0), do: :timeout

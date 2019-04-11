@@ -86,6 +86,21 @@ defmodule TPHelpers do
   end
 
 
+  @spec make_endless(binary(), binary(), keyword()) :: map()
+  def make_endless(address, currency, opts \\ []) do
+    logger("make wallet ~p endless for currency ~p", [address, currency])
+    signed_tx = get_tx_make_endless(address, currency, Keyword.take(opts, [:node_key_regex]))
+
+    res = api_post_transaction(:tx.pack(signed_tx), Keyword.take(opts, [:node]))
+    tx_id = Map.get(res, "txid", :unknown)
+
+    {:ok, status, _} = api_get_tx_status(tx_id, Keyword.take(opts, [:node]))
+    logger "api call status: ~p", [status]
+
+    status
+  end
+
+
 
   def logger(format, args \\ []), do: :utils.logger(to_charlist(format), args)
 
