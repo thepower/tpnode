@@ -89,7 +89,10 @@ coffebreak:
 	@$(SLEEP) 5
 
 synctest: elixir
-	@$(ELIXIR) -pa '_build/test/lib/*/ebin/' --sname tester test/sync_test.exs
+	@$(ELIXIR) -pa '_build/test/lib/*/ebin/' --sname tester1 test/sync_test.exs
+
+loadtest: elixir
+	@$(ELIXIR) -pa '_build/test/lib/*/ebin/' --sname tester2 test/load_test.exs
 
 cleantest:
 	$(RM) -rf _build/test
