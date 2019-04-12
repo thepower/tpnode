@@ -20,10 +20,11 @@ end
 defmodule LoadTest do
   use ExUnit.Case, async: false
 
-  alias TPHelpers.TxSender
+  alias TPHelpers.{TxSender, Stat, Resolver}
 
   import TPHelpers
   import TPHelpers.TxGen
+
 
   # define nodes where send transaction to
   @nodes ["c4n1", "c4n2", "c4n3"]
@@ -73,6 +74,7 @@ defmodule LoadTest do
         txs_per_node: @txs_per_worker
       )
 
+#    txs = %{}
     logger("txs: ~p", [txs])
 
     {:ok, sup_pid} = DynamicSupervisor.start_link(
@@ -83,6 +85,7 @@ defmodule LoadTest do
     )
     IO.puts("supervisor pid: #{inspect sup_pid}")
 
+    # start transaction send workers
     wrk_pids =
       for node <- @nodes do
         wrk_name = "wrk_#{node}"
@@ -109,6 +112,33 @@ defmodule LoadTest do
 
     logger("all worker pids: ~p", [wrk_pids])
 
+    # start a statistics server
+
+    {:ok, sup_stat_pid} = DynamicSupervisor.start_link(
+      [
+        name: :stat_keeper,
+        strategy: :one_for_one
+      ]
+    )
+    IO.puts("statistics supervisor pid: #{inspect sup_stat_pid}")
+
+    {:ok, stat_pid} = DynamicSupervisor.start_child(
+      :stat_keeper,
+      %{
+        restart: :temporary,
+        id: "stat_dispatcher",
+        type: :worker,
+        start: {Stat, :start_link, []}
+      }
+    )
+
+    %{"host" => host, "port" => port} = Resolver.get_api_host_and_port()
+    {:ok, _wrk_pid} =
+      GenServer.call(stat_pid, {:connect, to_charlist(host),  String.to_integer(port)})
+
+    :timer.sleep(5_000)
+
+    # turn the load on
     for wrk_pid <- wrk_pids do
       GenServer.cast(wrk_pid, :start)
     end
@@ -116,6 +146,9 @@ defmodule LoadTest do
     wait_workers(wrk_pids)
 
     logger("clean up")
+
+    res = DynamicSupervisor.stop(:stat_keeper)
+    IO.puts("stop the statistics: #{inspect res}")
 
     res = DynamicSupervisor.stop(:wrk_keeper)
     IO.puts("stop the supervisor: #{inspect res}")

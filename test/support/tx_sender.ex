@@ -109,7 +109,7 @@ defmodule TPHelpers.TxSender do
 
 
   def terminate(reason, %{name: name}) do
-    IO.puts "terminate: #{name}, reason: #{reason}}"
+    IO.puts "terminate: #{name}, reason: #{reason}"
     :normal
   end
 
