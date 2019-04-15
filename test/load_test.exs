@@ -23,7 +23,7 @@ defmodule LoadTest do
   alias TPHelpers.{TxSender, Stat, Resolver}
 
   import TPHelpers
-  import TPHelpers.TxGen
+  import TPHelpers.{TxGen, API}
 
 
   # define nodes where send transaction to
@@ -50,33 +50,20 @@ defmodule LoadTest do
     :ok
   end
 
-  #  @tag :skip
-  @tag timeout: 600000
-  test "load test" do
-    setup_all()
-
-    # create endless wallets
+  defp create_wallets(%{endless_cur: currency, nodes: nodes, priv_key: priv_key}) do
+    # create endless sender wallets
     senders =
-      register_wallets(endless: @tx_currency, nodes: @nodes, priv_key: get_wallet_priv_key())
+      register_wallets(endless: currency, nodes: nodes, priv_key: priv_key)
     logger("senders: ~p", [senders])
 
-    # create destinations
-    dests = register_wallets(nodes: @nodes, priv_key: get_wallet_priv_key())
+    # create ordinary wallets which will be used as destinations
+    dests = register_wallets(nodes: nodes, priv_key: priv_key)
     logger("destinations: ~p", [dests])
 
-    # generate transactions for each worker
-    txs =
-      generate_txs(
-        senders,
-        dests,
-        nodes: @nodes,
-        priv_key: get_wallet_priv_key(),
-        txs_per_node: @txs_per_worker
-      )
+    {senders, dests}
+  end
 
-#    txs = %{}
-    logger("txs: ~p", [txs])
-
+  defp start_workers(%{txs: txs}) do
     {:ok, sup_pid} = DynamicSupervisor.start_link(
       [
         name: :wrk_keeper,
@@ -110,19 +97,20 @@ defmodule LoadTest do
         pid
       end
 
-    logger("all worker pids: ~p", [wrk_pids])
+    {:ok, sup_pid, wrk_pids}
+  end
 
+  defp start_statistics() do
     # start a statistics server
-
-    {:ok, sup_stat_pid} = DynamicSupervisor.start_link(
+    {:ok, stat_sup_pid} = DynamicSupervisor.start_link(
       [
         name: :stat_keeper,
         strategy: :one_for_one
       ]
     )
-    IO.puts("statistics supervisor pid: #{inspect sup_stat_pid}")
+    IO.puts("statistics supervisor pid: #{inspect stat_sup_pid}")
 
-    {:ok, stat_pid} = DynamicSupervisor.start_child(
+    {:ok, stat_disp_pid} = DynamicSupervisor.start_child(
       :stat_keeper,
       %{
         restart: :temporary,
@@ -133,17 +121,94 @@ defmodule LoadTest do
     )
 
     %{"host" => host, "port" => port} = Resolver.get_api_host_and_port()
-    {:ok, _wrk_pid} =
-      GenServer.call(stat_pid, {:connect, to_charlist(host),  String.to_integer(port)})
+    {:ok, stat_wrk_pid} =
+      GenServer.call(stat_disp_pid, {:connect, to_charlist(host),  String.to_integer(port)})
 
-    :timer.sleep(5_000)
+    {:ok, stat_sup_pid, stat_disp_pid, stat_wrk_pid}
+  end
 
-    # turn the load on
+  defp send_transactions(wrk_pids) do
+    logger("start sending transactions to ~p nodes", [length(@nodes)])
+
     for wrk_pid <- wrk_pids do
       GenServer.cast(wrk_pid, :start)
     end
 
     wait_workers(wrk_pids)
+    logger("all transactions was sent")
+    :ok
+  end
+
+  defp wait_txs(wrk_pids) do
+    logger("waiting until the transactions will be committed")
+
+    # get last tx id for each worker
+    tx_ids =
+      Enum.reduce(
+        wrk_pids,
+        [],
+        fn (pid, acc) ->
+          {:ok, {_name, [last_tx_id | _other_tx_ids]}} = GenServer.call(pid, :get_tx_ids)
+          [last_tx_id | acc]
+        end
+      )
+
+    logger("wait for tx ids: ~p", [tx_ids])
+
+    for tx_id <- tx_ids do
+      try do
+        {:ok, status, _} = api_get_tx_status(tx_id, timeout: 120)
+        logger("tx ~p status ~p", [tx_id, status])
+      catch
+        ec, ee ->
+          :utils.print_error("ws worker run failed", ec, ee, :erlang.get_stacktrace())
+      end
+    end
+
+    logger("wait for txs done")
+
+    :ok
+  end
+
+
+  #  @tag :skip
+  @tag timeout: 600000
+  test "load test" do
+    setup_all()
+
+    # create wallets
+    {senders, dests} = create_wallets(
+      %{
+        endless_cur: @tx_currency,
+        nodes: @nodes,
+        priv_key: get_wallet_priv_key()
+      }
+    )
+
+    # generate transactions for each worker
+    txs =
+      generate_txs(
+        senders,
+        dests,
+        nodes: @nodes,
+        priv_key: get_wallet_priv_key(),
+        txs_per_node: @txs_per_worker
+      )
+    logger("txs: ~p", [txs])
+
+    # start transaction send workers
+    {:ok, _sup_pid, wrk_pids} = start_workers(%{txs: txs})
+    logger("all worker pids: ~p", [wrk_pids])
+
+    {:ok, _stat_sup_pid, _stat_disp_pid, _stat_wrk_pid} = start_statistics()
+
+    :timer.sleep(5_000)
+
+    # let's the show begin
+    send_transactions(wrk_pids)
+
+    # waiting until last transaction be committed
+    wait_txs(wrk_pids)
 
     logger("clean up")
 

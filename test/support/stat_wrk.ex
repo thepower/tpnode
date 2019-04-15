@@ -74,10 +74,10 @@ defmodule TPHelpers.StatWrk do
 
   def ws_mode(pid, parent) do
     receive do
-      {'EXIT', _, :shutdown} ->
+      {:'EXIT', _, :shutdown} ->
         :gun.close(pid)
         exit(:normal)
-      {'EXIT', _, reason} ->
+      {:'EXIT', _, reason} ->
         IO.puts("Linked process went down #{inspect reason}. Giving up...")
         :gun.close(pid)
         exit(:normal)
@@ -92,7 +92,8 @@ defmodule TPHelpers.StatWrk do
         :gun.ws_send(pid, {:binary, payload})
         ws_mode(pid, parent)
       {:gun_ws, ^pid, {:text, txt}} ->
-        IO.puts("got text, #{inspect txt}")
+        GenServer.cast(parent, {:got, txt})
+#        IO.puts("got text, #{inspect txt}")
 #        :utils.logger("got text: ~p", [txt])
         ws_mode(pid, parent)
       {:gun_ws, ^pid, {:binary, bin}} ->

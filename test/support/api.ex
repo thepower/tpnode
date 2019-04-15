@@ -4,7 +4,8 @@ defmodule TPHelpers.API do
 
   # get current transaction status
   def api_get_tx_status(tx_id, opts \\ []) do
-    :tpapi.get_tx_status(tx_id, get_base_url(get_node(opts)))
+    timeout = Keyword.get(opts, :timeout, 40)
+    :tpapi.get_tx_status(tx_id, get_base_url(get_node(opts)), timeout)
   end
 
   # post encoded and signed transaction using API

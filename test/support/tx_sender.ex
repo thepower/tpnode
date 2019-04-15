@@ -44,6 +44,10 @@ defmodule TPHelpers.TxSender do
     {:reply, {:ok, %{mode: mode, sent: sent}}, state}
   end
 
+  def handle_call(:get_tx_ids, _from, %{tx_ids: tx_ids, name: name} = state) do
+    {:reply, {:ok, {name, tx_ids}}, state}
+  end
+
   def handle_call(:state, _from, state) do
     IO.puts("state request")
     {:reply, {:ok, state}, state}
@@ -75,13 +79,26 @@ defmodule TPHelpers.TxSender do
   # send one transaction
   def handle_cast(
         :send,
-        %{mode: mode, txs: [tx | tail], node: node, tx_ids: tx_ids, counter: count} = state
-      )
-      when mode == :working do
+        %{
+          mode: mode,
+          txs: [tx | tail],
+          node: node,
+          tx_ids: tx_ids,
+          counter: count
+        } = state
+      ) when mode == :working do
 
-    tx_id = send_tx(tx, node)
+    new_state =
+      case send_tx(tx, node) do
+        {:ok, tx_id} -> %{state | tx_ids: [tx_id | tx_ids]}
+        send_error ->
+          IO.puts("transaction send error: #{inspect send_error}")
+          state
+      end
+
     GenServer.cast(self(), :send)
-    {:noreply, %{state | txs: tail, tx_ids: [tx_id | tx_ids], counter: count + 1}}
+
+    {:noreply, %{new_state | txs: tail, counter: count + 1}}
   end
 
   def handle_cast(unknown, state) do
@@ -116,12 +133,12 @@ defmodule TPHelpers.TxSender do
   defp send_tx(tx, node) do
     try do
       res = api_post_transaction(tx, node: node)
-      tx_id = Map.get("txid", res, nil)
-      tx_id
+#      IO.puts("raw send: #{inspect res}")
+      {:ok, Map.get(res, "txid", {:error, :bad_answer})}
     catch
       ec, ee ->
         :utils.print_error("tx send failed", ec, ee, :erlang.get_stacktrace())
-        nil
+        {:error, ee}
     end
   end
 

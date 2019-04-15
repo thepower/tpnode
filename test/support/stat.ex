@@ -40,6 +40,11 @@ defmodule TPHelpers.Stat do
     {:reply, :ok, state}
   end
 
+  def handle_cast({:got, data}, state) do
+    parse_ws_data(data)
+    {:noreply, state}
+  end
+
   def handle_cast(unknown, state) do
     IO.puts("got unknown cast: #{inspect unknown}")
     {:noreply, state}
@@ -67,6 +72,20 @@ defmodule TPHelpers.Stat do
   def terminate(reason, _state) do
     IO.puts "terminate dispatcher, reason: #{reason}"
     :normal
+  end
+
+  defp parse_ws_data(data) do
+    try do
+      json = :jsx.decode(data, [:return_maps])
+      IO.puts "got ws: #{inspect json}"
+      %{"blockstat" => %{"txs_cnt" => txs_cnt}} = json
+      IO.puts "txs count: #{inspect txs_cnt}"
+      {:ok, txs_cnt}
+    catch
+      ec, ee ->
+        :utils.print_error("parse wd data failed", ec, ee, :erlang.get_stacktrace())
+        :error
+    end
   end
 
 end
