@@ -134,6 +134,39 @@ defmodule TPHelpers do
     end
   end
 
+  @spec check_poptxs(integer(), keyword()) :: any()
+  def check_poptxs(value, opts \\ []) do
+    with %{"ok" => true, "settings" => settings} <- api_get_settings(),
+         current <- Map.get(settings, "current", %{}),
+         chain <- Map.get(current, "chain", %{}),
+         current_poptxs <- Map.get(chain, "poptsx", 200)
+      do
+      if value != current_poptxs do
+        logger("current poptxs is ~p, set it to ~p", [current_poptxs, value])
+        patch_poptxs(value, opts)
+      end
+    end
+  end
+
+  @spec patch_poptxs(integer(), keyword()) :: any()
+  def patch_poptxs(value, opts \\ []) do
+    signed_tx = get_tx_patch(
+      "set",
+      ["current", "chain", "poptxs"],
+      value,
+      Keyword.take(opts, [:node_key_regex])
+    )
+
+    res = api_post_transaction(:tx.pack(signed_tx), Keyword.take(opts, [:node]))
+    tx_id = Map.get(res, "txid", :unknown)
+
+    {:ok, status, _} = api_get_tx_status(tx_id, Keyword.take(opts, [:node]))
+    logger "api call status: ~p", [status]
+
+    status
+  end
+
+
 
   @spec logger(binary(), list()) :: any()
   def logger(format, args \\ []), do: :utils.logger(to_charlist(format), args)

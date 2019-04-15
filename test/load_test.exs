@@ -38,15 +38,15 @@ defmodule LoadTest do
   def setup_all do
     for x <- @nodes, do: start_node(x)
 
-    status = @nodes
-             |> wait_nodes
+    status = wait_nodes(@nodes)
+
     logger "nodes status: ~p", [status]
 
     assert :ok == status
   end
 
   def clear_all do
-#    for x <- @nodes, do: stop_node(x)
+    #    for x <- @nodes, do: stop_node(x)
     :ok
   end
 
@@ -122,7 +122,7 @@ defmodule LoadTest do
 
     %{"host" => host, "port" => port} = Resolver.get_api_host_and_port()
     {:ok, stat_wrk_pid} =
-      GenServer.call(stat_disp_pid, {:connect, to_charlist(host),  String.to_integer(port)})
+      GenServer.call(stat_disp_pid, {:connect, to_charlist(host), String.to_integer(port)})
 
     {:ok, stat_sup_pid, stat_disp_pid, stat_wrk_pid}
   end
@@ -185,6 +185,8 @@ defmodule LoadTest do
       }
     )
 
+    check_poptxs(50, node_key_regex: ~r/c4n.+/)
+
     # generate transactions for each worker
     txs =
       generate_txs(
@@ -224,12 +226,14 @@ defmodule LoadTest do
   def wait_workers(wrk_pids) do
     workers_state =
       wrk_pids
-      |> Enum.map(fn (wrk_pid) ->
-        {:ok, %{mode: mode, sent: sent}} = GenServer.call(wrk_pid, :get_progress)
-        if mode == :working do
-          {wrk_pid, sent}
-        end
-      end)
+      |> Enum.map(
+           fn (wrk_pid) ->
+             {:ok, %{mode: mode, sent: sent}} = GenServer.call(wrk_pid, :get_progress)
+             if mode == :working do
+               {wrk_pid, sent}
+             end
+           end
+         )
       |> Enum.filter(&(&1))
 
     logger("workers state: ~p", [workers_state])
@@ -309,7 +313,7 @@ defmodule LoadTest do
 
       # make endless
       if is_binary(endless) do
-        status = make_endless(wallet_address, endless, node: node)
+        status = make_endless(wallet_address, endless, node: node, node_key_regex: ~r/c4n.+/)
         assert match?(%{"ok" => true, "res" => "ok"}, status)
       end
 

@@ -26,13 +26,17 @@ defmodule TPHelpers.API do
     :tpapi.get_blockinfo(hash, get_base_url(get_node(opts)))
   end
 
-  @spec api_get_wallet_info(binary()|nil, keyword()) :: {:ok, map()} | {:error, any()}
+  def api_get_settings(opts \\ []) do
+    :tpapi.get_settings(get_base_url(get_node(opts)))
+  end
+
+  @spec api_get_wallet_info(binary() | nil, keyword()) :: {:ok, map()} | {:error, any()}
   def api_get_wallet_info(address, opts \\ []) do
     try do
       {:ok, :tpapi.get_wallet_info(address, get_base_url(get_node(opts)))}
     catch
       _ec, ee ->
-#        :utils.print_error("error getting wallet data", _ec, ee, :erlang.get_stacktrace())
+        #        :utils.print_error("error getting wallet data", _ec, ee, :erlang.get_stacktrace())
         {:error, ee}
     end
   end
@@ -61,34 +65,47 @@ defmodule TPHelpers.API do
     |> Enum.reduce(patch_map, fn (key, acc) -> :tx.sign(acc, key) end)
   end
 
-  @spec get_tx_make_endless(binary(), binary(), keyword()) :: any()
+  @spec get_tx_make_endless(binary(), binary(), keyword()) :: map()
   def get_tx_make_endless(wallet, currency, opts \\ []) do
     address = :naddress.decode(wallet)
-    node_regex = Keyword.get(opts, :node_key_regex, ~r/c4n.+/)
-    priv_keys = @resolver.get_all_priv_keys(node_regex)
 
-    patch =
-      :tx.construct_tx(
-        %{
-          kind: :patch,
-          ver: 2,
-          patches: [
-            %{
-              "t" => "set",
-              "p" => [
-                "current",
-                "endless",
-                address,
-                currency
-              ],
-              "v" => true
-            }
-          ]
-        })
-
-    sign_patch(patch, priv_keys)
+    get_tx_patch(
+      "set",
+      [
+        "current",
+        "endless",
+        address,
+        currency
+      ],
+      true,
+      opts
+    )
   end
 
+  @spec get_tx_patch(binary(), list(), any(), keyword()) :: map()
+  def get_tx_patch(type, [_ | _] = path, value, opts \\ []) do
+    node_regex = Keyword.get(opts, :node_key_regex, nil)
+    priv_keys = @resolver.get_all_priv_keys(node_regex)
+
+    sign_patch(get_patch(type, path, value), priv_keys)
+  end
+
+  @spec get_patch(binary(), list(), any()) :: map()
+  def get_patch(type, [_ | _] = path, value) when is_binary(type) do
+    :tx.construct_tx(
+      %{
+        kind: :patch,
+        ver: 2,
+        patches: [
+          %{
+            "t" => type,
+            "p" => path,
+            "v" => value
+          }
+        ]
+      }
+    )
+  end
 
   @spec get_base_url(binary()) :: binary()
   defp get_base_url(node) do
@@ -100,10 +117,10 @@ defmodule TPHelpers.API do
     Keyword.get(opts, :node, nil)
   end
 
-#  @spec get_node_priv(binary() | nil) :: binary()
-#  defp get_node_priv(node \\ nil) do
-#    @resolver.get_priv_key(node)
-#  end
+  #  @spec get_node_priv(binary() | nil) :: binary()
+  #  defp get_node_priv(node \\ nil) do
+  #    @resolver.get_priv_key(node)
+  #  end
 
   defp logger(fmt, args), do: :utils.logger(to_charlist(fmt), args)
 end

@@ -65,12 +65,20 @@ defmodule TPHelpers.Resolver do
     end
   end
 
-  def get_all_priv_keys(node_regex \\ ~r/.+/) do
+  def get_all_priv_keys(node_regex \\ nil) do
+    search_regex =
+      unless node_regex do
+        ~r/.+/
+      else
+        node_regex
+      end
+
     Map.keys(@node_keys_map)
-    |> Enum.filter(&Regex.match?(node_regex, &1))
+    |> Enum.filter(&Regex.match?(search_regex, &1))
     |> Enum.reduce(
          [],
-         fn (node_name, acc) -> [:hex.decode(Map.get(@node_keys_map, node_name, [])) | acc] end)
+         fn (node_name, acc) -> [:hex.decode(Map.get(@node_keys_map, node_name, [])) | acc] end
+       )
     |> List.flatten
   end
 end
