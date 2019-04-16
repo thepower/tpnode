@@ -196,7 +196,7 @@ defmodule LoadTest do
         priv_key: get_wallet_priv_key(),
         txs_per_node: @txs_per_worker
       )
-    logger("txs: ~p", [txs])
+#    logger("txs: ~p", [txs])
 
     # start transaction send workers
     {:ok, _sup_pid, wrk_pids} = start_workers(%{txs: txs})

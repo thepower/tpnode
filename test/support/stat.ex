@@ -19,7 +19,8 @@ defmodule TPHelpers.Stat do
     {
       :ok,
       %{
-        mode: :idle
+        mode: :idle,
+        stat_data: []
       }
     }
   end
@@ -40,9 +41,17 @@ defmodule TPHelpers.Stat do
     {:reply, :ok, state}
   end
 
-  def handle_cast({:got, data}, state) do
-    parse_ws_data(data)
-    {:noreply, state}
+  def handle_cast({:got, data}, %{stat_data: stat_data} = state) do
+    new_state =
+      case parse_ws_data(data) do
+        {:ok, timestamp, txs_cnt} ->
+          %{state | stat_data: stat_data ++ [{timestamp, txs_cnt}]}
+        _ -> state
+      end
+
+    show_stat(new_state.stat_data)
+
+    {:noreply, new_state}
   end
 
   def handle_cast(unknown, state) do
@@ -77,15 +86,65 @@ defmodule TPHelpers.Stat do
   defp parse_ws_data(data) do
     try do
       json = :jsx.decode(data, [:return_maps])
-      IO.puts "got ws: #{inspect json}"
-      %{"blockstat" => %{"txs_cnt" => txs_cnt}} = json
-      IO.puts "txs count: #{inspect txs_cnt}"
-      {:ok, txs_cnt}
+#      IO.puts "got ws: #{inspect json}"
+      %{
+        "blockstat" => %{
+          "txs_cnt" => txs_cnt,
+          "timestamp" => block_timestamp
+        }
+      } = json
+      IO.puts "txs count: #{inspect block_timestamp} : #{inspect txs_cnt}"
+      {:ok, block_timestamp, txs_cnt}
     catch
       ec, ee ->
-        :utils.print_error("parse wd data failed", ec, ee, :erlang.get_stacktrace())
+        :utils.print_error("parse ws data failed", ec, ee, :erlang.get_stacktrace())
         :error
     end
+  end
+
+  defp show_stat(data) do
+    stat_fun =
+      fn ({ts, tx_cnt}, acc) ->
+        pre_ts = Map.get(acc, :pre_ts, ts)
+        total_txs_cnt = Map.get(acc, :total_txs_cnt, 0) + tx_cnt
+        min_ts = min(Map.get(acc, :min_ts, ts), ts)
+        max_ts = max(Map.get(acc, :max_ts, ts), ts)
+
+        last_rate =
+          if pre_ts != ts do
+            (tx_cnt * 1000) / abs(ts - pre_ts)
+          else
+            tx_cnt
+          end
+
+        total_rate =
+          if min_ts != max_ts do
+            (total_txs_cnt * 1000) / abs(max_ts - min_ts)
+          else
+            total_txs_cnt
+          end
+
+        %{
+          pre_ts: ts,
+          total_txs_cnt: total_txs_cnt,
+          min_ts: min_ts,
+          max_ts: max_ts,
+          last_rate: last_rate,
+          total_rate: total_rate
+        }
+      end
+
+    txs_stat = Enum.reduce(data, %{}, stat_fun)
+
+    last_rate = Map.get(txs_stat, :last_rate, 0)
+    total_rate = Map.get(txs_stat, :total_rate, 0)
+
+    IO.puts("txs_stat: #{inspect txs_stat}")
+    IO.puts(
+      "\n**\n" <>
+      "*  last_block_rate: #{last_rate}, total_rate: #{total_rate}\n" <>
+      "**\n"
+    )
   end
 
 end
