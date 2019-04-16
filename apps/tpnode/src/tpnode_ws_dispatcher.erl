@@ -41,6 +41,7 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({new_block, Block}, #{addrsub:=AS, blocksub:=BS}=State) ->
+  Now = os:system_time(millisecond),
   PrettyBlock=try
                 tpnode_httpapi:prettify_block(Block)
               catch _:_ ->
@@ -97,7 +98,8 @@ handle_cast({new_block, Block}, #{addrsub:=AS, blocksub:=BS}=State) ->
                            txs_cnt=>length(maps:get(txs,Block,[])),
                            sign_cnt=>length(maps:get(sign,Block,[])),
                            settings_cnt=>length(maps:get(settings,Block,[])),
-                           bals_cnt=>maps:size(maps:get(bals,Block,#{}))
+                           bals_cnt=>maps:size(maps:get(bals,Block,#{})),
+                           timestamp => Now
                           }}),
   lists:foreach(
     fun({Pid, _Format, full}) ->
