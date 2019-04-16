@@ -139,7 +139,7 @@ defmodule TPHelpers do
     with %{"ok" => true, "settings" => settings} <- api_get_settings(),
          current <- Map.get(settings, "current", %{}),
          chain <- Map.get(current, "chain", %{}),
-         current_poptxs <- Map.get(chain, "poptsx", 200)
+         current_poptxs <- Map.get(chain, "poptxs", 200)
       do
       if value != current_poptxs do
         logger("current poptxs is ~p, set it to ~p", [current_poptxs, value])
