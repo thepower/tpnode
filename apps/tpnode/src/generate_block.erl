@@ -1540,6 +1540,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   Addrs=lists:foldl(Load, Addrs0, TXL),
   lager:debug("MB Pre Setting ~p", [XSettings]),
   _T3=erlang:system_time(),
+  Entropy=proplists:get_value(entropy, Options, <<>>),
+  MeanTime=proplists:get_value(mean_time, Options, 0),
   #{failed:=Failed,
     table:=NewBal0,
     success:=Success,
@@ -1561,6 +1563,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                    fee=>bal:new(),
                    tip=>bal:new(),
                    pick_block=>#{},
+                   entropy=>Entropy,
+                   mean_time=>MeanTime,
                    parent=>Parent_Hash,
                    height=>Parent_Height+1
                   }
@@ -1601,6 +1605,10 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   LedgerHash = ledger_hash(NewBal, LedgerPid),
   SettingsHash = settings_hash(NewSettings),
   _T5=erlang:system_time(),
+  Roots=[
+         {entropy, Entropy},
+         {mean_time, <<MeanTime:64/big>>}
+        ],
   Blk=block:mkblock2(#{
         txs=>Success,
         parent=>Parent_Hash,
@@ -1613,6 +1621,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
         ledger_hash=>LedgerHash,
         settings_hash=>SettingsHash,
         settings=>Settings,
+        extra_roots=>Roots,
         tx_proof=>[ TxID || {TxID, _ToChain} <- Outbound ],
         inbound_blocks=>lists:foldl(
                           fun(PickID, Acc) ->
