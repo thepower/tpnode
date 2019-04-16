@@ -37,6 +37,8 @@ init(_Args) ->
     {ok, #{
        nodeid=>nodekey:node_id(),
        preptxm=>#{},
+       mean_time=>[],
+       entropy=>[],
        settings=>#{}
       }
     }.
@@ -96,9 +98,11 @@ handle_cast({tpic, Origin, #{
              TXs
             ])
   end,
+  Entropy=maps:get(<<"entropy">>,Msg,undefined),
+  Timestamp=maps:get(<<"timestamp">>,Msg,undefined),
   case maps:find(<<"lastblk">>,Msg) of
     error ->
-      handle_cast({prepare, Origin, TXs, undefined}, State);
+      handle_cast({prepare, Origin, TXs, undefined, Entropy, Timestamp}, State);
     {ok, Bin} ->
       PreBlk=block:unpack(Bin),
       MS=chainsettings:get_val(minsig),
@@ -111,7 +115,7 @@ handle_cast({tpic, Origin, #{
         {true, {Sigs,_}} when length(Sigs) >= MS ->
           % valid block, enough sigs
           lager:info("Got blk from peer ~p",[PreBlk]),
-          handle_cast({prepare, Origin, TXs, HeiHas}, State);
+          handle_cast({prepare, Origin, TXs, HeiHas, Entropy, Timestamp}, State);
         {true, _ } ->
           % valid block, not enough sigs
           {noreply, State};
@@ -121,7 +125,10 @@ handle_cast({tpic, Origin, #{
       end
   end;
 
-handle_cast({prepare, Node, Txs, HeiHash}, #{preptxm:=PreTXM}=State) ->
+handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
+            #{mean_time:=MT,
+              entropy:=Ent,
+              preptxm:=PreTXM}=State) ->
   Origin=chainsettings:is_our_node(Node),
   if Origin==false ->
        lager:error("Got txs from bad node ~s",
@@ -130,8 +137,8 @@ handle_cast({prepare, Node, Txs, HeiHash}, #{preptxm:=PreTXM}=State) ->
      true ->
        if Txs==[] -> ok;
         true ->
-          lager:info("TXs from node ~s: ~p",
-               [ Origin, length(Txs) ])
+          lager:info("HI TXs from node ~s: ~p time ~p",
+               [ Origin, length(Txs), Timestamp ])
        end,
        MarkTx =
          fun({TxID, TxB0}) ->
@@ -197,10 +204,22 @@ handle_cast({prepare, Node, Txs, HeiHash}, #{preptxm:=PreTXM}=State) ->
          end,
 
 %       #{header:=#{height:=CHei}}=blockchain:last_meta(),
-
          Tx2Put=lists:filtermap(MarkTx, Txs),
+         MT1=if is_integer(Timestamp) ->
+                  [Timestamp|MT];
+                true ->
+                  MT
+             end,
+         Ent1=if Txs==[] -> Ent;
+                is_binary(Entropy) ->
+                  [crypto:hash(sha256,Entropy)|Ent];
+                true ->
+                   Ent
+             end,
        {noreply,
         State#{
+          entropy=> Ent1,
+          mean_time=> MT1,
           preptxm=> maps:put(HeiHash,
                              maps:get(HeiHash,PreTXM, []) ++ Tx2Put,
                             PreTXM)
@@ -216,7 +235,11 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(process,
-            #{settings:=#{mychain:=MyChain, nodename:=NodeName}=MySet, preptxm:=PreTXM}=State) ->
+            #{settings:=#{mychain:=MyChain, nodename:=NodeName}=MySet,
+              preptxm:=PreTXM,
+              mean_time:=MT,
+              entropy:=Ent
+             }=State) ->
   BestHeiHash=case lists:sort(maps:keys(PreTXM)) of
              [undefined] -> undefined;
              [undefined,H0|_] -> H0;
@@ -327,12 +350,24 @@ handle_info(process,
                    true ->
                      false
                 end,
+
+    MeanTime=trunc(median(lists:sort(MT))),
+    Entropy=case Ent of
+              [] -> undefined;
+              _ ->
+                crypto:hash(sha256,[PHash,<<MeanTime:64/big>>|lists:usort(Ent)])
+            end,
     GB=generate_block:generate_block(PreTXL,
                                      {PHeight, PHash},
                                      PropsFun,
                                      AddrFun,
-                                     [ {<<"prevnodes">>, PreNodes} ],
-                                     [ {temporary, Temporary} ]
+                                     [
+                                      {<<"prevnodes">>, PreNodes}
+                                     ],
+                                     [ {temporary, Temporary},
+                                       {entropy, Entropy},
+                                       {mean_time, MeanTime}
+                                     ]
                                     ),
     #{block:=Block, failed:=Failed, emit:=EmitTXs}=GB,
     T2=erlang:system_time(),
@@ -407,15 +442,21 @@ handle_info(process,
          lager:info("Inject TXs ~p", [Push])
     end,
     {noreply, State#{preptxm=>#{},
+                     mean_time=>[],
+                     entropy=>[],
                      presig=>#{}
                     }}
     catch throw:empty ->
             lager:info("Skip empty block"),
             {noreply, State#{preptxm=>#{},
-                         presig=>#{}}};
+                             mean_time=>[],
+                             entropy=>[],
+                             presig=>#{}}};
           throw:Other ->
             lager:info("Skip ~p",[Other]),
             {noreply, State#{preptxm=>#{},
+                             mean_time=>[],
+                             entropy=>[],
                              presig=>#{}}}
   end;
 
@@ -517,4 +558,18 @@ hei_and_has(B) ->
                   <<(bnot Last_Height1-1):64/big,Last_Hash1/binary>>}
   end.
 
+median([]) -> 0;
+
+median([E]) -> E;
+
+median(List) ->
+  LL = length(List),
+  DropL = (LL div 2) - 1,
+  {_, [M1, M2 | _]} = lists:split(DropL, List),
+  case LL rem 2 of
+    0 -> %even elements
+      (M1 + M2) / 2;
+    1 -> %odd
+      M2
+  end.
 
