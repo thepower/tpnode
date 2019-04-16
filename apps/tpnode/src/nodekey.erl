@@ -4,6 +4,7 @@
          get_pub/0,
          node_id/0,
          node_id/1,
+         node_name/1,
          node_name/0
         ]).
 
@@ -40,6 +41,12 @@ node_id() ->
 node_id(PubKey) ->
     Hash=crypto:hash(sha, PubKey),
     base58:encode(Hash).
+
+node_name(Default) ->
+  case node_name() of
+    Any when is_binary(Any) -> Any;
+    _ -> Default
+  end.
 
 node_name() ->
   try

@@ -6,11 +6,9 @@
 certificate() ->
   Priv=nodekey:get_priv(),
   DERKey=tpecdsa:export(Priv,der),
-  Cert=cert(Priv,try
-                   nodekey:node_name()
-                 catch _:_ ->
-                         iolist_to_binary(net_adm:localhost())
-                 end),
+  Cert=cert(Priv,
+            nodekey:node_name(iolist_to_binary(net_adm:localhost()))
+           ),
   [{'Certificate',DerCert,not_encrypted}]=public_key:pem_decode(Cert),
   [
    {key, {'ECPrivateKey', DERKey}},
