@@ -19,13 +19,8 @@ defmodule TPHelpers.Resolver do
   }
 
   def get_base_url(node \\ nil) do
-    node_to_resolve = resolve_node(node)
-
-    url =
-      case System.get_env("API_BASE_URL") do
-        nil -> Map.get(@nodes_map, node_to_resolve)
-        url_from_env -> url_from_env
-      end
+    node_to_resolve = node || get_default_node()
+    url = System.get_env("API_BASE_URL") || Map.get(@nodes_map, node_to_resolve)
 
     unless url, do: raise "invalid node or invalid node url"
 
@@ -33,7 +28,7 @@ defmodule TPHelpers.Resolver do
   end
 
   def get_api_host_and_port(node \\ nil) do
-    node_to_resolve = resolve_node(node)
+    node_to_resolve = node || get_default_node()
     url = Map.get(@nodes_map, node_to_resolve, "")
 
     Regex.named_captures(~r/\/\/(?<host>[^:]+):(?<port>\d+)/, url)
@@ -46,32 +41,15 @@ defmodule TPHelpers.Resolver do
 
   @spec get_priv_key(binary() | nil) :: binary
   def get_priv_key(node \\ nil) do
-    node_to_resolve =
-      unless node do
-        get_default_node()
-      else
-        node
-      end
+    node_to_resolve = node || get_default_node()
 
     {:ok, binary_key} = Base.decode16(Map.get(@node_keys_map, node_to_resolve, ""))
     binary_key
   end
 
-  defp resolve_node(node) do
-    unless node do
-      get_default_node()
-    else
-      node
-    end
-  end
 
   def get_all_priv_keys(node_regex \\ nil) do
-    search_regex =
-      unless node_regex do
-        ~r/.+/
-      else
-        node_regex
-      end
+    search_regex = node_regex || ~r/.+/
 
     Map.keys(@node_keys_map)
     |> Enum.filter(&Regex.match?(search_regex, &1))
