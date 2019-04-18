@@ -24,8 +24,9 @@ defmodule TPHelpers.Resolver do
     "c6n3" => "18F0BE8ECFA6E4993EA2273AA9569B02C8ACA7A75862A2A72C8B8F1058E1E92E"
   }
 
-  def get_base_url(node \\ nil) do
-    node_to_resolve = node || get_default_node()
+  @spec get_base_url(binary()) :: charlist()
+  def get_base_url(node \\ nil, opts \\ []) do
+    node_to_resolve = node || get_default_node(opts)
     url = System.get_env("API_BASE_URL") || Map.get(@nodes_map, node_to_resolve)
 
     unless url, do: raise "invalid node or invalid node url"
@@ -33,19 +34,32 @@ defmodule TPHelpers.Resolver do
     to_charlist(url)
   end
 
+  @spec get_api_host_and_port(binary()) :: {:ok, charlist(), integer()}
   def get_api_host_and_port(node \\ nil) do
     node_to_resolve = node || get_default_node()
     url = Map.get(@nodes_map, node_to_resolve, "")
 
-    Regex.named_captures(~r/\/\/(?<host>[^:]+):(?<port>\d+)/, url)
+    case Regex.named_captures(~r/\/\/(?<host>[^:]+):(?<port>\d+)/, url) do
+      nil -> :error
+      %{host: host, port: port} -> {:ok, to_charlist(host), String.to_integer(port)}
+    end
   end
 
-  def get_default_node do
-    Map.keys(@nodes_map)
-    |> hd
+  @spec get_default_node(keyword()) :: String.t()
+  def get_default_node(opts \\ []) do
+    chain = Keyword.get(opts, :chain, nil)
+
+    all_nodes = Map.keys(@nodes_map)
+    chain_nodes =
+      if chain do
+        Enum.filter(all_nodes, fn (node) -> Regex.match?(~r/^c#{chain}n/, node) end)
+      else
+        all_nodes
+      end
+    hd(chain_nodes)
   end
 
-  @spec get_priv_key(binary() | nil) :: binary
+  @spec get_priv_key(binary() | nil) :: binary()
   def get_priv_key(node \\ nil) do
     node_to_resolve = node || get_default_node()
 
@@ -53,7 +67,7 @@ defmodule TPHelpers.Resolver do
     binary_key
   end
 
-
+  @spec get_all_priv_keys(Regex.t()) :: list()
   def get_all_priv_keys(node_regex \\ nil) do
     search_regex = node_regex || ~r/.+/
 
@@ -65,4 +79,16 @@ defmodule TPHelpers.Resolver do
        )
     |> List.flatten
   end
+
+  @spec get_chain_from_node_name(binary()) :: {:ok, integer(), integer()}
+  def get_chain_from_node_name(node \\ nil) do
+    node_name = node || get_default_node()
+
+    case Regex.named_captures(~r/c(?<chain>\d+)n(?<node>\d+)/, node_name) do
+      nil -> {:ok, 4, 1}
+      %{"chain" => chain, "node" => node} ->
+        {:ok, String.to_integer(chain), String.to_integer(node)}
+    end
+  end
+
 end
