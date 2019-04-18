@@ -71,12 +71,16 @@ loop(#{socket:=Socket, transport:=Transport, reqs:=Reqs}=State) ->
       From ! {run_req, 0},
       From ! {result, 0, pong},
       ?MODULE:loop(State);
-    {run, Transaction, Ledger, Gas, From} ->
+    {run, Transaction, Ledger, Gas, From, ExtraFields} = _ALL ->
       Seq=maps:get(myseq, State, 0),
-      S1=req(#{null=>"exec",
-                "tx"=>Transaction,
-                "ledger"=>Ledger,
-                "gas"=>Gas}, State),
+      S1=req(
+           maps:merge(
+             ExtraFields,
+             #{null=>"exec",
+               "tx"=>Transaction,
+               "ledger"=>Ledger,
+               "gas"=>Gas}
+            ), State),
       From ! {run_req, Seq},
       lager:debug("run tx ~p",[Seq]),
       R=#req{owner=From,t1=erlang:system_time()},

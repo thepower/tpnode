@@ -312,6 +312,12 @@ handle_info(process,
                   end
               end,
 
+    MeanTime=trunc(median(lists:sort(MT))),
+    Entropy=case Ent of
+              [] -> undefined;
+              _ ->
+                crypto:hash(sha256,[PHash,<<MeanTime:64/big>>|lists:usort(Ent)])
+            end,
     PropsFun=fun(mychain) ->
                  MyChain;
                 (settings) ->
@@ -321,6 +327,8 @@ handle_info(process,
                 ({endless, From, Cur}) ->
                  EndlessPath=[<<"current">>, <<"endless">>, From, Cur],
                  chainsettings:by_path(EndlessPath)==true;
+                (entropy) -> Entropy;
+                (mean_time) -> MeanTime;
                 ({get_block, Back}) when 32>=Back ->
                  FindBlock(last, Back)
              end,
@@ -351,12 +359,6 @@ handle_info(process,
                      false
                 end,
 
-    MeanTime=trunc(median(lists:sort(MT))),
-    Entropy=case Ent of
-              [] -> undefined;
-              _ ->
-                crypto:hash(sha256,[PHash,<<MeanTime:64/big>>|lists:usort(Ent)])
-            end,
     GB=generate_block:generate_block(PreTXL,
                                      {PHeight, PHash},
                                      PropsFun,
