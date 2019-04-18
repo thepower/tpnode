@@ -275,6 +275,6 @@ extcontract_test() ->
                #{amount => #{ <<"FTT">> => 10, <<"SK">> => 2, <<"TST">> => 26 }}
               }
              ],
-      extcontract_template(OurChain, TxList, Ledger, TestFun).
+      extcontract_template(OurChain, TxList, Ledger, TestFun)
   end.
 
