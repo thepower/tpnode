@@ -1,15 +1,19 @@
 defmodule TPHelpers do
 
-  import TPHelpers.API
+  alias TPHelpers.Resolver
+
+  import TPHelpers.{API}
 
   @spec start_node(binary(), keyword()) :: :ok
   def start_node(node, opts \\ []) do
     case is_node_alive?(node) do
       true -> logger("Skiping alive node ~p", [node])
       _ ->
-        logger("Starting the node #{node}")
+        {:ok, chain_no, _node_no} = Resolver.get_chain_from_node_name(node)
 
-        dir = Keyword.get(opts, :dir, "./examples/test_chain4")
+        logger("Starting the node [#{chain_no}]: #{node}")
+
+        dir = Keyword.get(opts, :dir, "./examples/test_chain#{chain_no}")
         bin_dirs_wildcard = Keyword.get(opts, :bin_dirs, "_build/test/lib/*/ebin/")
 
         bindirs = Path.wildcard(bin_dirs_wildcard)
@@ -106,13 +110,16 @@ defmodule TPHelpers do
 
     with register_tx <- :tpapi.get_register_wallet_transaction(priv_key, extra_data),
          res when is_map(res) <- api_post_transaction(register_tx, Keyword.take(opts, [:node])),
-         tx_id when not is_nil(tx_id) <- Map.get(res, "txid", nil),
-         {:ok, status, _} <- api_get_tx_status(tx_id)
+         tx_id when not is_nil(tx_id) <- Map.get(res, "txid", nil)
       do
-        status
+      IO.puts "wallet registration tx_id: #{tx_id}"
+
+      case api_get_tx_status(tx_id, Keyword.take(opts, [:node])) do
+        {:ok, status, _} -> status
+        _ -> :error
+      end
     end
   end
-
 
   @spec wait_nodes(list(), integer()) :: :ok | :timeout
   def wait_nodes(nodes, timeout \\ 10)
@@ -134,9 +141,29 @@ defmodule TPHelpers do
     end
   end
 
+  @spec check_poptxs_all_chains(integer(), list()) :: list()
+  def check_poptxs_all_chains(value, nodes) do
+    nodes
+    |> Enum.map(
+         fn (node) ->
+           {:ok, chain_no, _} =
+             Resolver.get_chain_from_node_name(node)
+           chain_no
+         end
+       )
+    |> Enum.uniq
+    |> Enum.each(
+         fn (chain) ->
+           IO.puts("checking settings for chain: #{chain}")
+           check_poptxs(value, chain: chain, node_key_regex: ~r/c#{chain}n.+/)
+         end
+       )
+  end
+
   @spec check_poptxs(integer(), keyword()) :: any()
   def check_poptxs(value, opts \\ []) do
-    with %{"ok" => true, "settings" => settings} <- api_get_settings(),
+    with %{"ok" => true, "settings" => settings} <-
+           api_get_settings(Keyword.take(opts, [:chain])),
          current <- Map.get(settings, "current", %{}),
          chain <- Map.get(current, "chain", %{}),
          current_poptxs <- Map.get(chain, "poptxs", 200)
@@ -157,16 +184,30 @@ defmodule TPHelpers do
       Keyword.take(opts, [:node_key_regex])
     )
 
-    res = api_post_transaction(:tx.pack(signed_tx), Keyword.take(opts, [:node]))
+    res = api_post_transaction(:tx.pack(signed_tx), Keyword.take(opts, [:node, :chain]))
     tx_id = Map.get(res, "txid", :unknown)
 
-    {:ok, status, _} = api_get_tx_status(tx_id, Keyword.take(opts, [:node]))
+    {:ok, status, _} = api_get_tx_status(tx_id, Keyword.take(opts, [:node, :chain]))
     logger "api call status: ~p", [status]
 
     status
   end
 
+  @spec push_map_array(map(), any(), any()) :: map()
+  def push_map_array(map, key, value) when is_map(map) do
+    Map.put(map, key, Map.get(map, key, []) ++ [value])
+  end
 
+  @spec pop_map_array(map(), any()) :: {:ok, any(), map()} | {:error, any()}
+  def pop_map_array(map, key) when is_map(map) do
+    arr = Map.get(map, key, [])
+
+    case Enum.split(arr, 1) do
+      {[], []} -> {:error, :array_underrun}
+      {member, tail} ->
+        {:ok, member, Map.put(map, key, tail)}
+    end
+  end
 
   @spec logger(binary(), list()) :: any()
   def logger(format, args \\ []), do: :utils.logger(to_charlist(format), args)

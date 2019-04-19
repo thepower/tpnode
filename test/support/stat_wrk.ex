@@ -18,28 +18,29 @@ defmodule TPHelpers.StatWrk do
 
     host = Keyword.get(opts, :host)
     port = Keyword.get(opts, :port)
+    chain = Keyword.get(opts, :chain)
     parent = Keyword.get(opts, :parent)
 
     try do
-      IO.puts "WS worker connecting to #{inspect host}:#{port}"
-      {:ok, pid} = :gun.open(host, port)
+      IO.puts "WS worker connecting to [#{chain}] #{inspect host}:#{port}"
+      {:ok, ws_pid} = :gun.open(host, port)
 
       receive do
-        {:gun_up, ^pid, :http} ->
+        {:gun_up, ^ws_pid, :http} ->
           :ok
       after 20_000 ->
-        :gun.close(pid)
+        :gun.close(ws_pid)
         throw(:up_timeout)
       end
 
       IO.puts "connected, upgrading to websockets"
 
       #      {200, _, _} = sync_get_decode(pid, "/api/ws")
-      :gun.ws_upgrade(pid, "/api/ws")
+      :gun.ws_upgrade(ws_pid, "/api/ws")
 
       {:ok, ws_headers} =
         receive do
-          {:gun_ws_upgrade, ^pid, status, headers} ->
+          {:gun_ws_upgrade, ^ws_pid, status, headers} ->
             {status, headers}
         after 10_000 ->
           throw(:upgrade_timeout)
@@ -48,15 +49,15 @@ defmodule TPHelpers.StatWrk do
       IO.puts "ws connection headers: #{inspect ws_headers}"
 
       IO.puts "make subscription"
-      :ok = :gun.ws_send(pid, {:text, :jsx.encode(%{"sub" => "blockstat"})})
+      :ok = :gun.ws_send(ws_pid, {:text, :jsx.encode(%{"sub" => "blockstat"})})
 
       send parent, {:wrk_up, self()}
 
       IO.puts "entering ws cycle"
 
-      ws_mode(pid, parent)
+      ws_mode(ws_pid, %{parent: parent, chain: chain})
 
-      :gun.close(pid)
+      :gun.close(ws_pid)
       :normal
     catch
       :throw, :up_timeout ->
@@ -72,45 +73,45 @@ defmodule TPHelpers.StatWrk do
     end
   end
 
-  def ws_mode(pid, parent) do
+  def ws_mode(ws_pid, %{parent: parent} = state) do
     receive do
       {:'EXIT', _, :shutdown} ->
-        :gun.close(pid)
+        :gun.close(ws_pid)
         exit(:normal)
       {:'EXIT', _, reason} ->
         IO.puts("Linked process went down #{inspect reason}. Giving up...")
-        :gun.close(pid)
+        :gun.close(ws_pid)
         exit(:normal)
       {:state, caller} ->
-        send caller, {pid, parent}
-        ws_mode(pid, parent)
+        send caller, {ws_pid, parent}
+        ws_mode(ws_pid, state)
       :stop ->
         IO.puts("got stop command")
-        :gun.close(pid)
+        :gun.close(ws_pid)
         send parent, {:wrk_down, self(), :stop}
       {:send_msg, payload} ->
-        :gun.ws_send(pid, {:binary, payload})
-        ws_mode(pid, parent)
-      {:gun_ws, ^pid, {:text, txt}} ->
-        GenServer.cast(parent, {:got, txt})
+        :gun.ws_send(ws_pid, {:binary, payload})
+        ws_mode(ws_pid, state)
+      {:gun_ws, ^ws_pid, {:text, txt}} ->
+        GenServer.cast(parent, {:got, self(), txt})
 #        IO.puts("got text, #{inspect txt}")
 #        :utils.logger("got text: ~p", [txt])
-        ws_mode(pid, parent)
-      {:gun_ws, ^pid, {:binary, bin}} ->
+        ws_mode(ws_pid, state)
+      {:gun_ws, ^ws_pid, {:binary, bin}} ->
         IO.puts("got binary, #{inspect bin}")
 #        :utils.logger("got binary: ~p", [bin])
-        ws_mode(pid, parent)
-      {:gun_down, ^pid, :ws, :closed, [], []} ->
+        ws_mode(ws_pid, state)
+      {:gun_down, ^ws_pid, :ws, :closed, [], []} ->
         IO.puts "Gun down. Giving up..."
         send parent, {:wrk_down, self(), :gun_down}
         :giveup
       any ->
         IO.puts("WS worker got unknown data: #{inspect any}")
 #        :utils.logger("WS worker got unknown data: ~p", [any])
-        ws_mode(pid, parent)
+        ws_mode(ws_pid, state)
     after 60_000 ->
-      :ok = :gun.ws_send(pid, {:binary, "ping"})
-      ws_mode(pid, parent)
+      :ok = :gun.ws_send(ws_pid, {:binary, "ping"})
+      ws_mode(ws_pid, state)
     end
   end
 

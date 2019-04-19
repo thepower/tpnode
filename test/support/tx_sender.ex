@@ -44,8 +44,8 @@ defmodule TPHelpers.TxSender do
     {:reply, {:ok, %{mode: mode, sent: sent}}, state}
   end
 
-  def handle_call(:get_tx_ids, _from, %{tx_ids: tx_ids, name: name} = state) do
-    {:reply, {:ok, {name, tx_ids}}, state}
+  def handle_call(:get_tx_ids, _from, %{tx_ids: tx_ids, node: node} = state) do
+    {:reply, {:ok, {node, tx_ids}}, state}
   end
 
   def handle_call(:state, _from, state) do

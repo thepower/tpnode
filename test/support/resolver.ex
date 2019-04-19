@@ -41,7 +41,7 @@ defmodule TPHelpers.Resolver do
 
     case Regex.named_captures(~r/\/\/(?<host>[^:]+):(?<port>\d+)/, url) do
       nil -> :error
-      %{host: host, port: port} -> {:ok, to_charlist(host), String.to_integer(port)}
+      %{"host" => host, "port" => port} -> {:ok, to_charlist(host), String.to_integer(port)}
     end
   end
 
