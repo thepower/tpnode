@@ -31,6 +31,7 @@ defmodule LoadTest do
 
   # define nodes where send transaction to
   @nodes ["c4n1", "c4n2", "c4n3", "c5n1", "c5n2", "c5n3"]
+#  @nodes ["c4n1", "c4n2", "c4n3"]
 
   # how many transactions should each worker send
   @txs_per_worker 1000
@@ -39,8 +40,11 @@ defmodule LoadTest do
   @tx_currency "SK"
 
   # probability of xchain transaction
+#  @xchain_ratio 0
   @xchain_ratio 0.20
 
+
+  @poptx_value 100
 
   def setup_all do
     for x <- @nodes, do: start_node(x)
@@ -212,7 +216,7 @@ defmodule LoadTest do
 
     :ok
   end
-  
+
 
   #  @tag :skip
   @tag timeout: 600000
@@ -221,7 +225,7 @@ defmodule LoadTest do
     setup_all()
 
     # check chain settings
-    check_poptxs_all_chains(50, @nodes)
+    check_poptxs_all_chains(@poptx_value, @nodes)
 
     # create wallets
     {:ok, senders, dests} = create_wallets(
