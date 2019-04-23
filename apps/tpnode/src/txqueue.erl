@@ -208,12 +208,15 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
         TxIds
       ),
     lager:debug("txs for mkblock: ~p", [TxMap]),
+    Entropy=crypto:strong_rand_bytes(32),
     MRes = msgpack:pack(
       #{
         null=><<"mkblock">>,
         chain=>MyChain,
         lbh=>LBH,
         lastblk=>LastBlk,
+        entropy=>Entropy,
+        timestamp=>os:system_time(millisecond),
         txs=>TxMap
       }
     ),

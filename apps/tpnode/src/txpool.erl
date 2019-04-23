@@ -190,12 +190,16 @@ handle_info(sync_tx,
   
   % do nothing in case peers count less than minsig
   Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
+  SingleNodeTest=case nodekey:get_privs() of
+                   [_,_|_] -> true;
+                   _ -> false
+                 end,
   case length(Peers) of
     _ when MinSig == undefined ->
       % minsig unknown
       lager:error("minsig is undefined, we can't run transaction synchronizer"),
       {noreply, load_settings(State#{ sync_timer => update_sync_timer(undefined)})};
-    PeersCount when PeersCount+1<MinSig ->
+    PeersCount when not SingleNodeTest andalso PeersCount+1<MinSig ->
       % nodes count is less than we need, do nothing  (nodes = peers + 1)
       lager:info("nodes count ~p is less than minsig ~p", [PeersCount+1, MinSig]),
       {noreply, State#{ sync_timer => update_sync_timer(undefined) }};

@@ -2,8 +2,48 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+allocport() ->
+  {ok,S}=gen_tcp:listen(0,[]),
+  {ok,{_,CPort}}=inet:sockname(S),
+  gen_tcp:close(S),
+  CPort.
+
 extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
+  Workers=1,
+  Servers=case whereis(tpnode_vmsrv) of
+            undefined ->
+              Port=allocport(),
+              application:ensure_all_started(ranch),
+              {ok, Pid1} = tpnode_vmsrv:start_link(),
+              {ok, Pid2} = ranch_listener_sup:start_link(
+                             {vm_listener,Port},
+                             10,
+                             ranch_tcp,
+                             [{port,Port},{max_connections,128}],
+                             tpnode_vmproto,[]),
+              timer:sleep(300),
+              [fun()->gen_server:stop(Pid1) end,
+               fun()->exit(Pid2,normal) end
+               | [
+                  begin
+                    SPid=vm_wasm:run("127.0.0.1",Port),
+                    fun()->SPid ! stop end
+                  end || _ <- lists:seq(1,Workers) ]
+              ];
+            _ ->
+              VMPort=application:get_env(tpnode,vmport,50050),
+              [
+               begin
+                 SPid=vm_wasm:run("127.0.0.1",VMPort),
+                 fun()->SPid ! stop end
+               end || _ <- lists:seq(1,Workers) ]
+          end,
+  timer:sleep(200),
+  try
   Test=fun(LedgerPID) ->
+           MeanTime=os:system_time(millisecond),
+           Entropy=crypto:hash(sha256,<<"test1">>),
+
            GetSettings=fun(mychain) -> OurChain;
                           (settings) ->
                            #{
@@ -22,8 +62,8 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                               },
                              <<"current">> => #{
                                  chain => #{
-                                   blocktime => 5, 
-                                   minsig => 2, 
+                                   blocktime => 5,
+                                   minsig => 2,
                                    <<"allowempty">> => 0
                                   },
                                  <<"gas">> => #{
@@ -62,6 +102,8 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                            abs(os:system_time(millisecond)-TS)<3600000
                            orelse
                            abs(os:system_time(millisecond)-(TS-86400000))<3600000;
+                          (entropy) -> Entropy;
+                          (mean_time) -> MeanTime;
                           ({get_block, Back}) when 20>=Back ->
                            FindBlock=fun FB(H, N) ->
                            case blockchain:rel(H, self) of
@@ -88,17 +130,24 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
 
   ParentHash=crypto:hash(sha256, <<"parent">>),
 
-
   CheckFun(generate_block:generate_block(
-             TxList
-             ,
+             TxList,
              {1, ParentHash},
              GetSettings,
              GetAddr,
              [],
-             [{ledger_pid, LedgerPID}]))
+             [{ledger_pid, LedgerPID},
+              {entropy, Entropy},
+              {mean_time, MeanTime}
+             ]))
   end,
-  ledger:deploy4test(Ledger, Test).
+  ledger:deploy4test(Ledger, Test)
+after
+  lists:foreach(
+    fun(TermFun) ->
+        TermFun()
+    end, Servers)
+  end.
 
 
 extcontract_test() ->
@@ -108,6 +157,7 @@ extcontract_test() ->
     {error, noworkers} ->
       [];
     {ok, pong} ->
+
       OurChain=150,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
               248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
@@ -173,6 +223,9 @@ extcontract_test() ->
       TestFun=fun(#{block:=Block,
                     emit:=Emit,
                     failed:=Failed}) ->
+                  ?assertMatch([{<<"5willfail">>,insufficient_gas}],Failed),
+                  io:format("Block ~p~n",[Block]),
+                  io:format("Failed ~p~n",[Failed]),
                   Success=proplists:get_keys(maps:get(txs, Block)),
                   NewCallerLedger=maps:get(amount,
                                            maps:get(
