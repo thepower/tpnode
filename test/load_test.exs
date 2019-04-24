@@ -30,21 +30,23 @@ defmodule LoadTest do
 
 
   # define nodes where send transaction to
-  @nodes ["c4n1", "c4n2", "c4n3", "c5n1", "c5n2", "c5n3"]
-#  @nodes ["c4n1", "c4n2", "c4n3"]
+  #  @nodes ["c4n1", "c4n2", "c4n3", "c5n1", "c5n2", "c5n3"]
+  @nodes ["c4n1", "c4n2", "c4n3"]
 
   # how many transactions should each worker send
-  @txs_per_worker 1000
+  #  @txs_per_worker 1000
+  @txs_per_worker 20
 
   # transaction currency
   @tx_currency "SK"
 
   # probability of xchain transaction
-#  @xchain_ratio 0
-  @xchain_ratio 0.20
+  @xchain_ratio 0
+  #  @xchain_ratio 0.20
 
 
-  @poptx_value 100
+  #  @poptx_value 100
+  @poptx_value 10
 
   def setup_all do
     for x <- @nodes, do: start_node(x)
@@ -253,7 +255,7 @@ defmodule LoadTest do
     {:ok, _sup_pid, wrk_pids} = start_workers(%{txs: txs})
     logger("all worker pids: ~p", [wrk_pids])
 
-    {:ok, _stat_sup_pid, _stat_disp_pid, _wrk_pid_map} = start_statistics(@nodes)
+    {:ok, _stat_sup_pid, stat_disp_pid, _wrk_pid_map} = start_statistics(@nodes)
 
     :timer.sleep(5_000)
 
@@ -262,6 +264,9 @@ defmodule LoadTest do
 
     # waiting until last transaction be committed
     wait_txs(wrk_pids)
+
+    # check transactions status
+    check_transactions(stat_disp_pid)
 
     logger("clean up")
 
@@ -272,6 +277,56 @@ defmodule LoadTest do
     IO.puts("stop the supervisor: #{inspect res}")
 
     clear_all()
+  end
+
+  def check_transactions(stat_pid) do
+    {:ok, blk_hashes} = GenServer.call(stat_pid, :get_hashes)
+
+    logger("block hashes: ~p", [blk_hashes])
+
+    hash_iterator =
+      fn (hash, {chain, acc}) ->
+        failed_cnt_old = Map.get(acc, :failed_cnt, 0)
+        failed_reasons_old = Map.get(acc, :failed, %{})
+        txs_cnt_old = Map.get(acc, :txs_cnt, 0)
+
+        %{"block" => block} = api_get_block(hash, chain: chain)
+
+        txs = Map.get(block, "txs", %{})
+        failed = Map.get(block, "failed", [])
+
+        txs_cnt = txs_cnt_old + Map.size(txs)
+
+        {failed_cnt, failed_reasons} =
+          case failed do
+            _ when is_map(failed) ->
+              {
+                failed_cnt_old + Maps.size(failed),
+                Map.merge(failed_reasons_old, failed)
+              }
+            _ ->
+              {failed_cnt_old, failed_reasons_old}
+          end
+
+        {
+          chain,
+          Map.merge(
+            acc,
+            %{failed_cnt: failed_cnt, txs_cnt: txs_cnt, failed: failed_reasons}
+          )
+        }
+      end
+
+    chain_iterator =
+      fn ({chain, hashes}, acc) ->
+        {^chain, chain_stat} = Enum.reduce(hashes, {chain, %{}}, hash_iterator)
+        Map.put(acc, chain, chain_stat)
+      end
+
+
+    stat = Enum.reduce(blk_hashes, %{}, chain_iterator)
+
+    logger("summary:~n~p", [stat])
   end
 
   def wait_workers(wrk_pids) do

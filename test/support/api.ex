@@ -26,6 +26,13 @@ defmodule TPHelpers.API do
     :tpapi.get_blockinfo(hash, get_base_url(get_node(opts), opts))
   end
 
+  @spec api_get_block(binary(), keyword()) :: map()
+  def api_get_block(hash, opts \\ []) do
+    :tpapi.get_block(hash, get_base_url(get_node(opts), opts))
+  end
+
+
+  @spec api_get_settings(keyword()) :: map()
   def api_get_settings(opts \\ []) do
     :tpapi.get_settings(get_base_url(get_node(opts), opts))
   end

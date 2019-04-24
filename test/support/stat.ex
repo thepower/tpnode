@@ -7,6 +7,8 @@ defmodule TPHelpers.Stat do
 
   alias TPHelpers.StatWrk
 
+  import TPHelpers, only: [push_map_array: 3]
+
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts)
   end
@@ -20,7 +22,8 @@ defmodule TPHelpers.Stat do
       :ok,
       %{
         workers: [],
-        stat_data: %{}
+        stat_data: %{},
+        blk_hashes: %{}
       }
     }
   end
@@ -41,23 +44,30 @@ defmodule TPHelpers.Stat do
     {:reply, answer, %{state | workers: [{wrk_pid, chain} | wrk]}}
   end
 
+  def handle_call(:get_hashes, _from, %{blk_hashes: hashes} = state) do
+    {:reply, {:ok, hashes}, state}
+  end
+
   def handle_call(unknown, _from, state) do
     IO.puts("WSD got unknown call: #{inspect unknown}")
     {:reply, :ok, state}
   end
 
-  def handle_cast({:got, from, data}, %{stat_data: stat_data, workers: wrk} = state) do
+  def handle_cast(
+        {:got, from, data},
+        %{stat_data: stat_data, workers: wrk, blk_hashes: hashes} = state
+      ) do
+
     new_state =
-      with {:ok, timestamp, txs_cnt} <- parse_ws_data(data),
+      with {:ok, timestamp, txs_cnt, block_hash} <- parse_ws_data(data),
            {^from, chain} <- List.keyfind(wrk, from, 0)
         do
         old_data = Map.get(stat_data, chain, [])
         new_data = Map.put(stat_data, chain, old_data ++ [{timestamp, txs_cnt}])
 
-#        IO.inspect new_data, label: "stat"
         show_stat(new_data)
 
-        %{state | stat_data: new_data}
+        %{state | stat_data: new_data, blk_hashes: push_map_array(hashes, chain, block_hash)}
       else
         _ ->
           IO.puts("** WS can't parse block stat data: #{inspect data}")
@@ -102,16 +112,26 @@ defmodule TPHelpers.Stat do
 
   defp parse_ws_data(data) do
     try do
+      # IO.inspect data, label: "got ws data"
+
       %{
         "blockstat" => %{
+          "hash" => hash,
           "txs_cnt" => txs_cnt,
-          "timestamp" => block_timestamp
+          #          "timestamp" => block_timestamp,
+          "header" => %{
+            "roots" => %{
+              "mean_time" => mean_time_bin
+            }
+          }
         }
       } = :jsx.decode(data, [:return_maps])
 
-      IO.puts "last block tx count: #{inspect txs_cnt} [created at #{inspect block_timestamp}]"
+      <<mean_time::big-64>> = :hex.decode(mean_time_bin)
 
-      {:ok, block_timestamp, txs_cnt}
+      IO.puts "last block tx count: #{inspect txs_cnt} [created at #{inspect mean_time}, hash #{inspect hash}]"
+
+      {:ok, mean_time, txs_cnt, hash}
     catch
       ec, ee ->
         :utils.print_error("WSD parse ws data failed", ec, ee, :erlang.get_stacktrace())
@@ -184,7 +204,7 @@ defmodule TPHelpers.Stat do
     end
     IO.puts("**")
 
-#    IO.inspect stat, label: "raw stat"
+    #    IO.inspect stat, label: "raw stat"
   end
 
 end
