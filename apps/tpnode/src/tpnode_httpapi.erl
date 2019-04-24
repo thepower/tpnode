@@ -796,14 +796,24 @@ prettify_block(#{}=Block0, BinPacker) ->
               maps:put(BinPacker(BalAddr), PrettyBal, A)
           end, #{}, Bal);
        (header, BlockHeader) ->
-        maps:map(
-          fun(parent, V) ->
-              BinPacker(V);
+         maps:map(
+           fun(parent, V) ->
+             BinPacker(V);
+             (roots, RootsProplist) ->
+               lists:map(
+                 fun({mean_time, V})->
+                   {mean_time, BinPacker(V)};
+                   ({K, V}) when is_binary(V) andalso size(V) == 32 ->
+                     {K, BinPacker(V)};
+                   ({K, V}) ->
+                     {K, V}
+                 end, RootsProplist);
+      
              (_K, V) when is_binary(V) andalso size(V) == 32 ->
-              BinPacker(V);
+               BinPacker(V);
              (_K, V) ->
-              V
-          end, BlockHeader);
+               V
+           end, BlockHeader);
        (settings, Settings) ->
         lists:map(
           fun({CHdr, CBody}) ->
