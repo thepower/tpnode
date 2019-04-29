@@ -2,6 +2,9 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+sockstat() ->
+  io:format("~s~n",[os:cmd("sockstat -l | grep "++os:getpid())]).
+
 node_id() ->
   nodekey:node_id().
 

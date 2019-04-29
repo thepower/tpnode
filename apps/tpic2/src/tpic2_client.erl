@@ -42,7 +42,8 @@ childspec() ->
 connection_process(Parent, Host, Port, Opts) ->
   Key=nodekey:get_priv(),
   DerKey=tpecdsa:export(Key,der),
-  Cert=tpic2:cert(Key,nodekey:node_name()),
+  NodeName=nodekey:node_name(iolist_to_binary(net_adm:localhost())),
+  Cert=tpic2:cert(Key,NodeName),
   [{'Certificate',DerCert,not_encrypted}]=public_key:pem_decode(Cert),
   SSLOpts=[
            {verify, verify_peer},

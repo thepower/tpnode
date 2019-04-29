@@ -24,6 +24,8 @@ start_link() ->
 
 init([]) ->
   code:ensure_loaded(tpic_checkauth),
+  tpnode:reload(),
+  application:ensure_all_started(ranch),
 
   Childs=tpic2:childspec(),
   {ok, { {one_for_one, 5, 10}, Childs } }.
