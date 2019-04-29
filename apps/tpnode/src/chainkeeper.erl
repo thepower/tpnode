@@ -523,7 +523,8 @@ check_and_sync_runner(TPIC, Options) ->
   ]),
   
   Pid = erlang:spawn(?MODULE, check_and_sync, [TPIC, Options]),
-  erlang:monitor(process, Pid).
+  erlang:monitor(process, Pid),
+  Pid.
 
 %% ------------------------------------------------------------------
 
