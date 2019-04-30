@@ -118,7 +118,7 @@ transaction_ping_pong_test(_Config) ->
   ?assertMatch(#{<<"res">> := <<"ok">>}, Status),
   logger("money send transaction status: ~p ~n", [Status]),
   
-  timer:sleep(7000), % wait 7 sec for wallet data update across all network
+  timer:sleep(10000), % wait 10 sec for wallet data update across all network
   Height2 = api_get_height(),
   logger("check if ~p > ~p", [Height2, Height]),
   ?assertMatch(true, Height2 > Height),
@@ -140,7 +140,7 @@ transaction_ping_pong_test(_Config) ->
   ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
   logger("money send back transaction status: ~p ~n", [Status2]),
   
-  timer:sleep(7000), % wait 7 sec for wallet data update across all network
+  timer:sleep(10000), % wait 10 sec for wallet data update across all network
   Height3 = api_get_height(),
   logger("check if ~p > ~p", [Height3, Height2]),
   ?assertMatch(true, Height3>Height2),
