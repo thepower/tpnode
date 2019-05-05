@@ -35,9 +35,16 @@ childspec() ->
     permanent,20000,worker,[]
    },
    ranch:child_spec(
-     tpic_tls,
+     tpic_tls6,
      ranch_ssl,
      HTTPOpts,
+     tpic2_tls,
+     #{}
+    ),
+   ranch:child_spec(
+     tpic_tls,
+     ranch_ssl,
+     [inet6, {ipv6_v6only, true} | HTTPOpts],
      tpic2_tls,
      #{}
     )

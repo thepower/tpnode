@@ -55,7 +55,17 @@ connection_process(Parent, Host, Port, Opts) ->
            {key, {'ECPrivateKey', DerKey}},
            {cert, DerCert}
           ],
-  {ok, TCPSocket} = gen_tcp:connect(Host, Port, [binary, {packet,4}]),
+  {Opts1,NAddr}=case inet:parse_address(Host) of
+                 {ok, {_,_,_,_}=Addr} ->
+                   {[],Addr};
+                 {ok, {_,_,_,_,_,_,_,_}=Addr} ->
+                   {[inet6],Addr};
+                 {error, Err} ->
+                   lager:error("Address ~p error: ~p",[Host, Err]),
+                   throw({parse_addr,Err})
+               end,
+
+  {ok, TCPSocket} = gen_tcp:connect(NAddr, Port, [binary, {packet,4}]++Opts1),
   {ok, Socket} = ssl:connect(TCPSocket, SSLOpts),
   ssl:setopts(Socket, [{active, once}]),
   {ok,PeerInfo}=ssl:connection_information(Socket),

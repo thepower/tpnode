@@ -2,7 +2,7 @@
 -behavior(ranch_protocol).
 
 -export([start_link/4]).
--export([connection_process/5,loop1/1,loop/1,send_msg/2, system_continue/3]).
+-export([connection_process/5,loop1/1,loop/1,send_msg/2, system_continue/3, my_streams/0]).
 
 -spec start_link(ranch:ref(), ssl:sslsocket(), module(), cowboy:opts()) -> {ok, pid()}.
 start_link(Ref, Socket, Transport, Opts) ->
@@ -38,7 +38,11 @@ loop1(State=#{socket:=Socket,role:=Role}) ->
            _ ->
              undefined
          end,
-  lager:info("Peer PubKey ~p ~p",[Pubkey,chainsettings:is_our_node(Pubkey)]),
+  lager:info("Peer PubKey ~p ~p",[Pubkey,
+                                  try
+                                    chainsettings:is_our_node(Pubkey)
+                                  catch _:_ -> unkn0wn
+                                  end]),
   case Role of
     server ->
       {ok,PPID}=gen_server:call(tpic2_cmgr, {peer,Pubkey, {register, undefined, in, self()}}),
@@ -98,8 +102,8 @@ system_continue(_PID,_,{State}) ->
 
 send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
   lager:info("Hello opts ~p",[Opts]),
-  Stream=maps:get(stream, Opts, null),
-  Announce=maps:get(announce, Opts, []),
+  Stream=maps:get(stream, Opts, 0),
+  Announce=my_streams(),
   Cfg=application:get_env(tpnode,tpic,#{}),
   Port=maps:get(port,Cfg,40000),
   Hello=#{null=><<"hello">>,
@@ -121,21 +125,32 @@ handle_msg(#{null:=<<"hello">>,
              <<"sid">>:=SID,
              <<"addrs">>:=Addrs,
              <<"port">>:=Port
-            },
+            }=Pkt,
            #{pubkey:=PK,
-            role:=server}=State) ->
-  {ok, PPID}=gen_server:call(tpic2_cmgr, {peer,PK, {register, SID, in, self()}}),
+             role:=Role,
+             opts:=Opts}=State) ->
+  Reg=if Role==client ->
+           {register, maps:get(stream, Opts, 0), out, self()};
+         Role==server ->
+           {register, SID, in, self()}
+      end,
+  {ok, PPID}=gen_server:call(tpic2_cmgr, {peer,PK, Reg}),
   lists:foreach(fun(Addr) ->
                     gen_server:call(PPID, {add, Addr, Port})
                 end,
                 Addrs),
-  send_msg(#{null=><<"hello_ack">>}, State),
-  State#{ sid=>SID };
 
-handle_msg(#{null:=<<"hello">>,
-             <<"sid">>:=SID},
-           #{pubkey:=PK}=State) ->
-  {ok, _PPID}=gen_server:call(tpic2_cmgr, {peer,PK, {register, SID, out, self()}}),
+  if SID==0 orelse SID==undefined ->
+       Str=case maps:is_key(<<"services">>,Pkt) of
+         false -> my_streams();
+         true ->
+           S0=maps:get(<<"services">>,Pkt),
+           lists:usort(S0++my_streams())
+       end,
+       gen_server:call(PPID, {streams, Str});
+     true -> ok
+  end,
+
   send_msg(#{null=><<"hello_ack">>}, State),
   State#{ sid=>SID };
 
@@ -163,4 +178,10 @@ terminate(#{socket:=Socket}, Reason) ->
 timeout(State, idle_timeout) ->
   terminate(State, {connection_error, timeout,
                     'Connection idle longer than configuration allows.'}).
+
+my_streams() ->
+  [%<<"blockchain">>,
+  % <<"mkblock">>,
+   <<"bcsync">>
+  ].
 
