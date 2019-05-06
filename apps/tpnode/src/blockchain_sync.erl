@@ -371,13 +371,25 @@ handle_info({runsync, Candidates}, State) ->
                       }};
          true ->
            %try block by block
-           lager:info("RUN bbyb sync since ~s", [blkid(MyLastHash)]),
-           handle_info({bbyb_sync, MyLastHash},
-                       State#{
-                         sync=>bbyb,
-                         sync_peer=>Handler,
-                         sync_candidates => Candidates
-                        })
+           case maps:is_key(temporary, State) of
+             true ->
+               #{header:=#{parent:=Parent}}=maps:get(temporary, State),
+               lager:info("RUN bbyb sync since parent ~s", [blkid(Parent)]),
+               handle_info({bbyb_sync, Parent},
+                           State#{
+                             sync=>bbyb,
+                             sync_peer=>Handler,
+                             sync_candidates => Candidates
+                            });
+             false ->
+               lager:info("RUN bbyb sync since ~s", [blkid(MyLastHash)]),
+               handle_info({bbyb_sync, MyLastHash},
+                           State#{
+                             sync=>bbyb,
+                             sync_peer=>Handler,
+                             sync_candidates => Candidates
+                            })
+           end
       end
   end;
 
