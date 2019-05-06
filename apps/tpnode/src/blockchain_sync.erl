@@ -252,7 +252,9 @@ handle_info(runsync, State) ->
 handle_info({runsync, Candidates}, State) ->
   flush_checksync(),
   flush_runsync(),
-  #{header:=#{height:=MyHeight}, hash:=MyLastHash}=MyLast=blockchain:last_meta(),
+  #{header:=#{height:=MyHeight,
+              parent:=Parent
+             }, hash:=MyLastHash}=MyLast=blockchain:last_meta(),
 
   B=tpiccall(<<"blockchain">>,
            #{null=><<"sync_request">>},
@@ -371,24 +373,22 @@ handle_info({runsync, Candidates}, State) ->
                       }};
          true ->
            %try block by block
-           case maps:is_key(temporary, State) of
-             true ->
-               #{header:=#{parent:=Parent}}=maps:get(temporary, State),
-               lager:info("RUN bbyb sync since parent ~s", [blkid(Parent)]),
-               handle_info({bbyb_sync, Parent},
-                           State#{
-                             sync=>bbyb,
-                             sync_peer=>Handler,
-                             sync_candidates => Candidates
-                            });
-             false ->
-               lager:info("RUN bbyb sync since ~s", [blkid(MyLastHash)]),
-               handle_info({bbyb_sync, MyLastHash},
-                           State#{
-                             sync=>bbyb,
-                             sync_peer=>Handler,
-                             sync_candidates => Candidates
-                            })
+           if MyTmp == false ->
+                lager:info("RUN bbyb sync since ~s", [blkid(MyLastHash)]),
+                handle_info({bbyb_sync, MyLastHash},
+                            State#{
+                              sync=>bbyb,
+                              sync_peer=>Handler,
+                              sync_candidates => Candidates
+                             });
+              true ->
+                lager:info("RUN bbyb sync since parent ~s", [blkid(Parent)]),
+                handle_info({bbyb_sync, Parent},
+                            State#{
+                              sync=>bbyb,
+                              sync_peer=>Handler,
+                              sync_candidates => Candidates
+                             })
            end
       end
   end;
