@@ -350,8 +350,8 @@ handle_info({runsync, Candidates}, State) ->
               error -> false;
               {ok, TmpNo} -> TmpNo
             end,
-      lager:info("Found candidate h=~w my ~w, bb ~s inst ~s/~s",
-                 [Height, MyHeight, ByBlock, Inst0, Inst]),
+      lager:info("Found candidate h=~w:~p my ~w:~p, bb ~s inst ~s/~s",
+                 [Height, Tmp, MyHeight, MyTmp, ByBlock, Inst0, Inst]),
       if (Height == MyHeight andalso Tmp == MyTmp) orelse
         (Height =< MyHeight) orelse
         (Height == MyHeight andalso MyTmp == false andalso Tmp =/= false) orelse
