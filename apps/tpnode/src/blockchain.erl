@@ -20,12 +20,12 @@ ready() ->
   try
     gen_server:call(blockchain_updater, ready, 50)
   catch
-    exit:{timeout,{gen_server,call,[blockchain,ready,_]}} ->
+    exit:{timeout,{gen_server,call,[blockchain_updater,ready,_]}} ->
       lager:debug("selftimer5 BC is not ready"),
       false;
     Ec:Ee ->
-      StackTrace = erlang:process_info(whereis(blockchain), current_stacktrace),
-      ProcInfo = erlang:process_info(whereis(blockchain)),
+      StackTrace = erlang:process_info(whereis(blockchain_updater), current_stacktrace),
+      ProcInfo = erlang:process_info(whereis(blockchain_updater)),
       utils:print_error("SYNC BC is not ready err", Ec, Ee, StackTrace),
       lager:error("BC process info: ~p", [ProcInfo]),
 
