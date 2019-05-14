@@ -4,8 +4,8 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
-%% cleanup blockvote state in 3 blocktime interval
--define(BV_CLEANUP_TIMER_FACTOR, 3).
+%% cleanup blockvote state in 5 blocktime interval
+-define(BV_CLEANUP_TIMER_FACTOR, 5).
 
 
 %% ------------------------------------------------------------------
@@ -40,6 +40,12 @@ init(_Args) ->
 
 handle_call(_, _From, undefined) ->
     {reply, notready, undefined};
+
+handle_call(status, _From, #{candidatesig:=Candidatesig, candidates:=Candidates}=State) ->
+  {reply, #{
+     sig=>maps:size(Candidatesig),
+     block=>maps:size(Candidates)
+    }, State};
 
 handle_call(state, _From, State) ->
     {reply, State, State};
@@ -86,12 +92,12 @@ handle_cast({tpic, _From, #{
 handle_cast({signature, BlockHash, Sigs}=WholeSig,
             #{lastblock:=#{hash:=LBH}}=State) when LBH==BlockHash->
     lager:info("BV Got extra sig for ~s ~p", [blkid(BlockHash), WholeSig]),
-    
+
     stout:log(
       bv_gotsig,
       [{hash, BlockHash}, {sig, Sigs}, {extra, true}, {node_name, nodekey:node_name()}]
-    ),
-  
+     ),
+
     gen_server:cast(blockchain_updater, WholeSig),
     {noreply, State};
 

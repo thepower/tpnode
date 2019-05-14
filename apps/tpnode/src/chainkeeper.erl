@@ -240,7 +240,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 setup_timer(Name) ->
   erlang:send_after(
-    ?CHAIN_CHECKOUT_TIMER_FACTOR * 1000 * chainsettings:get_val(blocktime),
+    ?CHAIN_CHECKOUT_TIMER_FACTOR * 1000 * chainsettings:get_val(blocktime,3),
     self(),
     Name
   ).

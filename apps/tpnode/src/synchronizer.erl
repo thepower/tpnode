@@ -207,7 +207,7 @@ median(List) ->
 
 load_settings(State) ->
   {ok, MyChain} = chainsettings:get_setting(mychain),
-  BlockTime = chainsettings:get_val(blocktime),
+  BlockTime = chainsettings:get_val(blocktime,3),
   BCReady = blockchain:ready(),
   State#{
     tickms => BlockTime * 1000,
