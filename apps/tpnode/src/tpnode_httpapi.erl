@@ -157,6 +157,10 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
           header=>Header,
           temporary=>Temp
          },
+        blockvote => try
+                       gen_server:call(blockvote, status)
+                     catch _:_ -> #{ error => true }
+                     end,
         xchain_inbound => try
                             gen_server:call(xchain_dispatcher, peers)
                           catch _:_ -> #{ error => true }
