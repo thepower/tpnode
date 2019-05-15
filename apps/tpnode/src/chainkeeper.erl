@@ -401,8 +401,8 @@ check_fork(
   
   ChainState =
     if
-      MyHeight =:= TheirHeight andalso
-        MyTmp =:= false andalso
+      MyHeight == TheirHeight andalso
+        MyTmp == false andalso
         MyHash =/= TheirHash ->
         case check_block_exist(?TPIC, MyHash) of
           {_, 0, _} -> % NotFound, Found, Errors
@@ -410,7 +410,7 @@ check_fork(
           _ ->
             {fork, their_hash_possible_fork}
         end;
-      MyHeight =:= TheirHeight ->
+      MyHeight == TheirHeight ->
         ok;
       MyHeight > TheirHeight ->
         case catch blockchain:exists(TheirHash) of
@@ -528,6 +528,30 @@ check_and_sync_runner(TPIC, Options) ->
 
 %% ------------------------------------------------------------------
 
+%%get_hashes() ->
+%%  MyMeta = blockchain:last_meta(),
+%%  case maps:get(temporary, MyMeta, false) of
+%%    Wei when is_number(Wei) ->
+%%      % we have tmp block
+%%      #{header := #{parent := MyHash}} = MyMeta,
+%%      MyParent =
+%%        case blockchain:rel(MyHash, prev) of
+%%          #{hash := PrevHash} -> PrevHash;
+%%          Err -> Err
+%%        end,
+%%      {MyHash, MyParent, MyMeta};
+%%
+%%    _ ->
+%%      % we have permanent block
+%%      #{hash:= Hash1, header := #{parent := Parent1}} = MyMeta,
+%%      #{hash := Hash1,
+%%        header := #{parent := Parent1}
+%%      } = MyMeta = blockchain:last_meta(),
+%%
+%%      {Hash1, Parent1, MyMeta}
+%%  end.
+%%
+
 check_and_sync(TPIC, Options) ->
   try
     MinSig = maps:get(minsig, Options, chainsettings:get_val(minsig)),
@@ -535,6 +559,9 @@ check_and_sync(TPIC, Options) ->
     #{hash := MyHash,
       header := #{parent := ParentHash}
     } = MyMeta = blockchain:last_meta(),
+    
+    MyPermHash = get_permanent_hash(MyMeta),
+    
 
     case maps:get(temporary, MyMeta, false) of
       Wei when is_number(Wei) ->
@@ -700,7 +727,8 @@ check_and_sync(TPIC, Options) ->
   
       {PermHash, AssocToSync} when is_binary(PermHash) -> % sync to permanent block
         if
-          PermHash =/= MyHash -> % do rollback because of switching to another branch
+          PermHash =/= MyPermHash -> % do rollback because of switching to another branch
+            lager:info("rollback, choosen hash ~p, my perm hash ~p", [PermHash, MyPermHash]),
             case rollback_block(#{}, [no_runsync]) of
               {error, Err} ->
                 lager:error("FIXME: can't rollback block: ~p", [Err]),
