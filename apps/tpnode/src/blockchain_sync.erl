@@ -74,6 +74,11 @@ handle_call({runsync, NewChain}, _From, State) ->
   self() ! runsync,
   {reply, sync, State#{mychain:=NewChain}};
 
+handle_call(is_sync, _From, #{sync:=Sync}=State) ->
+  {reply, Sync, State};
+handle_call(is_sync, _From, State) ->
+  {reply, false, State};
+
 handle_call(state, _From, State) ->
   {reply, State, State};
 

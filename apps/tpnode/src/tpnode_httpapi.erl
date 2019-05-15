@@ -157,6 +157,10 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
           header=>Header,
           temporary=>Temp
          },
+        is_sync => try
+                     gen_server:call(blockchain_sync, is_sync)
+                   catch _:_ -> error
+                   end,
         blockvote => try
                        gen_server:call(blockvote, status)
                      catch _:_ -> #{ error => true }
