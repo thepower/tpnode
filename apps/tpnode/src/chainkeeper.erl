@@ -595,14 +595,19 @@ assoc_mapper(Answers, MinSig, Options) ->
           case is_block_valid(Blk, MinSig) of
             true ->  % valid block
               Hash = maps:get(hash, Blk, <<>>),
+              
               case maps:get(temporary, Blk, false) of
                 TmpWei when is_number(TmpWei) -> % tmp block
+                  lager:info("push tmp assoc wei ~p, node ~p", [TmpWei, resolve_assoc(Assoc)]),
                   {PermHashes, push_assoc(TmpWei, Assoc, TmpWeis)};
                 _ -> % permanent block
+                  lager:info("push perm assoc hash ~p, node ~p", [blockchain:blkid(Hash), resolve_assoc(Assoc)]),
                   {push_assoc(Hash, Assoc, PermHashes), TmpWeis}
               end;
             
             _ -> % skip invalid block
+              lager:info("skip invalid block"),
+              
               Acc
           end
         catch
@@ -736,7 +741,6 @@ check_and_sync(TPIC, Options) ->
       ),
       
     {PermAssoc, TmpAssoc} = assoc_mapper(Answers, MinSig, Options),
-
 
     {SyncPeers, PermAssocResolved, TmpAssocResolved} =
       choose_peers_to_sync(TPIC, {PermAssoc, TmpAssoc}, MinSig, Options),
