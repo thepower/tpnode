@@ -315,7 +315,8 @@ handle_info({runsync, Candidates}, State) ->
               undefined,
               Candidates
              ),
-  lager:info("runsync candidates: ~p", [proplists:get_keys(Candidates)]),
+  lager:info("runsync candidates: ~p", [
+    chainkeeper:resolve_assoc(proplists:get_keys(Candidates))]),
   lager:debug("runsync candidates: ~p", [Candidates]),
   lager:debug("runsync candidate: ~p", [Candidate]),
   case Candidate of

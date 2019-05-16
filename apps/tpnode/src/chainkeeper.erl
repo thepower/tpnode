@@ -7,7 +7,6 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
-
 % make chain checkout in CHAIN_CHECKOUT_TIMER_FACTOR * block time period
 % after the last activity
 -define(CHAIN_CHECKOUT_TIMER_FACTOR, 2).
@@ -30,8 +29,8 @@
 
 %%-export([check_fork2/3]).
 -export([get_permanent_hash/1, discovery/1, find_tallest/3]).
--export([resolve_tpic_assoc/2, resolve_tpic_assoc/1]).
 -export([check_and_sync/2]).
+-export([resolve_assoc/1, resolve_assoc/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -474,7 +473,7 @@ runsync([]) ->
 runsync(AssocList) when is_list(AssocList) ->
   stout:log(ck_fork, [
     {action, runsync_assoc_list},
-    {assoc_list, resolve_tpic_assoc(AssocList)},
+    {assoc_list, resolve_assoc(AssocList)},
     {node, nodekey:node_name()}
   ]),
 
@@ -625,7 +624,7 @@ check_and_sync(TPIC, Options) ->
               stout:log(ck_fork, [
                 {action, broken_block_1},
                 {node, maps:get(mynode, Options, nodekey:node_name())},
-                {their_node, resolve_tpic_assoc(Assoc)}
+                {their_node, resolve_assoc(Assoc)}
               ]),
               Acc;
               
@@ -634,7 +633,7 @@ check_and_sync(TPIC, Options) ->
               stout:log(ck_fork, [
                 {action, broken_sync_1},
                 {node, maps:get(mynode, Options, nodekey:node_name())},
-                {their_node, resolve_tpic_assoc(Assoc)}
+                {their_node, resolve_assoc(Assoc)}
               ]),
               Acc
           end;
@@ -642,23 +641,26 @@ check_and_sync(TPIC, Options) ->
           stout:log(ck_fork, [
             {action, sync_error_1},
             {node, maps:get(mynode, Options, nodekey:node_name())},
-            {their_node, resolve_tpic_assoc(Assoc)},
+            {their_node, resolve_assoc(Assoc)},
             {error, Error},
             {answer, Answer}
           ]),
 
-          lager:info("error from ~p : ~p", [resolve_tpic_assoc(Assoc), Error]),
+          lager:info("error from ~p : ~p", [resolve_assoc(Assoc), Error]),
           Acc;
           
         ({Assoc, Answer}, Acc) ->
           stout:log(ck_fork, [
             {action, unknown_answer_1},
             {node, nodekey:node_name()},
-            {their_node, resolve_tpic_assoc(Assoc)},
+            {their_node, resolve_assoc(Assoc)},
             {answer, Answer}
           ]),
-
-          lager:info("unexpected answer from ~p : ~p", [resolve_tpic_assoc(Assoc), Answer]),
+  
+          lager:info(
+            "unexpected answer from ~p : ~p",
+            [resolve_assoc(Assoc), Answer]),
+          
           Acc
       end,
     
@@ -725,7 +727,7 @@ check_and_sync(TPIC, Options) ->
           {action, sync_to_tmp},
           {node, maps:get(mynode, Options, nodekey:node_name())},
           {tmp_wei, TmpWei},
-          {assoc_list, resolve_tpic_assoc(AssocToSync)}
+          {assoc_list, resolve_assoc(AssocToSync)}
         ]),
         runsync(AssocToSync);
   
@@ -739,7 +741,7 @@ check_and_sync(TPIC, Options) ->
           {node, maps:get(mynode, Options, nodekey:node_name())},
           {myhash, MyHash},
           {their_hash, PermHash},
-          {assoc_list, resolve_tpic_assoc(AssocToSync)}
+          {assoc_list, resolve_assoc(AssocToSync)}
         ]),
   
       runsync(AssocToSync)
@@ -819,7 +821,7 @@ choose_hash_to_sync(TPIC, Hashes, MinSig) when is_list(Hashes) ->
                     stout:log(ck_fork, [
                       {action, broken_block_2},
                       {node, nodekey:node_name()},
-                      {their_node, resolve_tpic_assoc(Assoc)}
+                      {their_node, resolve_assoc(Assoc)}
                     ]),
                     FindChildAcc;
                 
@@ -827,7 +829,7 @@ choose_hash_to_sync(TPIC, Hashes, MinSig) when is_list(Hashes) ->
                     stout:log(ck_fork, [
                       {action, broken_sync_2},
                       {node, nodekey:node_name()},
-                      {their_node, resolve_tpic_assoc(Assoc)}
+                      {their_node, resolve_assoc(Assoc)}
                     ]),
                     FindChildAcc
               end
@@ -912,7 +914,7 @@ chain_lookaround(TPIC, Options) ->
           theirtmp => TheirTmp
         },
         Options#{
-          theirnode => chainkeeper:resolve_tpic_assoc(Assoc)
+          theirnode => resolve_assoc(Assoc)
         }
       ),
       
@@ -1043,46 +1045,35 @@ check_block_exist(TPIC, Hash) ->
 resolve_assoc_map(AssocMap) when is_map(AssocMap) ->
   maps:map(
     fun(_Hash, ListOfAssoc) ->
-      resolve_tpic_assoc(ListOfAssoc)
+      resolve_assoc(ListOfAssoc)
     end,
     AssocMap
   ).
 
 %% ------------------------------------------------------------------
 
-resolve_tpic_assoc(AssocList) when is_list(AssocList) ->
-  resolve_tpic_assoc(?TPIC, AssocList);
+resolve_assoc(AssocList) ->
+  resolve_assoc(?TPIC, AssocList).
 
-resolve_tpic_assoc({_,_,_} = Assoc) ->
-  resolve_tpic_assoc(?TPIC, {_,_,_} = Assoc).
+resolve_assoc(TPIC, {_, _, _} = Assoc) ->
+  resolve_assoc(TPIC, [Assoc]);
 
-
-resolve_tpic_assoc(_TPIC, []) ->
-  [];
-
-resolve_tpic_assoc(TPIC, [{_,_,_} = H | T ] = _AssocList) ->
-  [resolve_tpic_assoc(TPIC, H)] ++ resolve_tpic_assoc(TPIC, T);
-
-resolve_tpic_assoc(TPIC, {_,_,_} = Assoc) ->
-  try
-    case tpic:peer(TPIC, Assoc) of
-      #{authdata:=AuthData} ->
-        PubKey =
+resolve_assoc(TPIC, AssocList) when is_list(AssocList) ->
+  Peers = tpic:peers(TPIC, AssocList, [authdata]),
+  Nodes =
+    case chainsettings:get_setting(chainnodes) of
+      {ok, Nodes0} -> Nodes0;
+      _ -> #{}
+    end,
+  
+  lists:map(
+    fun({AssocHandler, AssocData}) ->
+      case AssocData of
+        #{authdata:=AuthData} ->
           case proplists:get_value(pubkey, AuthData, undefined) of
-            undefined -> throw(finish);
-            ValidPubKey -> ValidPubKey
-          end,
-        
-        case chainsettings:get_setting(chainnodes) of
-          {ok, Nodes} ->
-            maps:get(PubKey, Nodes, undefined);
-          _ -> throw(finish)
-        
-        end;
-        _ ->
-          undefined
-    end
-  catch
-      throw:finish  ->
-        undefined
-  end.
+            undefined -> AssocHandler;
+            PubKey -> maps:get(PubKey, Nodes, AssocHandler)
+          end;
+        _ -> AssocHandler
+      end
+    end, Peers).
