@@ -1060,7 +1060,7 @@ resolve_assoc(TPIC, {_, _, _} = Assoc) ->
   resolve_assoc(TPIC, [Assoc]);
 
 resolve_assoc(TPIC, AssocList) when is_list(AssocList) ->
-  Peers = tpic:peers(TPIC, AssocList, [authdata]),
+  Peers = tpic:peers(TPIC, AssocList),
   Nodes =
     case chainsettings:get_setting(chainnodes) of
       {ok, Nodes0} -> Nodes0;
