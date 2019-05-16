@@ -528,6 +528,32 @@ check_and_sync_runner(TPIC, Options) ->
 
 %% ------------------------------------------------------------------
 
+%%get_hashes() ->
+%%  MyMeta = blockchain:last_meta(),
+%%  case maps:get(temporary, MyMeta, false) of
+%%    Wei when is_number(Wei) ->
+%%      % we have tmp block
+%%      #{header := #{parent := MyHash}} = MyMeta,
+%%      MyParent =
+%%        case blockchain:rel(MyHash, prev) of
+%%          #{hash := PrevHash} -> PrevHash;
+%%          Err -> Err
+%%        end,
+%%      {MyHash, MyParent, MyMeta};
+%%
+%%    _ ->
+%%      % we have permanent block
+%%      #{hash:= Hash1, header := #{parent := Parent1}} = MyMeta,
+%%      #{hash := Hash1,
+%%        header := #{parent := Parent1}
+%%      } = MyMeta = blockchain:last_meta(),
+%%
+%%      {Hash1, Parent1, MyMeta}
+%%  end.
+%%
+
+%% ------------------------------------------------------------------
+
 check_and_sync(TPIC, Options) ->
   try
     MinSig = maps:get(minsig, Options, chainsettings:get_val(minsig)),
@@ -535,6 +561,8 @@ check_and_sync(TPIC, Options) ->
     #{hash := MyHash,
       header := #{parent := ParentHash}
     } = MyMeta = blockchain:last_meta(),
+
+    MyPermHash = get_permanent_hash(MyMeta),
 
     case maps:get(temporary, MyMeta, false) of
       Wei when is_number(Wei) ->
@@ -682,6 +710,7 @@ check_and_sync(TPIC, Options) ->
     
     case SyncPeers of
       {_, []} -> % can't find associations to sync, give up
+        lager:info("can't find associations we need sync to"),
         stout:log(ck_fork, [
           {action, empty_list_of_assoc},
           {node, maps:get(mynode, Options, nodekey:node_name())},
@@ -690,6 +719,8 @@ check_and_sync(TPIC, Options) ->
         ]),
         false;
       {TmpWei, AssocToSync} when is_number(TmpWei) -> % sync to higest(widest) tmp block
+        lager:info("runsync to tmp, assoc count ~p", [length(AssocToSync)]),
+  
         stout:log(ck_fork, [
           {action, sync_to_tmp},
           {node, maps:get(mynode, Options, nodekey:node_name())},
@@ -699,18 +730,9 @@ check_and_sync(TPIC, Options) ->
         runsync(AssocToSync);
   
       {PermHash, AssocToSync} when is_binary(PermHash) -> % sync to permanent block
-        if
-          PermHash =/= MyHash -> % do rollback because of switching to another branch
-            case rollback_block(#{}, [no_runsync]) of
-              {error, Err} ->
-                lager:error("FIXME: can't rollback block: ~p", [Err]),
-                throw(finish);
-              {ok, _NewHash} ->
-                ok
-            end;
-          true ->
-            ok
-        end,
+        lager:info("runsync to permanent, assoc count ~p", [length(AssocToSync)]),
+        
+        maybe_need_rollback(MyPermHash, PermHash),
     
         stout:log(ck_fork, [
           {action, sync_to_permanent},
@@ -731,6 +753,24 @@ check_and_sync(TPIC, Options) ->
       ]),
 
       false
+  end.
+
+%% ------------------------------------------------------------------
+
+maybe_need_rollback(MyPermHash, TheirPermHash) ->
+  if
+    TheirPermHash =/= MyPermHash -> % do rollback because of switching to another branch
+      lager:info("rollback, choosen hash ~p, my perm hash ~p", [TheirPermHash, MyPermHash]),
+      case rollback_block(#{}, [no_runsync]) of
+        {error, Err} ->
+          lager:error("FIXME: can't rollback block: ~p", [Err]),
+          throw(finish);
+        {ok, NewHash} ->
+          lager:info("rollback done successfully to hash ~p", [NewHash]),
+          ok
+      end;
+    true ->
+      ok
   end.
 
 
