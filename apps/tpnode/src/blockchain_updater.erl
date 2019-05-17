@@ -318,8 +318,21 @@ handle_call({new_block, #{hash:=BlockHash,
                                  child=>BlockHash
                                 },
                   T2=erlang:system_time(),
+
+                  {ok, LH1} = apply_ledger(put, MBlk),
+                  if(LH1 =/= LHash) ->
+                      lager:error("Ledger error, hash mismatch on check and put ~p =/= ~p",
+                                  [LH1, LHash]),
+                      lager:error("Database corrupted"),
+                      tpnode:die("Ledger hash mismatch");
+                    true ->
+                      ok
+                  end,
+
                   save_block(LDB, NewLastBlock, false),
+                  lastblock2ets(BTable, MBlk),
                   save_block(LDB, MBlk, true),
+
                   case maps:is_key(sync, State) of
                     true ->
                       ok;
@@ -377,14 +390,6 @@ handle_call({new_block, #{hash:=BlockHash,
 
                   gen_server:cast(tpnode_ws_dispatcher, {new_block, MBlk}),
 
-                  {ok, LH1} = apply_ledger(put, MBlk),
-                  if(LH1 =/= LHash) ->
-                      lager:error("Ledger error, hash mismatch on check and put"),
-                      lager:error("Database corrupted");
-                    true ->
-                      ok
-                  end,
-
                   stout:log(accept_block,
                             [
                              {temp, false},
@@ -438,7 +443,6 @@ handle_call({new_block, #{hash:=BlockHash,
 
                   S1=maps:remove(tmpblock, State),
 
-                  lastblock2ets(BTable, MBlk),
                   {reply, ok, S1#{
                                 prevblock=> NewLastBlock,
                                 lastblock=> MBlk,
