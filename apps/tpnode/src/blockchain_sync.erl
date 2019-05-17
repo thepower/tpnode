@@ -533,10 +533,9 @@ receive_block(Handler, BlockPart) ->
 receive_block(Handler, BlockPart, Acc) ->
   NewAcc = [BlockPart|Acc],
   <<Number:32, Length:32, _/binary>> = BlockPart,
-  case length(NewAcc) of
-    Length ->
-      block:glue_packet(NewAcc);
-    _ ->
+  if length(NewAcc) == Length ->
+       block:glue_packet(NewAcc);
+     true ->
       lager:debug("Received block part number ~p out of ~p", [Number, Length]),
       Response = tpiccall(Handler,  #{null => <<"pick_next_part">>}, [block]),
       lager:info("R ~p",[Response]),
