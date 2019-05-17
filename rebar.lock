@@ -73,7 +73,7 @@
   0},
  {<<"tpic">>,
   {git,"ssh://git@git.wtf-rg.com:15616/thepower/tpic.git",
-       {ref,"830eeb6c5fe45fdeba338285e9857642f0616f64"}},
+       {ref,"155365f5490ce6f525160554d1170a34e56cdcbf"}},
   0},
  {<<"wanode">>,
   {git,"git@git.thepower.io:dss/wanode.git",
