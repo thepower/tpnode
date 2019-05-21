@@ -325,18 +325,3 @@ hei_and_has(B) ->
                   <<(bnot Last_Height1-1):64/big,Last_Hash1/binary>>}
   end.
 
-median([]) -> 0;
-
-median([E]) -> E;
-
-median(List) ->
-  LL = length(List),
-  DropL = (LL div 2) - 1,
-  {_, [M1, M2 | _]} = lists:split(DropL, List),
-  case LL rem 2 of
-    0 -> %even elements
-      (M1 + M2) / 2;
-    1 -> %odd
-      M2
-  end.
-
