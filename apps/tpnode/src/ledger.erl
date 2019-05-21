@@ -64,7 +64,18 @@ get(Pid, KS) when is_list(KS) ->
   gen_server:call(Pid, {get, KS}).
 
 get(Address) when is_binary(Address) ->
-  gen_server:call(?SERVER, {get, Address});
+  try
+    gen_server:call(?SERVER, {get, Address})
+  catch
+    Ec:Ee ->
+      StacktraceLocal = erlang:get_stacktrace(),
+      StacktraceLedger = erlang:process_info(whereis(?SERVER), current_stacktrace),
+      ProcInfo = erlang:process_info(whereis(?SERVER)),
+      lager:error("ledger err, trace of ledger process"),
+      utils:log_stacktrace(StacktraceLedger),
+      lager:error("ledger process info: ~p", [ProcInfo]),
+      erlang:raise(Ec, Ee, StacktraceLocal)
+  end;
 
 get(KS) when is_list(KS) ->
   gen_server:call(?SERVER, {get, KS}).

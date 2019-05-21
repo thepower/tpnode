@@ -12,7 +12,7 @@ rm -rf ./_build/test/logs
 mkdir -p ./_build/test/logs
 
 # run tests
-make cover
+make cover coffebreak synctest
 export rc=$?
 
 # don't save the logs if everything is OK

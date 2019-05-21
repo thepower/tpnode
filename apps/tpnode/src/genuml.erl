@@ -70,7 +70,12 @@ node_map(NodeName) when is_binary(NodeName) ->
     <<"log/3/all_testrel@scw-2775d9.blog">> => <<"c7n4">>,
     <<"log/3/all_testrel@ci.blog">> => <<"c7n3">>,
     <<"log/3/all_testrel@scw-9dafbe-c7n2.blog">> => <<"c7n2">>,
-    <<"log/3/all_testrel@scw-802ea4-c7n1.blog">> => <<"c7n1">>
+    <<"log/3/all_testrel@scw-802ea4-c7n1.blog">> => <<"c7n1">>,
+    <<"log/3/ci@195.3.255.85/all_testrel@ubuntu.blog">> => <<"c7n5">>,
+    <<"log/3/root@51.15.76.45/all_testrel@scw-2775d9.blog">> => <<"c7n4">>,
+    <<"log/3/ci@195.3.255.79/all_testrel@ci.blog">> => <<"c7n3">>,
+    <<"log/3/root@51.15.122.9/all_testrel@scw-9dafbe-c7n2.blog">> => <<"c7n2">>,
+    <<"log/3/root@51.15.86.52/all_testrel@scw-802ea4-c7n1.blog">> => <<"c7n1">>
   },
   
   CleanNodeName = iolist_to_binary(re:replace(NodeName, "blog\.[01-9]+$","blog")),

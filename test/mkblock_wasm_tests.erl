@@ -106,7 +106,7 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                           (mean_time) -> MeanTime;
                           ({get_block, Back}) when 20>=Back ->
                            FindBlock=fun FB(H, N) ->
-                           case gen_server:call(blockchain, {get_block, H}) of
+                           case blockchain:rel(H, self) of
                              undefined ->
                                undefined;
                              #{header:=#{parent:=P}}=Blk ->

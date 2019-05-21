@@ -75,10 +75,14 @@ handle_tpic(From, blockchain, <<"chainkeeper">>, Payload, #{authdata:=AD}=_State
   gen_server:cast(chainkeeper, {tpic, NodeName, From, Payload}),
   ok;
 
+handle_tpic(From, blockchain, <<>>, Payload, _State) ->
+  lager:debug("Generic TPIC to ~p from ~p payload ~p", [blockchain,From,Payload]),
+  gen_server:cast(blockchain_reader, {tpic, From, Payload}),
+  ok;
+
 handle_tpic(From, To, <<>>, Payload, _State) when To==synchronizer orelse
                                                   To==blockvote orelse
-                                                  To==mkblock orelse
-                                                  To==blockchain ->
+                                                  To==mkblock ->
   lager:debug("Generic TPIC to ~p from ~p payload ~p", [To,From,Payload]),
   gen_server:cast(To, {tpic, From, Payload}),
   ok;

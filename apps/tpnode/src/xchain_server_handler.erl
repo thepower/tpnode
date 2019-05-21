@@ -146,7 +146,7 @@ handle_xchain(chain) ->
 
 handle_xchain(height) ->
   try
-    {_, H} = gen_server:call(blockchain, last_block_height),
+    #{header:=#{height:=H}}=blockchain:last_meta(),
     {ok, H}
   catch _:_ ->
           error
