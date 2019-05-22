@@ -1526,6 +1526,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            FB=bal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
            TB=bal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
            maps:put(F, FB, maps:put(T, TB, AAcc));
+          ({_TxID, #{ver:=2, kind:=register}}=_TX, AAcc) ->
+            AAcc;
           ({_TxID, #{ver:=2, kind:=deploy, from:=F, payload:=_}}=_TX, AAcc) ->
            FB=bal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
            maps:put(F, FB, AAcc);
@@ -1534,7 +1536,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            TB=bal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
            maps:put(F, FB, maps:put(T, TB, AAcc));
           ({_,_Any}, AAcc) ->
-           lager:info("Can't load ~p",[_Any]),
+           lager:info("Can't load address for tx ~p",[_Any]),
            AAcc
        end,
   Addrs=lists:foldl(Load, Addrs0, TXL),
