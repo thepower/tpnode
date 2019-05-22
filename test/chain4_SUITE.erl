@@ -34,6 +34,7 @@ all() ->
 
 init_per_suite(Config) ->
     application:ensure_all_started(inets),
+    application:set_env(tpapi, verbose, true),
     Config.
 
 init_per_testcase(_, Config) ->
