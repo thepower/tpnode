@@ -244,13 +244,18 @@ handle_info(process, #{gbpid:=PID}=State) ->
   end;
 
 handle_info(process,
-            #{settings:=MySet, preptxm:=PreTXM}=State) ->
+            #{settings:=MySet,
+              preptxm:=PreTXM,
+              mean_time:=MT,
+              entropy:=Ent}=State) ->
   PreSig=maps:get(presig, State, #{}),
-  GBPID=mkblock_genblk:spawn_generate(MySet, PreTXM, PreSig),
+  GBPID=mkblock_genblk:spawn_generate(MySet, PreTXM, PreSig, MT, Ent),
   {noreply, State#{preptxm=>#{},
-                   presig=>#{},
-                   gbpid=>GBPID
-                  }};
+    presig=>#{},
+    mean_time=>[],
+    entropy=>[],
+    gbpid=>GBPID
+  }};
 
 handle_info(process, State) ->
     lager:notice("MKBLOCK Blocktime, but I not ready"),

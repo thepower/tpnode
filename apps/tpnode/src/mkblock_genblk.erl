@@ -1,16 +1,18 @@
 -module(mkblock_genblk).
 
--export([run_generate/3, spawn_generate/3]).
+-export([run_generate/5, spawn_generate/5]).
 
-spawn_generate(MySet, PreTXM, PreSig) ->
-  PID=spawn(?MODULE,run_generate,[MySet, PreTXM, PreSig]),
+spawn_generate(MySet, PreTXM, PreSig, MT, Ent) ->
+  PID=spawn(?MODULE,run_generate,[MySet, PreTXM, PreSig, MT, Ent]),
   %monitor(PID,process),
   PID.
 
 run_generate(
   #{mychain:=MyChain, nodename:=NodeName}=MySet,
   PreTXM,
-  PreSig ) ->
+  PreSig,
+  MT,
+  Ent) ->
   BestHeiHash=case lists:sort(maps:keys(PreTXM)) of
                 [undefined] -> undefined;
                 [undefined,H0|_] -> H0;
@@ -82,6 +84,13 @@ run_generate(
                   end
               end,
 
+    MeanTime=trunc(median(lists:sort(MT))),
+    Entropy=case Ent of
+              [] -> undefined;
+              _ ->
+                crypto:hash(sha256,[PHash,<<MeanTime:64/big>>|lists:usort(Ent)])
+            end,
+
     PropsFun=fun(mychain) ->
                  MyChain;
                 (settings) ->
@@ -91,7 +100,9 @@ run_generate(
                 ({endless, From, Cur}) ->
                  EndlessPath=[<<"current">>, <<"endless">>, From, Cur],
                  chainsettings:by_path(EndlessPath)==true;
-                ({get_block, Back}) when 32>=Back ->
+                (entropy) -> Entropy;
+                (mean_time) -> MeanTime;
+                 ({get_block, Back}) when 32>=Back ->
                  FindBlock(last, Back)
              end,
     AddrFun=fun({Addr, _Cur}) ->
@@ -125,7 +136,11 @@ run_generate(
                                      PropsFun,
                                      AddrFun,
                                      [ {<<"prevnodes">>, PreNodes} ],
-                                     [ {temporary, Temporary} ]
+                                     [
+                                      {temporary, Temporary},
+                                      {entropy, Entropy},
+                                      {mean_time, MeanTime}
+                                     ]
                                     ),
     #{block:=Block, failed:=Failed, emit:=EmitTXs}=GB,
     T2=erlang:system_time(),
@@ -152,7 +167,7 @@ run_generate(
         {timestamp, Timestamp},
         {createduration, T2-T1}
        ],
-    SignedBlock=sign(Block, ED),
+    SignedBlock=blocksign(Block, ED),
     #{header:=#{height:=NewH}}=Block,
     %cast whole block to my local blockvote
     stout:log(mkblock_done,
@@ -208,7 +223,41 @@ run_generate(
           error
   end.
 
-sign(Blk, ED) when is_map(Blk) ->
-  PrivKey=nodekey:get_priv(),
-  block:sign(Blk, ED, PrivKey).
+blocksign(Blk, ED) when is_map(Blk) ->
+  case nodekey:get_privs() of
+    [K0] ->
+      block:sign(Blk, ED, K0);
+    [K0|Extra] ->
+      %Ability to sign mutiple times for smart developers of smarcontracts only!!!!!
+      %NEVER USE ON NETWORK CONNECTED NODE!!!
+      block:sign(
+        lists:foldl(
+          fun(ExtraKey,Acc) ->
+              ED2=[ {timestamp, proplists:get_value(timestamp, ED)+
+                     trunc(-100+rand:uniform()*200)},
+                    {createduration, proplists:get_value(createduration, ED)+
+                     trunc(-250000000+rand:uniform()*500000000)}
+                  ],
+              block:sign(Acc, ED2, ExtraKey)
+          end, Blk, Extra), ED, K0)
+  end.
+
+%blocksign(Blk, ED) when is_map(Blk) ->
+%  PrivKey=nodekey:get_priv(),
+%  block:sign(Blk, ED, PrivKey).
+
+median([]) -> 0;
+
+median([E]) -> E;
+
+median(List) ->
+  LL = length(List),
+  DropL = (LL div 2) - 1,
+  {_, [M1, M2 | _]} = lists:split(DropL, List),
+  case LL rem 2 of
+    0 -> %even elements
+      (M1 + M2) / 2;
+    1 -> %odd
+      M2
+  end.
 
