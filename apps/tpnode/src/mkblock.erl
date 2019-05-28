@@ -12,7 +12,7 @@
 %-compile(export_all).
 -endif.
 
--export([start_link/0]).
+-export([start_link/0, hei_and_has/1]).
 
 
 %% ------------------------------------------------------------------
@@ -37,6 +37,8 @@ init(_Args) ->
     {ok, #{
        nodeid=>nodekey:node_id(),
        preptxm=>#{},
+       mean_time=>[],
+       entropy=>[],
        settings=>#{}
       }
     }.
@@ -96,9 +98,11 @@ handle_cast({tpic, Origin, #{
              TXs
             ])
   end,
+  Entropy=maps:get(<<"entropy">>,Msg,undefined),
+  Timestamp=maps:get(<<"timestamp">>,Msg,undefined),
   case maps:find(<<"lastblk">>,Msg) of
     error ->
-      handle_cast({prepare, Origin, TXs, undefined}, State);
+      handle_cast({prepare, Origin, TXs, undefined, Entropy, Timestamp}, State);
     {ok, Bin} ->
       PreBlk=block:unpack(Bin),
       MS=chainsettings:get_val(minsig),
@@ -111,7 +115,7 @@ handle_cast({tpic, Origin, #{
         {true, {Sigs,_}} when length(Sigs) >= MS ->
           % valid block, enough sigs
           lager:info("Got blk from peer ~p",[PreBlk]),
-          handle_cast({prepare, Origin, TXs, HeiHas}, State);
+          handle_cast({prepare, Origin, TXs, HeiHas, Entropy, Timestamp}, State);
         {true, _ } ->
           % valid block, not enough sigs
           {noreply, State};
@@ -121,7 +125,10 @@ handle_cast({tpic, Origin, #{
       end
   end;
 
-handle_cast({prepare, Node, Txs, HeiHash}, #{preptxm:=PreTXM}=State) ->
+handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
+            #{mean_time:=MT,
+              entropy:=Ent,
+              preptxm:=PreTXM}=State) ->
   Origin=chainsettings:is_our_node(Node),
   if Origin==false ->
        lager:error("Got txs from bad node ~s",
@@ -130,8 +137,8 @@ handle_cast({prepare, Node, Txs, HeiHash}, #{preptxm:=PreTXM}=State) ->
      true ->
        if Txs==[] -> ok;
         true ->
-          lager:info("TXs from node ~s: ~p",
-               [ Origin, length(Txs) ])
+          lager:info("HI TXs from node ~s: ~p time ~p",
+               [ Origin, length(Txs), Timestamp ])
        end,
        MarkTx =
          fun({TxID, TxB0}) ->
@@ -196,11 +203,22 @@ handle_cast({prepare, Node, Txs, HeiHash}, #{preptxm:=PreTXM}=State) ->
            end
          end,
 
-%       #{header:=#{height:=CHei}}=blockchain:last_meta(),
-
          Tx2Put=lists:filtermap(MarkTx, Txs),
+         MT1=if is_integer(Timestamp) ->
+                  [Timestamp|MT];
+                true ->
+                  MT
+             end,
+         Ent1=if Txs==[] -> Ent;
+                is_binary(Entropy) ->
+                  [crypto:hash(sha256,Entropy)|Ent];
+                true ->
+                   Ent
+             end,
        {noreply,
         State#{
+          entropy=> Ent1,
+          mean_time=> MT1,
           preptxm=> maps:put(HeiHash,
                              maps:get(HeiHash,PreTXM, []) ++ Tx2Put,
                             PreTXM)
@@ -215,209 +233,29 @@ handle_cast(_Msg, State) ->
     lager:info("MB unknown cast ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(process,
-            #{settings:=#{mychain:=MyChain, nodename:=NodeName}=MySet, preptxm:=PreTXM}=State) ->
-  BestHeiHash=case lists:sort(maps:keys(PreTXM)) of
-             [undefined] -> undefined;
-             [undefined,H0|_] -> H0;
-             [H0|_] -> H0;
-             [] -> undefined
-           end,
-  lager:info("pick txs parent block ~p",[BestHeiHash]),
-  PreTXL0=maps:get(BestHeiHash, PreTXM, []),
-  PreTXL1=lists:foldl(
-            fun({TxID, TXB}, Acc) ->
-                case maps:is_key(TxID, Acc) of
-                  true ->
-                    TXB1=tx:mergesig(TXB,
-                                     maps:get(TxID, Acc)),
-                    {ok, Tx1} = tx:verify(TXB1, [ {maxsize, txpool:get_max_tx_size()} ]),
-                    maps:put(TxID, Tx1, Acc);
-                  false ->
-                    maps:put(TxID, TXB, Acc)
-                end
-            end, #{}, PreTXL0),
-  PreTXL=lists:keysort(1, maps:to_list(PreTXL1)),
-
-  stout:log(mkblock_process, [ {node, nodekey:node_name()} ]),
-
-  AE=maps:get(ae, MySet, 0),
-  B=blockchain:last_meta(),
-  lager:info("Got blk from our blockchain ~p",[B]),
-
-  {PHeight, PHash, PHeiHash}=hei_and_has(B),
-  PTmp=maps:get(temporary,B,false),
-
-  lager:info("-------[MAKE BLOCK h=~w tmp=~p]-------",[PHeight,PTmp]),
-  lager:info("Pre ~p",[PreTXL0]),
-
-  PreNodes=try
-             PreSig=maps:get(presig, State, #{}),
-             BK=maps:fold(
-                  fun(_, {BH, _}, Acc) when BH =/= PHash ->
-                      Acc;
-                     (Node1, {_BH, Nodes2}, Acc) ->
-                      [{Node1, Nodes2}|Acc]
-                  end, [], PreSig),
-             lists:sort(bron_kerbosch:max_clique(BK))
-           catch
-             Ec:Ee ->
-               utils:print_error("Can't calc xsig", Ec, Ee, erlang:get_stacktrace()),
-               []
-           end,
-
-  try
-    if BestHeiHash == undefined -> ok;
-       BestHeiHash == PHeiHash -> ok;
-       true ->
-         gen_server:cast(chainkeeper, are_we_synced),
-         throw({'unsync',BestHeiHash,PHeiHash})
-    end,
-    T1=erlang:system_time(),
-    lager:debug("MB pre nodes ~p", [PreNodes]),
-
-    FindBlock=fun FB(H, N) ->
-                  case gen_server:call(blockchain, {get_block, H}) of
-                    undefined ->
-                      undefined;
-                    #{header:=#{parent:=P}}=Blk ->
-                      if N==0 ->
-                           block:minify(Blk);
-                         true ->
-                           FB(P, N-1)
-                      end
-                  end
-              end,
-
-    PropsFun=fun(mychain) ->
-                 MyChain;
-                (settings) ->
-                 chainsettings:by_path([]);
-                ({valid_timestamp, TS}) ->
-                 abs(os:system_time(millisecond)-TS)<3600000;
-                ({endless, From, Cur}) ->
-                 EndlessPath=[<<"current">>, <<"endless">>, From, Cur],
-                 chainsettings:by_path(EndlessPath)==true;
-                ({get_block, Back}) when 32>=Back ->
-                 FindBlock(last, Back)
-             end,
-    AddrFun=fun({Addr, _Cur}) ->
-                case ledger:get(Addr) of
-                  #{amount:=_}=Bal -> maps:without([changes],Bal);
-                  not_found -> bal:new()
-                end;
-               (Addr) ->
-                case ledger:get(Addr) of
-                  #{amount:=_}=Bal -> maps:without([changes],Bal);
-                  not_found -> bal:new()
-                end
-            end,
-
-    NoTMP=maps:get(notmp, MySet, 0),
-
-    Temporary = if AE==0 andalso PreTXL==[] ->
-                     if(NoTMP=/=0) -> throw(empty);
-                       true ->
-                         if is_integer(PTmp) ->
-                              PTmp+1;
-                            true ->
-                              1
-                         end
-                     end;
-                   true ->
-                     false
-                end,
-    GB=generate_block:generate_block(PreTXL,
-                                     {PHeight, PHash},
-                                     PropsFun,
-                                     AddrFun,
-                                     [ {<<"prevnodes">>, PreNodes} ],
-                                     [ {temporary, Temporary} ]
-                                    ),
-    #{block:=Block, failed:=Failed, emit:=EmitTXs}=GB,
-    T2=erlang:system_time(),
-
-    case application:get_env(tpnode,mkblock_debug) of
-      undefined ->
-        ok;
-      {ok, true} ->
-        stout:log(mkblock_debug,
-                  [
-                   {node_name,NodeName},
-                   {height, PHeight},
-                   {phash, PHash},
-                   {pretxl, PreTXL},
-                   {fail, Failed},
-                   {block, Block},
-                   {temporary, Temporary}
-                  ]);
-      Any ->
-        lager:notice("What does mkblock_debug=~p means?",[Any])
-    end,
-    Timestamp=os:system_time(millisecond),
-    ED=[
-        {timestamp, Timestamp},
-        {createduration, T2-T1}
-       ],
-    SignedBlock=sign(Block, ED),
-    #{header:=#{height:=NewH}}=Block,
-    %cast whole block to my local blockvote
-    stout:log(mkblock_done,
-              [
-               {node_name,NodeName},
-               {height, PHeight},
-               {block_hdr, maps:with([hash,header,sign,temporary], SignedBlock)}
-              ]),
-
-    gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
-
-    case application:get_env(tpnode, dumpblocks) of
-      {ok, true} ->
-        file:write_file("tmp/mkblk_" ++
-                        integer_to_list(NewH) ++ "_" ++
-                        binary_to_list(nodekey:node_id()),
-                        io_lib:format("~p.~n", [SignedBlock])
-                       );
-      _ -> ok
-    end,
-    %Block signature for each other
-    lager:debug("MB My sign ~p emit ~p",
-                [
-                 maps:get(sign, SignedBlock),
-                 length(EmitTXs)
-                ]),
-    HBlk=msgpack:pack(
-           #{null=><<"blockvote">>,
-             <<"n">>=>node(),
-             <<"hash">>=>maps:get(hash, SignedBlock),
-             <<"sign">>=>maps:get(sign, SignedBlock),
-             <<"chain">>=>MyChain
-            }
-          ),
-    tpic:cast(tpic, <<"blockvote">>, HBlk),
-    if EmitTXs==[] -> ok;
-       true ->
-         Push=gen_server:call(txpool, {push_etx, EmitTXs}),
-         stout:log(push_etx,
-                   [
-                    {node_name,NodeName},
-                    {txs, EmitTXs},
-                    {res, Push}
-                   ]),
-         lager:info("Inject TXs ~p", [Push])
-    end,
-    {noreply, State#{preptxm=>#{},
-                     presig=>#{}
-                    }}
-    catch throw:empty ->
-            lager:info("Skip empty block"),
-            {noreply, State#{preptxm=>#{},
-                         presig=>#{}}};
-          throw:Other ->
-            lager:info("Skip ~p",[Other]),
-            {noreply, State#{preptxm=>#{},
-                             presig=>#{}}}
+handle_info(process, #{gbpid:=PID}=State) ->
+  case is_process_alive(PID) of
+    true ->
+      {noreply, State#{preptxm=>#{},
+                       presig=>#{}
+                      }};
+    false ->
+      handle_info(process, maps:remove(gbpid, State))
   end;
+
+handle_info(process,
+            #{settings:=MySet,
+              preptxm:=PreTXM,
+              mean_time:=MT,
+              entropy:=Ent}=State) ->
+  PreSig=maps:get(presig, State, #{}),
+  GBPID=mkblock_genblk:spawn_generate(MySet, PreTXM, PreSig, MT, Ent),
+  {noreply, State#{preptxm=>#{},
+    presig=>#{},
+    mean_time=>[],
+    entropy=>[],
+    gbpid=>GBPID
+  }};
 
 handle_info(process, State) ->
     lager:notice("MKBLOCK Blocktime, but I not ready"),
@@ -434,12 +272,6 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
-%% ------------------------------------------------------------------
-
-sign(Blk, ED) when is_map(Blk) ->
-    PrivKey=nodekey:get_priv(),
-    block:sign(Blk, ED, PrivKey).
-
 %% ------------------------------------------------------------------
 
 load_settings(State) ->
@@ -497,5 +329,4 @@ hei_and_has(B) ->
                   Last_Hash1,
                   <<(bnot Last_Height1-1):64/big,Last_Hash1/binary>>}
   end.
-
 

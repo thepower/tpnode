@@ -4,8 +4,8 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
-%% cleanup blockvote state in 3 blocktime interval
--define(BV_CLEANUP_TIMER_FACTOR, 3).
+%% cleanup blockvote state in 5 blocktime interval
+-define(BV_CLEANUP_TIMER_FACTOR, 5).
 
 
 %% ------------------------------------------------------------------
@@ -40,6 +40,12 @@ init(_Args) ->
 
 handle_call(_, _From, undefined) ->
     {reply, notready, undefined};
+
+handle_call(status, _From, #{candidatesig:=Candidatesig, candidates:=Candidates}=State) ->
+  {reply, #{
+     sig=>maps:size(Candidatesig),
+     block=>maps:size(Candidates)
+    }, State};
 
 handle_call(state, _From, State) ->
     {reply, State, State};
@@ -86,13 +92,13 @@ handle_cast({tpic, _From, #{
 handle_cast({signature, BlockHash, Sigs}=WholeSig,
             #{lastblock:=#{hash:=LBH}}=State) when LBH==BlockHash->
     lager:info("BV Got extra sig for ~s ~p", [blkid(BlockHash), WholeSig]),
-    
+
     stout:log(
       bv_gotsig,
       [{hash, BlockHash}, {sig, Sigs}, {extra, true}, {node_name, nodekey:node_name()}]
-    ),
-  
-    gen_server:cast(blockchain, WholeSig),
+     ),
+
+    gen_server:cast(blockchain_updater, WholeSig),
     {noreply, State};
 
 
@@ -182,7 +188,7 @@ handle_info(cleanup_timer,
     candidatets => NewCandTS,
     candidates => NewCandidates,
     candidatesig => NewCandidateSig,
-    cleanup_timer => setup_timer(cleanup_timer)
+    cleanup_timer => setup_timer(cleanup_timer, BlockTime)
   }};
   
 
@@ -194,7 +200,7 @@ handle_info(init, undefined) ->
       candidatesig => #{},
       candidates=>#{},
       candidatets=>#{},
-      cleanup_timer => setup_timer(cleanup_timer),
+      cleanup_timer => setup_timer(cleanup_timer, 5),
       lastblock=>LastBlock
     },
     {noreply, load_settings(Res)};
@@ -255,7 +261,7 @@ is_block_ready(BlockHash, State) ->
 					true ->
 						%throw({notready, nocand1}),
 						lager:info("Probably they went ahead"),
-						blockchain ! checksync,
+						blockchain_sync ! checksync,
 						State;
 					false ->
 						throw({notready, {nocand, maps:size(Sigs), MinSig}})
@@ -294,14 +300,7 @@ is_block_ready(BlockHash, State) ->
             {hash, BlockHash},
             {height, Height},
             {node, nodekey:node_name()},
-            {header, maps:get(header, Blk)},
-            {blockchain_info,
-              erlang:process_info(
-                whereis(blockchain),
-                [current_function, message_queue_len, status,
-                  heap_size, stack_size, current_stacktrace]
-              )
-            }
+            {header, maps:get(header, Blk)}
           ]),
         
 				lager:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
@@ -310,7 +309,7 @@ is_block_ready(BlockHash, State) ->
                     (T3-T0)/1000000
                    ]),
 
-				gen_server:cast(blockchain, {new_block, Blk, self()}),
+				gen_server:cast(blockchain_updater, {new_block, Blk, self()}),
     
         self() ! cleanup,
         
@@ -338,12 +337,8 @@ is_block_ready(BlockHash, State) ->
 
 load_settings(State) ->
   {ok, MyChain} = chainsettings:get_setting(mychain),
-
-  MinSig = chainsettings:get_val(minsig, 1000),
-  LastBlock = blockchain:last_meta(),
-
-  %LastBlock=gen_server:call(blockchain, last_block),
-
+  MinSig=chainsettings:get_val(minsig,1000),
+  LastBlock=blockchain:last_meta(),
   lager:info("BV My last block hash ~s",
     [bin2hex:dbin2hex(maps:get(hash, LastBlock))]),
 
@@ -351,7 +346,7 @@ load_settings(State) ->
     mychain=>MyChain,
     minsig=>MinSig,
     lastblock=>LastBlock,
-    blocktime => chainsettings:get_val(blocktime)
+    blocktime => chainsettings:get_val(blocktime, 3)
   }.
 
 %% ------------------------------------------------------------------
@@ -406,9 +401,9 @@ ets_lookup(EtsTableName, Key) ->
 
 %% ------------------------------------------------------------------
 
-setup_timer(Name) ->
+setup_timer(Name, Blocktime) ->
   erlang:send_after(
-    ?BV_CLEANUP_TIMER_FACTOR * 1000 * chainsettings:get_val(blocktime),
+    ?BV_CLEANUP_TIMER_FACTOR * 1000 * Blocktime,
     self(),
     Name
   ).

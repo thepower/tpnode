@@ -6,27 +6,26 @@
 info() ->
 	{<<"wasm">>, <<"WebAssembly">>}.
 
-deploy(Tx, Ledger, GasLimit, _GetFun) ->
-  %State0=bal:get(state, Ledger),
-  vm:run(fun(VMPid) ->
-             VMPid ! {run, 
-                      tx:pack(Tx),
-                      bal:pack(Ledger),
-                      GasLimit,
-                      self()
-                     }
-         end, "wasm", 2, []).
+deploy(Tx, Ledger, GasLimit, GetFun) ->
+  handle_tx(Tx, Ledger, GasLimit, GetFun).
 
-handle_tx(Tx, Ledger, GasLimit, _GetFun) ->
+handle_tx(Tx, Ledger, GasLimit, GetFun) ->
+  Entropy=GetFun(entropy),
+  MeanTime=GetFun(mean_time),
+  Settings=GetFun(settings),
+  XtraFields=#{ mean_time => MeanTime,
+                entropy => Entropy },
   vm:run(fun(VMPid) ->
              VMPid ! {run, 
                       tx:pack(Tx),
                       bal:pack(Ledger),
                       GasLimit,
-                      self()
+                      self(),
+                      XtraFields
                      }
-         end, "wasm", 2, []).
-  %{ok, unchanged, GasLimit}.
+         end, "wasm", 2, [
+                          {run_timeout, chainsettings:get(blocktime,Settings)*1000}
+                         ]).
 
 getters() ->
   [].

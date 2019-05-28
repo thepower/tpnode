@@ -176,66 +176,6 @@ handle_cast({inbound_block, #{hash:=Hash} = Block}, #{sync_timer:=Tmr, queue:=Qu
     }
   };
 
-
-%%handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue}=State) ->
-%%  MaxPop=chainsettings:get_val(<<"poptxs">>,200),
-%%  {Queue1, Res}=pullx({MaxPop, get_max_tx_size()}, Queue, []),
-%%  PK=case maps:get(pubkey, State, undefined) of
-%%       undefined -> nodekey:get_pub();
-%%       FoundKey -> FoundKey
-%%     end,
-%%
-%%  try
-%%    PreSig=maps:merge(
-%%             gen_server:call(blockchain, lastsig),
-%%             #{null=><<"mkblock">>,
-%%               chain=>MyChain
-%%              }),
-%%    MResX=msgpack:pack(PreSig),
-%%    gen_server:cast(mkblock, {tpic, PK, MResX}),
-%%    tpic:cast(tpic, <<"mkblock">>, MResX)
-%%  catch
-%%    Ec:Ee ->
-%%      utils:print_error("Can't send xsig", Ec, Ee, erlang:get_stacktrace())
-%%  end,
-%%
-%%  try
-%%    LBH=get_lbh(State),
-%%    MRes=msgpack:pack(
-%%      #{
-%%        null=><<"mkblock">>,
-%%        chain=>MyChain,
-%%        lbh=>LBH,
-%%        txs=>maps:from_list(Res)
-%%      }
-%%    ),
-%%    gen_server:cast(mkblock, {tpic, PK, MRes}),
-%%    tpic:cast(tpic, <<"mkblock">>, MRes)
-%%  catch
-%%    Ec:Ee ->
-%%      utils:print_error("Can't encode", Ec, Ee, erlang:get_stacktrace())
-%%  end,
-%%
-%%  Time=erlang:system_time(seconds),
-%%  % TODO: recovery_lost should place the tx directly to outbox
-%%  {InProc1, Queue2}=recovery_lost(InProc0, Queue1, Time),
-%%  ETime=Time+20,
-%%  {noreply, State#{
-%%        queue=>Queue2,
-%%        inprocess=>lists:foldl(
-%%               fun({TxId, TxBody}, Acc) ->
-%%                   hashqueue:add(TxId, ETime, TxBody, Acc)
-%%               end,
-%%               InProc1,
-%%               Res
-%%              )
-%%         }
-%%  };
-
-%%handle_cast(prepare, State) ->
-%%    lager:notice("TXPOOL Blocktime, but I am not ready"),
-%%    {noreply, load_settings(State)};
-
 handle_cast(_Msg, State) ->
     lager:info("Unknown cast ~p", [_Msg]),
     {noreply, State}.
@@ -250,12 +190,16 @@ handle_info(sync_tx,
   
   % do nothing in case peers count less than minsig
   Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
+  SingleNodeTest=case nodekey:get_privs() of
+                   [_,_|_] -> true;
+                   _ -> false
+                 end,
   case length(Peers) of
     _ when MinSig == undefined ->
       % minsig unknown
       lager:error("minsig is undefined, we can't run transaction synchronizer"),
       {noreply, load_settings(State#{ sync_timer => update_sync_timer(undefined)})};
-    PeersCount when PeersCount+1<MinSig ->
+    PeersCount when not SingleNodeTest andalso PeersCount+1<MinSig ->
       % nodes count is less than we need, do nothing  (nodes = peers + 1)
       lager:info("nodes count ~p is less than minsig ~p", [PeersCount+1, MinSig]),
       {noreply, State#{ sync_timer => update_sync_timer(undefined) }};
@@ -410,7 +354,7 @@ pullx({N, MaxSize}, Q, Acc) ->
 
 load_settings(State) ->
   MyChain = blockchain:chain(),
-  {_Chain, Height} = gen_server:call(blockchain, last_block_height),
+  #{header:=#{height:=Height}}=blockchain:last_meta(),
   State#{
     mychain=>MyChain,
     height=>Height,

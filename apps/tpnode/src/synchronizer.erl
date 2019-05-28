@@ -143,25 +143,6 @@ handle_info(selftimer5, #{mychain:=_MyChain, tickms:=Ms, timer5:=Tmr, offsets:=O
     end, {[], #{}}, Friends),
 
   MeanDiff = median(Avg),
-  
-  BCReady =
-    try
-      gen_server:call(blockchain, ready, 50)
-    catch
-      exit:{timeout,{gen_server,call,[blockchain,ready,_]}} ->
-        lager:error("selftimer5 BC is not ready, timeout"),
-    
-        false;
-  
-      Ec:Ee ->
-        StackTrace = erlang:process_info(whereis(blockchain), current_stacktrace),
-        ProcInfo = erlang:process_info(whereis(blockchain)),
-        utils:print_error("SYNC BC is not ready err", Ec, Ee, StackTrace),
-        lager:error("BC process info: ~p", [ProcInfo]),
-    
-        false
-    end,
-  
   T = erlang:system_time(microsecond),
 
   Hello =
@@ -171,7 +152,8 @@ handle_info(selftimer5, #{mychain:=_MyChain, tickms:=Ms, timer5:=Tmr, offsets:=O
         <<"t">> => T
       }),
   tpic:cast(tpic, <<"timesync">>, Hello),
-  
+
+  BCReady = blockchain:ready(),
   MeanMs = round((T - MeanDiff) / 1000),
 
   if
@@ -225,24 +207,8 @@ median(List) ->
 
 load_settings(State) ->
   {ok, MyChain} = chainsettings:get_setting(mychain),
-  BlockTime = chainsettings:get_val(blocktime),
-  BCReady =
-    try
-      gen_server:call(blockchain, ready, 50)
-    catch
-      exit:{timeout,{gen_server,call,[blockchain,ready,_]}} ->
-        lager:debug("load settings BC is not ready"),
-      
-        false;
-
-      Ec:Ee ->
-        StackTrace = erlang:process_info(whereis(blockchain), current_stacktrace),
-        ProcInfo = erlang:process_info(whereis(blockchain)),
-        utils:print_error("SYNC BC is not ready err", Ec, Ee, StackTrace),
-        lager:error("BC process info: ~p", [ProcInfo]),
-        
-        false
-    end,
+  BlockTime = chainsettings:get_val(blocktime,3),
+  BCReady = blockchain:ready(),
   State#{
     tickms => BlockTime * 1000,
     mychain => MyChain,

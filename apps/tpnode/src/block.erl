@@ -141,7 +141,8 @@ unpack(Block) when is_binary(Block) ->
   Atoms=[hash, outbound, header, settings, txs, sign, bals,
          balroot, ledger_hash, height, parent, txroot, tx_proof,
          amount, lastblk, seq, t, child, setroot, tmp, ver,
-         inbound_blocks, chain, extdata, roots, failed],
+         inbound_blocks, chain, extdata, roots, failed,
+         mean_time, entropy],
   case msgpack:unpack(Block, [{known_atoms, Atoms}]) of
     {ok, DMP} ->
       ConvertFun=fun (header, #{roots:=RootsList}=Header) ->
@@ -330,6 +331,10 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         {ledger_hash, Hash};
       ({tmp, IsTmp}) ->
         {tmp, IsTmp};
+      ({mean_time, IsTmp}) ->
+        {mean_time, IsTmp};
+      ({entropy, IsTmp}) ->
+        {entropy, IsTmp};
       ({Key, Value}) ->
         lager:notice("Unknown root ~p",[Key]),
         {Key, Value}
@@ -493,8 +498,16 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
            _ -> false
          end,
 
-  TempRoot=if TempID == false -> [];
-              true -> [{tmp, <<TempID:64/big>>}]
+  ExtraRoots=case maps:is_key(extra_roots, Req) of
+               true ->
+                 maps:get(extra_roots, Req);
+               false ->
+                 []
+             end,
+
+  lager:info("ER ~p",[ExtraRoots]),
+  TempRoot=if TempID == false -> ExtraRoots;
+              true -> [{tmp, <<TempID:64/big>>}|ExtraRoots]
            end,
 
   Failed=prepare_fail(maps:get(failed, Req,[])),
@@ -521,7 +534,6 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
         [{settings_hash, SettingsHash} | HeaderItems0]
     end,
   {BHeader, Hdr}=build_header2(HeaderItems, Parent, H, Chain),
-%  io:format("mHI ~p~n", [Hdr]),
 
   Block=#{header=>Hdr,
           hash=>crypto:hash(sha256, BHeader),
