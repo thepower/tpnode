@@ -233,9 +233,10 @@ handle_cast(_Msg, State) ->
     lager:info("MB unknown cast ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(process, #{gbpid:=PID}=State) ->
+handle_info(process, #{preptxm := PreTxMap, presig := PreSig, gbpid:=PID}=State) ->
   case is_process_alive(PID) of
     true ->
+      lager:info("skip PreSig ~p, PreTxMap ~p", [PreSig, PreTxMap]),
       {noreply, State#{preptxm=>#{},
                        presig=>#{}
                       }};
