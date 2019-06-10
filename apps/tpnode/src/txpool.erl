@@ -70,19 +70,20 @@ handle_call({portout, #{
       error ->
         {reply, {error,cant_gen_txid}, State};
       {ok, TxID} ->
+        BinTx = tx:pack(
+          #{
+            from=>Address,
+            portout=>PortTo,
+            seq=>Seq,
+            timestamp=>Timestamp,
+            public_key=>HPub,
+            signature=>HSig
+          }
+        ),
         {reply,
          {ok, TxID},
          State#{
-           queue=>queue:in({TxID,
-                            #{
-                              from=>Address,
-                              portout=>PortTo,
-                              seq=>Seq,
-                              timestamp=>Timestamp,
-                              public_key=>HPub,
-                              signature=>HSig
-                             }
-                           }, Queue),
+           queue=>queue:in({TxID, BinTx}, Queue),
            sync_timer => update_sync_timer(Tmr)
          }
         }
@@ -95,10 +96,11 @@ handle_call({register, #{
     error ->
       {reply, {error,cant_gen_txid}, State};
     {ok, TxID} ->
+      BinTx = tx:pack(Patch),
       {reply,
        {ok, TxID},
        State#{
-         queue=>queue:in({TxID, Patch}, Queue),
+         queue=>queue:in({TxID, BinTx}, Queue),
          sync_timer => update_sync_timer(Tmr)
         }
       }
@@ -161,7 +163,8 @@ handle_cast({inbound_block, #{hash:=Hash} = Block}, #{sync_timer:=Tmr, queue:=Qu
     case txstorage:get_tx(TxId) of
       error ->
         % we haven't this block in storage. process it as usual
-        queue:in({TxId, Block}, Queue);
+        BinTx = tx:pack(Block),
+        queue:in({TxId, BinTx}, Queue);
       {ok, {TxId, _, _}} ->
         % we already have this block in storage. we only need add txid to outbox
         gen_server:cast(txqueue, {push, [TxId]}),
