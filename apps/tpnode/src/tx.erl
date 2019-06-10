@@ -460,7 +460,7 @@ verify(#{
  }=Tx, _Opts) ->
   Res=bsig:checksig(Body, LSigs),
   case Res of
-    {0, _} ->
+    {[], _} ->
       bad_sig;
     {Valid, Invalid} when length(Valid)>0 ->
       BodyHash=hashdiff(crypto:hash(sha512,Body)),
