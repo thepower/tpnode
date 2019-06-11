@@ -287,11 +287,14 @@ decode_ints(Bin) ->
   end.
 
 %% ------------------------------------------------------------------
-
-decode_txid(Txta) ->
-  [N0,N1]=binary:split(Txta,<<"-">>),
-  Bin=base58:decode(N0),
-  {N1, decode_ints(Bin)}.
+decode_txid(TxId) when is_binary(TxId) ->
+  case binary:split(TxId, <<"-">>) of
+    [N0, N1] ->
+      Bin = base58:decode(N0),
+      {ok, N1, decode_ints(Bin)};
+    _ ->
+      {error, invalid_tx_id}
+  end.
 
 %% ------------------------------------------------------------------
 
@@ -322,8 +325,12 @@ sort_txs(Txs) when is_list(Txs) ->
   Unpacked =
     lists:map(
       fun(TxId) ->
-        {_NodeId, [_Chain, _Height, Timestamp]} = decode_txid(TxId),
-        {Timestamp, TxId}
+        case decode_txid(TxId) of
+          {ok, _NodeId, [_Chain, _Height, Timestamp]} ->
+            {Timestamp, TxId};
+          _ ->
+            {0, TxId}
+        end
       end,
       Txs
     ),

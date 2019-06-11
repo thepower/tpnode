@@ -1446,7 +1446,7 @@ sort_txs(PreTXL) ->
             {{H,Hash},TX};
            ({ID,_}=TX) ->
             NID=try
-                  {_,T}=txpool:decode_txid(ID),
+                  {ok, _, T} = txpool:decode_txid(ID),
                   T
                 catch _:_ ->
                         ID
