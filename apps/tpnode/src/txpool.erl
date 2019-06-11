@@ -89,23 +89,6 @@ handle_call({portout, #{
         }
     end;
 
-handle_call({register, #{
-               register:=_
-              }=Patch}, _From, #{sync_timer:=Tmr, queue:=Queue}=State) ->
-  case generate_txid(State) of
-    error ->
-      {reply, {error,cant_gen_txid}, State};
-    {ok, TxID} ->
-      BinTx = tx:pack(Patch),
-      {reply,
-       {ok, TxID},
-       State#{
-         queue=>queue:in({TxID, BinTx}, Queue),
-         sync_timer => update_sync_timer(Tmr)
-        }
-      }
-  end;
-
 handle_call({push_etx, [{_, _}|_]=Lst}, _From, State) ->
   gen_server:cast(txstorage, {store, Lst, [], #{push_head_queue => true}}),
   {reply, ok, State};
