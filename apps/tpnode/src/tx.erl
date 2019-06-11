@@ -242,6 +242,10 @@ unpack_body(#{body:=Body}=Tx) ->
     {ok,#{"k":=IKind}=B} ->
       {Ver, Kind}=decode_kind(IKind),
       unpack_body(Tx#{ver=>Ver, kind=>Kind},B);
+    {ok, #{<<"hash">>:=_,
+           <<"header">>:=_,
+           <<"sign">>:=_}} ->
+      block:unpack(Body);
     {error,{invalid_string,_}} ->
       case msgpack:unpack(Body,[{spec,new},{unpack_str, as_binary}]) of
         {ok,#{<<"k">>:=IKind}=B0} ->
@@ -531,6 +535,23 @@ verify(Struct, Opts) ->
 
 pack(Tx) ->
   pack(Tx, []).
+
+pack(#{
+  hash:=_,
+  header:=_,
+  sign:=_
+ }=Block, _Opts) ->
+  msgpack:pack(
+    #{
+    "ver"=>2,
+    "sig"=>[],
+    "body" => block:pack(Block)
+   },
+    [
+     {spec,new},
+     {pack_str, from_list}
+    ]
+   );
 
 pack(#{ ver:=2,
         body:=Bin,
