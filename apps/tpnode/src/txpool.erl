@@ -162,11 +162,11 @@ handle_cast({inbound_block, #{hash:=Hash} = Block}, #{sync_timer:=Tmr, queue:=Qu
   NewQueue =
     case txstorage:get_tx(TxId) of
       error ->
-        % we haven't this block in storage. process it as usual
+        % we don't have this block in storage. process it as usual
         BinTx = tx:pack(Block),
         queue:in({TxId, BinTx}, Queue);
       {ok, {TxId, _, _}} ->
-        % we already have this block in storage. we only need add txid to outbox
+        % we already have this block in storage. we only need add its txid to outbox
         gen_server:cast(txqueue, {push, [TxId]}),
         Queue
     end,
