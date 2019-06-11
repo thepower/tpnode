@@ -160,7 +160,7 @@ run_generate(
                    {temporary, Temporary}
                   ]);
       Any ->
-        lager:notice("What does mkblock_debug=~p means?",[Any])
+        lager:notice("What does mkblock_debug=~p mean?",[Any])
     end,
     Timestamp=os:system_time(millisecond),
     ED=[
