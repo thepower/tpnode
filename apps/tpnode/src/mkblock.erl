@@ -274,7 +274,7 @@ load_settings(State) ->
 %% Function gets list of tuples with TX IDs and bodies ({TXID, TXBody}).
 %% Body can be null, in such case this function tries to retrive it from
 %% tx strorage.
--spec(TXs :: [{binary(), 'null' | binary()}]) -> [{binary(), map()}].
+-spec decode_tpic_txs(TXs :: [{binary(), 'null' | binary()}]) -> [{binary(), map()}].
 decode_tpic_txs(TXs) ->
   lists:map(
     fun
