@@ -89,7 +89,7 @@ handle_cast({tpic, Origin, #{
                      <<"chain">>:=_MsgChain,
                      <<"txs">>:=TPICTXs
                     }=Msg}, State)  ->
-  TXs=decode_tpic_txs(TPICTXs),
+  TXs=decode_tpic_txs(maps:to_list(TPICTXs)),
   if TXs==[] -> ok;
      true ->
        lager:info("Got txs from ~s: ~p",
@@ -141,36 +141,17 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
                [ Origin, length(Txs), Timestamp ])
        end,
        MarkTx =
-         fun({TxID, TxB0}) ->
-           % get transaction body from storage
-           TxB =
+         fun({TxID, TxBody}) ->
+           TxBody1 =
              try
-               case TxB0 of
-                 {TxID, null} ->
-                   case txstorage:get_tx(TxID) of
-                     {ok, {TxID, TxBody, _Nodes}} ->
-                       {TxID, TxBody}; % got tx body from txstorage
-                     _ ->
-                       {TxID, null} % error
-                   end;
-                 _OtherTx ->
-                   _OtherTx  % transaction with body or invalid transaction
-               end
-             catch _Ec0:_Ee0 ->
-               utils:print_error("Error", _Ec0, _Ee0, erlang:get_stacktrace()),
-               TxB0
-             end,
-
-           TxB1 =
-             try
-               case TxB of
+               case TxBody of
                  #{patch:=_} ->
                    VerFun =
                      fun(PubKey) ->
                        NodeID = chainsettings:is_our_node(PubKey),
                        is_binary(NodeID)
                      end,
-                   {ok, Tx1} = settings:verify(TxB, VerFun),
+                   {ok, Tx1} = settings:verify(TxBody, VerFun),
                    tx:set_ext(origin, Origin, Tx1);
 
                  #{hash:=_,
@@ -178,10 +159,10 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
                    sign:=_} ->
 
                    %do nothing with inbound block
-                   TxB;
+                   TxBody;
 
                  _ ->
-                   {ok, Tx1} = tx:verify(TxB, [{maxsize, txpool:get_max_tx_size()}]),
+                   {ok, Tx1} = tx:verify(TxBody, [{maxsize, txpool:get_max_tx_size()}]),
                    tx:set_ext(origin, Origin, Tx1)
                end
              catch
@@ -191,15 +172,15 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
                  utils:print_error("Error", _Ec, _Ee, erlang:get_stacktrace()),
                  file:write_file(
                    "tmp/mkblk_badsig_" ++ binary_to_list(nodekey:node_id()),
-                   io_lib:format("~p.~n", [TxB])
+                   io_lib:format("~p.~n", [TxBody])
                  ),
-                 TxB
+                 TxBody
              end,
-           case TxB1 of
+           case TxBody1 of
              null ->
                false;
              _ ->
-               {true, {TxID, TxB1}}
+               {true, {TxID, TxBody1}}
            end
          end,
 
@@ -290,6 +271,10 @@ load_settings(State) ->
 
 %% ------------------------------------------------------------------
 
+%% Function gets list of tuples with TX IDs and bodies ({TXID, TXBody}).
+%% Body can be null, in such case this function tries to retrive it from
+%% tx strorage.
+-spec(TXs :: [{binary(), 'null' | binary()}]) -> [{binary(), map()}].
 decode_tpic_txs(TXs) ->
   lists:map(
     fun
@@ -306,12 +291,15 @@ decode_tpic_txs(TXs) ->
         {TxID, TxBody};
       
       % unpack transaction body
-      ({TxID, Tx}) ->
+      ({TxID, Tx}) when is_binary(Tx) ->
         Unpacked = tx:unpack(Tx),
 %%      lager:info("debug tx unpack: ~p", [Unpacked]),
-        {TxID, Unpacked}
+        {TxID, Unpacked};
+
+      ({TxID, Tx}) when is_map(Tx) ->
+        {TxID, Tx}
     end,
-    maps:to_list(TXs)
+    TXs
   ).
 
 hei_and_has(B) ->
