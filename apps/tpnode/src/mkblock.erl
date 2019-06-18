@@ -12,7 +12,7 @@
 %-compile(export_all).
 -endif.
 
--export([start_link/0, hei_and_has/1]).
+-export([start_link/0, hei_and_has/1, decode_tpic_txs/1]).
 
 
 %% ------------------------------------------------------------------
@@ -282,10 +282,13 @@ decode_tpic_txs(TXs) ->
       ({TxID, null}) ->
         TxBody =
           case txstorage:get_tx(TxID) of
-            {ok, {TxID, Tx, _Nodes}} ->
-              Tx;
+            {ok, {TxID, Tx, _Nodes}} when is_binary(Tx) ->
+              tx:unpack(Tx);
             error ->
               lager:error("can't get body for tx ~p", [TxID]),
+              null;
+            _Any ->
+              lager:error("can't get body for tx ~p unknown response ~p", [TxID, _Any]),
               null
           end,
         {TxID, TxBody};
