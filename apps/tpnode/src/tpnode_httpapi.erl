@@ -132,17 +132,28 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
               (_, V) when is_binary(V) -> BinPacker(V);
               (_, V) -> V
            end, Header1),
-  Peers=lists:map(
-          fun(#{addr:=_Addr, auth:=Auth, state:=Sta, authdata:=AD}) ->
-              #{auth=>Auth,
-                state=>Sta,
-                node=>proplists:get_value(nodeid, AD, null)
-               };
-             (#{addr:=_Addr}) ->
-              #{auth=>unknown,
-                state=>unknown
-               }
-          end, tpic:peers()),
+  Peers =
+    try
+      lists:map(
+        fun(#{addr:=_Addr, auth:=Auth, state:=Sta, authdata:=AD}) ->
+          #{auth=>Auth,
+            state=>Sta,
+            node=>proplists:get_value(nodeid, AD, null)
+          };
+          (#{addr:=_Addr}) ->
+            #{auth=>unknown,
+              state=>unknown
+            }
+        end, tpic:peers())
+    catch
+      Ec:Ee ->
+        StackTrace = erlang:process_info(whereis(tpic), current_stacktrace),
+        ProcInfo = erlang:process_info(whereis(tpic)),
+        utils:print_error("TPIC peers collecting error", Ec, Ee, StackTrace),
+        lager:error("TPIC process info: ~p", [ProcInfo]),
+        
+        []
+    end,
   SynPeers=gen_server:call(synchronizer, peers),
   {Ver, _BuildTime}=tpnode:ver(),
   answer(
