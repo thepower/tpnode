@@ -148,7 +148,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
     catch
       Ec:Ee ->
         StackTrace = erlang:process_info(whereis(tpic), current_stacktrace),
-        ProcInfo = erlang:process_info(whereis(blockchain_updater)),
+        ProcInfo = erlang:process_info(whereis(tpic)),
         utils:print_error("TPIC peers collecting error", Ec, Ee, StackTrace),
         lager:error("TPIC process info: ~p", [ProcInfo]),
         
