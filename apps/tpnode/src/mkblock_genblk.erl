@@ -90,6 +90,18 @@ run_generate(
               _ ->
                 crypto:hash(sha256,[PHash,<<MeanTime:64/big>>|lists:usort(Ent)])
             end,
+    case application:get_env(tpnode,mkblock_debug) of
+      {ok, true} ->
+        stout:log(mkblock_debug,
+                  [
+                   {node_name,NodeName},
+                   {entropys, Ent},
+                   {mean_times, MT}
+                  ]);
+      _ ->
+        ok
+    end,
+
 
     PropsFun=fun(mychain) ->
                  MyChain;
