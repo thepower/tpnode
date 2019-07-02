@@ -75,6 +75,13 @@ handle_xchain(#{null:=<<"owblock">>,
          block => block:pack(OutwardBlock),
          header => maps:map(
                      fun(extdata,PL) -> maps:from_list(PL);
+                        (header,PL) ->
+                         maps:map(
+                           fun(roots,PL1) -> maps:from_list(PL1);
+                              (_,Val1) -> Val1
+                           end,
+                           PL
+                          );
                         (_,Val) -> Val
                      end,
                      maps:with([hash, header, extdata],OutwardBlock)

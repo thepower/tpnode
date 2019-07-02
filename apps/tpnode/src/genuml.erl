@@ -232,8 +232,10 @@ get_renderer() ->
       Ts =
         lists:map(
           fun(TxId) ->
-            {_,[_,_,T1]} = txpool:decode_txid(TxId),
-            T1
+            case txpool:decode_txid(TxId) of
+              {ok, _, [_, _, Timestamp]} -> Timestamp;
+              _ -> 0
+            end
           end,
           TxIds),
   

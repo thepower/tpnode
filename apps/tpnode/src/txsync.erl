@@ -208,7 +208,9 @@ make_batch(Transactions) when is_list(Transactions) ->
 make_batch([], Batch, BatchId) ->
   {BatchId, Batch};
 
-make_batch([{TxId, TxBody} | Rest], Batch, _BatchId) ->
+make_batch([{TxId, TxBody} | Rest], Batch, _BatchId)
+  when is_binary(TxBody), is_binary(TxId) ->
+  
   make_batch(
     Rest,
     <<Batch/binary,
@@ -216,7 +218,11 @@ make_batch([{TxId, TxBody} | Rest], Batch, _BatchId) ->
       (size(TxBody)):32/big,
       TxId/binary, TxBody/binary>>,
     TxId   % we use the last transaction id as batch id
-  ).
+  );
+
+make_batch([Invalid | Rest], Batch, BatchId) ->
+  lager:info("skip invalid transaction from batch: ~p", [Invalid]),
+  make_batch(Rest, Batch, BatchId).
 
 %% ------------------------------------------------------------------
 
