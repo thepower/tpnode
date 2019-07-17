@@ -1,6 +1,7 @@
 -module(tx_tests).
 
 -include_lib("eunit/include/eunit.hrl").
+-export([tstore_tx/0]).
 
 old_register_test() ->
   Priv= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216,
@@ -288,5 +289,43 @@ tx2_rate_test() ->
    ?assertEqual(UTx1, tx:unpack( tx:pack(UTx1))),
    ?assertMatch({true, #{cost:=20, tip:=10}}, tx:rate(UTx1, GetRateFun)),
    ?assertMatch({false, #{cost:=20, tip:=0}}, tx:rate(UTx2, GetRateFun))
+  ].
+
+
+tstore_tx() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  %Pub1Min=tpecdsa:calc_pub(Pvt1, true),
+  From=(naddress:construct_public(3, 5, 3)),
+  JSON = <<"{\"@context\":\"http://schema.org\",\"@type\":\"MusicEvent\",\"location\":{\"@type\":\"MusicVenue\",\"name\":\"Chicago Symphony Center\",\"address\":\"220 S. Michigan Ave, Chicago, Illinois, USA\"},\"name\":\"Shostakovich Leningrad\",\"offers\":{\"@type\":\"Offer\",\"url\":\"/examples/ticket/12341234\",\"price\":\"40\",\"priceCurrency\":\"USD\",\"availability\":\"http://schema.org/InStock\"},\"performer\":[{\"@type\":\"MusicGroup\",\"name\":\"Chicago Symphony Orchestra\",\"sameAs\":[\"http://cso.org/\",\"http://en.wikipedia.org/wiki/Chicago_Symphony_Orchestra\"]},{\"@type\":\"Person\",\"image\":\"/examples/jvanzweden_s.jpg\",\"name\":\"Jaap van Zweden\",\"sameAs\":\"http://www.jaapvanzweden.com/\"}],\"startDate\":\"2014-05-23T20:00\",\"workPerformed\":[{\"@type\":\"CreativeWork\",\"name\":\"Britten Four Sea Interludes and Passacaglia from Peter Grimes\",\"sameAs\":\"http://en.wikipedia.org/wiki/Peter_Grimes\"},{\"@type\":\"CreativeWork\",\"name\":\"Shostakovich Symphony No. 7 (Leningrad)\",\"sameAs\":\"http://en.wikipedia.org/wiki/Symphony_No._7_(Shostakovich)\"}]}">>,
+  T1=#{
+    kind => tstore,
+    from => From,
+    payload =>
+    [#{amount => 923,cur => <<"TST">>,purpose => srcfee}],
+    seq => 5,
+    t=>os:system_time(millisecond),
+    txext => #{
+      schema => "person",
+      json => JSON
+     },
+    ver => 2
+   },
+  TX1Constructed=tx:construct_tx(T1),
+  tx:sign(TX1Constructed,Pvt1).
+
+tstore_test() ->
+  BinTx1=tx:pack(tstore_tx()),
+
+  GetRateFun=fun(_Currency) when is_binary(_Currency) ->
+                 #{ <<"base">> => 1,
+                    <<"baseextra">> => 64,
+                    <<"kb">> => 1000
+                  }
+             end,
+  UTx1=tx:unpack(BinTx1),
+  [
+   ?assertEqual(UTx1, tx:unpack( tx:pack(UTx1))),
+   ?assertMatch({true, #{cost:=922, tip:=1}}, tx:rate(UTx1, GetRateFun))
   ].
 
