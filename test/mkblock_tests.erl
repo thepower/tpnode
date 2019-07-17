@@ -1628,3 +1628,87 @@ free_fee_test() ->
          lists:sort(Success))
   ].
 
+tstore_test() ->
+  OurChain=5,
+  GetSettings=fun(mychain) ->
+                  OurChain;
+                 (settings) ->
+                  #{
+                    chains => [0, 1],
+                    chain =>
+                    #{0 =>
+                      #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
+                      1 =>
+                      #{blocktime => 10, minsig => 1}
+                     },
+                    globals => #{<<"patchsigs">> => 2},
+                    keys =>
+                    #{
+                      <<"node1">> => crypto:hash(sha256, <<"node1">>),
+                      <<"node2">> => crypto:hash(sha256, <<"node2">>),
+                      <<"node3">> => crypto:hash(sha256, <<"node3">>),
+                      <<"node4">> => crypto:hash(sha256, <<"node4">>)
+                     },
+                    nodechain =>
+                    #{
+                      <<"node1">> => 0,
+                      <<"node2">> => 0,
+                      <<"node3">> => 0,
+                      <<"node4">> => 1
+                     },
+                    <<"current">> => #{
+                        <<"fee">> => #{
+                            params=>#{
+                              <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>>,
+                              <<"tipaddr">> => <<160, 0, 0, 0, 0, 0, 0, 2>>
+                             },
+                            <<"none">> => #{
+                                <<"base">> => 0,
+                                <<"baseextra">> => 64,
+                                <<"kb">> => 1
+                               },
+                             <<"TST">> => #{
+                                <<"base">> => 2,
+                                <<"baseextra">> => 64,
+                                <<"kb">> => 20
+                               },
+                            <<"FTT">> => #{
+                                <<"base">> => 1,
+                                <<"baseextra">> => 64,
+                                <<"kb">> => 10
+                               }
+                           }
+                       }
+                   };
+                 ({endless, _Address, _Cur}) ->
+                  false;
+                 ({valid_timestamp, TS}) ->
+                  abs(os:system_time(millisecond)-TS)<3600000
+                  orelse
+                  abs(os:system_time(millisecond)-(TS-86400000))<3600000;
+                 (Other) ->
+                  error({bad_setting, Other})
+              end,
+  GetAddr=fun test_getaddr/1,
+  ParentHash=crypto:hash(sha256, <<"parent">>),
+
+  TX1=tx_tests:tstore_tx(),
+  erlang:display(TX1),
+
+
+  #{block:=Block,
+    failed:=Failed}=generate_block:generate_block(
+                      [
+                       {<<"1test">>, maps:put(sigverify,#{valid=>1},TX1)}
+                      ],
+                      {1, ParentHash},
+                      GetSettings,
+                      GetAddr,
+                      []),
+
+  Success=proplists:get_keys(maps:get(txs, Block)),
+  [
+  ?assertMatch([], Failed),
+  ?assertEqual([ <<"1test">>], lists:sort(Success))
+  ].
+
