@@ -456,7 +456,10 @@ verify(#{
   body:=Body,
   sig:=LSigs,
   ver:=2
- }=Tx, Opts) when GenericOrDeploy==generic; GenericOrDeploy==deploy ->
+ }=Tx, Opts) when GenericOrDeploy==generic;
+                  GenericOrDeploy==deploy;
+                  GenericOrDeploy==tstore;
+                  GenericOrDeploy==lstore ->
   CI=get_ext(<<"contract_issued">>, Tx),
   Res=case checkaddr(From) of
         {true, _IAddr} when CI=={ok, From} ->
