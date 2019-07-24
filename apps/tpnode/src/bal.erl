@@ -16,10 +16,10 @@
         ]).
 
 -define(FIELDS,
-        [t, seq, lastblk, pubkey, ld, usk, state, code, vm, view]
+        [t, seq, lastblk, pubkey, ld, usk, state, code, vm, view, lstore]
        ).
 
--type balfield() :: 'amount'|'t'|'seq'|'lastblk'|'pubkey'|'ld'|'usk'|'state'|'code'|'vm'|'view'.
+-type balfield() :: 'amount'|'t'|'seq'|'lastblk'|'pubkey'|'ld'|'usk'|'state'|'code'|'vm'|'view'|'lstore'.
 -type sparsebal () :: #{'amount'=>map(),
                   'changes'=>[balfield()],
                   'seq'=>integer(),
@@ -32,6 +32,7 @@
                   'code'=>binary(),
                   'vm'=>binary(),
                   'view'=>binary(),
+                  'lstore'=>binary(),
                   'ublk'=>binary() %external attr
                  }.
 
@@ -47,6 +48,7 @@
                   'code'=>binary(),
                   'vm'=>binary(),
                   'view'=>binary(),
+                  'lstore'=>binary(),
                   'ublk'=>binary() %external attr
                  }.
 
@@ -195,6 +197,12 @@ put(code, V, Bal) when is_binary(V) ->
             changes=>[code|maps:get(changes, Bal, [])]
           }
   end;
+
+put(lstore, V, Bal) when is_map(V) ->
+  Bal#{ lstore=>settings:mp(V),
+        changes=>[lstore|maps:get(changes, Bal, [])]
+      };
+
 put(usk, V, Bal) when is_integer(V) ->
   Bal#{ usk=>V,
         changes=>[usk|maps:get(changes, Bal, [])]
@@ -213,6 +221,7 @@ get(vm, Bal) ->     maps:get(vm, Bal, undefined);
 get(view, Bal) ->   maps:get(view, Bal, undefined);
 get(state, Bal) ->  maps:get(state, Bal, <<>>);
 get(code, Bal) ->   maps:get(code, Bal, <<>>);
+get(lstore, Bal) -> settings:dmp(maps:get(lstore, Bal, <<128>>));
 get(lastblk, Bal) ->maps:get(lastblk, Bal, <<0, 0, 0, 0, 0, 0, 0, 0>>);
 get(T, _) ->      throw({"unsupported bal field", T}).
 

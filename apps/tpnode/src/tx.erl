@@ -190,6 +190,40 @@ construct_tx(#{
 
 construct_tx(#{
   ver:=2,
+  kind:=lstore,
+  from:=F,
+  t:=Timestamp,
+  seq:=Seq,
+  payload:=Amounts,
+  patches:=Patches
+ }=Tx0,_Params) ->
+  Tx=maps:with([ver,from,t,seq,payload,patches,txext],Tx0),
+  A1=lists:map(
+       fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
+             is_integer(Amount), is_binary(Cur) ->
+           [encode_purpose(Purpose), to_list(Cur), Amount]
+       end, Amounts),
+  Ext=maps:get(txext, Tx, #{}),
+  true=is_map(Ext),
+  EP=settings:mp(Patches),
+  E0=#{
+    "k"=>encode_kind(2,lstore),
+    "f"=>F,
+    "t"=>Timestamp,
+    "s"=>Seq,
+    "p"=>A1,
+    "pa"=>EP,
+    "e"=>Ext
+   },
+  Tx#{
+    kind=>lstore,
+    body=>pack_body(E0),
+    patches=>settings:dmp(EP),
+    sig=>[]
+   };
+
+construct_tx(#{
+  ver:=2,
   kind:=deploy,
   from:=F,
   t:=Timestamp,
@@ -370,7 +404,6 @@ unpack_body(#{ ver:=2,
        }
   end;
 
-
 unpack_body(#{ ver:=2,
               kind:=tstore
              }=Tx,
@@ -386,6 +419,26 @@ unpack_body(#{ ver:=2,
     t=>unpack_timestamp(Timestamp),
     seq=>unpack_seq(Seq),
     payload=>Amounts,
+    txext=>unpack_txext(maps:get("e", Unpacked, #{}))
+   };
+
+unpack_body(#{ ver:=2,
+              kind:=lstore
+             }=Tx,
+            #{ "f":=From,
+               "t":=Timestamp,
+               "s":=Seq,
+               "pa":=Patches,
+               "p":=Payload
+             }=Unpacked) ->
+  Amounts=unpack_payload(Payload),
+  Tx#{
+    ver=>2,
+    from=>unpack_addr(From,bad_from),
+    t=>unpack_timestamp(Timestamp),
+    seq=>unpack_seq(Seq),
+    payload=>Amounts,
+    patches=>settings:dmp(Patches),
     txext=>unpack_txext(maps:get("e", Unpacked, #{}))
    };
 
