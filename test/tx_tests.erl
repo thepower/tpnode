@@ -1,7 +1,7 @@
 -module(tx_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--export([tstore_tx/0]).
+-export([tstore_tx/0,lstore_tx/0]).
 
 old_register_test() ->
   Priv= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216,
@@ -328,4 +328,42 @@ tstore_test() ->
    ?assertEqual(UTx1, tx:unpack( tx:pack(UTx1))),
    ?assertMatch({true, #{cost:=922, tip:=1}}, tx:rate(UTx1, GetRateFun))
   ].
+
+lstore_tx() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  %Pub1Min=tpecdsa:calc_pub(Pvt1, true),
+  From=(naddress:construct_public(3, 5, 3)),
+  Patch = [
+           #{t=><<"set">>, p=>[<<"root1">>,<<"1k">>], v=>trunc(1.0e3)},
+           #{t=><<"list_add">>, p=>[<<"root2">>,<<"list1">>], v=><<"preved">>},
+           #{t=><<"list_add">>, p=>[<<"root2">>,<<"list1">>], v=><<"medved">>}
+          ],
+  T1=#{
+    kind => lstore,
+    from => From,
+    payload => [#{amount => 923,cur => <<"TST">>,purpose => srcfee}],
+    seq => 6,
+    t=>os:system_time(millisecond),
+    patches => Patch,
+    txext => #{
+     },
+    ver => 2
+   },
+  TX1Constructed=tx:construct_tx(T1),
+  tx:sign(TX1Constructed,Pvt1).
+
+lstore_test() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  From=(naddress:construct_public(3, 5, 3)),
+
+  PubKey=tpecdsa:calc_pub(Pvt1, true),
+  Test=fun(LedgerPID) ->
+           BinTx1=(lstore_tx()),
+           {ok, Checked}=tx:verify(BinTx1,[{ledger, LedgerPID}]),
+           Checked
+       end,
+  Ledger=[ {From, bal:put(pubkey, PubKey, bal:new()) } ],
+  ledger:deploy4test(Ledger, Test).
 

@@ -1691,24 +1691,38 @@ tstore_test() ->
               end,
   GetAddr=fun test_getaddr/1,
   ParentHash=crypto:hash(sha256, <<"parent">>),
+  From=(naddress:construct_public(3, 5, 3)),
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  PubKey=tpecdsa:calc_pub(Pvt1, true),
 
   TX1=tx_tests:tstore_tx(),
-  erlang:display(TX1),
+  TX2=tx_tests:lstore_tx(),
 
+  Test=fun(LedgerPID) ->
+           #{block:=Block,
+             failed:=Failed}=generate_block:generate_block(
+                               [
+                                {<<"1test">>, maps:put(sigverify,#{valid=>1},TX1)},
+                                {<<"2test">>, maps:put(sigverify,#{valid=>1},TX2)}
+                               ],
+                               {1, ParentHash},
+                               GetSettings,
+                               GetAddr,
+                               [],
+                               [{ledger_pid, LedgerPID}]),
 
-  #{block:=Block,
-    failed:=Failed}=generate_block:generate_block(
-                      [
-                       {<<"1test">>, maps:put(sigverify,#{valid=>1},TX1)}
-                      ],
-                      {1, ParentHash},
-                      GetSettings,
-                      GetAddr,
-                      []),
-
-  Success=proplists:get_keys(maps:get(txs, Block)),
-  [
-  ?assertMatch([], Failed),
-  ?assertEqual([ <<"1test">>], lists:sort(Success))
-  ].
+           Success=proplists:get_keys(maps:get(txs, Block)),
+           [
+            ?assertMatch([], Failed),
+            ?assertEqual([ <<"1test">>, <<"2test">>], lists:sort(Success)),
+            ?assertMatch(#{<<"root1">> := #{<<"1k">> := 1000},
+                           <<"root2">> :=
+                           #{<<"list1">> := [<<"medved">>,<<"preved">>]}},
+                         bal:get(lstore,maps:get(From,maps:get(bals,Block)))
+                        )
+           ]
+       end,
+  Ledger=[ {From, bal:put(pubkey, PubKey, bal:new()) } ],
+  ledger:deploy4test(Ledger, Test).
 

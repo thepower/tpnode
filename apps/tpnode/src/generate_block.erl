@@ -90,7 +90,7 @@ try_process([], Settings, Addresses, GetFun,
       new_settings => Settings
     }
   catch _Ec:_Ee ->
-        S=erlang:get_stacktrace(),
+          S=erlang:get_stacktrace(),
         lager:error("Can't save fees: ~p:~p", [_Ec, _Ee]),
         lists:foreach(fun(E) ->
                   lager:info("Can't save fee at ~p", [E])
@@ -355,6 +355,57 @@ try_process([{TxID,
 
 try_process([{TxID, #{
                 ver:=2,
+                kind:=lstore,
+                from:=Owner,
+                patches:=_
+               }=Tx} |Rest],
+            SetState, Addresses, GetFun,
+            #{failed:=Failed,
+              success:=Success}=Acc) ->
+  try
+    Verify=try
+             #{sigverify:=#{valid:=SigValid}}=Tx,
+             SigValid>0
+           catch _:_ ->
+                   false
+           end,
+    if Verify -> ok;
+       true ->
+         %error_logger:error_msg("Unverified ~p",[Tx]),
+         throw('unverified')
+    end,
+
+    Bal=maps:get(Owner, Addresses),
+    {NewF, _GasF, GotFee, _Gas}=withdraw(Bal, Tx, GetFun, SetState, [nogas,notransfer]),
+
+    NewF4=maps:remove(keep, NewF),
+    Set1=bal:get(lstore, NewF4),
+
+    Set2=settings:patch({TxID, Tx}, Set1),
+    NewF5=bal:put(lstore, Set2, NewF4),
+
+    NewAddresses=maps:put(Owner, NewF5, Addresses),
+
+    try_process(Rest, SetState, NewAddresses, GetFun,
+                savefee(GotFee,
+                        Acc#{success=> [{TxID, Tx}|Success]}
+                       )
+               )
+  catch error:{badkey,Owner} ->
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
+        Ec:Ee ->
+          S=erlang:get_stacktrace(),
+          lager:info("LStore failed ~p:~p", [Ec,Ee]),
+          lists:foreach(fun(SE) ->
+                            lager:error("@ ~p", [SE])
+                        end, S),
+          try_process(Rest, SetState, Addresses, GetFun,
+                      Acc#{failed=>[{TxID, other}|Failed]})
+  end;
+
+try_process([{TxID, #{
+                ver:=2,
                 kind:=tstore,
                 from:=Owner,
                 txext:=#{}
@@ -390,13 +441,9 @@ try_process([{TxID, #{
   catch error:{badkey,Owner} ->
           try_process(Rest, SetState, Addresses, GetFun,
                       Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
-        throw:X ->
-          lager:info("Contract tstore failed ~p", [X]),
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{failed=>[{TxID, X}|Failed]});
         Ec:Ee ->
           S=erlang:get_stacktrace(),
-          lager:info("Contract tstore failed ~p:~p", [Ec,Ee]),
+          lager:info("TStore failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
                         end, S),
