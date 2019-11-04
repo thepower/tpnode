@@ -1,7 +1,7 @@
 -module(txsync).
 
--behaviour(gen_server).
--define(SERVER, ?MODULE).
+% -behaviour(gen_server).
+% -define(SERVER, ?MODULE).
 -define(RESEND_BATCH_ATTEMPTS, 2).
 
 %% ------------------------------------------------------------------
