@@ -232,7 +232,7 @@ get_wait_confs_timeout_ms() ->
   case chainsettings:get_val(<<"conf_timeout">>, undefined) of
     undefined ->
       BlockTime = chainsettings:get_val(blocktime, 3),
-      BlockTime * 20;
+      BlockTime * 20 * 1000;
     TimeoutMs -> TimeoutMs  
   end.
 
