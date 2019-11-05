@@ -1188,7 +1188,7 @@ savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
     tip=>bal:put_cur(Cur, Tip+bal:get_cur(Cur, TipBal), TipBal)
    }.
 
-deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, _Settings, GasLimit) ->
+deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit) ->
   NewT=maps:remove(keep,
                    lists:foldl(
                      fun(#{amount:=Amount, cur:= Cur}, TBal) ->
@@ -1200,7 +1200,20 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, _Settings, GasLimit) ->
       {NewT, [], GasLimit};
     VMType ->
       lager:info("Smartcontract ~p gas ~p", [VMType, GasLimit]),
-      {L1, TXs, GasLeft}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
+      FreeGas=case settings:get([<<"current">>, <<"freegas">>], Settings) of
+                N when is_integer(N), N>0 -> N;
+                _ -> 0
+              end,
+      {L1, TXs, GasLeft}=if FreeGas > 0 ->
+                              {L1x,TXsx,GasLeftx} = smartcontract:run(VMType, Tx, NewT, GasLimit+FreeGas, GetFun),
+                              if(GasLeftx > FreeGas) ->
+                                  {L1x,TXsx,GasLeftx-FreeGas};
+                                true ->
+                                  {L1x,TXsx,0}
+                              end;
+                            true ->
+                              smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun)
+                         end,
       {L1, lists:map(
              fun(#{seq:=Seq}=ETx) ->
                  H=base64:encode(crypto:hash(sha, bal:get(state, TBal0))),
