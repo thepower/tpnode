@@ -87,7 +87,7 @@ getters(VMType) ->
   end.
 
 run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
-  GasLimit=GAmount*GRate,
+  GasLimit=trunc(GAmount*GRate),
   Left=fun(GL) ->
            lager:info("VM run gas ~p -> ~p",[GasLimit,GL]),
            {GCur, GL div GRate, GRate}
@@ -97,7 +97,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
      catch error:badarg ->
              throw('unknown_vm')
      end,
-  lager:info("run contract ~s for ~s", [VM, naddress:encode(To)]),
+  lager:info("run contract ~s for ~s gas limit ~p", [VM, naddress:encode(To),GasLimit]),
   try
     case erlang:apply(VM,
                       handle_tx,
