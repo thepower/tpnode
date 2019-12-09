@@ -33,7 +33,7 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(Args) ->
-  application:ensure_all_started(letsencrypt),
+%  application:ensure_all_started(letsencrypt),
   {ok,
     Args#{
       cert_req_active => false,
@@ -301,77 +301,79 @@ check_or_request(Hostname) ->
   end,
   case Action of
     certreq ->
-      do_cert_request(Hostname);
+      %do_cert_request(Hostname);
+      timer:sleep(10000),
+      error;
     _ ->
       pass
   end.
 
 %% -------------------------------------------------------------------------------------
 
-get_letsencrypt_startspec(CertPath) ->
-  GetStaging = fun() ->
-    case application:get_env(tpnode, staging, unknown) of
-      true ->
-        [staging];
-      _ ->
-        []
-    end
-  end,
-  GetMode = fun() ->
-    case application:get_env(tpnode, webroot, unknown) of
-      unknown ->
-        [{mode, standalone}, {port, 80}]; % standalone mode
-      Path ->
-        [{mode,webroot},{webroot_path, utils:make_list(Path)}] % webroot mode
-    end
-  end,
-  GetMode() ++ GetStaging() ++ [{cert_path, utils:make_list(CertPath)}].
-
-
-%% -------------------------------------------------------------------------------------
-
-letsencrypt_runner(CertPath, Hostname) ->
-  letsencrypt:start(get_letsencrypt_startspec(CertPath)),
-  try
-    case letsencrypt:make_cert(utils:make_binary(Hostname), #{async => false}) of
-      {error, Data} ->
-        lager:error("letsencrypt error: ~p", [Data]);
-      {State, Data} ->
-        lager:error("letsencrypt certificate issued: ~p (~p)", [State, Data]);
-      Error ->
-        lager:error("letsencrypt generic error: ~p", [Error])
-    end
-  catch
-    exit:{{{badmatch,{error,eacces}}, _ }, _} ->
-      lager:error(
-        "Got eacces error. Do you have permition to run the http server on port 80 " ++
-        "or webroot access for letsencrypt hostname verification?");
-    
-    Ee:Ec ->
-      lager:error(
-        "letsencrypt runtime error: ~p ~p ~p",
-        [Ee, Ec, erlang:get_stacktrace()]
-      )
-  end,
-  letsencrypt:stop(),
-  gen_server:cast(?MODULE, certreq_done),
-  ok.
-  
-
-%% -------------------------------------------------------------------------------------
-
-do_cert_request(Hostname) ->
-  lager:debug("request letsencrypt cert for host ~p", [Hostname]),
-  CertPath = get_cert_path(),
-  filelib:ensure_dir(CertPath ++ "/"),
-  RunnerFun =
-    fun() ->
-      process_flag(trap_exit, true),
-      letsencrypt_runner(CertPath, Hostname)
-    end,
-    
-  Pid = erlang:spawn(RunnerFun),
-  erlang:monitor(process, Pid).
+%get_letsencrypt_startspec(CertPath) ->
+%  GetStaging = fun() ->
+%    case application:get_env(tpnode, staging, unknown) of
+%      true ->
+%        [staging];
+%      _ ->
+%        []
+%    end
+%  end,
+%  GetMode = fun() ->
+%    case application:get_env(tpnode, webroot, unknown) of
+%      unknown ->
+%        [{mode, standalone}, {port, 80}]; % standalone mode
+%      Path ->
+%        [{mode,webroot},{webroot_path, utils:make_list(Path)}] % webroot mode
+%    end
+%  end,
+%  GetMode() ++ GetStaging() ++ [{cert_path, utils:make_list(CertPath)}].
+%
+%
+%%% -------------------------------------------------------------------------------------
+%
+%letsencrypt_runner(CertPath, Hostname) ->
+%  letsencrypt:start(get_letsencrypt_startspec(CertPath)),
+%  try
+%    case letsencrypt:make_cert(utils:make_binary(Hostname), #{async => false}) of
+%      {error, Data} ->
+%        lager:error("letsencrypt error: ~p", [Data]);
+%      {State, Data} ->
+%        lager:error("letsencrypt certificate issued: ~p (~p)", [State, Data]);
+%      Error ->
+%        lager:error("letsencrypt generic error: ~p", [Error])
+%    end
+%  catch
+%    exit:{{{badmatch,{error,eacces}}, _ }, _} ->
+%      lager:error(
+%        "Got eacces error. Do you have permition to run the http server on port 80 " ++
+%        "or webroot access for letsencrypt hostname verification?");
+%    
+%    Ee:Ec ->
+%      lager:error(
+%        "letsencrypt runtime error: ~p ~p ~p",
+%        [Ee, Ec, erlang:get_stacktrace()]
+%      )
+%  end,
+%  letsencrypt:stop(),
+%  gen_server:cast(?MODULE, certreq_done),
+%  ok.
+%  
+%
+%%% -------------------------------------------------------------------------------------
+%
+%do_cert_request(Hostname) ->
+%  lager:debug("request letsencrypt cert for host ~p", [Hostname]),
+%  CertPath = get_cert_path(),
+%  filelib:ensure_dir(CertPath ++ "/"),
+%  RunnerFun =
+%    fun() ->
+%      process_flag(trap_exit, true),
+%      letsencrypt_runner(CertPath, Hostname)
+%    end,
+%    
+%  Pid = erlang:spawn(RunnerFun),
+%  erlang:monitor(process, Pid).
 
 %% -------------------------------------------------------------------------------------
 

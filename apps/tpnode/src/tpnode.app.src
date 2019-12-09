@@ -17,7 +17,6 @@
       mkmap,
       tables,
       tpic,
-      letsencrypt,
       stout
     ]},
     {mod, {tpnode, []}},
