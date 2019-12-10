@@ -23,6 +23,11 @@ connection_process(Parent, Ref, Socket, Transport, Opts) ->
           peerinfo=>PeerInfo,
           timer=>undefined,
           transport=>Transport,
+          lreqid=>1,
+          nodeid=> try
+                     nodekey:get_pub()
+                   catch _:_ -> atom_to_binary(node(),utf8)
+                   end,
           role=>server,
           opts=>Opts
          },
@@ -85,6 +90,21 @@ loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
     {'$gen_call', {From, Tag}, state} ->
       From ! {Tag, State},
       ?MODULE:loop(State);
+    {'$gen_call', {From, Tag}, {send, Process, ReqID, Payload}} when is_binary(Payload) ->
+      {Res,S1}=send_gen_msg(Process, ReqID, Payload, State),
+      From ! {Tag, Res},
+      ?MODULE:loop(S1);
+    {'$gen_call', {From, Tag}, peer} ->
+      Peer=case Transport:peername(Socket) of
+             {ok, {IP,Port}} ->
+               {inet:ntoa(IP), Port};
+             {ok, NonIP} ->
+               NonIP;
+             {error, _} ->
+               error
+           end,
+      From ! {Tag, Peer},
+      ?MODULE:loop(State);
     {'$gen_call', {From, Tag}, _} ->
       From ! {Tag, {error, ?MODULE}},
       ?MODULE:loop(State);
@@ -99,6 +119,20 @@ loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
 
 system_continue(_PID,_,{State}) ->
   ?MODULE:loop(State).
+
+send_gen_msg(Process, ReqID0, Payload, #{lreqid:=LRI,nodeid:=NID}=State) ->
+  {S1,ReqID}=if is_binary(ReqID0) ->
+                  {State,ReqID0};
+                true ->
+                  {State#{lreqid=>LRI+1},
+                   mkreqid(NID,LRI+1)}
+             end,
+  R=send_msg(#{
+      null=><<"gen">>,
+      proc=>Process,
+      req=>ReqID,
+      data=>Payload}, State),
+  {R,S1}.
 
 send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
   lager:info("Hello opts ~p",[Opts]),
@@ -154,13 +188,23 @@ handle_msg(#{null:=<<"hello">>,
   send_msg(#{null=><<"hello_ack">>}, State),
   State#{ sid=>SID };
 
+handle_msg(#{null:=<<"gen">>,
+             <<"proc">>:=Proc,
+             <<"req">>:=ReqID,
+             <<"data">>:=Data
+            }=_Pkt, #{pubkey:=PK, sid:=SID}=State) ->
+  From={PK,SID,ReqID},
+  lager:info("Got srv ~p msg ~p from ~p",[Proc,Data,From]),
+  tpnode_tpic_handler:handle_tpic(From, SID, Proc, Data, State),
+  State;
+
 handle_msg(Any,State) ->
   lager:error("Unknown message ~p",[Any]),
   State.
 
 handle_data(Bin, State=#{socket:=Socket, transport:=Transport}) ->
   {ok,D}=msgpack:unpack(Bin),
-  lager:info("Got mp ~p",[D]),
+%  lager:info("Got mp ~p",[D]),
   State2=handle_msg(D, State),
   Transport:setopts(Socket, [{active, once}]),
   ?MODULE:loop(State2).
@@ -181,7 +225,11 @@ timeout(State, idle_timeout) ->
 
 my_streams() ->
   [%<<"blockchain">>,
-  % <<"mkblock">>,
+   <<"mkblock">>,
    <<"bcsync">>
   ].
+
+mkreqid(Node,Req) ->
+  X=erlang:phash2(Node)+(Req bsr 32),
+  <<X:32/big,Req:32/big>>.
 

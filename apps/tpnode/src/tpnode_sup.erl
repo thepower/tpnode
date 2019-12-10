@@ -31,18 +31,18 @@ init([]) ->
     % we'll register this services-without-pid on discovery starting up
     MandatoryServices = [ api ],
 
-    {ok, TPIC0}=application:get_env(tpnode, tpic),
-    TPIC=TPIC0#{
-           ecdsa=>tpecdsa:generate_priv(),
-           authmod=>tpic_checkauth,
-           handler=>tpnode_tpic_handler,
-           routing=>#{
-             <<"timesync">>=>synchronizer,
-             <<"mkblock">>=>mkblock,
-             <<"blockvote">>=>blockvote,
-             <<"blockchain">>=>blockchain
-            }
-          },
+%    {ok, TPIC0}=application:get_env(tpnode, tpic),
+%    TPIC=TPIC0#{
+%           ecdsa=>tpecdsa:generate_priv(),
+%           authmod=>tpic_checkauth,
+%           handler=>tpnode_tpic_handler,
+%           routing=>#{
+%             <<"timesync">>=>synchronizer,
+%             <<"mkblock">>=>mkblock,
+%             <<"blockvote">>=>blockvote,
+%             <<"blockchain">>=>blockchain
+%            }
+%          },
     VMHost=case application:get_env(tpnode,vmaddr,undefined) of
              XHost when is_list(XHost) ->
                {ok,Tuple}=inet:parse_address(XHost),
@@ -100,8 +100,8 @@ init([]) ->
             { txstatus, {txstatus, start_link, [txstatus]},
               permanent, 5000, worker, []},
 
-            { tpic_sctp, {tpic_sctp, start_link, [TPIC]},
-              permanent, 5000, worker, []},
+%            { tpic_sctp, {tpic_sctp, start_link, [TPIC]},
+%              permanent, 5000, worker, []},
 
             { topology, {topology, start_link, []},
               permanent, 5000, worker, []},

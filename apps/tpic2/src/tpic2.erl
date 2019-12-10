@@ -1,7 +1,75 @@
 -module(tpic2).
 -export([childspec/0,certificate/0,cert/2,extract_cert_info/1, verfun/3,
-        node_addresses/0]).
--include("/usr/local/lib/erlang20/lib/public_key-1.5.2/include/public_key.hrl").
+        node_addresses/0, alloc_id/0]).
+-export([peers/0,peerstreams/0,cast/3]).
+-include_lib("public_key/include/public_key.hrl").
+
+alloc_id() ->
+  Node=nodekey:node_id(),
+  N=erlang:phash2(Node,16#ffff),
+  Req=case get(tpic_req) of
+        undefined -> 0;
+        I when is_integer(I) ->
+          I
+      end,
+  PID=erlang:phash2({self(),Req bsr 24},16#ffffff),
+  put(tpic_req,Req+1),
+  <<N:16/big,PID:24/big,Req:24/big>>.
+
+cast(_TPIC, Service, Data) ->
+  {Srv, Msg} = case Data of
+                 {S1,M1} when is_binary(S1), is_binary(M1) ->
+                   {S1, M1};
+                 M when is_binary(M) ->
+                   {<<>>, M}
+               end,
+  ReqID=alloc_id(),
+  SentTo=maps:fold(
+    fun(PubKey,Pid,Acc) ->
+        Avail=lists:keysort(2,gen_server:call(Pid, {get_stream, Service})),
+        case Avail of
+          [{_,_,ConnPID}|_] ->
+            case gen_server:call(ConnPID,{send, Srv, ReqID, Msg}) of
+              ok ->
+                [PubKey|Acc];
+              _ ->
+                Acc
+            end;
+          [] ->
+            Acc
+        end
+    end,
+    [],
+    gen_server:call(tpic2_cmgr,peers)),
+  if SentTo==[] ->
+       SentTo;
+     true ->
+       tpic2_cmgr:add_trans(ReqID, self()),
+       SentTo
+  end.
+
+peers() ->
+  Raw=gen_server:call(tpic2_cmgr,peers),
+  maps:fold(
+    fun(_,V,Acc) ->
+        [gen_server:call(V,info)|Acc]
+    end, [], Raw).
+
+peerstreams() ->
+  Raw=gen_server:call(tpic2_cmgr,peers),
+  maps:fold(
+    fun(_,V,Acc) ->
+        [begin
+           PI=gen_server:call(V,info),
+           maps:put(
+             streams,
+             [ 
+              {SID, Dir, gen_server:call(Pid, peer)} || 
+              {SID, Dir, Pid} <- maps:get(streams,PI) ],
+              maps:with([authdata],PI)
+            )
+         end|Acc]
+    end, [], Raw).
 
 certificate() ->
   Priv=nodekey:get_priv(),
@@ -128,4 +196,5 @@ verfun(PCert,{bad_cert, _} = Reason, _) ->
 verfun(_, Reason, _) ->
   lager:info("Other Reason ~p~n",[Reason]),
   {fail, unknown}.
+
 

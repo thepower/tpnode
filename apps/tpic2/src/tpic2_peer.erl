@@ -48,6 +48,33 @@ init_ipport(#{ip:=IPList,port:=Port}) ->
 init_ipport(_) ->
   [].
 
+handle_call(info, _From, #{streams:=Streams,
+                           pubkey:=PK,
+                           peer_ipport:=IPP}=State) ->
+  {WState,AuthState} = case lists:filter(
+               fun({0,out,_}) -> true;
+                  (_) -> false
+               end,Streams) of
+          [{0,out,Pid}] when is_pid(Pid) ->
+                           {working,ok};
+          _ -> {init,undefined}
+        end,
+  {reply, #{
+     addr => IPP,
+     auth => AuthState,
+     state => WState,
+     peerpid => self(),
+     streams => Streams,
+     authdata => [ {pubkey,PK} ]
+    }, State};
+
+handle_call({get_stream, Name}, _From, #{streams:=Streams}=State) ->
+  RStream = lists:filter(
+              fun({N,_,_}) -> Name==N;
+                 (_) -> false
+              end,Streams),
+  {reply, RStream, State};
+
 handle_call({add, IP, Port}, _From, #{peer_ipport:=IPP}=State) ->
   IPP2=[{IP,Port}|(IPP--[{IP,Port}])],
   {reply, IPP2, State#{peer_ipport=>IPP2}};
