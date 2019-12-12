@@ -301,14 +301,12 @@ handle_info(timer_decide,
 handle_info(timer_announce, #{timer_announce:=Tmr, tickms:=Delay} = State) ->
   Now = erlang:system_time(second),
   catch erlang:cancel_timer(Tmr),
-  Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
+  Peers = tpic2:cast_prepare(<<"mkblock">>),
   lists:foreach(
     fun
-      ({Peer, #{authdata:=AD}}) ->
-        DstNodePubKey = proplists:get_value(pubkey, AD, <<>>),
+      ({DstNodePubKey, _, _}=Peer) ->
         lager:debug("TOPO sent ~p: ~p", [Peer, DstNodePubKey]),
-        tpic:cast(
-          tpic,
+        tpic2:cast(
           Peer,
           {<<"beacon">>, beacon:create(DstNodePubKey)}
         );
@@ -414,15 +412,14 @@ relay_beacons([]) ->
   #{};
 
 relay_beacons(Collection) when is_list(Collection) ->
-  Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
+  Peers = tpic2:cast_prepare(<<"mkblock">>),
   Payload = msgpack:pack(Collection, [{spec, new}]),
   lists:foreach(
     fun
       ({Peer, #{authdata:=AD}}) ->
         lager:debug("TOPO sending beacon collection to peer ~p", [Peer]),
         DstNodePubKey = proplists:get_value(pubkey, AD, <<>>),
-        tpic:cast(
-          tpic,
+        tpic2:cast(
           Peer,
           {<<"beacon2">>, beacon:relay(DstNodePubKey, Payload)}
         );

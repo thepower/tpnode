@@ -5,8 +5,8 @@
          target/5,
          synchronizer/5]).
 
-call(TPIC, Handler, Object, Atoms) ->
-    Res=tpic:call(TPIC, Handler, msgpack:pack(Object)),
+call(_TPIC, Handler, Object, Atoms) ->
+    Res=tpic2:call(Handler, msgpack:pack(Object)),
     lists:filtermap(
       fun({Peer, Bin}) ->
               case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of
@@ -112,7 +112,7 @@ synchronizer(TPIC, PeerID,
     %                io_lib:format("~p.~n", [Block])),
     BlockParts = block:split_packet(block:pack(Block)),
     [BlockHead|BlockTail] = BlockParts,
-    tpic:cast(TPIC, PeerID, msgpack:pack(#{done => false, block => BlockHead})),
+    tpic2:cast(PeerID, msgpack:pack(#{done => false, block => BlockHead})),
     BlockSent = send_block(TPIC, PeerID, BlockTail),
     if BlockSent == done ->
         SP1 = send_settings(TPIC, PeerID, Patches),
@@ -143,18 +143,18 @@ send_block(TPIC, PeerID, Block) ->
         {'$gen_cast', {tpic, PeerID, Bin}} ->
             case msgpack:unpack(Bin) of
                 {ok, #{null := <<"stop">>}} ->
-                    tpic:cast(TPIC, PeerID, msgpack:pack(#{null => <<"stopped">>})),
+                    tpic2:cast(PeerID, msgpack:pack(#{null => <<"stopped">>})),
                     interrupted;
                 {ok, #{null := <<"continue">>}} ->
                     [ToSend|Rest] = Block,
                     lager:info("Sending block ~p", [ToSend]),
                     if (Rest == []) -> %last portion
                             Blob =# {done => false, block => ToSend},
-                            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                            tpic2:cast(PeerID, msgpack:pack(Blob)),
                             done;
                         true -> %Have more
                             Blob =# {done => false, block => ToSend},
-                            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                            tpic2:cast(PeerID, msgpack:pack(Blob)),
                             send_block(TPIC, PeerID, Rest)
                     end;
                 {error, _} ->
@@ -163,7 +163,7 @@ send_block(TPIC, PeerID, Block) ->
         {'$gen_cast', Any} ->
             lager:info("Unexpected message ~p", [Any])
     after 30000 ->
-        tpic:cast(TPIC, PeerID, msgpack:pack(#{null => <<"stopped">>})),
+        tpic2:cast(PeerID, msgpack:pack(#{null => <<"stopped">>})),
         timeout
     end.
 
@@ -173,18 +173,18 @@ send_settings(TPIC, PeerID, Settings) ->
         {'$gen_cast', {tpic, PeerID, Bin}} ->
             case msgpack:unpack(Bin) of
                 {ok, #{null:=<<"stop">>}} ->
-                    tpic:cast(TPIC, PeerID, msgpack:pack(#{null=><<"stopped">>})),
+                    tpic2:cast(PeerID, msgpack:pack(#{null=><<"stopped">>})),
                     interrupted;
                 {ok, #{null:=<<"continue">>}} ->
                     {ToSend, Rest} = pick_settings(Settings, 5),
                     lager:info("Sending patches ~p", [ToSend]),
                     if(Rest == []) -> %last portion
                           Blob=#{done=>false, settings=>ToSend},
-                          tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                          tpic2:cast(PeerID, msgpack:pack(Blob)),
                           done;
                       true -> %Have more
                           Blob=#{done=>false, settings=>ToSend},
-                          tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                          tpic2:cast(PeerID, msgpack:pack(Blob)),
                           send_settings(TPIC, PeerID, Rest)
                     end;
                 {error, _} ->
@@ -193,7 +193,7 @@ send_settings(TPIC, PeerID, Settings) ->
         {'$gen_cast', Any} ->
             lager:info("Unexpected message ~p", [Any])
     after 30000 ->
-              tpic:cast(TPIC, PeerID, msgpack:pack(#{null=><<"stopped">>})),
+              tpic2:cast(PeerID, msgpack:pack(#{null=><<"stopped">>})),
               timeout
     end.
 
@@ -202,17 +202,17 @@ send_ledger(DB, TPIC, PeerID, Act, Itr) ->
         {'$gen_cast', {tpic, PeerID, Bin}} ->
             case msgpack:unpack(Bin) of
                 {ok, #{null:=<<"stop">>}} ->
-                    tpic:cast(TPIC, PeerID, msgpack:pack(#{null=><<"stopped">>})),
+                    tpic2:cast(PeerID, msgpack:pack(#{null=><<"stopped">>})),
                     interrupted;
                 {ok, #{null:=<<"continue">>}} ->
                     case pickx(DB, Act, Itr, 1000, []) of
                         {ok, L} ->
                             Blob=#{done=>false, ledger=>maps:from_list(L)},
-                            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                            tpic2:cast(PeerID, msgpack:pack(Blob)),
                             send_ledger(DB, TPIC, PeerID, next, Itr);
                         {error, L} ->
                             Blob=#{done=>true, ledger=>maps:from_list(L)},
-                            tpic:cast(TPIC, PeerID, msgpack:pack(Blob)),
+                            tpic2:cast(PeerID, msgpack:pack(Blob)),
                             done
                     end;
                 {error, _} ->
@@ -221,7 +221,7 @@ send_ledger(DB, TPIC, PeerID, Act, Itr) ->
         {'$gen_cast', Any} ->
             lager:info("Unexpected message ~p", [Any])
     after 30000 ->
-              tpic:cast(TPIC, PeerID, msgpack:pack(#{null=><<"stopped">>})),
+              tpic2:cast(PeerID, msgpack:pack(#{null=><<"stopped">>})),
               timeout
     end.
 

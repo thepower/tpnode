@@ -78,7 +78,8 @@ connection_process(Parent, Host, Port, Opts) ->
       transport=>ranch_ssl,
       parent=>Parent,
       role=>client,
-      opts=>Opts
+      opts=>Opts,
+      address=>{Host,Port}
      },
     tpic2_tls:send_msg(hello, State),
     tpic2_tls:loop1(State)

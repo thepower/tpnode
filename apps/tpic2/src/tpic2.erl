@@ -1,7 +1,7 @@
 -module(tpic2).
 -export([childspec/0,certificate/0,cert/2,extract_cert_info/1, verfun/3,
         node_addresses/0, alloc_id/0]).
--export([peers/0,peerstreams/0,cast/2,cast/3,call/2,call/3]).
+-export([peers/0,peerstreams/0,cast/2,cast/3,call/2,call/3,cast_prepare/1]).
 -include_lib("public_key/include/public_key.hrl").
 
 alloc_id() ->
@@ -16,11 +16,11 @@ alloc_id() ->
   put(tpic_req,Req+1),
   <<N:16/big,PID:24/big,Req:24/big>>.
 
-broadcast(ReqID, Target, Srv, Data, Opts) ->
+broadcast(ReqID, Stream, Srv, Data, Opts) ->
+  tpic2_cmgr:inc_usage(Stream, Srv),
   maps:fold(
     fun(PubKey,Pid,Acc) ->
-        Avail=lists:keysort(2,gen_server:call(Pid, {get_stream, Target})),
-        io:format("Av ~p~n",[Avail]),
+        Avail=lists:keysort(2,gen_server:call(Pid, {get_stream, Stream})),
         case Avail of
           [{_,_,ConnPID}|_] when is_pid(ConnPID) ->
             case lists:member(async, Opts) of
@@ -48,6 +48,7 @@ broadcast(ReqID, Target, Srv, Data, Opts) ->
     tpic2_cmgr:peers()).
 
 unicast(ReqID, Peer, Stream, Srv, Data, Opts) ->
+  tpic2_cmgr:inc_usage(Stream, Srv),
   Avail=lists:keysort(2,tpic2_cmgr:send(Peer,{get_stream, Stream})),
   case Avail of
     [{_,_,ConnPID}|_] when is_pid(ConnPID) ->
@@ -72,16 +73,42 @@ unicast(ReqID, Peer, Stream, Srv, Data, Opts) ->
       []
   end.
 
+cast_prepare(Stream) ->
+  ReqID=alloc_id(),
+  maps:fold(
+    fun(PubKey,Pid,Acc) ->
+        Avail=lists:keysort(2,gen_server:call(Pid, {get_stream, Stream})),
+        case Avail of
+          [{_,_,ConnPID}|_] when is_pid(ConnPID) ->
+            case erlang:is_process_alive(ConnPID) of
+              true ->
+                [{PubKey,Stream,ReqID}|Acc];
+              false ->
+                Acc
+            end;
+          _ ->
+            Acc
+        end
+    end,
+    [],
+    tpic2_cmgr:peers()).
+
 cast(Dat, Data) ->
   cast(Dat, Data, []).
 
-cast({Peer,Stream,ReqID}, Data, Opts) when is_binary(Data), is_atom(Stream) ->
+cast({Peer,Stream,ReqID}, Data, Opts) when is_atom(Stream) ->
   cast({Peer,atom_to_binary(Stream,latin1),ReqID}, Data, Opts);
 
-cast({Peer,Stream,ReqID}, Data, Opts) when is_binary(Data) ->
-  unicast(ReqID, Peer, Stream, <<>>, Data, Opts);
+cast({Peer,Stream,ReqID}, Data, Opts) ->
+  {Srv, Msg} = case Data of
+                 {S1,M1} when is_binary(S1), is_binary(M1) ->
+                   {S1, M1};
+                 M when is_binary(M) ->
+                   {<<>>, M}
+               end,
+  unicast(ReqID, Peer, Stream, Srv, Msg, Opts);
 
-cast(Service, Data, Opts) when is_binary(Service) ->
+cast(Service, Data, Opts) when is_binary(Service); Service==0 ->
   lager:info("Casting to ~p",[Service]),
   {Srv, Msg} = case Data of
                  {S1,M1} when is_binary(S1), is_binary(M1) ->
@@ -101,7 +128,7 @@ cast(Service, Data, Opts) when is_binary(Service) ->
 call(Conn, Request) -> 
     call(Conn, Request, 2000).
 
-call(Service, Request, Timeout) when is_binary(Service) -> 
+call(Service, Request, Timeout) when is_binary(Service); Service==0 -> 
     R=cast(Service, Request),
     T2=erlang:system_time(millisecond)+Timeout,
     lists:reverse(wait_response(T2,R,[]));

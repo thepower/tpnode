@@ -49,6 +49,14 @@ init_ipport(#{ip:=IPList,port:=Port}) ->
 init_ipport(_) ->
   [].
 
+handle_call(active_out, _From, #{outctl:=OC}=State) ->
+  {reply,
+   if is_pid(OC) ->
+        is_process_alive(OC);
+      true ->
+        false
+   end, State};
+
 handle_call(info, _From, #{streams:=Streams,
                            pubkey:=PK,
                            peer_ipport:=IPP}=State) ->
@@ -151,7 +159,7 @@ handle_info(try_connect, #{streams:=Str,peer_ipport:=[{Host,Port}|RestIPP]}=Stat
   lager:notice("Try connect payload streams ~p",[Str]),
   lists:foreach(
     fun({SID, Dir, undefined}) when Dir==undefined orelse Dir==out ->
-        tpic2_client:start(binary_to_list(Host),Port, #{stream=>SID});
+        tpic2_client:start(Host,Port, #{stream=>SID});
        (_) ->
         ignore
     end, Str),
@@ -257,7 +265,7 @@ open_control(#{peer_ipport:=[]}=State) ->
   State;
 
 open_control(#{peer_ipport:=[{Host,Port}|RestIPP]}=State) ->
-  {ok, PID}=tpic2_client:start(binary_to_list(Host),
+  {ok, PID}=tpic2_client:start(Host,
                                Port,
                                #{
                                  stream=>0,

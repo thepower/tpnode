@@ -223,7 +223,7 @@ run_generate(
              <<"chain">>=>MyChain
             }
           ),
-    tpic:cast(tpic, <<"blockvote">>, HBlk),
+    tpic2:cast(<<"blockvote">>, HBlk),
     if EmitTXs==[] -> ok;
        true ->
          Push=gen_server:call(txpool, {push_etx, EmitTXs}),

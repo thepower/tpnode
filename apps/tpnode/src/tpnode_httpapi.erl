@@ -144,7 +144,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
             #{auth=>unknown,
               state=>unknown
             }
-        end, tpic:peers())
+        end, tpic2:peers())
     catch
       Ec:Ee ->
         StackTrace = erlang:process_info(whereis(tpic), current_stacktrace),

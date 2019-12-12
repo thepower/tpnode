@@ -126,7 +126,7 @@ handle_info(ticktimer,
     }
   };
 
-handle_info(selftimer5, #{mychain:=_MyChain, tickms:=Ms, timer5:=Tmr, offsets:=Offs} = State) ->
+handle_info(selftimer5, #{mychain:=_MyChain, tickms:=_Ms, timer5:=Tmr, offsets:=Offs} = State) ->
   
   catch erlang:cancel_timer(Tmr),
   
@@ -145,26 +145,26 @@ handle_info(selftimer5, #{mychain:=_MyChain, tickms:=Ms, timer5:=Tmr, offsets:=O
   MeanDiff = median(Avg),
   T = erlang:system_time(microsecond),
 
-  Hello =
-    msgpack:pack(
-      #{null=><<"hello">>,
-        <<"n">> => nodekey:node_id(),
-        <<"t">> => T
-      }),
-  tpic:cast(tpic, <<"timesync">>, Hello),
+  %Hello =
+  %  msgpack:pack(
+  %    #{null=><<"hello">>,
+  %      <<"n">> => nodekey:node_id(),
+  %      <<"t">> => T
+  %    }),
+  %tpic2:cast(<<"timesync">>, Hello),
 
   BCReady = blockchain:ready(),
   MeanMs = round((T - MeanDiff) / 1000),
 
-  if
-    (Friends == []) ->
-      lager:debug("I'm alone in universe my time ~w", [(MeanMs rem 3600000) / 1000]);
-    true ->
-      lager:debug(
-        "I have ~b friends, and mean hospital time ~w, mean diff ~w blocktime ~w",
-        [length(Friends), (MeanMs rem 3600000) / 1000, MeanDiff / 1000, Ms]
-      )
-  end,
+  %if
+  %  (Friends == []) ->
+  %    lager:debug("I'm alone in universe my time ~w", [(MeanMs rem 3600000) / 1000]);
+  %  true ->
+  %    lager:debug(
+  %      "I have ~b friends, and mean hospital time ~w, mean diff ~w blocktime ~w",
+  %      [length(Friends), (MeanMs rem 3600000) / 1000, MeanDiff / 1000, Ms]
+  %    )
+  %end,
 
   
   {noreply, State#{

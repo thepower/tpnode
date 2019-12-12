@@ -175,7 +175,7 @@ handle_info(sync_tx,
   MaxPop = chainsettings:get_val(<<"poptxs">>, ?SYNC_TX_COUNT_PER_PROCESS),
   
   % do nothing in case peers count less than minsig
-  Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
+  Peers = tpic2:cast_prepare(<<"mkblock">>),
   SingleNodeTest=case nodekey:get_privs() of
                    [_,_|_] -> true;
                    _ -> false

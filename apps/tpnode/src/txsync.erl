@@ -78,7 +78,7 @@ do_sync(Transactions, #{batch_no := BatchNo} = _Options) when is_list(Transactio
           TransactionBatch
       end,
       
-    Peers = tpic:cast_prepare(tpic, <<"mkblock">>),
+    Peers = tpic2:cast_prepare(<<"mkblock">>),
     
 %%    lager:debug("tpic peers: ~p", [Peers]),
     
@@ -106,7 +106,7 @@ do_sync(Transactions, #{batch_no := BatchNo} = _Options) when is_list(Transactio
         end,
         #{},
         Peers),
-    tpic:cast(tpic, <<"mkblock">>, {<<"txbatch">>, MRes}),
+    tpic2:cast(<<"mkblock">>, {<<"txbatch">>, MRes}),
     
     wait_response(
       #{

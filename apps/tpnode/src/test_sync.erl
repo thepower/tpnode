@@ -3,7 +3,7 @@
 
 call(Handler, Object, Atoms) ->
     io:format("Calling ~p~n", [Object]),
-    Res=tpic:call(tpic, Handler, msgpack:pack(Object)),
+    Res=tpic2:call(Handler, msgpack:pack(Object)),
     lists:filtermap(
       fun({Peer, Bin}) ->
               io:format("Response from ~p~n", [Peer]),

@@ -188,7 +188,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
       }),
     MResX = msgpack:pack(PreSig),
     gen_server:cast(mkblock, {tpic, PK, MResX}),
-    tpic:cast(tpic, <<"mkblock">>, MResX),
+    tpic2:cast(<<"mkblock">>, MResX),
     stout:log(txqueue_xsig, [ {ids, TxIds} ])
   catch
     exit:{timeout,{gen_server,call,[blockchain,lastsig]}} ->
@@ -221,7 +221,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
       }
     ),
     gen_server:cast(mkblock, {tpic, PK, MRes}),
-    tpic:cast(tpic, <<"mkblock">>, MRes),
+    tpic2:cast(<<"mkblock">>, MRes),
     stout:log(txqueue_mkblock, [{ids, TxIds}, {lbh, LBH}])
   catch
     Ec1:Ee1 ->

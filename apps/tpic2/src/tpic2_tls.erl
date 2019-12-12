@@ -53,7 +53,24 @@ loop1(State=#{socket:=Socket,role:=Role}) ->
       {ok,PPID}=gen_server:call(tpic2_cmgr, {peer,Pubkey, {register, undefined, in, self()}}),
       ?MODULE:loop(State#{pubkey=>Pubkey,peerpid=>PPID});
     _ ->
-      ?MODULE:loop(State#{pubkey=>Pubkey})
+      Stream=maps:get(stream, State, 0),
+      {IP, Port} = maps:get(address, State),
+      WhatToDo=if Stream == 0 ->
+           case gen_server:call(tpic2_cmgr,{peer, Pubkey, active_out}) of
+             true ->
+               gen_server:call(tpic2_cmgr,{peer, Pubkey, {add, IP, Port}}),
+               lager:info("Add address to peer and shutdown"),
+               shutdown;
+             false ->
+               ok
+           end;
+         true -> ok
+      end,
+      if WhatToDo==shutdown ->
+           done;
+         true ->
+           ?MODULE:loop(State#{pubkey=>Pubkey})
+      end
   end.
 
 loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
@@ -182,7 +199,7 @@ handle_msg(#{null:=<<"hello">>,
       end,
   {ok, PPID}=gen_server:call(tpic2_cmgr, {peer,PK, Reg}),
   lists:foreach(fun(Addr) ->
-                    gen_server:call(PPID, {add, Addr, Port})
+                    gen_server:call(PPID, {add, binary_to_list(Addr), Port})
                 end,
                 Addrs),
 
@@ -199,7 +216,7 @@ handle_msg(#{null:=<<"hello">>,
 
   send_msg(#{null=><<"hello_ack">>}, State),
   lager:info("This is hello ack, new sid ~p",[SID]),
-  State#{ sid=>decode_sid(SID) };
+  State#{ sid=>SID };
 
 handle_msg(#{null:=<<"gen">>,
              <<"proc">>:=Proc,
@@ -255,14 +272,9 @@ timeout(State, idle_timeout) ->
   terminate(State, {connection_error, timeout,
                     'Connection idle longer than configuration allows.'}).
 
-decode_sid(<<"blockchain">>) -> blockchain;
-decode_sid(<<"mkblock">>) -> mkblock;
-decode_sid(<<"bcsync">>) -> bcsync;
-decode_sid(Any) -> Any.
-
 my_streams() ->
-  [%<<"blockchain">>,
-   <<"mkblock">>,
-   <<"bcsync">>
+  [<<"blockchain">>,
+   <<"blockvote">>,
+   <<"mkblock">>
   ].
 

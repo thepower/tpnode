@@ -95,13 +95,13 @@ tpic(From, Payload) when is_binary(Payload) ->
     {ok, Obj} when is_map(Obj) ->
       tpic(From, Obj);
     Any ->
-      tpic:cast(tpic, From, <<"error">>),
+      tpic2:cast(From, <<"error">>),
       lager:info("Bad TPIC received:: ~p", [Any]),
       error
   end;
 
 tpic(From, _Payload) ->
-  tpic:cast(tpic, From, <<"pong !!!">>).
+  tpic2:cast(From, <<"pong !!!">>).
 
 
 %% ------------------------------------------------------------------

@@ -284,7 +284,7 @@ handle_call({new_block, #{hash:=BlockHash,
                             ]),
 
                   lastblock2ets(BTable, MBlk),
-                  tpic:cast(tpic, <<"blockchain">>,
+                  tpic2:cast(<<"blockchain">>,
                             {<<"chainkeeper">>,
                              msgpack:pack(
                                #{
@@ -427,7 +427,7 @@ handle_call({new_block, #{hash:=BlockHash,
                     end, 0, block:outward_mk(MBlk)),
                   gen_server:cast(txpool,{new_height, Hei}),
                   gen_server:cast(txqueue,{new_height, Hei}),
-                  tpic:cast(tpic, <<"blockchain">>,
+                  tpic2:cast(<<"blockchain">>,
                             {<<"chainkeeper">>,
                              msgpack:pack(
                                #{

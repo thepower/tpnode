@@ -6,7 +6,8 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0, pick/1, send/2, lookup_trans/1, add_trans/2, peers/0]).
+-export([start_link/0, pick/1, send/2, lookup_trans/1, add_trans/2, peers/0,
+        inc_usage/2,add_peers/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -39,8 +40,23 @@ lookup_trans(Token) ->
       error
   end.
 
+add_peers(List) ->
+  KnownPeers=lists:flatten([ maps:get(addr,Peer) || Peer <- tpic2:peers() ]),
+  New=List--KnownPeers,
+  lager:debug("New peers ~p",[New]),
+  [ tpic2_client:start(Host,Port,#{}) || {Host, Port} <- New ].
+
 add_trans(Token, Pid) ->
   ets:insert(tpic2_trans,{Token,Pid,erlang:system_time(second)+300}).
+
+inc_usage(Stream, Service) ->
+  case ets:lookup(tpic2_usage,{Stream,Service}) of
+    [{_,N}] ->
+      ets:insert(tpic2_usage,{{Stream,Service},N+1});
+    _ ->
+      ets:insert(tpic2_usage,{{Stream,Service},1})
+  end.
+
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -49,6 +65,7 @@ add_trans(Token, Pid) ->
 init(_Args) ->
   erlang:send_after(100,self(), init_peers),
   ets:new(tpic2_trans,[set,public,named_table]),
+  ets:new(tpic2_usage,[set,public,named_table]),
   {ok, #{
      peers=>#{},
      cleanup=>erlang:send_after(30000,self(), cleanup)
