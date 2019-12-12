@@ -1,7 +1,7 @@
 -module(tpic2).
 -export([childspec/0,certificate/0,cert/2,extract_cert_info/1, verfun/3,
         node_addresses/0, alloc_id/0]).
--export([peers/0,peerstreams/0,cast/3,cast/4,call/3,call/4]).
+-export([peers/0,peerstreams/0,cast/2,cast/3,call/2,call/3]).
 -include_lib("public_key/include/public_key.hrl").
 
 alloc_id() ->
@@ -72,16 +72,16 @@ unicast(ReqID, Peer, Stream, Srv, Data, Opts) ->
       []
   end.
 
-cast(_TPIC, Dat, Data) ->
-  cast(_TPIC, Dat, Data, []).
+cast(Dat, Data) ->
+  cast(Dat, Data, []).
 
-cast(_TPIC, {Peer,Stream,ReqID}, Data, Opts) when is_binary(Data), is_atom(Stream) ->
-  cast(_TPIC, {Peer,atom_to_binary(Stream,latin1),ReqID}, Data, Opts);
+cast({Peer,Stream,ReqID}, Data, Opts) when is_binary(Data), is_atom(Stream) ->
+  cast({Peer,atom_to_binary(Stream,latin1),ReqID}, Data, Opts);
 
-cast(_TPIC, {Peer,Stream,ReqID}, Data, Opts) when is_binary(Data) ->
+cast({Peer,Stream,ReqID}, Data, Opts) when is_binary(Data) ->
   unicast(ReqID, Peer, Stream, <<>>, Data, Opts);
 
-cast(_TPIC, Service, Data, Opts) when is_binary(Service) ->
+cast(Service, Data, Opts) when is_binary(Service) ->
   lager:info("Casting to ~p",[Service]),
   {Srv, Msg} = case Data of
                  {S1,M1} when is_binary(S1), is_binary(M1) ->
@@ -98,16 +98,16 @@ cast(_TPIC, Service, Data, Opts) when is_binary(Service) ->
        SentTo
   end.
 
-call(TPIC, Conn, Request) -> 
-    call(TPIC, Conn, Request, 2000).
+call(Conn, Request) -> 
+    call(Conn, Request, 2000).
 
-call(TPIC, Service, Request, Timeout) when is_binary(Service) -> 
-    R=cast(TPIC, Service, Request),
+call(Service, Request, Timeout) when is_binary(Service) -> 
+    R=cast(Service, Request),
     T2=erlang:system_time(millisecond)+Timeout,
     lists:reverse(wait_response(T2,R,[]));
 
-call(TPIC, Conn, Request, Timeout) when is_tuple(Conn) -> 
-    R=cast(TPIC, Conn, Request),
+call(Conn, Request, Timeout) when is_tuple(Conn) -> 
+    R=cast(Conn, Request),
     T2=erlang:system_time(millisecond)+Timeout,
     lists:reverse(wait_response(T2,R,[])).
 
