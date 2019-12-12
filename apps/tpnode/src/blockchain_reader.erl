@@ -388,11 +388,7 @@ blkid(X) ->
 
 rewind(LDB, BlkNo) ->
   CurBlk=ldb:read_key(LDB, <<"lastblock">>, <<0, 0, 0, 0, 0, 0, 0, 0>>),
-  if(BlkNo<0) ->
-      rewind(LDB, BlkNo-1, CurBlk);
-    true ->
-      rewind(LDB, BlkNo, CurBlk)
-  end.
+  rewind(LDB, BlkNo, CurBlk).
 
 rewind(LDB, BlkNo, CurBlk) ->
   case ldb:read_key(LDB,

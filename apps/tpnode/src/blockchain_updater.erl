@@ -7,6 +7,7 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
+-export([new_block/1, new_sig/2]).
 -export([apply_block_conf/2,
          apply_block_conf_meta/2,
          apply_ledger/2,
@@ -25,6 +26,12 @@
 
 start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+new_block(Blk) ->
+  gen_server:cast(blockchain_updater, {new_block, Blk, self()}).
+
+new_sig(BlockHash, Sigs) ->
+  gen_server:cast(blockchain_updater, {signature, BlockHash, Sigs}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
