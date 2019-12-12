@@ -34,7 +34,7 @@ connection_process(Parent, Ref, Socket, Transport, Opts) ->
   tpic2_tls:send_msg(hello, State),
   ?MODULE:loop1(State).
 
-loop1(State=#{socket:=Socket,role:=Role,transport:=Transport}) ->
+loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
   {ok,PC}=ssl:peercert(Socket),
   DCert=tpic2:extract_cert_info(public_key:pkix_decode_cert(PC,otp)),
   Pubkey=case DCert of
@@ -53,13 +53,13 @@ loop1(State=#{socket:=Socket,role:=Role,transport:=Transport}) ->
       {ok,PPID}=gen_server:call(tpic2_cmgr, {peer,Pubkey, {register, undefined, in, self()}}),
       ?MODULE:loop(State#{pubkey=>Pubkey,peerpid=>PPID});
     _ ->
-      Stream=maps:get(stream, State, 0),
+      Stream=maps:get(stream, Opts, 0),
       {IP, Port} = maps:get(address, State),
       WhatToDo=if Stream == 0 ->
            case gen_server:call(tpic2_cmgr,{peer, Pubkey, active_out}) of
              true ->
                gen_server:call(tpic2_cmgr,{peer, Pubkey, {add, IP, Port}}),
-               lager:info("Add address to peer and shutdown"),
+               lager:info("Add address ~p:~p to peer and shutdown",[IP,Port]),
                Transport:close(Socket),
                shutdown;
              false ->
@@ -158,7 +158,7 @@ send_gen_msg(Process, ReqID, Payload, State) ->
   {Res,State}.
 
 send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
-  lager:info("Hello opts ~p",[Opts]),
+  lager:debug("Hello opts ~p",[Opts]),
   Stream=maps:get(stream, Opts, 0),
   Announce=my_streams(),
   Cfg=application:get_env(tpnode,tpic,#{}),
@@ -169,7 +169,7 @@ send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
           sid=>Stream,
           services=>Announce
          },
-  lager:info("Hello ~p",[Hello]),
+  lager:debug("Hello ~p",[Hello]),
   ssl:send(Socket,msgpack:pack(Hello));
 
 send_msg(Msg, #{socket:=Socket}) when is_map(Msg) ->
@@ -216,7 +216,7 @@ handle_msg(#{null:=<<"hello">>,
   end,
 
   send_msg(#{null=><<"hello_ack">>}, State),
-  lager:info("This is hello ack, new sid ~p",[SID]),
+  lager:debug("This is hello ack, new sid ~p",[SID]),
   State#{ sid=>SID };
 
 handle_msg(#{null:=<<"gen">>,
