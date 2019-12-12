@@ -27,9 +27,10 @@ cast(_TPIC, Service, Data) ->
   SentTo=maps:fold(
     fun(PubKey,Pid,Acc) ->
         Avail=lists:keysort(2,gen_server:call(Pid, {get_stream, Service})),
+        io:format("Av ~p~n",[Avail]),
         case Avail of
           [{_,_,ConnPID}|_] ->
-            case gen_server:call(ConnPID,{send, Srv, ReqID, Msg}) of
+            case gen_server:call(ConnPID,{send, Service, Srv, ReqID, Msg}) of
               ok ->
                 [PubKey|Acc];
               _ ->
@@ -64,8 +65,8 @@ peerstreams() ->
            maps:put(
              streams,
              [ 
-              {SID, Dir, gen_server:call(Pid, peer)} || 
-              {SID, Dir, Pid} <- maps:get(streams,PI) ],
+              {SID, Dir, Pid, gen_server:call(Pid, peer)} || 
+              {SID, Dir, Pid} <- maps:get(streams,PI), is_pid(Pid), is_process_alive(Pid) ],
               maps:with([authdata],PI)
             )
          end|Acc]

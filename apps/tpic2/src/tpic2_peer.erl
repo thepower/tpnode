@@ -97,12 +97,10 @@ handle_call({streams, AddStr}, _From, #{streams:=Str, pubkey:=TheirPub}=State) -
                  }
   };
 
-handle_call({register, StreamID0, Dir, PID},
+handle_call({register, StreamID, Dir, PID},
             _From,
             #{mpid:=MPID, streams:=Str}=State) ->
-  StreamID = if StreamID0 == null -> undefined;
-                true -> StreamID0
-             end,
+  lager:debug("Register pid ~p sid ~p dir ~p",[PID,StreamID,Dir]),
   case maps:find(PID,MPID) of
     {ok, {undefined,_Dir1}} -> %replace with new stream id
       {reply, {ok, self()},
@@ -157,7 +155,7 @@ handle_info(try_connect, #{streams:=Str,peer_ipport:=[{Host,Port}|RestIPP]}=Stat
 
 handle_info(tmr, #{tmr:=Tmr}=State) ->
   erlang:cancel_timer(Tmr),
-  lager:info("tmr"),
+  lager:debug("tmr"),
 
   OCState=case maps:get(outctl,State,undefined) of
        undefined ->
@@ -172,15 +170,25 @@ handle_info(tmr, #{tmr:=Tmr}=State) ->
   };
 
 handle_info({'DOWN',_Ref,process,PID,_Reason}, #{mpid:=MPID,
-                                                 streams:=Str}=State) ->
+                                                 streams:=Str,
+                                                 outctl:=OCPid}=State) ->
   case maps:find(PID,MPID) of
-    {ok, {_Dir, _StrID}} ->
-      {noreply, State#{
-                  streams=>stream_delete(PID,Str),
-                  mpid=>maps:remove(PID,MPID)
-                 }};
+    {ok, {StrID, Dir}} ->
+      lager:info("Down str ~p ~p ~p",[StrID, Dir, PID]),
+      {noreply, apply_ctl(
+                  State#{
+                    streams=>stream_delete(PID,Str),
+                    mpid=>maps:remove(PID,MPID)
+                   },
+                  StrID, Dir, undefined
+                 )
+      };
     error ->
-      {noreply, State}
+      if OCPid==PID ->
+           {noreply, State#{outctl=>undefined}};
+         true ->
+           {noreply, State}
+      end
   end;
  
 
@@ -209,10 +217,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%              заменить
 stream_add({StreamID, Dir, PID}, Streams) ->
   F=lists:filter(
-      fun({S,D,_}) -> 
-          S=/=StreamID
-          orelse
-          (D=/=Dir andalso D=/=undefined)
+      fun({_,_,PID1}) when PID1 == PID -> 
+          false;
+         ({S,D,_}) when S==StreamID, D==Dir -> 
+          false;
+         ({S,undefined,_}) when S==StreamID -> 
+          false;
+         (_) -> true
       end,
       Streams),
   [{StreamID, Dir, PID}|F].
@@ -236,6 +247,7 @@ open_control(#{peer_ipport:=[{Host,Port}|RestIPP]}=State) ->
                                  stream=>0,
                                  announce=>[]
                                 }),
+  monitor(process,PID),
   State#{
     peer_ipport=>RestIPP++[{Host,Port}],
     outctl=>PID

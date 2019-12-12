@@ -14,6 +14,7 @@ start_link(Host, Port, Opts) when is_map(Opts) ->
 start(Host, Port, Opts) when is_map(Opts) ->
   {ok,Pid}=supervisor:start_child(tpic2_out_sup,
                                   #{id=>{Host,Port,make_ref()},
+                                    restart=>temporary,
                                     start=>{
                                       ?MODULE,
                                       start_link,
@@ -64,21 +65,24 @@ connection_process(Parent, Host, Port, Opts) ->
                    lager:error("Address ~p error: ~p",[Host, Err]),
                    throw({parse_addr,Err})
                end,
-
-  {ok, TCPSocket} = gen_tcp:connect(NAddr, Port, [binary, {packet,4}]++Opts1),
-  {ok, Socket} = ssl:connect(TCPSocket, SSLOpts),
-  ssl:setopts(Socket, [{active, once}]),
-  {ok,PeerInfo}=ssl:connection_information(Socket),
-  State=#{
-    ref=>maps:get(ref, Opts, undefined),
-    socket=>Socket,
-    peerinfo=>PeerInfo,
-    timer=>undefined,
-    transport=>ranch_ssl,
-    parent=>Parent,
-    role=>client,
-    opts=>Opts
-   },
-  tpic2_tls:send_msg(hello, State),
-  tpic2_tls:loop1(State).
+  try
+    {ok, TCPSocket} = gen_tcp:connect(NAddr, Port, [binary, {packet,4}]++Opts1),
+    {ok, Socket} = ssl:connect(TCPSocket, SSLOpts),
+    ssl:setopts(Socket, [{active, once}]),
+    {ok,PeerInfo}=ssl:connection_information(Socket),
+    State=#{
+      ref=>maps:get(ref, Opts, undefined),
+      socket=>Socket,
+      peerinfo=>PeerInfo,
+      timer=>undefined,
+      transport=>ranch_ssl,
+      parent=>Parent,
+      role=>client,
+      opts=>Opts
+     },
+    tpic2_tls:send_msg(hello, State),
+    tpic2_tls:loop1(State)
+  catch error:{badmatch,{error,econnrefused}} ->
+          lager:info("Peer ~s:~w conn refused",[inet:ntoa(NAddr),Port])
+  end.
 

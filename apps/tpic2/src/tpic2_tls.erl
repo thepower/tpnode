@@ -90,20 +90,28 @@ loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
     {'$gen_call', {From, Tag}, state} ->
       From ! {Tag, State},
       ?MODULE:loop(State);
-    {'$gen_call', {From, Tag}, {send, Process, ReqID, Payload}} when is_binary(Payload) ->
-      {Res,S1}=send_gen_msg(Process, ReqID, Payload, State),
+    {'$gen_call', {From, Tag}, {send, Service, Process, ReqID, Payload}} when is_binary(Payload) ->
+      {Res,S1}=send_gen_msg(Service, Process, ReqID, Payload, State),
       From ! {Tag, Res},
       ?MODULE:loop(S1);
     {'$gen_call', {From, Tag}, peer} ->
       Peer=case Transport:peername(Socket) of
-             {ok, {IP,Port}} ->
-               {inet:ntoa(IP), Port};
-             {ok, NonIP} ->
-               NonIP;
+             {ok, {IP0,Port0}} ->
+               {inet:ntoa(IP0), Port0};
+             {ok, NonIP0} ->
+               NonIP0;
              {error, _} ->
                error
            end,
-      From ! {Tag, Peer},
+      Me=case Transport:sockname(Socket) of
+             {ok, {IP1,Port1}} ->
+               {inet:ntoa(IP1), Port1};
+             {ok, NonIP1} ->
+               NonIP1;
+             {error, _} ->
+               error
+           end,
+      From ! {Tag, {Me, Peer}},
       ?MODULE:loop(State);
     {'$gen_call', {From, Tag}, _} ->
       From ! {Tag, {error, ?MODULE}},
@@ -120,19 +128,14 @@ loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
 system_continue(_PID,_,{State}) ->
   ?MODULE:loop(State).
 
-send_gen_msg(Process, ReqID0, Payload, #{lreqid:=LRI,nodeid:=NID}=State) ->
-  {S1,ReqID}=if is_binary(ReqID0) ->
-                  {State,ReqID0};
-                true ->
-                  {State#{lreqid=>LRI+1},
-                   mkreqid(NID,LRI+1)}
-             end,
-  R=send_msg(#{
+send_gen_msg(Stream, Process, ReqID, Payload, State) ->
+  Res=send_msg(#{
       null=><<"gen">>,
       proc=>Process,
       req=>ReqID,
+      str=>Stream,
       data=>Payload}, State),
-  {R,S1}.
+  {Res,State}.
 
 send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
   lager:info("Hello opts ~p",[Opts]),
@@ -156,17 +159,24 @@ handle_msg(#{null:=<<"KA">>}, State) ->
   State;
 
 handle_msg(#{null:=<<"hello">>,
-             <<"sid">>:=SID,
+             <<"sid">>:=OldSID,
              <<"addrs">>:=Addrs,
              <<"port">>:=Port
             }=Pkt,
            #{pubkey:=PK,
              role:=Role,
              opts:=Opts}=State) ->
-  Reg=if Role==client ->
-           {register, maps:get(stream, Opts, 0), out, self()};
+  {Reg,SID}=if Role==client ->
+                 NS=maps:get(stream, Opts, 0),
+                 {
+                  {register, NS, out, self()},
+                  NS
+                 };
          Role==server ->
-           {register, SID, in, self()}
+                 {
+                  {register, OldSID, in, self()},
+                  OldSID
+                 }
       end,
   {ok, PPID}=gen_server:call(tpic2_cmgr, {peer,PK, Reg}),
   lists:foreach(fun(Addr) ->
@@ -186,14 +196,34 @@ handle_msg(#{null:=<<"hello">>,
   end,
 
   send_msg(#{null=><<"hello_ack">>}, State),
-  State#{ sid=>SID };
+  lager:info("This is hello ack, new sid ~p",[SID]),
+  State#{ sid=>decode_sid(SID) };
 
 handle_msg(#{null:=<<"gen">>,
              <<"proc">>:=Proc,
              <<"req">>:=ReqID,
+%             <<"str">>:=Stream,
              <<"data">>:=Data
-            }=_Pkt, #{pubkey:=PK, sid:=SID}=State) ->
+            }=_Pkt, #{pubkey:=PK, sid:=SID, transport:=Transport, socket:=Socket}=State) ->
+      Peer=case Transport:peername(Socket) of
+             {ok, {IP0,Port0}} ->
+               {inet:ntoa(IP0), Port0};
+             {ok, NonIP0} ->
+               NonIP0;
+             {error, _} ->
+               error
+           end,
+      Me=case Transport:sockname(Socket) of
+             {ok, {IP1,Port1}} ->
+               {inet:ntoa(IP1), Port1};
+             {ok, NonIP1} ->
+               NonIP1;
+             {error, _} ->
+               error
+           end,
+
   From={PK,SID,ReqID},
+  lager:debug("From sid ~p socket ~p - ~p",[SID, Me, Peer]),
   lager:info("Got srv ~p msg ~p from ~p",[Proc,Data,From]),
   tpnode_tpic_handler:handle_tpic(From, SID, Proc, Data, State),
   State;
@@ -223,13 +253,14 @@ timeout(State, idle_timeout) ->
   terminate(State, {connection_error, timeout,
                     'Connection idle longer than configuration allows.'}).
 
+decode_sid(<<"blockchain">>) -> blockchain;
+decode_sid(<<"mkblock">>) -> mkblock;
+decode_sid(<<"bcsync">>) -> bcsync;
+decode_sid(Any) -> Any.
+
 my_streams() ->
   [%<<"blockchain">>,
    <<"mkblock">>,
    <<"bcsync">>
   ].
-
-mkreqid(Node,Req) ->
-  X=erlang:phash2(Node)+(Req bsr 32),
-  <<X:32/big,Req:32/big>>.
 
