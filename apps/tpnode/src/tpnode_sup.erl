@@ -73,7 +73,13 @@ init([]) ->
             { rdb_dispatcher, {rdb_dispatcher, start_link, []},
               permanent, 5000, worker, []},
 
-            { blockchain, {blockchain, start_link, []},
+            { blockchain_updater, {blockchain_updater, start_link, []},
+              permanent, 5000, worker, []},
+
+            { blockchain_reader, {blockchain_reader, start_link, []},
+              permanent, 5000, worker, []},
+
+            { blockchain_sync, {blockchain_sync, start_link, []},
               permanent, 5000, worker, []},
 
             { blockvote, {blockvote, start_link, []},

@@ -182,7 +182,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
   
   try
     PreSig = maps:merge(
-      gen_server:call(blockchain, lastsig),
+      gen_server:call(blockchain_reader, lastsig),
       #{null=><<"mkblock">>,
         chain=>MyChain
       }),
@@ -191,6 +191,9 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
     tpic:cast(tpic, <<"mkblock">>, MResX),
     stout:log(txqueue_xsig, [ {ids, TxIds} ])
   catch
+    exit:{timeout,{gen_server,call,[blockchain,lastsig]}} ->
+      lager:error("can't send xsig, blockchain timeout");
+    
     Ec:Ee ->
       utils:print_error("Can't send xsig", Ec, Ee, erlang:get_stacktrace())
   end,
@@ -205,12 +208,15 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
         TxIds
       ),
     lager:debug("txs for mkblock: ~p", [TxMap]),
+    Entropy=crypto:strong_rand_bytes(32),
     MRes = msgpack:pack(
       #{
         null=><<"mkblock">>,
         chain=>MyChain,
         lbh=>LBH,
         lastblk=>LastBlk,
+        entropy=>Entropy,
+        timestamp=>os:system_time(millisecond),
         txs=>TxMap
       }
     ),
@@ -242,10 +248,6 @@ handle_cast(prepare, State) ->
 handle_cast(_Msg, State) ->
   lager:notice("Unknown cast ~p", [_Msg]),
   {noreply, State}.
-
-%%handle_info(getlb, State) ->
-%%  {_Chain,Height}=gen_server:call(blockchain,last_block_height),
-%%  {noreply, State#{height=>Height}};
 
 handle_info(prepare, State) ->
   handle_cast(prepare, State);
@@ -300,7 +302,7 @@ recovery_lost(InProc, Queue, Now, AccTxs) ->
 
 load_settings(State) ->
   MyChain = blockchain:chain(),
-  {_Chain, Height} = gen_server:call(blockchain, last_block_height),
+  #{header:=#{height:=Height}}=blockchain:last_meta(),
   State#{
     mychain => MyChain,
     height => Height
@@ -311,7 +313,7 @@ load_settings(State) ->
 get_lbh(State) ->
   case maps:find(height, State) of
     error ->
-      {_Chain, H1} = gen_server:call(blockchain, last_block_height),
+      #{header:=#{height:=H1}}=blockchain:last_meta(),
       gen_server:cast(self(), {new_height, H1}), % renew height cache in state
       H1;
     {ok, H1} ->

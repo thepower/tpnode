@@ -13,7 +13,8 @@ deploy(Tx, Ledger, GasLimit, _GetFun) ->
                       tx:pack(Tx),
                       Ledger,
                       GasLimit,
-                      self()
+                      self(),
+                      #{}
                      }
          end, "erltest", 1, []).
 
@@ -23,7 +24,8 @@ handle_tx(Tx, Ledger, GasLimit, _GetFun) ->
                       tx:pack(Tx),
                       Ledger,
                       GasLimit,
-                      self()
+                      self(),
+                      #{}
                      }
          end, "erltest", 1, []).
   %{ok, unchanged, GasLimit}.

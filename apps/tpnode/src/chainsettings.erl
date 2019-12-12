@@ -122,10 +122,10 @@ get_val(Name,Default) ->
 
 get(Key, Settings) ->
   get(Key, Settings, fun() ->
-               {Chain, _}=gen_server:call(blockchain, last_block_height),
-               true=is_integer(Chain),
-               Chain
-           end).
+                         Chain=blockchain:chain(),
+                         true=is_integer(Chain),
+                         Chain
+                     end).
 
 
 get(allowempty, Settings, GetChain) ->

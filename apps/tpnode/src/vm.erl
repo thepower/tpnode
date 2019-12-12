@@ -5,6 +5,9 @@ test_erl() ->
   SPid=vm_erltest:run("127.0.0.1",5555),
   timer:sleep(200),
   try
+    Entropy=crypto:hash(sha256,<<"test">>),
+    MeanTime=1555555555555,
+    XtraFields=#{ mean_time => MeanTime, entropy => Entropy },
     Tx=tx:pack(
          tx:construct_tx(
            #{ver=>2,
@@ -26,7 +29,8 @@ test_erl() ->
                    Tx,
                    msgpack:pack(#{}),
                    11111,
-                   self()
+                   self(),
+                   XtraFields
                   },
             ok
         end, "erltest", 1, [])
@@ -49,6 +53,9 @@ test_wasm() ->
                  call=>#{function=>"init",args=>[<<512:256/big>>]},
                  txext=>#{"code"=>Code}
                 })),
+    Entropy=crypto:hash(sha256,<<"test">>),
+    MeanTime=1555555555555,
+    XtraFields=#{ mean_time => MeanTime, entropy => Entropy },
   L0=msgpack:pack(
       #{
       %"code"=><<>>,
@@ -58,7 +65,7 @@ test_wasm() ->
                 })
      }),
   {ok,#{"state":=S1}}=run(fun(Pid) ->
-                              Pid ! {run, Tx1, L0, 11111, self() }
+                              Pid ! {run, Tx1, L0, 11111, self(), XtraFields }
       end, "wasm", 2, []),
 
   Tx2=tx:pack(tx:construct_tx(
@@ -80,7 +87,7 @@ test_wasm() ->
       "state"=>S1
       }),
   {ok,#{"state":=S2}=R2}=run(fun(Pid) ->
-                      Pid ! {run, Tx2, L1, 11111, self() }
+                      Pid ! {run, Tx2, L1, 11111, self(), XtraFields }
                   end, "wasm", 2, []),
 %  {ok,UT2}=msgpack:unpack(Tx2),
   {msgpack:unpack(S1),
@@ -88,7 +95,9 @@ test_wasm() ->
    R2
   }.
 
-run(Fun, VmType, VmVer, _Opts) ->
+run(Fun, VmType, VmVer, Opts) ->
+  Timeout=proplists:get_value(run_timeout, Opts, 1000),
+  Timeout2=Timeout*2,
   case gen_server:call(tpnode_vmsrv,{pick, VmType, VmVer, self()}) of
     {ok, Pid} ->
       Fun(Pid),
@@ -104,10 +113,10 @@ run(Fun, VmType, VmVer, _Opts) ->
                                 lager:error("Error ~p",[Err]),
                                 {error, Err}
                             end
-                  after 1000 ->
+                  after Timeout ->
                           no_result
                   end
-        after 5000 ->
+        after Timeout2 ->
                 no_request
         end,
       gen_server:cast(tpnode_vmsrv,{return,Pid}),

@@ -136,7 +136,7 @@ jsonfy1({true,#{address:=Addr}}) ->
     address=>naddress:encode(Addr)
    };
 
-jsonfy1({true,Status}) ->
+jsonfy1({true,Status}) when is_map(Status)->
   case maps:size(Status) of 
     0 ->
       #{ok=>true,
@@ -148,6 +148,11 @@ jsonfy1({true,Status}) ->
         res=>format_res(Status)
        }
   end;
+
+jsonfy1({true,Status}) ->
+  #{ok=>true,
+    res=>format_res(Status)
+   };
 
 jsonfy1({false,Status}) ->
   #{error=>true,

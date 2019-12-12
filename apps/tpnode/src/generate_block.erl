@@ -1446,7 +1446,7 @@ sort_txs(PreTXL) ->
             {{H,Hash},TX};
            ({ID,_}=TX) ->
             NID=try
-                  {_,T}=txpool:decode_txid(ID),
+                  {ok, _, T} = txpool:decode_txid(ID),
                   T
                 catch _:_ ->
                         ID
@@ -1526,6 +1526,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            FB=bal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
            TB=bal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
            maps:put(F, FB, maps:put(T, TB, AAcc));
+          ({_TxID, #{ver:=2, kind:=register}}=_TX, AAcc) ->
+            AAcc;
           ({_TxID, #{ver:=2, kind:=deploy, from:=F, payload:=_}}=_TX, AAcc) ->
            FB=bal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
            maps:put(F, FB, AAcc);
@@ -1534,12 +1536,14 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            TB=bal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
            maps:put(F, FB, maps:put(T, TB, AAcc));
           ({_,_Any}, AAcc) ->
-           lager:info("Can't load ~p",[_Any]),
+           lager:info("Can't load address for tx ~p",[_Any]),
            AAcc
        end,
   Addrs=lists:foldl(Load, Addrs0, TXL),
   lager:debug("MB Pre Setting ~p", [XSettings]),
   _T3=erlang:system_time(),
+  Entropy=proplists:get_value(entropy, Options, <<>>),
+  MeanTime=proplists:get_value(mean_time, Options, 0),
   #{failed:=Failed,
     table:=NewBal0,
     success:=Success,
@@ -1561,6 +1565,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                    fee=>bal:new(),
                    tip=>bal:new(),
                    pick_block=>#{},
+                   entropy=>Entropy,
+                   mean_time=>MeanTime,
                    parent=>Parent_Hash,
                    height=>Parent_Height+1
                   }
@@ -1601,6 +1607,10 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   LedgerHash = ledger_hash(NewBal, LedgerPid),
   SettingsHash = settings_hash(NewSettings),
   _T5=erlang:system_time(),
+  Roots=[
+         {entropy, Entropy},
+         {mean_time, <<MeanTime:64/big>>}
+        ],
   Blk=block:mkblock2(#{
         txs=>Success,
         parent=>Parent_Hash,
@@ -1613,6 +1623,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
         ledger_hash=>LedgerHash,
         settings_hash=>SettingsHash,
         settings=>Settings,
+        extra_roots=>Roots,
         tx_proof=>[ TxID || {TxID, _ToChain} <- Outbound ],
         inbound_blocks=>lists:foldl(
                           fun(PickID, Acc) ->

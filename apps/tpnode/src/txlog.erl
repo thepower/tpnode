@@ -39,7 +39,7 @@ log(TxIds, Options) when is_list(TxIds) ->
 %%  TxTimes =
 %%    lists:map(
 %%      fun(TxId) ->
-%%        {_,[_,_,T1]} = txpool:decode_txid(TxId),
+%%        {ok,_,[_,_,T1]} = txpool:decode_txid(TxId),
 %%        T1
 %%      end,
 %%      TxIds),

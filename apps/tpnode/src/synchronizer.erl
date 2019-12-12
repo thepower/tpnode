@@ -81,14 +81,18 @@ handle_cast(_Msg, State) ->
   lager:info("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
+handle_info(imready, State) ->
+  {noreply, State#{ bcready => true }};
 
 handle_info(ticktimer,
   #{meandiff:=MeanDiff, ticktimer:=Tmr, tickms:=Delay, prevtick:=_T0} = State) ->
   
+  catch erlang:cancel_timer(Tmr),
+  
   T = erlang:system_time(microsecond),
   MeanMs = round((T + MeanDiff) / 1000),
   Wait = Delay - (MeanMs rem Delay),
-  
+
   MBD=case application:get_env(tpnode, mkblock_delay, 200) of
         X when is_integer(X), X>-500, X<2000 ->
           X;
@@ -96,9 +100,10 @@ handle_info(ticktimer,
           lager:info("Bad mkblock_delay ~p",[Any]),
           200
       end,
-  
-  stout:log(sync_ticktimer, [{node, nodekey:node_name()}]),
-  
+
+  stout:log(sync_ticktimer, [{node, nodekey:node_name()},
+                             {ready, maps:get(bcready, State, false)}]),
+
   case maps:get(bcready, State, false) of
     true ->
       if MBD<0 ->
@@ -114,8 +119,6 @@ handle_info(ticktimer,
       lager:info("Time to tick. But we not in sync. wait ~w", [Wait])
   end,
   
-  catch erlang:cancel_timer(Tmr),
-  
   {noreply,
     State#{
       ticktimer => erlang:send_after(Wait, self(), ticktimer),
@@ -124,8 +127,11 @@ handle_info(ticktimer,
   };
 
 handle_info(selftimer5, #{mychain:=_MyChain, tickms:=Ms, timer5:=Tmr, offsets:=Offs} = State) ->
-  Friends = maps:keys(Offs),
   
+  catch erlang:cancel_timer(Tmr),
+  
+  Friends = maps:keys(Offs),
+
   {Avg, Off2} = lists:foldl(
     fun(Friend, {Acc, NewOff}) ->
       case maps:get(Friend, Offs, undefined) of
@@ -135,10 +141,10 @@ handle_info(selftimer5, #{mychain:=_MyChain, tickms:=Ms, timer5:=Tmr, offsets:=O
           {[LOffset | Acc], maps:put(Friend, {LOffset, LTime}, NewOff)}
       end
     end, {[], #{}}, Friends),
-  
+
   MeanDiff = median(Avg),
   T = erlang:system_time(microsecond),
-  
+
   Hello =
     msgpack:pack(
       #{null=><<"hello">>,
@@ -146,26 +152,10 @@ handle_info(selftimer5, #{mychain:=_MyChain, tickms:=Ms, timer5:=Tmr, offsets:=O
         <<"t">> => T
       }),
   tpic:cast(tpic, <<"timesync">>, Hello),
-  
-  BCReady =
-    try
-      gen_server:call(blockchain, ready, 50)
-    catch
-      exit:{timeout,{gen_server,call,[blockchain,ready,_]}} ->
-        lager:debug("selftimer5 BC is not ready"),
-    
-        false;
-      
-      Ec:Ee ->
-        StackTrace = erlang:process_info(whereis(blockchain), current_stacktrace),
-        ProcInfo = erlang:process_info(whereis(blockchain)),
-        utils:print_error("SYNC BC is not ready err", Ec, Ee, StackTrace),
-        lager:error("BC process info: ~p", [ProcInfo]),
-        
-        false
-    end,
+
+  BCReady = blockchain:ready(),
   MeanMs = round((T - MeanDiff) / 1000),
-  
+
   if
     (Friends == []) ->
       lager:debug("I'm alone in universe my time ~w", [(MeanMs rem 3600000) / 1000]);
@@ -175,8 +165,7 @@ handle_info(selftimer5, #{mychain:=_MyChain, tickms:=Ms, timer5:=Tmr, offsets:=O
         [length(Friends), (MeanMs rem 3600000) / 1000, MeanDiff / 1000, Ms]
       )
   end,
-  
-  catch erlang:cancel_timer(Tmr),
+
   
   {noreply, State#{
     timer5 => erlang:send_after(10000 - (MeanMs rem 10000) + 500, self(), selftimer5),
@@ -218,24 +207,8 @@ median(List) ->
 
 load_settings(State) ->
   {ok, MyChain} = chainsettings:get_setting(mychain),
-  BlockTime = chainsettings:get_val(blocktime),
-  BCReady =
-    try
-      gen_server:call(blockchain, ready, 50)
-    catch
-      exit:{timeout,{gen_server,call,[blockchain,ready,_]}} ->
-        lager:debug("load settings BC is not ready"),
-      
-        false;
-
-      Ec:Ee ->
-        StackTrace = erlang:process_info(whereis(blockchain), current_stacktrace),
-        ProcInfo = erlang:process_info(whereis(blockchain)),
-        utils:print_error("SYNC BC is not ready err", Ec, Ee, StackTrace),
-        lager:error("BC process info: ~p", [ProcInfo]),
-        
-        false
-    end,
+  BlockTime = chainsettings:get_val(blocktime,3),
+  BCReady = blockchain:ready(),
   State#{
     tickms => BlockTime * 1000,
     mychain => MyChain,

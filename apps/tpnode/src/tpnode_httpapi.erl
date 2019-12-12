@@ -117,12 +117,6 @@ h(Method, [<<"api">>|Path], Req) ->
   h(Method, Path, Req);
 
 h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
-%  {Chain, Hash, Header1} = case catch gen_server:call(blockchain, status) of
-%                             {A, B, C} -> {A, B, C};
-%                             _Err ->
-%                               lager:info("Error ~p", [_Err]),
-%                               {-1, <<0, 0, 0, 0, 0, 0, 0, 0>>, #{}}
-%                           end,
   Chain=chainsettings:get_val(mychain),
   #{hash:=Hash,
     header:=Header1}=Blk=blockchain:last_meta(),
@@ -138,17 +132,28 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
               (_, V) when is_binary(V) -> BinPacker(V);
               (_, V) -> V
            end, Header1),
-  Peers=lists:map(
-          fun(#{addr:=_Addr, auth:=Auth, state:=Sta, authdata:=AD}) ->
-              #{auth=>Auth,
-                state=>Sta,
-                node=>proplists:get_value(nodeid, AD, null)
-               };
-             (#{addr:=_Addr}) ->
-              #{auth=>unknown,
-                state=>unknown
-               }
-          end, tpic:peers()),
+  Peers =
+    try
+      lists:map(
+        fun(#{addr:=_Addr, auth:=Auth, state:=Sta, authdata:=AD}) ->
+          #{auth=>Auth,
+            state=>Sta,
+            node=>proplists:get_value(nodeid, AD, null)
+          };
+          (#{addr:=_Addr}) ->
+            #{auth=>unknown,
+              state=>unknown
+            }
+        end, tpic:peers())
+    catch
+      Ec:Ee ->
+        StackTrace = erlang:process_info(whereis(tpic), current_stacktrace),
+        ProcInfo = erlang:process_info(whereis(tpic)),
+        utils:print_error("TPIC peers collecting error", Ec, Ee, StackTrace),
+        lager:error("TPIC process info: ~p", [ProcInfo]),
+        
+        []
+    end,
   SynPeers=gen_server:call(synchronizer, peers),
   {Ver, _BuildTime}=tpnode:ver(),
   answer(
@@ -163,6 +168,14 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
           header=>Header,
           temporary=>Temp
          },
+        is_sync => try
+                     gen_server:call(blockchain_sync, is_sync)
+                   catch _:_ -> error
+                   end,
+        blockvote => try
+                       gen_server:call(blockvote, status)
+                     catch _:_ -> #{ error => true }
+                     end,
         xchain_inbound => try
                             gen_server:call(xchain_dispatcher, peers)
                           catch _:_ -> #{ error => true }
@@ -514,7 +527,7 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
                true ->
                  hex:parse(BlockId)
              end,
-  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+  case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
             1,
@@ -539,7 +552,7 @@ h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
   BlockHash0=if(BlockId == <<"last">>) -> last;
                true -> hex:parse(BlockId)
              end,
-  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+  case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
             10006,
@@ -558,7 +571,7 @@ h(<<"GET">>, [<<"txtblock">>, BlockId], _Req) ->
   BlockHash0=if(BlockId == <<"last">>) -> last;
                true -> hex:parse(BlockId)
              end,
-  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+  case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
             10006,
@@ -587,7 +600,7 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
                true ->
                  hex:parse(BlockId)
              end,
-  case gen_server:call(blockchain, {get_block, BlockHash0}) of
+  case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
             10006,
@@ -796,14 +809,24 @@ prettify_block(#{}=Block0, BinPacker) ->
               maps:put(BinPacker(BalAddr), PrettyBal, A)
           end, #{}, Bal);
        (header, BlockHeader) ->
-        maps:map(
-          fun(parent, V) ->
-              BinPacker(V);
+         maps:map(
+           fun(parent, V) ->
+             BinPacker(V);
+             (roots, RootsProplist) ->
+               lists:map(
+                 fun({mean_time, V})->
+                   {mean_time, BinPacker(V)};
+                   ({K, V}) when is_binary(V) andalso size(V) == 32 ->
+                     {K, BinPacker(V)};
+                   ({K, V}) ->
+                     {K, V}
+                 end, RootsProplist);
+      
              (_K, V) when is_binary(V) andalso size(V) == 32 ->
-              BinPacker(V);
+               BinPacker(V);
              (_K, V) ->
-              V
-          end, BlockHeader);
+               V
+           end, BlockHeader);
        (settings, Settings) ->
         lists:map(
           fun({CHdr, CBody}) ->
