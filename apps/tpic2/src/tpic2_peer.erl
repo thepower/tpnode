@@ -39,6 +39,7 @@ init(Args) ->
      servers=>[],
      services=>[],
      monitors=>#{},
+     ct=>undefined,
      mpid=>#{}
     }
   }.
@@ -141,6 +142,12 @@ handle_cast(_Msg, State) ->
   {noreply, State}.
 
 handle_info(try_connect, #{streams:=Str,peer_ipport:=[{Host,Port}|RestIPP]}=State) ->
+  case maps:find(ct, State) of
+    {ok, Ref} when is_reference(Ref) ->
+      erlang:cancel_timer(Ref);
+    _ ->
+      ok
+  end,
   lager:notice("Try connect payload streams ~p",[Str]),
   lists:foreach(
     fun({SID, Dir, undefined}) when Dir==undefined orelse Dir==out ->
@@ -149,6 +156,7 @@ handle_info(try_connect, #{streams:=Str,peer_ipport:=[{Host,Port}|RestIPP]}=Stat
         ignore
     end, Str),
   {noreply, State#{
+              ct=>undefined,
               peer_ipport=>RestIPP++[{Host,Port}]
              }
   };
@@ -174,9 +182,17 @@ handle_info({'DOWN',_Ref,process,PID,_Reason}, #{mpid:=MPID,
                                                  outctl:=OCPid}=State) ->
   case maps:find(PID,MPID) of
     {ok, {StrID, Dir}} ->
+      case maps:find(ct, State) of
+        {ok, Ref} when is_reference(Ref) ->
+          erlang:cancel_timer(Ref);
+        _ ->
+          ok
+      end,
+
       lager:info("Down str ~p ~p ~p",[StrID, Dir, PID]),
       {noreply, apply_ctl(
                   State#{
+                    ct=>erlang:send_after(100,self(),try_connect),
                     streams=>stream_delete(PID,Str),
                     mpid=>maps:remove(PID,MPID)
                    },

@@ -23,6 +23,12 @@ handle_tpic(From, _, <<"tping">>, Payload, _State) ->
                           (atom_to_binary(node(), utf8))/binary>>),
   ok;
 
+handle_tpic(From, _, <<"ping">>, Payload, _State) ->
+  R=tpic2:cast(tpic, From, <<"pong ", Payload/binary, " from ",
+                           (atom_to_binary(node(), utf8))/binary>>, [async]),
+  lager:info("got ping from ~p payload ~p, res ~p",[From, Payload, R]),
+  ok;
+
 % beacon announce
 handle_tpic(From, mkblock, <<"beacon">>, Beacon, _State) ->
   lager:debug("Beacon ~p", [Beacon]),
@@ -58,10 +64,6 @@ handle_tpic(From, _To, <<"kickme">>, Payload, State) ->
   lager:info("TPIC kick HANDLER from ~p ~p ~p", [From, _To, Payload, State]),
   close;
 
-handle_tpic(From, blockchain, <<"ping">>, Payload, _State) ->
-  tpic:cast(tpic, From, <<"pong ", Payload/binary, " from ",
-                          (atom_to_binary(node(), utf8))/binary>>),
-  ok;
 
 handle_tpic(From, blockchain, <<"ledger">>, Payload, _State) ->
   lager:info("Ledger TPIC From ~p p ~p", [From, Payload]),

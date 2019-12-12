@@ -90,8 +90,11 @@ loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
     {'$gen_call', {From, Tag}, state} ->
       From ! {Tag, State},
       ?MODULE:loop(State);
-    {'$gen_call', {From, Tag}, {send, Service, Process, ReqID, Payload}} when is_binary(Payload) ->
-      {Res,S1}=send_gen_msg(Service, Process, ReqID, Payload, State),
+    {'$gen_cast', {send, Process, ReqID, Payload}} when is_binary(Payload) ->
+      {_,S1}=send_gen_msg(Process, ReqID, Payload, State),
+      ?MODULE:loop(S1);
+    {'$gen_call', {From, Tag}, {send, Process, ReqID, Payload}} when is_binary(Payload) ->
+      {Res,S1}=send_gen_msg(Process, ReqID, Payload, State),
       From ! {Tag, Res},
       ?MODULE:loop(S1);
     {'$gen_call', {From, Tag}, peer} ->
@@ -128,12 +131,11 @@ loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
 system_continue(_PID,_,{State}) ->
   ?MODULE:loop(State).
 
-send_gen_msg(Stream, Process, ReqID, Payload, State) ->
+send_gen_msg(Process, ReqID, Payload, State) ->
   Res=send_msg(#{
       null=><<"gen">>,
       proc=>Process,
       req=>ReqID,
-      str=>Stream,
       data=>Payload}, State),
   {Res,State}.
 
@@ -204,28 +206,28 @@ handle_msg(#{null:=<<"gen">>,
              <<"req">>:=ReqID,
 %             <<"str">>:=Stream,
              <<"data">>:=Data
-            }=_Pkt, #{pubkey:=PK, sid:=SID, transport:=Transport, socket:=Socket}=State) ->
-      Peer=case Transport:peername(Socket) of
-             {ok, {IP0,Port0}} ->
-               {inet:ntoa(IP0), Port0};
-             {ok, NonIP0} ->
-               NonIP0;
-             {error, _} ->
-               error
-           end,
-      Me=case Transport:sockname(Socket) of
-             {ok, {IP1,Port1}} ->
-               {inet:ntoa(IP1), Port1};
-             {ok, NonIP1} ->
-               NonIP1;
-             {error, _} ->
-               error
-           end,
-
-  From={PK,SID,ReqID},
-  lager:debug("From sid ~p socket ~p - ~p",[SID, Me, Peer]),
-  lager:info("Got srv ~p msg ~p from ~p",[Proc,Data,From]),
-  tpnode_tpic_handler:handle_tpic(From, SID, Proc, Data, State),
+            }=_Pkt, #{pubkey:=PK, sid:=SID
+                      %, transport:=Transport, socket:=Socket
+                      }=State) ->
+%      Peer=case Transport:peername(Socket) of
+%             {ok, {IP0,Port0}} ->
+%               {inet:ntoa(IP0), Port0};
+%             {ok, NonIP0} ->
+%               NonIP0;
+%             {error, _} ->
+%               error
+%           end,
+%      Me=case Transport:sockname(Socket) of
+%             {ok, {IP1,Port1}} ->
+%               {inet:ntoa(IP1), Port1};
+%             {ok, NonIP1} ->
+%               NonIP1;
+%             {error, _} ->
+%               error
+%           end,
+%
+%  lager:debug("From sid ~p socket ~p - ~p",[SID, Me, Peer]),
+  tpic2_response:handle(PK, SID, ReqID, Proc, Data, State),
   State;
 
 handle_msg(Any,State) ->

@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0, pick/1, send/2, lookup_trans/1, add_trans/2]).
+-export([start_link/0, pick/1, send/2, lookup_trans/1, add_trans/2, peers/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -27,6 +27,9 @@ pick(PubKey) ->
 
 send(PubKey, Message) ->
   gen_server:call(?MODULE, {peer, PubKey, Message}).
+
+peers() ->
+  gen_server:call(?MODULE,peers).
 
 lookup_trans(Token) ->
   case ets:lookup(tpic2_trans,Token) of

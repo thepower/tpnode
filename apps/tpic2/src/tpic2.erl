@@ -1,7 +1,7 @@
 -module(tpic2).
 -export([childspec/0,certificate/0,cert/2,extract_cert_info/1, verfun/3,
         node_addresses/0, alloc_id/0]).
--export([peers/0,peerstreams/0,cast/3]).
+-export([peers/0,peerstreams/0,cast/3,cast/4,call/3,call/4]).
 -include_lib("public_key/include/public_key.hrl").
 
 alloc_id() ->
@@ -16,7 +16,73 @@ alloc_id() ->
   put(tpic_req,Req+1),
   <<N:16/big,PID:24/big,Req:24/big>>.
 
-cast(_TPIC, Service, Data) ->
+broadcast(ReqID, Target, Srv, Data, Opts) ->
+  maps:fold(
+    fun(PubKey,Pid,Acc) ->
+        Avail=lists:keysort(2,gen_server:call(Pid, {get_stream, Target})),
+        io:format("Av ~p~n",[Avail]),
+        case Avail of
+          [{_,_,ConnPID}|_] when is_pid(ConnPID) ->
+            case lists:member(async, Opts) of
+              true ->
+                case erlang:is_process_alive(ConnPID)  of
+                  true ->
+                    gen_server:cast(ConnPID,{send, Srv, ReqID, Data}),
+                    [PubKey|Acc];
+                  false ->
+                    Acc
+                end;
+              false ->
+                case gen_server:call(ConnPID,{send, Srv, ReqID, Data}) of
+                  ok ->
+                    [PubKey|Acc];
+                  _ ->
+                    Acc
+                end
+            end;
+          _ ->
+            Acc
+        end
+    end,
+    [],
+    tpic2_cmgr:peers()).
+
+unicast(ReqID, Peer, Stream, Srv, Data, Opts) ->
+  Avail=lists:keysort(2,tpic2_cmgr:send(Peer,{get_stream, Stream})),
+  case Avail of
+    [{_,_,ConnPID}|_] when is_pid(ConnPID) ->
+      case lists:member(async, Opts) of
+        true ->
+          case erlang:is_process_alive(ConnPID)  of
+            true ->
+              gen_server:cast(ConnPID,{send, Srv, ReqID, Data}),
+              [Peer];
+            false ->
+              []
+          end;
+        false ->
+          case gen_server:call(ConnPID,{send, Srv, ReqID, Data}) of
+            ok ->
+              [Peer];
+            _ ->
+              []
+          end
+      end;
+    _ ->
+      []
+  end.
+
+cast(_TPIC, Dat, Data) ->
+  cast(_TPIC, Dat, Data, []).
+
+cast(_TPIC, {Peer,Stream,ReqID}, Data, Opts) when is_binary(Data), is_atom(Stream) ->
+  cast(_TPIC, {Peer,atom_to_binary(Stream,latin1),ReqID}, Data, Opts);
+
+cast(_TPIC, {Peer,Stream,ReqID}, Data, Opts) when is_binary(Data) ->
+  unicast(ReqID, Peer, Stream, <<>>, Data, Opts);
+
+cast(_TPIC, Service, Data, Opts) when is_binary(Service) ->
+  lager:info("Casting to ~p",[Service]),
   {Srv, Msg} = case Data of
                  {S1,M1} when is_binary(S1), is_binary(M1) ->
                    {S1, M1};
@@ -24,30 +90,44 @@ cast(_TPIC, Service, Data) ->
                    {<<>>, M}
                end,
   ReqID=alloc_id(),
-  SentTo=maps:fold(
-    fun(PubKey,Pid,Acc) ->
-        Avail=lists:keysort(2,gen_server:call(Pid, {get_stream, Service})),
-        io:format("Av ~p~n",[Avail]),
-        case Avail of
-          [{_,_,ConnPID}|_] ->
-            case gen_server:call(ConnPID,{send, Service, Srv, ReqID, Msg}) of
-              ok ->
-                [PubKey|Acc];
-              _ ->
-                Acc
-            end;
-          [] ->
-            Acc
-        end
-    end,
-    [],
-    gen_server:call(tpic2_cmgr,peers)),
+  SentTo=broadcast(ReqID, Service, Srv, Msg, Opts),
   if SentTo==[] ->
        SentTo;
      true ->
        tpic2_cmgr:add_trans(ReqID, self()),
        SentTo
   end.
+
+call(TPIC, Conn, Request) -> 
+    call(TPIC, Conn, Request, 2000).
+
+call(TPIC, Service, Request, Timeout) when is_binary(Service) -> 
+    R=cast(TPIC, Service, Request),
+    T2=erlang:system_time(millisecond)+Timeout,
+    lists:reverse(wait_response(T2,R,[]));
+
+call(TPIC, Conn, Request, Timeout) when is_tuple(Conn) -> 
+    R=cast(TPIC, Conn, Request),
+    T2=erlang:system_time(millisecond)+Timeout,
+    lists:reverse(wait_response(T2,R,[])).
+
+wait_response(_Until,[],Acc) ->
+    Acc;
+
+wait_response(Until,[NodeID|RR],Acc) ->
+    lager:debug("Waiting for reply"),
+    T1=Until-erlang:system_time(millisecond),
+    T=if(T1>0) -> T1;
+        true -> 0
+      end,
+    receive 
+        {'$gen_cast',{tpic,{NodeID,_,_}=R1,A}} ->
+            lager:debug("Got reply from ~p",[R1]),
+            wait_response(Until,RR,[{R1,A}|Acc])
+    after T ->
+              wait_response(Until,RR,Acc)
+    end.
+
 
 peers() ->
   Raw=gen_server:call(tpic2_cmgr,peers),
