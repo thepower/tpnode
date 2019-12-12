@@ -109,7 +109,6 @@ cast({Peer,Stream,ReqID}, Data, Opts) ->
   unicast(ReqID, Peer, Stream, Srv, Msg, Opts);
 
 cast(Service, Data, Opts) when is_binary(Service); Service==0 ->
-  lager:info("Casting to ~p",[Service]),
   {Srv, Msg} = case Data of
                  {S1,M1} when is_binary(S1), is_binary(M1) ->
                    {S1, M1};

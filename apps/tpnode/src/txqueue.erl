@@ -53,15 +53,15 @@ handle_call(_Request, _From, State) ->
 handle_cast(
   {push, BatchNo, TxIds}, #{queue:=Queue, batch_state := BatchState} = State)
   when is_list(TxIds) and is_number(BatchNo) ->
-  
+
   #{holding_storage := Holding, current_batch := CurrentBatch} = BatchState,
-  
+
   case BatchNo of
     CurrentBatch ->
       stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, queue} ]),
-  
+
       txlog:log(TxIds, #{where => queue_push_current}),
-      
+
       % trying reassemble the hold storage after the last batch was added
       #{queue := NewQueue} = NewBatchState =
         reassembly_batch(
@@ -75,19 +75,19 @@ handle_cast(
         queue => NewQueue,
         batch_state => maps:without([queue], NewBatchState)
       }};
-    
+
     _ when BatchNo < CurrentBatch -> % skip batch with number less than current
       stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, skip} ]),
       {noreply, State};
-    
+
     _ ->
       stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, hold} ]),
-      
+
       txlog:log(TxIds, #{where => queue_push_hold}),
-      
+
       % trying reassemble the hold storage
       % (we can exceed number of tries, so should force reassemble the hold storage)
-  
+
       #{queue := NewQueue2} = NewBatchState2 =
         reassembly_batch(
           BatchState#{
@@ -95,7 +95,7 @@ handle_cast(
             holding_storage => maps:put(BatchNo, TxIds, Holding)
           }
         ),
-  
+
       {noreply, State#{
         queue => NewQueue2,
         batch_state => maps:without([queue], NewBatchState2)
@@ -107,9 +107,9 @@ handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
   stout:log(txqueue_pushhead, [ {ids, TxIds} ]),
 
   RevIds = lists:reverse(TxIds),
-  
+
   txlog:log(RevIds, #{where => queue_push_head}),
-  
+
   {noreply, State#{
     queue=>lists:foldl( fun queue:in_r/2, Queue, RevIds)
   }};
@@ -162,64 +162,64 @@ handle_cast(settings, State) ->
   {noreply, load_settings(State)};
 
 handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = State) ->
-  
+
   Time = erlang:system_time(seconds),
   {InProc1, Queue1} = recovery_lost(InProc0, Queue, Time),
   ETime = Time + 1,
-  
+
   {Queue2, TxIds} =
-    txpool:pullx({txpool:get_max_pop_tx(), txpool:get_max_tx_size()}, Queue1, []),
-  
+  txpool:pullx({txpool:get_max_pop_tx(), txpool:get_max_tx_size()}, Queue1, []),
+
   txlog:log(TxIds, #{where => txqueue_prepare}),
-  
+
   stout:log(txqueue_prepare, [ {ids, TxIds}, {node, nodekey:node_name()} ]),
-  
+
   PK =
-    case maps:get(pubkey, State, undefined) of
-      undefined -> nodekey:get_pub();
-      FoundKey -> FoundKey
-    end,
-  
-  try
-    PreSig = maps:merge(
-      gen_server:call(blockchain_reader, lastsig),
-      #{null=><<"mkblock">>,
-        chain=>MyChain
-      }),
-    MResX = msgpack:pack(PreSig),
-    gen_server:cast(mkblock, {tpic, PK, MResX}),
-    tpic2:cast(<<"mkblock">>, MResX),
-    stout:log(txqueue_xsig, [ {ids, TxIds} ])
-  catch
-    exit:{timeout,{gen_server,call,[blockchain,lastsig]}} ->
-      lager:error("can't send xsig, blockchain timeout");
-    
-    Ec:Ee ->
-      utils:print_error("Can't send xsig", Ec, Ee, erlang:get_stacktrace())
+  case maps:get(pubkey, State, undefined) of
+    undefined -> nodekey:get_pub();
+    FoundKey -> FoundKey
   end,
-  
+
+  %  try
+  %    PreSig = maps:merge(
+  %      gen_server:call(blockchain_reader, lastsig),
+  %      #{null=><<"mkblock_lastsig">>,
+  %        chain=>MyChain
+  %      }),
+  %    MResX = msgpack:pack(PreSig),
+  %    gen_server:cast(mkblock, {tpic, PK, MResX}),
+  %    tpic2:cast(<<"mkblock">>, MResX),
+  %    stout:log(txqueue_xsig, [ {ids, TxIds} ])
+  %  catch
+  %    exit:{timeout,{gen_server,call,[blockchain,lastsig]}} ->
+  %      lager:error("can't send xsig, blockchain timeout");
+  %
+  %    Ec:Ee ->
+  %      utils:print_error("Can't send xsig", Ec, Ee, erlang:get_stacktrace())
+  %  end,
+
   try
     LBH = get_lbh(State),
     LastBlk=block:pack(blockchain:last_meta()),
     TxMap =
-      lists:foldl(
-        fun(Id, Acc) -> maps:put(Id, null, Acc) end,
-        #{},
-        TxIds
-      ),
+    lists:foldl(
+      fun(Id, Acc) -> maps:put(Id, null, Acc) end,
+      #{},
+      TxIds
+     ),
     lager:debug("txs for mkblock: ~p", [TxMap]),
     Entropy=crypto:strong_rand_bytes(32),
     MRes = msgpack:pack(
-      #{
-        null=><<"mkblock">>,
-        chain=>MyChain,
-        lbh=>LBH,
-        lastblk=>LastBlk,
-        entropy=>Entropy,
-        timestamp=>os:system_time(millisecond),
-        txs=>TxMap
-      }
-    ),
+             #{
+             null=><<"mkblock">>,
+             chain=>MyChain,
+             lbh=>LBH,
+             lastblk=>LastBlk,
+             entropy=>Entropy,
+             timestamp=>os:system_time(millisecond),
+             txs=>TxMap
+            }
+            ),
     gen_server:cast(mkblock, {tpic, PK, MRes}),
     tpic2:cast(<<"mkblock">>, MRes),
     stout:log(txqueue_mkblock, [{ids, TxIds}, {lbh, LBH}])
@@ -227,17 +227,17 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
     Ec1:Ee1 ->
       utils:print_error("Can't encode", Ec1, Ee1, erlang:get_stacktrace())
   end,
-  
+
   {noreply,
-    State#{
-      queue=>Queue2,
-      inprocess=>lists:foldl(
-        fun(TxId, Acc) ->
-          hashqueue:add(TxId, ETime, null, Acc)
-        end,
-        InProc1,
-        TxIds
-      )
+   State#{
+     queue=>Queue2,
+     inprocess=>lists:foldl(
+                  fun(TxId, Acc) ->
+                      hashqueue:add(TxId, ETime, null, Acc)
+                  end,
+                  InProc1,
+                  TxIds
+                 )
     }};
 
 handle_cast(prepare, State) ->
@@ -257,7 +257,7 @@ handle_info({push, BatchNo, TxIds}, State) when is_list(TxIds) ->
 
 handle_info({push_head, TxIds}, State) when is_list(TxIds) ->
   handle_cast({push_head, TxIds}, State);
-  
+
 handle_info(_Info, State) ->
   lager:notice("Unknown info ~p", [_Info]),
   {noreply, State}.
@@ -329,7 +329,7 @@ get_state() ->
 
 reassembly_batch(#{try_count := ?MAX_REASSEMBLY_TRIES} = BatchState) ->
   #{holding_storage := Holding} = BatchState,
-  
+
   case lists:sort(maps:keys(Holding)) of
     [] ->
       BatchState#{try_count => 0};
@@ -352,7 +352,7 @@ reassembly_batch(#{
           #{where => reassembly_batch,
             batchno => CurrentBatch,
             trycount => TryCount}),
-  
+
         reassembly_batch(
           BatchState#{
             queue => lists:foldl(fun queue:in/2, Queue, TxIds),

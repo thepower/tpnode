@@ -34,7 +34,7 @@ connection_process(Parent, Ref, Socket, Transport, Opts) ->
   tpic2_tls:send_msg(hello, State),
   ?MODULE:loop1(State).
 
-loop1(State=#{socket:=Socket,role:=Role}) ->
+loop1(State=#{socket:=Socket,role:=Role,transport:=Transport}) ->
   {ok,PC}=ssl:peercert(Socket),
   DCert=tpic2:extract_cert_info(public_key:pkix_decode_cert(PC,otp)),
   Pubkey=case DCert of
@@ -60,6 +60,7 @@ loop1(State=#{socket:=Socket,role:=Role}) ->
              true ->
                gen_server:call(tpic2_cmgr,{peer, Pubkey, {add, IP, Port}}),
                lager:info("Add address to peer and shutdown"),
+               Transport:close(Socket),
                shutdown;
              false ->
                ok

@@ -30,14 +30,14 @@ handle_tpic(From, <<"mkblock">>, <<"beacon2">>, Beacon, _State) ->
   gen_server:cast(topology, {got_beacon2, From, Beacon}),
   ok;
 
-handle_tpic(From, <<"mkblock">>, <<"txbatch">>, Payload, #{authdata:=AD}=_State) ->
+handle_tpic({Pub,_,_}=From, <<"mkblock">>, <<"txbatch">>, Payload, _State) ->
   lager:debug("txbatch: form ~p payload ~p", [ From, Payload ]),
-  gen_server:cast(txstorage, {tpic, proplists:get_value(pubkey, AD), From, Payload}),
+  gen_server:cast(txstorage, {tpic, Pub, From, Payload}),
   ok;
 
-handle_tpic(_From, <<"mkblock">>, <<>>, Payload, #{authdata:=AD}=_State) ->
-  lager:debug("mkblock from ~p payload ~p",[_From,Payload]),
-  gen_server:cast(mkblock, {tpic, proplists:get_value(pubkey, AD), Payload}),
+handle_tpic({Pub,_,_}=From, <<"mkblock">>, <<>>, Payload, _State) ->
+  lager:debug("mkblock from ~p payload ~p",[From,Payload]),
+  gen_server:cast(mkblock, {tpic, Pub, Payload}),
   ok;
 
 handle_tpic(_From, 0, <<"discovery">>, Payload, _State) ->
@@ -59,8 +59,7 @@ handle_tpic(From, <<"blockchain">>, <<"ledger">>, Payload, _State) ->
   ledger:tpic(From, Payload),
   ok;
 
-handle_tpic(From, <<"blockchain">>, <<"chainkeeper">>, Payload, #{authdata:=AD}=_State) ->
-  NodeKey = proplists:get_value(pubkey, AD),
+handle_tpic({NodeKey,_,_}=From, <<"blockchain">>, <<"chainkeeper">>, Payload, _State) ->
   NodeName = chainsettings:is_our_node(NodeKey),
   lager:debug("Got chainkeeper beacon From ~p p ~p", [From, Payload]),
   gen_server:cast(chainkeeper, {tpic, NodeName, From, Payload}),
@@ -71,9 +70,9 @@ handle_tpic(From, <<"blockchain">>, <<>>, Payload, _State) ->
   gen_server:cast(blockchain_reader, {tpic, From, Payload}),
   ok;
 
-handle_tpic(From, <<"mkblock">>, <<>>, Payload, _State) ->
+handle_tpic({Pub,_,_}=From, <<"mkblock">>, <<>>, Payload, _State) ->
   lager:debug("Generic TPIC to ~p from ~p payload ~p", [mkblock,From,Payload]),
-  gen_server:cast(mkblock, {tpic, From, Payload}),
+  gen_server:cast(mkblock, {tpic, Pub, Payload}),
   ok;
 
 handle_tpic(From, <<"blockvote">>, <<>>, Payload, _State) ->

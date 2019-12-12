@@ -39,7 +39,7 @@ run_generate(
 
   AE=maps:get(ae, MySet, 0),
   B=blockchain:last_meta(),
-  lager:info("Got blk from our blockchain ~p",[B]),
+  lager:debug("Got blk from our blockchain ~p",[B]),
 
   {PHeight, PHash, PHeiHash}=mkblock:hei_and_has(B),
   PTmp=maps:get(temporary,B,false),
