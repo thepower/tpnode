@@ -297,11 +297,11 @@ extract_cert_info(
      keyalgo=>PubKeyAlgo }.
 
 verfun(PCert,{bad_cert, _} = Reason, _) ->
-  lager:info("Peer Cert ~p~n",[extract_cert_info(PCert)]),
-  lager:info("Reason ~p~n",[Reason]),
+  lager:debug("Peer Cert ~p~n",[extract_cert_info(PCert)]),
+  lager:info("Peer cert ~p~n",[Reason]),
   {valid, Reason};
 verfun(_, Reason, _) ->
-  lager:info("Other Reason ~p~n",[Reason]),
+  lager:notice("Bad cert. Reason ~p~n",[Reason]),
   {fail, unknown}.
 
 
