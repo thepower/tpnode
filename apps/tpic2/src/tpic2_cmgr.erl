@@ -63,7 +63,8 @@ inc_usage(Stream, Service) ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-  erlang:send_after(100,self(), init_peers),
+  erlang:send_after(1000,self(), init_peers),
+  erlang:send_after(3000,self(), init_peers),
   ets:new(tpic2_trans,[set,public,named_table]),
   ets:new(tpic2_usage,[set,public,named_table]),
   {ok, #{
