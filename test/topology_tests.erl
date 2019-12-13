@@ -269,7 +269,7 @@ drop_packets(BrokenTo, PacketsCount) ->
 
 unmeck_all() ->
   meck:unload(nodekey),
-  meck:unload(tpic),
+  meck:unload(tpic2),
   meck:unload(chainsettings).
 
 % ------------------------------------------------------------------------
@@ -286,16 +286,16 @@ meck_it_all() ->
     get_pub,
     fun get_current_pub/0
   ),
-  meck:new(tpic),
+  meck:new(tpic2),
   meck:expect(
-    tpic,
+    tpic2,
     cast_prepare,
-    fun tpic_cast_prepare/2
+    fun tpic_cast_prepare/1
   ),
   meck:expect(
-    tpic,
+    tpic2,
     cast,
-    fun tpic_cast/3
+    fun tpic_cast/2
   ),
   meck:new(chainsettings),
   meck:expect(
@@ -344,7 +344,7 @@ cleanup_emulator() ->
 
 % ------------------------------------------------------------------------
 
-tpic_cast_prepare(tpic, <<"mkblock">>) ->
+tpic_cast_prepare(<<"mkblock">>) ->
 %%  error_logger:info_msg("catch tpic cast prepare"),
   Nodes = get_nodes(),
   CurrentNode = get_current_node_name(),
@@ -364,7 +364,7 @@ tpic_cast_prepare(tpic, <<"mkblock">>) ->
 
 % ------------------------------------------------------------------------
 
-tpic_cast(tpic, Peer, Payload) ->
+tpic_cast(Peer, Payload) ->
 %%  error_logger:info_msg("send to ~p payload ~p", [Peer, Payload]),
   send_packet(Peer, Payload).
 
