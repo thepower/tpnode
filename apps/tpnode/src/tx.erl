@@ -160,6 +160,70 @@ construct_tx(#{
 
 construct_tx(#{
   ver:=2,
+  kind:=tstore,
+  from:=F,
+  t:=Timestamp,
+  seq:=Seq,
+  payload:=Amounts
+ }=Tx0,_Params) ->
+  Tx=maps:with([ver,from,t,seq,payload,txext],Tx0),
+  A1=lists:map(
+       fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
+             is_integer(Amount), is_binary(Cur) ->
+           [encode_purpose(Purpose), to_list(Cur), Amount]
+       end, Amounts),
+  Ext=maps:get(txext, Tx, #{}),
+  true=is_map(Ext),
+  E0=#{
+    "k"=>encode_kind(2,tstore),
+    "f"=>F,
+    "t"=>Timestamp,
+    "s"=>Seq,
+    "p"=>A1,
+    "e"=>Ext
+   },
+  Tx#{
+    kind=>tstore,
+    body=>msgpack:pack(E0,[{spec,new},{pack_str, from_list}]),
+    sig=>[]
+   };
+
+construct_tx(#{
+  ver:=2,
+  kind:=lstore,
+  from:=F,
+  t:=Timestamp,
+  seq:=Seq,
+  payload:=Amounts,
+  patches:=Patches
+ }=Tx0,_Params) ->
+  Tx=maps:with([ver,from,t,seq,payload,patches,txext],Tx0),
+  A1=lists:map(
+       fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
+             is_integer(Amount), is_binary(Cur) ->
+           [encode_purpose(Purpose), to_list(Cur), Amount]
+       end, Amounts),
+  Ext=maps:get(txext, Tx, #{}),
+  true=is_map(Ext),
+  EP=settings:mp(Patches),
+  E0=#{
+    "k"=>encode_kind(2,lstore),
+    "f"=>F,
+    "t"=>Timestamp,
+    "s"=>Seq,
+    "p"=>A1,
+    "pa"=>EP,
+    "e"=>Ext
+   },
+  Tx#{
+    kind=>lstore,
+    body=>pack_body(E0),
+    patches=>settings:dmp(EP),
+    sig=>[]
+   };
+
+construct_tx(#{
+  ver:=2,
   kind:=deploy,
   from:=F,
   t:=Timestamp,
@@ -341,6 +405,44 @@ unpack_body(#{ ver:=2,
   end;
 
 unpack_body(#{ ver:=2,
+              kind:=tstore
+             }=Tx,
+            #{ "f":=From,
+               "t":=Timestamp,
+               "s":=Seq,
+               "p":=Payload
+             }=Unpacked) ->
+  Amounts=unpack_payload(Payload),
+  Tx#{
+    ver=>2,
+    from=>unpack_addr(From,bad_from),
+    t=>unpack_timestamp(Timestamp),
+    seq=>unpack_seq(Seq),
+    payload=>Amounts,
+    txext=>unpack_txext(maps:get("e", Unpacked, #{}))
+   };
+
+unpack_body(#{ ver:=2,
+              kind:=lstore
+             }=Tx,
+            #{ "f":=From,
+               "t":=Timestamp,
+               "s":=Seq,
+               "pa":=Patches,
+               "p":=Payload
+             }=Unpacked) ->
+  Amounts=unpack_payload(Payload),
+  Tx#{
+    ver=>2,
+    from=>unpack_addr(From,bad_from),
+    t=>unpack_timestamp(Timestamp),
+    seq=>unpack_seq(Seq),
+    payload=>Amounts,
+    patches=>settings:dmp(Patches),
+    txext=>unpack_txext(maps:get("e", Unpacked, #{}))
+   };
+
+unpack_body(#{ ver:=2,
               kind:=register
              }=Tx,
             #{ "t":=Timestamp,
@@ -407,7 +509,10 @@ verify(#{
   body:=Body,
   sig:=LSigs,
   ver:=2
- }=Tx, Opts) when GenericOrDeploy==generic; GenericOrDeploy==deploy ->
+ }=Tx, Opts) when GenericOrDeploy==generic;
+                  GenericOrDeploy==deploy;
+                  GenericOrDeploy==tstore;
+                  GenericOrDeploy==lstore ->
   CI=get_ext(<<"contract_issued">>, Tx),
   Res=case checkaddr(From) of
         {true, _IAddr} when CI=={ok, From} ->
@@ -648,7 +753,8 @@ txlist_hash(List) ->
                                      [Id, tx:pack(Tx)|Acc]
                                  end, [], lists:keysort(1, List)))).
 
-get_payload(#{ver:=2, kind:=deploy, payload:=Payload}=_Tx, Purpose) ->
+get_payload(#{ver:=2, kind:=Kind, payload:=Payload}=_Tx, Purpose)
+  when Kind==deploy; Kind==generic; Kind==tstore; Kind==lstore ->
   lists:foldl(
     fun(#{amount:=_,cur:=_,purpose:=P1}=A, undefined) when P1==Purpose ->
         A;
@@ -656,27 +762,18 @@ get_payload(#{ver:=2, kind:=deploy, payload:=Payload}=_Tx, Purpose) ->
         A
     end, undefined, Payload);
 
+get_payload(#{ver:=2, kind:=Kind},_) ->
+  throw({unknown_kind_for_get_payload,Kind}).
 
-get_payload(#{ver:=2, kind:=generic, payload:=Payload}=_Tx, Purpose) ->
-  lists:foldl(
-    fun(#{amount:=_,cur:=_,purpose:=P1}=A, undefined) when P1==Purpose ->
-        A;
-       (_,A) ->
-        A
-    end, undefined, Payload).
-
-get_payloads(#{ver:=2, kind:=deploy, payload:=Payload}=_Tx, Purpose) ->
+get_payloads(#{ver:=2, kind:=Kind, payload:=Payload}=_Tx, Purpose) 
+  when Kind==deploy; Kind==generic; Kind==tstore; Kind==lstore ->
   lists:filter(
     fun(#{amount:=_,cur:=_,purpose:=P1}) ->
         P1==Purpose
     end, Payload);
 
-get_payloads(#{ver:=2, kind:=generic, payload:=Payload}=_Tx, Purpose) ->
-  lists:filter(
-    fun(#{amount:=_,cur:=_,purpose:=P1}) ->
-        P1==Purpose
-    end, Payload).
-
+get_payloads(#{ver:=2, kind:=Kind},_) ->
+  throw({unknown_kind_for_get_payloads,Kind}).
 
 rate1(#{extradata:=ED}, Cur, TxAmount, GetRateFun) ->
   #{<<"base">>:=Base,
@@ -703,7 +800,34 @@ rate2(#{body:=Body}, Cur, TxAmount, GetRateFun) ->
       tip => max(0, TxAmount - Cost)
     }}.
 
-rate(#{ver:=2, kind:=generic}=Tx, GetRateFun) ->
+%rate(#{ver:=2, kind:=deploy}=Tx, GetRateFun) ->
+%  try
+%    case get_payload(Tx, srcfee) of
+%      #{cur:=Cur, amount:=TxAmount} ->
+%        rate2(Tx, Cur, TxAmount, GetRateFun);
+%      _ ->
+%        case GetRateFun({params, <<"feeaddr">>}) of
+%          X when is_binary(X) ->
+%            {false, #{ cost=>null } };
+%          _ ->
+%            {true, #{ cost=>0, tip => 0, cur=><<"none">> }}
+%        end
+%    end
+%  catch Ec:Ee -> 
+%          file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n", 
+%                                                         [
+%                                                          Tx,
+%                                                          erlang:term_to_binary(GetRateFun)
+%                                                         ])]),
+%          S=erlang:get_stacktrace(),
+%          lager:error("Calc fee error ~p tx ~p",[{Ec,Ee},Tx]),
+%          lists:foreach(fun(SE) ->
+%                            lager:error("@ ~p", [SE])
+%                        end, S),
+%          throw('cant_calculate_fee')
+%  end;
+
+rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
   try
     case get_payload(Tx, srcfee) of
       #{cur:=Cur, amount:=TxAmount} ->
@@ -717,36 +841,22 @@ rate(#{ver:=2, kind:=generic}=Tx, GetRateFun) ->
             {true, #{ cost=>0, tip => 0, cur=><<"none">> }}
         end
     end
-  catch _:_ -> throw('cant_calculate_fee')
-  end;
-
-rate(#{ver:=2, kind:=deploy}=Tx, GetRateFun) ->
-  try
-    case get_payload(Tx, srcfee) of
-      #{cur:=Cur, amount:=TxAmount} ->
-        rate2(Tx, Cur, TxAmount, GetRateFun);
-      _ ->
-        case GetRateFun({params, <<"feeaddr">>}) of
-          X when is_binary(X) ->
-            {false, #{ cost=>null } };
-          _ ->
-            {true, #{ cost=>0, tip => 0, cur=><<"none">> }}
-        end
-    end
   catch Ec:Ee -> 
-          file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n", 
-                                                         [
-                                                          Tx,
-                                                          erlang:term_to_binary(GetRateFun)
-                                                         ])]),
           S=erlang:get_stacktrace(),
+          file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n~n~p.~n~n~p.~n~n~p.~n", 
+                                                         [
+                                                          Ec,
+                                                          Ee,
+                                                          S,
+                                                          Tx,
+                                                          element(2,erlang:fun_info(GetRateFun,env))
+                                                         ])]),
           lager:error("Calc fee error ~p tx ~p",[{Ec,Ee},Tx]),
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
                         end, S),
           throw('cant_calculate_fee')
   end;
-
 
 rate(#{cur:=TCur}=Tx, GetRateFun) ->
   try
