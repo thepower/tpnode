@@ -35,7 +35,7 @@ init(Args) ->
      inctl=>undefined,
      outctl=>undefined,
      clients=>[],
-     streams=>[],
+     streams=>[{0,out,undefined}],
      servers=>[],
      services=>[],
      monitors=>#{},
@@ -50,6 +50,8 @@ init_ipport(_) ->
   [].
 
 handle_call(active_out, _From, #{outctl:=OC}=State) ->
+  lager:info("Pid ~p asked me about active out ~p",
+             [_From,OD]),
   {reply,
    if is_pid(OC) ->
         is_process_alive(OC);

@@ -23,7 +23,6 @@ connection_process(Parent, Ref, Socket, Transport, Opts) ->
           peerinfo=>PeerInfo,
           timer=>undefined,
           transport=>Transport,
-          lreqid=>1,
           nodeid=> try
                      nodekey:get_pub()
                    catch _:_ -> atom_to_binary(node(),utf8)
