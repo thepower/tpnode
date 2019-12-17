@@ -166,7 +166,7 @@ handle_info(selftimer5, #{mychain:=_MyChain, tickms:=_Ms, timer5:=Tmr, offsets:=
 %      )
 %  end,
 
-  
+
   {noreply, State#{
     timer5 => erlang:send_after(5000 - (MeanMs rem 5000) + 500, self(), selftimer5),
 %    offsets => Off2,

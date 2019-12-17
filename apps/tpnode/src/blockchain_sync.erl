@@ -28,7 +28,7 @@ chainstate() ->
                         #{null=><<"sync_request">>},
                         [last_hash, last_height, chain, prev_hash, last_temp]
                        ))++[{self,gen_server:call(blockchain_reader,sync_req)}],
-  io:format("Cand ~p~n",[Candidates]),
+%  io:format("Cand ~p~n",[Candidates]),
   ChainState=lists:foldl( %first suitable will be the quickest
                fun({_, #{chain:=_HisChain,
                          %null:=<<"sync_available">>,
@@ -467,11 +467,7 @@ bbyb_sync(Hash, Handler, Candidates) ->
             end;
           false ->
             lager:error("Broken block ~s got from ~p. Sync stopped",
-                        [blkid(NewH),
-                         proplists:get_value(pubkey,
-                                             maps:get(authdata, tpic:peer(Handler), [])
-                                            )
-                        ]),
+                        [blkid(NewH), Handler]),
             %%              erlang:send_after(10000, self(), runsync), % chainkeeper do that
             stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_broken_block} ]),
 
@@ -571,7 +567,7 @@ mychain(State) ->
               }).
 
 tpiccall(Handler, Object, Atoms) ->
-  Res=tpic:call(tpic, Handler, msgpack:pack(Object)),
+  Res=tpic2:call(Handler, msgpack:pack(Object)),
   lists:filtermap(
     fun({Peer, Bin}) ->
         case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of

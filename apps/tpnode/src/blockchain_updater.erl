@@ -7,6 +7,7 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
+-export([new_block/1, new_sig/2]).
 -export([apply_block_conf/2,
          apply_block_conf_meta/2,
          apply_ledger/2,
@@ -25,6 +26,12 @@
 
 start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+new_block(Blk) ->
+  gen_server:cast(blockchain_updater, {new_block, Blk, self()}).
+
+new_sig(BlockHash, Sigs) ->
+  gen_server:cast(blockchain_updater, {signature, BlockHash, Sigs}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -284,7 +291,7 @@ handle_call({new_block, #{hash:=BlockHash,
                             ]),
 
                   lastblock2ets(BTable, MBlk),
-                  tpic:cast(tpic, <<"blockchain">>,
+                  tpic2:cast(<<"blockchain">>,
                             {<<"chainkeeper">>,
                              msgpack:pack(
                                #{
@@ -427,7 +434,7 @@ handle_call({new_block, #{hash:=BlockHash,
                     end, 0, block:outward_mk(MBlk)),
                   gen_server:cast(txpool,{new_height, Hei}),
                   gen_server:cast(txqueue,{new_height, Hei}),
-                  tpic:cast(tpic, <<"blockchain">>,
+                  tpic2:cast(<<"blockchain">>,
                             {<<"chainkeeper">>,
                              msgpack:pack(
                                #{

@@ -89,7 +89,7 @@ put_cur(Currency, Value, #{amount:=A}=Bal) ->
       Bal;
     _ ->
       Bal#{
-        amount => A#{ Currency => Value},
+        amount => A#{ Currency => trunc(Value)},
         changes=>[amount|maps:get(changes, Bal, [])]
        }
   end.

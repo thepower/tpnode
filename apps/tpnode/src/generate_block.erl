@@ -1055,7 +1055,7 @@ try_process_outbound([{TxID,
                     }
                 end,
     NewAddresses=maps:put(From, NewF, Addresses),
-    Tx1=case GotGas of 
+    Tx1=case GotGas of
           {_,0,_} -> tx:del_ext(<<"xc_gas">>, Tx);
           {GasCur, GasAmount, _} ->
             tx:set_ext(<<"xc_gas">>, [GasCur, GasAmount], Tx)
@@ -1140,7 +1140,7 @@ try_process_local([{TxID,
                                  )
                          )
                  )
-    catch 
+    catch
       throw:insufficient_gas ->
         AddressesWoGas=maps:put(From, GasF, Addresses),
         try_process(Rest, SetState, AddressesWoGas, GetFun,
@@ -1152,7 +1152,7 @@ try_process_local([{TxID,
                    )
 
     end
-  catch 
+  catch
     error:{badkey,From} ->
       try_process(Rest, SetState, Addresses, GetFun,
                   Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
@@ -1167,12 +1167,12 @@ try_process_local([{TxID,
 savegas({Cur, Amount1, Rate1}, all, Acc) ->
   savegas({Cur, Amount1, Rate1}, {Cur, 0, Rate1}, Acc);
 
-savegas({Cur, Amount1, _}, {Cur, Amount2, _}, 
+savegas({Cur, Amount1, _}, {Cur, Amount2, _},
         #{fee:=FeeBal}=Acc) ->
   lager:info("save gas ~s ~w ~w",[Cur,Amount1, Amount2]),
   if Amount1-Amount2 > 0 ->
        Acc#{
-         fee=>bal:put_cur(Cur, Amount1-Amount2 + 
+         fee=>bal:put_cur(Cur, Amount1-Amount2 +
                           bal:get_cur(Cur, FeeBal), FeeBal)
         };
      true ->
@@ -1188,7 +1188,16 @@ savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
     tip=>bal:put_cur(Cur, Tip+bal:get_cur(Cur, TipBal), TipBal)
    }.
 
-deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, _Settings, GasLimit) ->
+gas_plus_int({Cur,Amount, Rate}, Int, false) ->
+  {Cur, Amount+(Int/Rate), Rate};
+
+gas_plus_int({Cur,Amount, Rate}, Int, true) ->
+  {Cur, trunc(Amount+(Int/Rate)), Rate}.
+
+is_gas_left({_,Amount,_Rate}) ->
+  Amount>0.
+
+deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit) ->
   NewT=maps:remove(keep,
                    lists:foldl(
                      fun(#{amount:=Amount, cur:= Cur}, TBal) ->
@@ -1199,8 +1208,33 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, _Settings, GasLimit) ->
     undefined ->
       {NewT, [], GasLimit};
     VMType ->
-      lager:info("Smartcontract ~p gas ~p", [VMType, GasLimit]),
-      {L1, TXs, GasLeft}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
+      FreeGas=case settings:get([<<"current">>, <<"freegas">>], Settings) of
+                N when is_integer(N), N>0 -> N;
+                _ -> 0
+              end,
+      lager:info("Smartcontract ~p gas ~p free gas ~p", [VMType, GasLimit, FreeGas]),
+      {L1, TXs, GasLeft} =
+            if FreeGas > 0 ->
+                 GasWithFree=gas_plus_int(GasLimit,FreeGas,false),
+                 lager:info("Run with free gas ~p+~p=~p",
+                            [GasLimit,FreeGas,GasWithFree]),
+                 {L1x,TXsx,GasLeftx} =
+                       smartcontract:run(VMType, Tx, NewT,
+                                         GasWithFree,
+                                         GetFun),
+                 TakenFree=gas_plus_int(GasLeftx,-FreeGas,true),
+                 case is_gas_left(TakenFree) of
+                   true ->
+                     lager:info("Gas left ~p, take back free gas and return ~p",
+                                [GasLeftx,TakenFree]),
+                     {L1x,TXsx,TakenFree};
+                   false ->
+                     lager:info("Gas left ~p, return nothing",[GasLeftx]),
+                     {L1x,TXsx,{<<"NONE">>,0,1}}
+                 end;
+               true ->
+                 smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun)
+            end,
       {L1, lists:map(
              fun(#{seq:=Seq}=ETx) ->
                  H=base64:encode(crypto:hash(sha, bal:get(state, TBal0))),
@@ -1321,7 +1355,7 @@ withdraw(FBal0,
                                    end,
                          {FeeOK,Rate}=tx:rate(Tx, GetFeeFun),
                          if FeeOK -> ok;
-                            true -> 
+                            true ->
                               #{cost:=MinCost}=Rate,
                               throw ({'insufficient_fee', MinCost})
                          end,
@@ -1343,7 +1377,7 @@ withdraw(FBal0,
                                    Acc
                                end;
                               (_,Res) -> Res
-                           end, {[], {<<"NONE">>,0,1}}, 
+                           end, {[], {<<"NONE">>,0,1}},
                            tx:get_payloads(Tx,gas)
                           )
                      end,
@@ -1355,7 +1389,7 @@ withdraw(FBal0,
                      ok;
                    true ->
                      throw ('bad_amount')
-                end, 
+                end,
                 CurFAmount=bal:get_cur(Cur, FBal),
                 NewFAmount=if CurFAmount >= Amount ->
                                 CurFAmount - Amount;
@@ -1367,10 +1401,10 @@ withdraw(FBal0,
                                     throw ('insufficient_fund')
                                 end
                            end,
-                bal:put_cur(Cur, 
+                bal:put_cur(Cur,
                             NewFAmount,
                             FBal)
-                
+               
             end,
     ToTransfer=tx:get_payloads(Tx,transfer),
 

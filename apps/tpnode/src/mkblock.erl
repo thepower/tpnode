@@ -84,7 +84,7 @@ handle_cast({tpic, FromKey, #{
        }}
   end;
 
-handle_cast({tpic, Origin, #{
+handle_cast({tpic, FromKey, #{
                      null:=<<"mkblock">>,
                      <<"chain">>:=_MsgChain,
                      <<"txs">>:=TPICTXs
@@ -94,7 +94,7 @@ handle_cast({tpic, Origin, #{
      true ->
        lager:info("Got txs from ~s: ~p",
             [
-             chainsettings:is_our_node(Origin),
+             chainsettings:is_our_node(FromKey),
              TXs
             ])
   end,
@@ -102,7 +102,7 @@ handle_cast({tpic, Origin, #{
   Timestamp=maps:get(<<"timestamp">>,Msg,undefined),
   case maps:find(<<"lastblk">>,Msg) of
     error ->
-      handle_cast({prepare, Origin, TXs, undefined, Entropy, Timestamp}, State);
+      handle_cast({prepare, FromKey, TXs, undefined, Entropy, Timestamp}, State);
     {ok, Bin} ->
       PreBlk=block:unpack(Bin),
       MS=chainsettings:get_val(minsig),
@@ -114,8 +114,8 @@ handle_cast({tpic, Origin, #{
       case block:verify(PreBlk, [hdronly, {checksig, CheckFun}]) of
         {true, {Sigs,_}} when length(Sigs) >= MS ->
           % valid block, enough sigs
-          lager:info("Got blk from peer ~p",[PreBlk]),
-          handle_cast({prepare, Origin, TXs, HeiHas, Entropy, Timestamp}, State);
+          lager:debug("Got blk from peer ~p",[PreBlk]),
+          handle_cast({prepare, FromKey, TXs, HeiHas, Entropy, Timestamp}, State);
         {true, _ } ->
           % valid block, not enough sigs
           {noreply, State};

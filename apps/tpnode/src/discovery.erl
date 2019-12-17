@@ -970,12 +970,12 @@ xchain_relay_announce(SentXchain, _Throttle, Announce, _AnnounceBin) ->
 % --------------------------------------------------------
 send_service_announce(local, AnnounceBin) ->
 %%    lager:debug("send tpic announce ~p", [AnnounceBin]),
-    tpic:cast(tpic, service, {<<"discovery">>, AnnounceBin});
+    tpic2:cast(0, {<<"discovery">>, AnnounceBin});
 
 send_service_announce(Announce, AnnounceBin) ->
 %%    lager:debug("send tpic announce ~p", [AnnounceBin]),
     gen_server:cast(xchain_client, {discovery, Announce, AnnounceBin}),
-    tpic:cast(tpic, service, {<<"discovery">>, AnnounceBin}).
+    tpic2:cast(0, {<<"discovery">>, AnnounceBin}).
 
 
 % --------------------------------------------------------

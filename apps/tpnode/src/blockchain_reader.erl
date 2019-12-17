@@ -181,14 +181,14 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
 
   case maps:is_key(block, R) of
     false ->
-      tpic:cast(tpic, Origin,
-                msgpack:pack(
-                  maps:merge(
-                    #{
-                    null=> <<"block">>,
-                    req=> #{<<"hash">> => Hash,
-                            <<"rel">> => MyRel}
-                   }, R))),
+      tpic2:cast(Origin,
+                 msgpack:pack(
+                   maps:merge(
+                     #{
+                     null=> <<"block">>,
+                     req=> #{<<"hash">> => Hash,
+                             <<"rel">> => MyRel}
+                    }, R))),
       {noreply, State};
 
     true ->
@@ -208,7 +208,7 @@ handle_cast({tpic, Origin, #{null:=<<"instant_sync_run">>}},
 
 handle_cast({tpic, Origin, #{null:=<<"sync_request">>}}, State) ->
   MaySync=sync_req(State),
-  tpic:cast(tpic, Origin, msgpack:pack(MaySync)),
+  tpic2:cast(Origin, msgpack:pack(MaySync)),
   {noreply, State};
 
 handle_cast({tpic, Origin, #{null := <<"sync_block">>,
@@ -225,15 +225,15 @@ handle_cast({tpic, Peer, #{null := <<"continue_sync">>,
   case ldb:read_key(LDB, <<"block:", BlkId/binary>>, undefined) of
     undefined ->
       lager:info("SYNC done at ~s", [blkid(BlkId)]),
-      tpic:cast(tpic, Peer, msgpack:pack(#{null=><<"sync_done">>}));
+      tpic2:cast(Peer, msgpack:pack(#{null=><<"sync_done">>}));
     #{header:=#{}, child:=Child}=_Block ->
       lager:info("SYNC next block ~s to ~p", [blkid(Child), Peer]),
       handle_cast({continue_syncc, Child, Peer, NextB}, State);
     #{header:=#{}}=Block ->
       lager:info("SYNC last block ~p to ~p", [Block, Peer]),
-      tpic:cast(tpic, Peer, msgpack:pack(#{null=><<"sync_block">>,
+      tpic2:cast(Peer, msgpack:pack(#{null=><<"sync_block">>,
                                            block=>block:pack(Block)})),
-      tpic:cast(tpic, Peer, msgpack:pack(#{null=><<"sync_done">>}))
+      tpic2:cast(Peer, msgpack:pack(#{null=><<"sync_done">>}))
   end,
   {noreply, State};
 
@@ -243,14 +243,14 @@ handle_cast({continue_syncc, BlkId, Peer, NextB}, #{ldb:=LDB,
   case ldb:read_key(LDB, <<"block:", BlkId/binary>>, undefined) of
     _ when BlkId == LastHash ->
       lager:info("SYNCC last block ~s from state", [blkid(BlkId)]),
-      tpic:cast(tpic, Peer, msgpack:pack(
+      tpic2:cast(Peer, msgpack:pack(
                               #{null=><<"sync_block">>,
                                 block=>block:pack(LastBlock)})),
-      tpic:cast(tpic, Peer, msgpack:pack(
+      tpic2:cast(Peer, msgpack:pack(
                               #{null=><<"sync_done">>}));
     undefined ->
       lager:info("SYNCC done at ~s", [blkid(BlkId)]),
-      tpic:cast(tpic, Peer, msgpack:pack(
+      tpic2:cast(Peer, msgpack:pack(
                               #{null=><<"sync_done">>}));
     #{header:=#{height:=H}, child:=Child}=Block ->
       P=msgpack:pack(
@@ -258,19 +258,19 @@ handle_cast({continue_syncc, BlkId, Peer, NextB}, #{ldb:=LDB,
             block=>block:pack(Block)}),
       lager:info("SYNCC send block ~w ~s ~w bytes to ~p",
                  [H, blkid(BlkId), size(P), Peer]),
-      tpic:cast(tpic, Peer, P),
+      tpic2:cast(Peer, P),
 
       if NextB > 1 ->
            gen_server:cast(self(), {continue_syncc, Child, Peer, NextB-1});
          true ->
            lager:info("SYNCC pause ~p", [BlkId]),
-           tpic:cast(tpic, Peer, msgpack:pack(
+           tpic2:cast(Peer, msgpack:pack(
                                    #{null=><<"sync_suspend">>,
                                      <<"block">>=>BlkId}))
       end;
     #{header:=#{}}=Block ->
       lager:info("SYNCC last block at ~s", [blkid(BlkId)]),
-      tpic:cast(tpic, Peer, msgpack:pack(
+      tpic2:cast(Peer, msgpack:pack(
                               #{null=><<"sync_block">>,
                                 block=>block:pack(Block)})),
       if (BlkId==LastHash) ->
@@ -278,7 +278,7 @@ handle_cast({continue_syncc, BlkId, Peer, NextB}, #{ldb:=LDB,
          true ->
            lager:info("SYNC Not really last")
       end,
-      tpic:cast(tpic, Peer, msgpack:pack(#{null=><<"sync_done">>}))
+      tpic2:cast(Peer, msgpack:pack(#{null=><<"sync_done">>}))
   end,
   {noreply, State};
 
@@ -291,7 +291,7 @@ handle_cast({tpic, Peer, #{null := <<"sync_suspend">>,
   lager:info("MyLastBlock ~p", [maps:get(header, LastBlock)]),
   if(BlkId == LastHash) ->
       lager:info("Last block matched, continue sync"),
-      tpic:cast(tpic, Peer, msgpack:pack(#{
+      tpic2:cast(Peer, msgpack:pack(#{
                               null=><<"continue_sync">>,
                               <<"block">>=>LastHash,
                               <<"cnt">>=>2})),
@@ -323,7 +323,7 @@ handle_cast({tpic, From, #{
                     }},
             #{mychain:=MC, lastblock:=#{header:=#{height:=H},
                                         hash:=Hash }}=State) ->
-  tpic:cast(tpic, From, msgpack:pack(#{null=><<"response">>,
+  tpic2:cast(From, msgpack:pack(#{null=><<"response">>,
                                        mychain=>MC,
                                        height=>H,
                                        hash=>Hash
@@ -362,15 +362,15 @@ send_block(TPIC, PeerID, Map, Arr) ->
   spawn(?MODULE,send_block_real,[TPIC, PeerID, Map, Arr]),
   ok.
 
-send_block_real(TPIC, PeerID, Map, [BlockHead]) ->
-  tpic:cast(TPIC, PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead})));
-send_block_real(TPIC, PeerID, Map, [BlockHead|BlockTail]) ->
-  tpic:cast(TPIC, PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead}))),
+send_block_real(_TPIC, PeerID, Map, [BlockHead]) ->
+  tpic2:cast(PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead})));
+send_block_real(_TPIC, PeerID, Map, [BlockHead|BlockTail]) ->
+  tpic2:cast(PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead}))),
   receive
-    {'$gen_cast', {TPIC, PeerID, Bin}} ->
+    {'$gen_cast', {tpic, PeerID, Bin}} ->
       case msgpack:unpack(Bin) of
         {ok, #{null := <<"pick_next_part">>}} ->
-          send_block_real(TPIC, PeerID, Map, BlockTail);
+          send_block_real(tpic, PeerID, Map, BlockTail);
         {error, _} ->
           error
       end;
@@ -388,11 +388,7 @@ blkid(X) ->
 
 rewind(LDB, BlkNo) ->
   CurBlk=ldb:read_key(LDB, <<"lastblock">>, <<0, 0, 0, 0, 0, 0, 0, 0>>),
-  if(BlkNo<0) ->
-      rewind(LDB, BlkNo-1, CurBlk);
-    true ->
-      rewind(LDB, BlkNo, CurBlk)
-  end.
+  rewind(LDB, BlkNo, CurBlk).
 
 rewind(LDB, BlkNo, CurBlk) ->
   case ldb:read_key(LDB,

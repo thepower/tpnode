@@ -1027,8 +1027,8 @@ find_tallest(TPIC, Chain, Opts) ->
 %%tpiccall(Handler, Object, Atoms) ->
 %%  tpiccall(tpic, Handler, Object, Atoms).
 
-tpiccall(TPIC, Handler, Object, Atoms) ->
-  Res=tpic:call(TPIC, Handler, msgpack:pack(Object)),
+tpiccall(_TPIC, Handler, Object, Atoms) ->
+  Res=tpic2:call(Handler, msgpack:pack(Object)),
   lists:filtermap(
     fun({Peer, Bin}) ->
       case msgpack:unpack(Bin, [{known_atoms, Atoms}]) of
@@ -1098,22 +1098,12 @@ resolve_assoc(AssocList) ->
 resolve_assoc(TPIC, {_, _, _} = Assoc) ->
   resolve_assoc(TPIC, [Assoc]);
 
-resolve_assoc(TPIC, AssocList) when is_list(AssocList) ->
-  Peers = tpic:peers(TPIC, AssocList),
-  Nodes =
-    case chainsettings:get_setting(chainnodes) of
-      {ok, Nodes0} -> Nodes0;
-      _ -> #{}
-    end,
+resolve_assoc(_TPIC, AssocList) when is_list(AssocList) ->
+%  lager:info("Resolve assocs ~p",[AssocList]),
+%  Peers = tpic2:peers(AssocList),
+  Nodes = case chainsettings:get_setting(chainnodes) of
+            {ok, Nodes0} -> Nodes0;
+            _ -> #{}
+          end,
+  [ maps:get(PubKey, Nodes, All) || {PubKey,_,_}=All <- AssocList ].
 
-  lists:map(
-    fun({AssocHandler, AssocData}) ->
-      case AssocData of
-        #{authdata:=AuthData} ->
-          case proplists:get_value(pubkey, AuthData, undefined) of
-            undefined -> AssocHandler;
-            PubKey -> maps:get(PubKey, Nodes, AssocHandler)
-          end;
-        _ -> AssocHandler
-      end
-    end, Peers).

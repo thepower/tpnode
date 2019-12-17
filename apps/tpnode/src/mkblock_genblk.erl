@@ -39,7 +39,7 @@ run_generate(
 
   AE=maps:get(ae, MySet, 0),
   B=blockchain:last_meta(),
-  lager:info("Got blk from our blockchain ~p",[B]),
+  lager:debug("Got blk from our blockchain ~p",[B]),
 
   {PHeight, PHash, PHeiHash}=mkblock:hei_and_has(B),
   PTmp=maps:get(temporary,B,false),
@@ -235,7 +235,7 @@ run_generate(
              <<"chain">>=>MyChain
             }
           ),
-    tpic:cast(tpic, <<"blockvote">>, HBlk),
+    tpic2:cast(<<"blockvote">>, HBlk),
     if EmitTXs==[] -> ok;
        true ->
          Push=gen_server:call(txpool, {push_etx, EmitTXs}),

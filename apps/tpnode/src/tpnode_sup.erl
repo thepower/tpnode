@@ -25,24 +25,8 @@ start_link() ->
 init([]) ->
     application:ensure_all_started(cowboy),
     application:ensure_all_started(tinymq),
-    code:ensure_loaded(tpic_checkauth),
     tpnode:reload(),
-
-    % we'll register this services-without-pid on discovery starting up
     MandatoryServices = [ api ],
-
-    {ok, TPIC0}=application:get_env(tpnode, tpic),
-    TPIC=TPIC0#{
-           ecdsa=>tpecdsa:generate_priv(),
-           authmod=>tpic_checkauth,
-           handler=>tpnode_tpic_handler,
-           routing=>#{
-             <<"timesync">>=>synchronizer,
-             <<"mkblock">>=>mkblock,
-             <<"blockvote">>=>blockvote,
-             <<"blockchain">>=>blockchain
-            }
-          },
     VMHost=case application:get_env(tpnode,vmaddr,undefined) of
              XHost when is_list(XHost) ->
                {ok,Tuple}=inet:parse_address(XHost),
@@ -68,7 +52,7 @@ init([]) ->
               []
           end,
 
-		Discovery=#{name=>discovery, services=>MandatoryServices},
+    Discovery=#{name=>discovery, services=>MandatoryServices},
     Childs=[
             { rdb_dispatcher, {rdb_dispatcher, start_link, []},
               permanent, 5000, worker, []},
@@ -93,25 +77,22 @@ init([]) ->
 
             { mkblock, {mkblock, start_link, []},
               permanent, 5000, worker, []},
-        
+
             { txqueue, {txqueue, start_link, []},
               permanent, 5000, worker, []},
-        
+
             { txstorage, {txstorage, start_link, [#{}]},
               permanent, 5000, worker, []},
-      
+
             { txpool, {txpool, start_link, []},
               permanent, 5000, worker, []},
 
             { txstatus, {txstatus, start_link, [txstatus]},
               permanent, 5000, worker, []},
 
-            { tpic_sctp, {tpic_sctp, start_link, [TPIC]},
-              permanent, 5000, worker, []},
-
             { topology, {topology, start_link, []},
               permanent, 5000, worker, []},
-      
+
             { ledger, {ledger, start_link, []},
               permanent, 5000, worker, []},
 
@@ -129,15 +110,16 @@ init([]) ->
 
             { tpnode_cert, {tpnode_cert, start_link, []},
               permanent, 5000, worker, []},
-  
+
             { chainkeeper, {chainkeeper, start_link, []},
               permanent, 5000, worker, []},
-        
+
             { tpnode_vmsrv, {tpnode_vmsrv, start_link, []},
               permanent, 5000, worker, []}
 
            ] ++ VM_CS
             ++ xchain:childspec()
+            ++ tpic2:childspec()
             ++ tpnode_vmproto:childspec(VMHost, VMPort)
             ++ tpnode_http:childspec(),
     {ok, { {one_for_one, 5, 10}, Childs } }.
