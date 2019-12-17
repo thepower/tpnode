@@ -16,6 +16,7 @@
       cowdb,
       mkmap,
       tables,
+      tpic2,
       stout
     ]},
     {mod, {tpnode, []}},

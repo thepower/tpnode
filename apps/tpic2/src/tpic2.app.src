@@ -9,7 +9,7 @@
   {env,[]},
   {modules, []},
 
-  {mod, {tpic2_test, []}},
+%  {mod, {tpic2_test, []}},
   {maintainers, []},
   {licenses, ["Apache 2.0"]},
   {links, []}
