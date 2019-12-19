@@ -251,7 +251,7 @@ cert(Key, Subject) ->
   H=erlang:open_port(
       {spawn_executable, "/usr/local/bin/openssl"},
       [{args, [
-               "req", "-x509",
+               "req", "-new", "-x509",
                "-key", "/dev/stdin",
                "-days", "100",
                "-nodes", "-subj", "/CN="++binary_to_list(Subject)
@@ -270,6 +270,8 @@ cert_loop(Handle) ->
       <<Msg/binary,(cert_loop(Handle))/binary>>;
     {Handle, eof} ->
       <<>>
+  after 10000 ->
+          throw("Cant get certificate from openssl")
   end.
 
 extract_cert_info(
