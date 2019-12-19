@@ -56,13 +56,15 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
       {IP, Port} = maps:get(address, State),
       WhatToDo=if Stream == 0 ->
            case gen_server:call(tpic2_cmgr,{peer, Pubkey, active_out}) of
-             true ->
+             false ->
+               ok;
+             Pid when Pid == self() ->
+               ok;
+             Pid when is_pid(Pid) ->
                gen_server:call(tpic2_cmgr,{peer, Pubkey, {add, IP, Port}}),
                lager:info("Add address ~p:~p to peer and shutdown",[IP,Port]),
                Transport:close(Socket),
-               shutdown;
-             false ->
-               ok
+               shutdown
            end;
          true -> ok
       end,

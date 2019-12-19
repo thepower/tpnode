@@ -53,10 +53,11 @@ handle_call(active_out, _From, #{outctl:=OC}=State) ->
   lager:info("Pid ~p asked me about active out ~p",
              [_From,OC]),
   {reply,
-   if is_pid(OC) ->
-        is_process_alive(OC);
-      true ->
-        false
+   case is_pid(OC) andalso is_process_alive(OC) of
+     true ->
+       OC;
+     false ->
+       false
    end, State};
 
 handle_call(info, _From, #{streams:=Streams,
