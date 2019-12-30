@@ -60,6 +60,9 @@ handle_call(active_out, _From, #{outctl:=OC}=State) ->
        false
    end, State};
 
+handle_call(addr, _From, #{peer_ipport:=IPP}=State) ->
+  {reply, IPP, State};
+
 handle_call(info, _From, #{streams:=Streams,
                            pubkey:=PK,
                            peer_ipport:=IPP}=State) ->

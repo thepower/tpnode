@@ -91,12 +91,17 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(cleanup, #{cleanup:=ClTmr}=State) ->
+handle_info(cleanup, #{cleanup:=ClTmr,peers:=P}=State) ->
   erlang:cancel_timer(ClTmr),
   ets:select_delete(tpic2_trans,
                     [{{'$1','$2','$3'},
                       [{'<','$3',{const,os:system_time(second)}}],
                       [true]}]),
+  PeersAddrs=maps:fold(fun(Key,PID,Acc) ->
+                           [{Key,gen_server:call(PID,addr)}|Acc]
+                       end,[],P),
+
+  file:write_file(peers_db(), io_lib:format("~p.~n",[PeersAddrs])),
   {noreply,
    State#{
      cleanup=>erlang:send_after(30000,self(), cleanup)
@@ -104,11 +109,24 @@ handle_info(cleanup, #{cleanup:=ClTmr}=State) ->
   };
 
 handle_info(init_peers, State) ->
-  Peers=maps:get(peers,application:get_env(tpnode,tpic,#{}),[]),
-  lists:foreach(fun({Host,Port}) ->
-                    tpic2_client:start(Host,Port,#{})
-                end, Peers),
-  {noreply, State};
+  try
+    {ok,[DBPeers]}=file:consult(peers_db()),
+    State1=lists:foldl(
+             fun({PubKey,IPS},Acc) ->
+                 {PID, Acc1}=get_conn(PubKey, Acc),
+                 lists:foreach(fun({IP,Port}) ->
+                                   gen_server:call(PID,{add,IP,Port})
+                               end, IPS),
+                 Acc1
+             end, State, DBPeers),
+    {noreply, State1}
+  catch _:_ ->
+          Peers=maps:get(peers,application:get_env(tpnode,tpic,#{}),[]),
+          lists:foreach(fun({Host,Port}) ->
+                            tpic2_client:start(Host,Port,#{})
+                        end, Peers),
+          {noreply, State}
+  end;
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -122,6 +140,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+peers_db() ->
+  "db/peers_" ++ atom_to_list(node()).
 
 get_conn(PubKey, #{peers:=P}=State) ->
   case maps:find(PubKey, P) of
