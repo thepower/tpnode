@@ -102,8 +102,9 @@ handle_request(Method, Path, Req, Target, Format, _Opts) ->
       {500, #{error=>list_to_binary(MSG)}};
     throw:{return, MSG} ->
       {500, #{error=>MSG}};
-    error:function_clause ->
-      case erlang:get_stacktrace() of
+    error:function_clause:S ->
+%      case erlang:get_stacktrace() of
+      case S of
 %				[{Target, h, _, _}|_] ->
         [{_, h, _, _} | _] ->
           ReqPath = cowboy_req:path(Req),
@@ -126,8 +127,9 @@ handle_request(Method, Path, Req, Target, Format, _Opts) ->
             stack=>ST}
           }
       end;
-    error:badarg ->
-      case erlang:get_stacktrace() of
+    error:badarg:S ->
+      case S of
+      %case erlang:get_stacktrace() of
         [{erlang, binary_to_integer, [A | _], _FL} | _] ->
           {500, #{
             error => bad_integer,
@@ -139,9 +141,10 @@ handle_request(Method, Path, Req, Target, Format, _Opts) ->
           ST = format_stack(Any),
           {500, #{error=>unknown, format=>Format, ecee=>EcEe, stack=>ST}}
       end;
-    Ec:Ee ->
+    Ec:Ee:S ->
+      %S=erlang:get_stacktrace(),
       EcEe = iolist_to_binary(io_lib:format("~p:~p", [Ec, Ee])),
-      ST = format_stack(erlang:get_stacktrace()),
+      ST = format_stack(S),
       {500, #{error=>unknown, format=>Format, ecee=>EcEe, stack=>ST}}
   end.
 

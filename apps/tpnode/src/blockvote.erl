@@ -324,8 +324,7 @@ is_block_ready(BlockHash, State) ->
   catch throw:{notready, Where} ->
         lager:info("Not ready ~s ~p", [blkid(BlockHash), Where]),
         State;
-      Ec:Ee ->
-        S=erlang:get_stacktrace(),
+      Ec:Ee:S ->
         lager:error("BV New_block error ~p:~p", [Ec, Ee]),
         lists:foreach(
         fun(Se) ->

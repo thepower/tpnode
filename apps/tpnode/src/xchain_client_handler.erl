@@ -37,8 +37,8 @@ handle_xchain({outward_block, FromChain, ToChain, BinBlock}, _ConnPid, Sub) when
     try
         Filename="tmp/inward_block." ++ integer_to_list(FromChain) ++ ".txt",
         file:write_file(Filename, io_lib:format("~p.~n", [Block]))
-    catch Ec:Ee ->
-        S=erlang:get_stacktrace(),
+    catch Ec:Ee:S ->
+        %S=erlang:get_stacktrace(),
         lager:error("Can't dump inward block ~p:~p at ~p",
             [Ec, Ee, hd(S)])
     end,

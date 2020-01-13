@@ -146,8 +146,8 @@ ensure_wallet_exist(Address, EndlessCur) ->
     try
       tpapi:get_wallet_info(Address, get_base_url())
     catch
-      Ec:Ee ->
-        utils:print_error("error getting wallet data", Ec, Ee, erlang:get_stacktrace()),
+      Ec:Ee:S ->
+        utils:print_error("error getting wallet data", Ec, Ee, S),
         logger("Wallet not exists: ~p", [Address]),
         undefined
     end,

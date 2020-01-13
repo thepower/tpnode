@@ -676,7 +676,7 @@ lookup(Name, Chain) ->
     try
         gen_server:call(Discovery, {lookup, Name, Chain})
     catch
-        exit:{timeout, Details} = Reason ->
+        exit:{timeout, Details} = Reason:S ->
             StackTrace = erlang:process_info(Discovery, current_stacktrace),
             ProcInfo = erlang:process_info(Discovery),
             QLen = proplists:get_value(message_queue_len, ProcInfo),
@@ -684,7 +684,8 @@ lookup(Name, Chain) ->
             lager:error("message_queue_len: ~p", [QLen]),
             lager:error("process info: ~p", [ProcInfo]),
             lager:error("stack trace: ~p", [StackTrace]),
-            erlang:raise(exit, Reason, erlang:get_stacktrace())
+            %S=erlang:get_stacktrace(),
+            erlang:raise(exit, Reason, S)
     end.
 
 % --------------------------------------------------------

@@ -116,8 +116,9 @@ handle_call({new_tx, BinTx}, _From, #{sync_timer:=Tmr, queue:=Queue}=State)
                 {reply, {error, Err}, State}
         end
     catch
-      Ec:Ee ->
-        utils:print_error("error while processing new tx", Ec, Ee, erlang:get_stacktrace()),
+      Ec:Ee:S ->
+        %S=erlang:get_stacktrace(),
+        utils:print_error("error while processing new tx", Ec, Ee, S),
         {reply, {error, {Ec, Ee}}, State}
     end;
 

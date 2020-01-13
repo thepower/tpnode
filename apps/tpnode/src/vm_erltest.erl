@@ -85,8 +85,8 @@ handle_req(Seq, #{null:="exec",
                             },
                            State)
   end
-  catch Ec:Ee ->
-          S=erlang:get_stacktrace(),
+  catch Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
           lager:error("Error ~p:~p", [Ec, Ee]),
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])

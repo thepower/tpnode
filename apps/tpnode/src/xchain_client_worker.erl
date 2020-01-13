@@ -110,9 +110,9 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
       Parent ! {wrk_down, self(), error},
       lager:debug("connection to ~p was timed out", [Sub]),
       pass;
-    Ec:Ee ->
+    Ec:Ee:S ->
           Parent ! {wrk_down, self(), error},
-          S=erlang:get_stacktrace(),
+          %S=erlang:get_stacktrace(),
           lager:error("xchain client error ~p:~p",[Ec,Ee]),
           lists:foreach(
             fun(SE) ->

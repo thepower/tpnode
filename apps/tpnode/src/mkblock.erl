@@ -168,8 +168,9 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
              catch
                throw:no_transaction ->
                  null;
-               _Ec:_Ee ->
-                 utils:print_error("Error", _Ec, _Ee, erlang:get_stacktrace()),
+               _Ec:_Ee:S ->
+                 %S=erlang:get_stacktrace(),
+                 utils:print_error("Error", _Ec, _Ee, S),
                  file:write_file(
                    "tmp/mkblk_badsig_" ++ binary_to_list(nodekey:node_id()),
                    io_lib:format("~p.~n", [TxBody])

@@ -422,8 +422,8 @@ handle_call({new_block, #{hash:=BlockHash,
                              ChainID,
                              block:pack(OutBlock)
                             })
-                        catch XEc:XEe ->
-                                S=erlang:get_stacktrace(),
+                        catch XEc:XEe:S ->
+                                %S=erlang:get_stacktrace(),
                                 lager:error("Can't publish outward block: ~p:~p",
                                             [XEc, XEe]),
                                 lists:foreach(
@@ -479,8 +479,8 @@ handle_call({new_block, #{hash:=BlockHash,
           {reply, {ok, ignore}, State};
         throw:{error, Descr} ->
           {reply, {error, Descr}, State};
-        Ec:Ee ->
-          S=erlang:get_stacktrace(),
+        Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
           lager:error("BC new_block error ~p:~p", [Ec, Ee]),
           lists:foreach(
             fun(Se) ->

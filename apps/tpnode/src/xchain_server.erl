@@ -37,8 +37,8 @@ websocket_handle({binary, Bin}, #{proto:=P}=State) ->
         {reply, {binary, xchain:pack(Answer, P)}, State}
     end
   catch
-    Ec:Ee ->
-      S = erlang:get_stacktrace(),
+    Ec:Ee:S ->
+      %S = erlang:get_stacktrace(),
       lager:error("xchain server ws parse error ~p:~p ~p", [Ec, Ee, Bin]),
       lists:foreach(
         fun(Se) ->

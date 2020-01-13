@@ -20,8 +20,8 @@ main(_) ->
         main1(ok),
         io:format("done.~n")
     catch
-        Ec:Ee ->
-            print_error("error", Ec, Ee, erlang:get_stacktrace()),
+        Ec:Ee:S ->
+            print_error("error", Ec, Ee, S),
             ok
     end.
 

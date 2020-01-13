@@ -89,8 +89,8 @@ try_process([], Settings, Addresses, GetFun,
       emit=>Emit ++ NewEmit,
       new_settings => Settings
     }
-  catch _Ec:_Ee ->
-          S=erlang:get_stacktrace(),
+  catch _Ec:_Ee:S ->
+          %S=erlang:get_stacktrace(),
         lager:error("Can't save fees: ~p:~p", [_Ec, _Ee]),
         lists:foreach(fun(E) ->
                   lager:info("Can't save fee at ~p", [E])
@@ -191,8 +191,8 @@ try_process([{BlID, #{ hash:=BHash,
                       Acc#{
                         failed=>[{BlID, Ee}|Failed]
                        });
-        Ec:Ee ->
-          S=erlang:get_stacktrace(),
+        Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
           lager:info("Fail to process inbound block ~p ~p:~p",
                      [BlID, Ec, Ee]),
           lists:foreach(fun(SE) ->
@@ -234,8 +234,8 @@ try_process([{TxID,
                       Acc#{
                         failed=>[{TxID, Ee}|Failed]
                        });
-        Ec:Ee ->
-          S=erlang:get_stacktrace(),
+        Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
           lager:info("Fail to Patch ~p ~p:~p against settings ~p",
                      [_LPatch, Ec, Ee, SetState]),
           lager:info("at ~p", [S]),
@@ -276,8 +276,8 @@ try_process([{TxID, #{ver:=2,
                       Acc#{
                         failed=>[{TxID, Ee}|Failed]
                        });
-        Ec:Ee ->
-          S=erlang:get_stacktrace(),
+        Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
           lager:info("Fail to Patch ~p ~p:~p against settings ~p",
                      [_LPatch, Ec, Ee, SetState]),
           lager:info("at ~p", [S]),
@@ -394,8 +394,8 @@ try_process([{TxID, #{
   catch error:{badkey,Owner} ->
           try_process(Rest, SetState, Addresses, GetFun,
                       Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
-        Ec:Ee ->
-          S=erlang:get_stacktrace(),
+        Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
           lager:info("LStore failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
@@ -441,8 +441,8 @@ try_process([{TxID, #{
   catch error:{badkey,Owner} ->
           try_process(Rest, SetState, Addresses, GetFun,
                       Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
-        Ec:Ee ->
-          S=erlang:get_stacktrace(),
+        Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
           lager:info("TStore failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
@@ -574,8 +574,8 @@ try_process([{TxID, #{
           lager:info("Contract deploy failed ~p", [X]),
           try_process(Rest, SetState, Addresses, GetFun,
                       Acc#{failed=>[{TxID, X}|Failed]});
-        Ec:Ee ->
-          S=erlang:get_stacktrace(),
+        Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
           lager:info("Contract deploy failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
@@ -637,8 +637,8 @@ try_process([{TxID, #{
           lager:info("Contract deploy failed ~p", [X]),
           try_process(Rest, SetState, Addresses, GetFun,
                       Acc#{failed=>[{TxID, X}|Failed]});
-        Ec:Ee ->
-          S=erlang:get_stacktrace(),
+        Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
           lager:info("Contract deploy failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
@@ -1437,8 +1437,8 @@ withdraw(FBal0,
            end,
 
     {NewBal, FBalAfterGas, GotFee, GotGas}
-  catch error:Ee ->
-          S=erlang:get_stacktrace(),
+  catch error:Ee:S ->
+          %S=erlang:get_stacktrace(),
           lager:error("Withdrawal error ~p tx ~p",[Ee,Tx]),
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])

@@ -151,8 +151,8 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
         throw({'run_failed', other})
     end
   catch 
-    Ec:Ee when Ec=/=throw ->
-          S=erlang:get_stacktrace(),
+    Ec:Ee:S when Ec=/=throw ->
+          %S=erlang:get_stacktrace(),
           lager:error("Can't run contract ~p:~p @ ~p",
                       [Ec, Ee, hd(S)]),
           throw({'contract_error', [Ec, Ee]})

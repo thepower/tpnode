@@ -224,8 +224,9 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
     tpic2:cast(<<"mkblock">>, MRes),
     stout:log(txqueue_mkblock, [{ids, TxIds}, {lbh, LBH}])
   catch
-    Ec1:Ee1 ->
-      utils:print_error("Can't encode", Ec1, Ee1, erlang:get_stacktrace())
+    Ec1:Ee1:S1 ->
+      %S1=erlang:get_stacktrace(),
+      utils:print_error("Can't encode", Ec1, Ee1, S1)
   end,
 
   {noreply,

@@ -246,10 +246,11 @@ check_cert_expire(CertFile) ->
     {not_found, Reason} ->
       lager:error("can't read certificate: ~p ~p", [CertFile, Reason]),
       not_found;
-    Ee:Ec ->
+    Ee:Ec:S ->
+      %S=erlang:get_stacktrace(),
       lager:error(
         "can't check certificate expire date: ~p ~p ~p",
-        [Ee, Ec, erlang:get_stacktrace()]
+        [Ee, Ec, S]
       ),
       error
   end.

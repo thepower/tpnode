@@ -67,8 +67,8 @@ get(Address) when is_binary(Address) ->
   try
     gen_server:call(?SERVER, {get, Address})
   catch
-    Ec:Ee ->
-      StacktraceLocal = erlang:get_stacktrace(),
+    Ec:Ee:StacktraceLocal ->
+      %StacktraceLocal = erlang:get_stacktrace(),
       StacktraceLedger = erlang:process_info(whereis(?SERVER), current_stacktrace),
       ProcInfo = erlang:process_info(whereis(?SERVER)),
       lager:error("ledger err, trace of ledger process"),
@@ -563,8 +563,8 @@ putkvsmt(KVS, MT) ->
   try gb_merkle_trees:balance(
         lists:foldl(fun applykv/2, MT, KVS)
        )
-  catch Ec:Ee ->
-          S=erlang:get_stacktrace(),
+  catch Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
           lager:error("Bad KV arrived ledger: ~p",[KVS]),
           erlang:raise(Ec,Ee,S)
   end.

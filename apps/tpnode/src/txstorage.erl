@@ -64,7 +64,7 @@ handle_call(_Request, _From, State) ->
 handle_cast(
   {tpic, FromPubKey, Peer, PayloadBin},
   #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State) ->
-  
+
   lager:debug(
     "txstorage got txbatch from ~p payload ~p",
     [ FromPubKey, PayloadBin]
@@ -78,7 +78,7 @@ handle_cast(
 %%      txbatch => BatchBin,
 %%      batchid => BatchId
 %%    }
-    
+
     {BatchId, BatchBin} =
       case
         msgpack:unpack(
@@ -119,12 +119,13 @@ handle_cast(
     ValidUntil = os:system_time(second) + Ttl,
     _TxIds = store_tx_batch(Txs, FromPubKey, EtsName, ValidUntil),
     tpic2:cast(Peer, BatchId)
-    
+
   catch
-    Ec:Ee ->
+    Ec:Ee:S ->
+      %S=erlang:get_stacktrace(),
       utils:print_error(
         "can't place transaction into storage",
-        Ec, Ee, erlang:get_stacktrace()
+        Ec, Ee,S
       )
   end,
   {noreply, State};
@@ -137,7 +138,7 @@ handle_cast({store, Txs, Nodes}, State) when is_list(Nodes) ->
 
 handle_cast({store, Txs, Nodes, Options}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName} = State)
   when is_list(Nodes), is_list(Txs), is_map(Options) ->
-  
+
   lager:debug("Store txs ~p, options ~p", [ Txs, Options ]),
 
   try
@@ -159,10 +160,11 @@ handle_cast({store, Txs, Nodes, Options}, #{ets_ttl_sec:=Ttl, ets_name:=EtsName}
     ParseOptions(Options)
 
   catch
-    Ec:Ee ->
+    Ec:Ee:S ->
+      %S=erlang:get_stacktrace(),
       utils:print_error(
         "can't place transaction into storage",
-        Ec, Ee, erlang:get_stacktrace()
+        Ec, Ee, S
       )
   end,
   {noreply, State};
@@ -173,7 +175,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(timer_expire,
   #{ets_name:=EtsName, timer_expire:=Tmr, expire_tick_ms:=Delay} = State) ->
-  
+
   catch erlang:cancel_timer(Tmr),
   lager:debug("remove expired records"),
   Now = os:system_time(second),

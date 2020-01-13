@@ -56,8 +56,9 @@ run_generate(
                   end, [], PreSig),
              lists:sort(bron_kerbosch:max_clique(BK))
            catch
-             Ec:Ee ->
-               utils:print_error("Can't calc xsig", Ec, Ee, erlang:get_stacktrace()),
+             Ec:Ee:S ->
+               %S=erlang:get_stacktrace(),
+               utils:print_error("Can't calc xsig", Ec, Ee, S),
                []
            end,
 

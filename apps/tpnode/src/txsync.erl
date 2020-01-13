@@ -119,8 +119,9 @@ do_sync(Transactions, #{batch_no := BatchNo} = _Options) when is_list(Transactio
       lager:error("do_sync: empty batch"),
       error;
       
-    Ec:Ee ->
-      utils:print_error("do_sync error", Ec, Ee, erlang:get_stacktrace()),
+    Ec:Ee:S ->
+      %S=erlang:get_stacktrace(),
+      utils:print_error("do_sync error", Ec, Ee, S),
       error
   end.
 

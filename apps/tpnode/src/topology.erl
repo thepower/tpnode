@@ -174,8 +174,9 @@ handle_cast(
   catch
     pass ->
       {noreply, State};
-    Ec:Ee ->
-      utils:print_error("TOPO", Ec, Ee, erlang:get_stacktrace()),
+    Ec:Ee:S ->
+      %S=erlang:get_stacktrace(),
+      utils:print_error("TOPO", Ec, Ee, S),
       lager:error("TOPO ~p beacon2 parse problem for payload ~p", [_PeerID, hex:encode(PayloadBin)]),
       {noreply, State}
   end;
@@ -221,8 +222,9 @@ handle_cast(
         {noreply, State}
     end
   catch
-    Ec:Ee ->
-      utils:print_error("TOPO", Ec, Ee, erlang:get_stacktrace()),
+    Ec:Ee:S ->
+      %S=erlang:get_stacktrace(),
+      utils:print_error("TOPO", Ec, Ee, S),
       lager:error("TOPO ~p beacon check problem for payload ~p", [_PeerID, Payload])
   end;
 

@@ -841,8 +841,8 @@ rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
             {true, #{ cost=>0, tip => 0, cur=><<"none">> }}
         end
     end
-  catch Ec:Ee -> 
-          S=erlang:get_stacktrace(),
+  catch Ec:Ee:S -> 
+          %S=erlang:get_stacktrace(),
           file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n~n~p.~n~n~p.~n~n~p.~n", 
                                                          [
                                                           Ec,
