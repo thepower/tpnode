@@ -13,8 +13,8 @@ handle_tpic(From, _, <<"tping">>, Payload, _State) ->
   ok;
 
 handle_tpic(From, _, <<"ping">>, Payload, _State) ->
-  R=tpic2:cast(tpic, From, <<"pong ", Payload/binary, " from ",
-                           (atom_to_binary(node(), utf8))/binary>>, [async]),
+  R=tpic2:cast(From, <<"pong ", Payload/binary, " from ",
+                       (atom_to_binary(node(), utf8))/binary>>, [async]),
   lager:info("got ping from ~p payload ~p, res ~p",[From, Payload, R]),
   ok;
 
