@@ -248,8 +248,10 @@ node_addresses() ->
     IA).
 
 cert(Key, Subject) ->
+  Env=application:get_env(tpnode,tpic,#{}),
+  OpenSSL=maps:get(openssl,Env,"/usr/local/bin/openssl"),
   H=erlang:open_port(
-      {spawn_executable, "/usr/local/bin/openssl"},
+      {spawn_executable, OpenSSL},
       [{args, [
                "req", "-new", "-x509",
                "-key", "/dev/stdin",
