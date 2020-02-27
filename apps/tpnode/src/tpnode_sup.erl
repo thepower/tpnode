@@ -54,7 +54,7 @@ init([]) ->
 
     Discovery=#{name=>discovery, services=>MandatoryServices},
     application:set_env(mnesia, dir,
-                        application:get_env(tpnode,db_path,"db")
+                        application:get_env(tpnode,db_path,"db/mnesia_"++atom_to_list(node()))
                        ),
     Childs=[
             { rdb_dispatcher, {rdb_dispatcher, start_link, []},

@@ -4,6 +4,7 @@
 -export([bi_create/6,bi_set_ver/2]).
 -export([bals2patch/1, apply_patch/2]).
 -export([dbmtfun/3]).
+-export([mb2item/1,item2mb/1]).
 
 -record(bal_items,
         {
@@ -11,6 +12,16 @@
          address,version,key,path,introduced,value,
          addr_ver, addr_key
         }).
+-record(mb,
+        {
+         address,
+         key,
+         path,
+         value,
+         version,
+         introduced
+        }).
+
 tables() ->
   [bal_items,bal_tree,ledger_tree].
 
@@ -109,19 +120,15 @@ get_vers(Address, notrans) ->
                  {A, '_'}
              end,
 
-  mnesia:match_object(bal_items,
-                      #bal_items{
-                         address=Addr,
-                         version='_',
-                         key=Key,
-                         path='_',
-                         introduced='_',
-                         value='_',
-                         addr_ver='_',
-                         addr_key='_',
-                         addr_key_ver_path='_'
-                        },
-                      read);
+  lists:map(
+    fun item2mb/1,
+    mnesia:match_object(bal_items,
+                        #bal_items{
+                           address=Addr,
+                           version='_', key=Key, path='_', introduced='_', value='_', addr_ver='_', addr_key='_', addr_key_ver_path='_'
+                          },
+                        read)
+   );
 
 get_vers(Address, trans) -> 
   {atomic,List}=mnesia:transaction(
@@ -130,23 +137,51 @@ get_vers(Address, trans) ->
                   end),
   List.
 
+item2mb(#bal_items{ address=A, key=K, path=P, value=V, version=Ver, introduced=Int }) ->
+  #mb{ address=A, key=K, path=P, value=V, version=Ver, introduced=Int }.
+
+mb2item( #mb{ address=A, key=K, path=P, value=V, version=Ver, introduced=Int }) ->
+  bi_create(A,Ver,K,P,Int,V).
+
 get(Address) -> 
   get(Address,trans).
 
 get(Address, notrans) -> 
-  mnesia:match_object(bal_items,
-                      #bal_items{
-                         address=Address,
-                         version=latest,
-                         key='_',
-                         path='_',
-                         introduced='_',
-                         value='_',
-                         addr_ver='_',
-                         addr_key='_',
-                         addr_key_ver_path='_'
-                        },
-                      read);
+  Pattern=#bal_items{address=Address, version = latest, key='$1', value='$2',_='_'},
+  lists:foldl(
+    fun(#bal_items{key=K, path=_P, value=V},A) ->
+        io:format("I ~p~n",[_I]),
+        mbal:put(K,P,V,A)
+    end,
+    bal:new(),
+    mnesia:select(bal_items,
+                  [
+                   {Pattern,[{'==','$1',amount}],['$_']},
+                   {Pattern,[{'==','$1',lastblk}],['$_']},
+                   {Pattern,[{'==','$1',pubkey}],['$_']},
+                   {Pattern,[{'==','$1',seq}],['$_']},
+                   {Pattern,[{'==','$1',t}],['$_']},
+                   {Pattern,[{'==','$1',ublk}],['$_']},
+                   {Pattern,[{'==','$1',usk}],['$_']},
+                   {Pattern,[{'==','$1',view}],['$_']},
+                   {Pattern,[{'==','$1',vm}],['$_']}
+                  ],
+                  read)
+   );
+
+    %mnesia:match_object(bal_items,
+    %                    #bal_items{
+    %                       address=Address,
+    %                       version=latest,
+    %                       key='_',
+    %                       path='_',
+    %                       introduced='_',
+    %                       value='_',
+    %                       addr_ver='_',
+    %                       addr_key='_',
+    %                       addr_key_ver_path='_'
+    %                      },
+    %                    read)
 
 get(Address, trans) -> 
   {atomic,List}=mnesia:transaction(
