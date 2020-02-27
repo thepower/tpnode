@@ -34,3 +34,5 @@ tmp/
 test/tpnode.coverspec
 apps/tpnode/include/tx_const.hrl
 alpha
+*.orig
+*.rej
