@@ -1321,7 +1321,7 @@ withdraw(FBal0,
        true ->
          %==== DEBUG CODE
          L=try
-             ledger:get(From)
+             mledger:get(From)
            catch _:_ ->
                    cant_get_ledger
            end,
@@ -1501,7 +1501,7 @@ withdraw(FBal,
      true ->
        %==== DEBUG CODE
        L=try
-           ledger:get(From)
+           mledger:get(From)
          catch _:_ ->
                  cant_get_ledger
          end,
@@ -1889,33 +1889,13 @@ cleanup_bals(NewBal0) ->
         end
     end, #{}, NewBal0).
 
--ifdef(TEST).
 ledger_hash(NewBal, undefined) ->
-  {ok, HedgerHash}=case whereis(ledger) of
-                     undefined ->
-                       %there is no ledger. Is it test?
-                       {ok, LedgerS1}=ledger:init([test]),
-                       {reply, LCResp, _LedgerS2}=ledger:handle_call({check, []}, self(), LedgerS1),
-                       LCResp;
-                     X when is_pid(X) ->
-                       ledger:check(maps:to_list(NewBal))
-                   end,
-  HedgerHash;
+  {ok, LedgerHash}=mledger:apply_patch(mledger:bals2patch(maps:to_list(NewBal)),check),
+  LedgerHash;
 
-ledger_hash(NewBal, Pid) ->
-  {ok, HedgerHash}=ledger:check(Pid,maps:to_list(NewBal)),
-  HedgerHash.
+ledger_hash(NewBal, _Pid) ->
+  ledger_hash(NewBal, undefined).
 
--else.
-ledger_hash(NewBal, undefined) ->
-  {ok, HedgerHash}=ledger:check(maps:to_list(NewBal)),
-  HedgerHash;
-
-ledger_hash(NewBal, Pid) ->
-  {ok, HedgerHash}=ledger:check(Pid,maps:to_list(NewBal)),
-  HedgerHash.
-
--endif.
 to_bin(List) when is_list(List) -> list_to_binary(List);
 to_bin(Bin) when is_binary(Bin) -> Bin.
 

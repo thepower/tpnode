@@ -198,7 +198,7 @@ h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
            _ ->
              naddress:decode(TAddr)
          end,
-    Ledger=ledger:get([Addr]),
+    Ledger=mledger:get([Addr]),
     case maps:is_key(Addr, Ledger) of
       false ->
           err(
@@ -235,7 +235,7 @@ h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
            _ ->
              naddress:decode(TAddr)
          end,
-    Ledger=ledger:get([Addr]),
+    Ledger=mledger:get([Addr]),
     case maps:is_key(Addr, Ledger) of
       false ->
           err(
@@ -281,7 +281,7 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
     MyChain=blockchain:chain(),
     if
         (MyChain == Blk) ->
-            case ledger:get(Addr) of
+            case mledger:get(Addr) of
                 not_found ->
                     err(
                         10000,
@@ -336,7 +336,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    Ledger=ledger:get([Addr]),
+    Ledger=mledger:get([Addr]),
     case maps:is_key(Addr, Ledger) of
       false ->
           err(
@@ -400,7 +400,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    Ledger=ledger:get([Addr]),
+    Ledger=mledger:get([Addr]),
     case maps:is_key(Addr, Ledger) of
       false ->
           err(
@@ -442,7 +442,7 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
            _ ->
              naddress:decode(TAddr)
          end,
-    Ledger=ledger:get([Addr]),
+    Ledger=mledger:get([Addr]),
     case maps:is_key(Addr, Ledger) of
       false ->
           err(

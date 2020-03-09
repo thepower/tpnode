@@ -134,7 +134,7 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun, Workers) ->
              error({bad_setting, Other})
          end,
     GetAddr=fun(Addr) ->
-                case ledger:get(LedgerPID, Addr) of
+                case mledger:get(Addr) of
                   #{amount:=_}=Bal -> Bal;
                   not_found -> bal:new()
                 end
@@ -152,7 +152,7 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun, Workers) ->
                [{ledger_pid, LedgerPID}]))
   end,
 
-  ledger:deploy4test(Ledger, Test)
+  mledger:deploy4test(Ledger, Test)
 
 after
   lists:foreach(
@@ -541,7 +541,7 @@ xchain_test_callingblock() ->
            error({bad_setting, Other})
        end,
   GetAddr=fun(Addr) ->
-              case ledger:get(LedgerPID, Addr) of
+              case mledger:get(Addr) of
                 #{amount:=_}=Bal -> Bal;
                 not_found -> bal:new()
               end
@@ -551,8 +551,7 @@ xchain_test_callingblock() ->
 
 
   #{block:=Blk}=generate_block:generate_block(
-             TxList
-             ,
+             TxList,
              {1, ParentHash},
              GetSettings,
              GetAddr,
@@ -560,7 +559,7 @@ xchain_test_callingblock() ->
              [{ledger_pid, LedgerPID}]),
   block:outward_chain(Blk,Chain1)
   end,
-  ledger:deploy4test(Ledger, Test).
+  mledger:deploy4test(Ledger, Test).
 
 
 

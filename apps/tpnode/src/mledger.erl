@@ -1,6 +1,6 @@
 -module(mledger).
 -compile({no_auto_import,[get/1]}).
--export([start_db/0,put/2,get/1,get_vers/1,hash/1]).
+-export([start_db/0,deploy4test/2, put/2,get/1,get_vers/1,hash/1]).
 -export([bi_create/6,bi_set_ver/2]).
 -export([bals2patch/1, apply_patch/2]).
 -export([dbmtfun/3]).
@@ -76,6 +76,32 @@ create_table(TN) ->
    end
   }.
 
+
+rm_rf(Dir) ->
+    Paths = filelib:wildcard(Dir ++ "/**"),
+    {Dirs, Files} = lists:partition(fun filelib:is_dir/1, Paths),
+    ok = lists:foreach(fun file:delete/1, Files),
+    Sorted = lists:reverse(lists:sort(Dirs)),
+    ok = lists:foreach(fun file:del_dir/1, Sorted),
+    file:del_dir(Dir).
+
+deploy4test(LedgerData, TestFun) ->
+  no=mnesia:system_info(),
+  TmpDir="/tmp/ledger_test."++(integer_to_list(os:system_time(),16)),
+  application:set_env(mnesia, dir, TmpDir),
+  _ = mnesia:create_schema([node()]),
+  mnesia:start(),
+  mnesia_rocksdb:register(),
+  ensure_tables(tables()),
+  try
+    Patches=bals2patch(LedgerData),
+    {ok,_}=apply_patch(Patches,{commit,1}),
+    TestFun(undefined)
+  after
+    mnesia:stop(),
+    rm_rf(TmpDir)
+  end.
+
 start_db() ->
   _ = mnesia:create_schema([node()]),
   mnesia:start(),
@@ -146,28 +172,93 @@ mb2item( #mb{ address=A, key=K, path=P, value=V, version=Ver, introduced=Int }) 
 get(Address) -> 
   get(Address,trans).
 
+get_raw(Address, notrans) ->
+  mnesia:match_object(bal_items,
+                      #bal_items{
+                         address=Address,
+                         version=latest,
+                         _ ='_'
+                        },
+                      read).
+
 get(Address, notrans) -> 
   Pattern=#bal_items{address=Address, version = latest, key='$1', value='$2',_='_'},
-  lists:foldl(
-    fun(#bal_items{key=K, path=_P, value=V},A) ->
-        io:format("I ~p~n",[_I]),
-        mbal:put(K,P,V,A)
-    end,
-    bal:new(),
-    mnesia:select(bal_items,
-                  [
-                   {Pattern,[{'==','$1',amount}],['$_']},
-                   {Pattern,[{'==','$1',lastblk}],['$_']},
-                   {Pattern,[{'==','$1',pubkey}],['$_']},
-                   {Pattern,[{'==','$1',seq}],['$_']},
-                   {Pattern,[{'==','$1',t}],['$_']},
-                   {Pattern,[{'==','$1',ublk}],['$_']},
-                   {Pattern,[{'==','$1',usk}],['$_']},
-                   {Pattern,[{'==','$1',view}],['$_']},
-                   {Pattern,[{'==','$1',vm}],['$_']}
-                  ],
-                  read)
-   );
+%  PatternCode=#bal_items{address=Address, version = latest, key='$1', path='$2',_='_'},
+  PatternCode=#bal_items{address=Address, version = latest, key='$1', path='$2', value='$3', _='_'},
+  maps:remove(changes,
+              lists:foldl(
+                fun(#bal_items{key=K, path=P, value=V},A) ->
+                    mbal:put(K,P,V,A);
+                   ([code,_,Code], A) ->
+                    mbal:put(code,[], Code,A);
+%                                 case mnesia:dirty_match_object(
+%                                        #bal_items{
+%                                           address=Address,
+%                                           version=latest,
+%                                           key=code,
+%                                           _ = '_'
+%                                          }
+%                                       ) of
+%                                   [] -> undefined;
+%                                   [#bal_items{value=Code}] -> Code
+%                                 end
+%                             end,
+%                             A);
+                   ([state,K,V1], A) ->
+                    mbal:put(state, K, V1, A)
+                    %case maps:is_key(state, A) of
+                    %  true ->
+                    %  false ->
+                    %    mbal:put(state, K, V1, A)
+                    %    %mbal:put(state,fun(Key) when is_binary(Key) ->
+                    %    %                   io:format("Req key ~p~n",[Key]),
+                    %    %                   case mnesia:dirty_match_object(
+                    %    %                          #bal_items{
+                    %    %                             address=Address,
+                    %    %                             version=latest,
+                    %    %                             key=state,
+                    %    %                             path=Key,
+                    %    %                             _ = '_'
+                    %    %                            }
+                    %    %                         ) of
+                    %    %                     [] -> undefined;
+                    %    %                     [#bal_items{value=Code}] -> Code
+                    %    %                   end;
+                    %    %                  (full) ->
+                    %    %                   io:format("Req all keys~n"),
+                    %    %                   WholeState=mnesia:dirty_match_object(
+                    %    %                                #bal_items{
+                    %    %                                   address=Address,
+                    %    %                                   version=latest,
+                    %    %                                   key=state,
+                    %    %                                   _ = '_'
+                    %    %                                  }
+                    %    %                               ),
+                    %    %                   WholeMap=lists:foldl(
+                    %    %                              fun(#bal_items{path=SK,value=SV},SA) ->
+                    %    %                                  maps:put(SK,SV,SA)
+                    %    %                              end, #{}, WholeState),
+                    %    %                   msgpack:pack(WholeMap)
+                    %    %               end,A)
+                    %end
+                end,
+                bal:new(),
+                mnesia:select(bal_items,
+                              [
+                               {Pattern,[{'==','$1',amount}],['$_']},
+                               {Pattern,[{'==','$1',lastblk}],['$_']},
+                               {Pattern,[{'==','$1',pubkey}],['$_']},
+                               {Pattern,[{'==','$1',seq}],['$_']},
+                               {Pattern,[{'==','$1',t}],['$_']},
+                               {Pattern,[{'==','$1',ublk}],['$_']},
+                               {Pattern,[{'==','$1',usk}],['$_']},
+                               {Pattern,[{'==','$1',view}],['$_']},
+                               {Pattern,[{'==','$1',vm}],['$_']},
+                               {PatternCode,[{'==','$1',code}],['$$']},
+                               {PatternCode,[{'==','$1',state}],['$$']}
+                              ],
+                              read)
+               ));
 
     %mnesia:match_object(bal_items,
     %                    #bal_items{
@@ -227,7 +318,10 @@ bals2patch([{A,Bal}|Rest], PRes) ->
             case bal:get(vm,Bal) of
               <<"chainfee">> ->
                 [bi_create(A, latest, state, <<>>, here, BState)|Acc];
+              <<"erltest">> ->
+                [bi_create(A, latest, state, <<>>, here, BState)|Acc];
               _ ->
+                io:format("BS ~p~n",[BState]),
                 {ok, State} = msgpack:unpack(BState),
                 maps:fold(
                   fun(K,V,Ac) ->
@@ -253,8 +347,12 @@ dbmtfun(del, Key, Acc) ->
   ok=mnesia:delete({ledger_tree,Key}),
   Acc.
 
+do_apply([], _) ->
+  {ok,
+   db_merkle_trees:root_hash({fun dbmtfun/3, #{} })
+  };
 
-do_apply(Patches, Height) ->
+do_apply([E1|_]=Patches, Height) when is_record(E1, bal_items) ->
   if is_integer(Height) ->
        lists:foreach(
          fun(#bal_items{addr_key_ver_path=AKVP,value=NewVal}=BalItem) ->
@@ -281,15 +379,20 @@ do_apply(Patches, Height) ->
        lists:foreach( fun mnesia:write/1, Patches)
   end,
   ChAddrs=lists:usort([ Address || #bal_items{address=Address} <- Patches ]),
-  NewLedger=[ {Address, hashl(get(Address,notrans))} || Address <- ChAddrs ],
+  NewLedger=[ {Address, hashl(get_raw(Address,notrans))} || Address <- ChAddrs ],
   io:format("NL ~p~n",[NewLedger]),
   lists:foldl(
     fun({Addr,Hash},Acc) ->
         db_merkle_trees:enter(Addr, Hash, {fun dbmtfun/3,Acc})
     end, #{}, NewLedger),
-  db_merkle_trees:root_hash({fun dbmtfun/3,
-                             db_merkle_trees:balance({fun dbmtfun/3,#{}})
-                            }).
+  {ok,
+   db_merkle_trees:root_hash({fun dbmtfun/3,
+                              db_merkle_trees:balance({fun dbmtfun/3,#{}})
+                             })
+  };
+
+do_apply([E1|_],_) ->
+  throw({bad_patch, E1}).
 
 apply_patch(Patches, check) ->
   F=fun() ->

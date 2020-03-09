@@ -154,22 +154,17 @@ put(state, <<>>, V, Bal) ->
 put(state, P, V, Bal) ->
   case maps:find(state, Bal) of
     error ->
-      put(state, #{P=>V}, Bal);
+      Bal#{state=>#{P=>V}};
     {ok, PV} ->
-      put(state, PV#{P=>V}, Bal)
-  end.
+      Bal#{state=>PV#{P=>V}}
+  end;
+
+put(K, [], V, Bal) ->
+  put(K,V,Bal).
 
 -spec put (atom(), integer()|binary(), bal()) -> bal().
-put(K, V, Bal) when K==seq;
-                       K==t;
-                       K==lastblk;
-                       K==pubkey;
-                       K==ld;
-                       K==vm;
-                       K==view;
-                       K==code;
-                       K==usk ->
-  put(K, V, [], Bal);
+put(amount, V, Bal) when is_map(V) -> %use on preload data
+  Bal#{ amount=>V };
 
 put(seq, V, Bal) when is_integer(V) ->
   Bal#{ seq=>V,
@@ -209,16 +204,20 @@ put(view, V, Bal) when is_list(V) ->
       throw('incorrect_view_list')
   end;
 
-put(state, V, Bal) when is_map(V) ->
-  case maps:get(state, Bal, undefined) of
-    OldState when OldState==V ->
-      Bal;
-    _ ->
-      Bal#{ state=>V,
-            changes=>[state|maps:get(changes, Bal, [])]
-          }
-  end;
-put(code, V, Bal) when is_binary(V) ->
+%put(state, V, Bal) when is_map(V) ->
+%  case maps:get(state, Bal, undefined) of
+%    OldState when OldState==V ->
+%      Bal;
+%    _ ->
+%      Bal#{ state=>V,
+%            changes=>[state|maps:get(changes, Bal, [])]
+%          }
+%  end;
+
+put(state, V, Bal) when is_function(V) ->
+  Bal#{ state=>V };
+
+put(code, V, Bal) when is_function(V); is_binary(V) ->
   case maps:get(code, Bal, undefined) of
     OldCode when OldCode==V ->
       Bal;
@@ -238,7 +237,7 @@ put(usk, V, Bal) when is_integer(V) ->
         changes=>[usk|maps:get(changes, Bal, [])]
       };
 put(T, _, _) ->
-  throw({"unsupported bal field", T}).
+  throw({"unsupported bal field for put", T}).
 
 
 -spec get (atom(), bal()) -> integer()|binary()|undefined.
@@ -249,11 +248,13 @@ get(ld, Bal) ->     maps:get(ld, Bal, 0);
 get(usk, Bal) ->    maps:get(usk, Bal, 0);
 get(vm, Bal) ->     maps:get(vm, Bal, undefined);
 get(view, Bal) ->   maps:get(view, Bal, undefined);
-get(state, Bal) ->  throw("maps:get(state, Bal, <<>>)");
-get(code, Bal) ->   throw("maps:get(code, Bal, <<>>)");
+get(state, Bal) ->  maps:get(state, Bal, undefined);
+get(code, #{code:=C}) when is_function(C) -> C();
+get(code, #{code:=C}) when is_binary(C) -> C;
+get(code, _Bal) -> undefined;
 get(lstore, Bal) -> settings:dmp(maps:get(lstore, Bal, <<128>>));
 get(lastblk, Bal) ->maps:get(lastblk, Bal, <<0, 0, 0, 0, 0, 0, 0, 0>>);
-get(T, _) ->      throw({"unsupported bal field", T}).
+get(T, _) ->      throw({"unsupported bal field for get", T}).
 
 -spec pack (bal()) -> binary().
 pack(Bal) ->

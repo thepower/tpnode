@@ -528,8 +528,8 @@ verify(#{
         {true, _IAddr} ->
           VerFun=case lists:member(nocheck_ledger,Opts) of
                    false ->
-                     LedgerInfo=ledger:get(
-                                  proplists:get_value(ledger,Opts,ledger),
+                     LedgerInfo=mledger:get(
+                                  %proplists:get_value(ledger,Opts,ledger),
                                   From),
                      case LedgerInfo of
                        #{pubkey:=PK} when is_binary(PK) ->

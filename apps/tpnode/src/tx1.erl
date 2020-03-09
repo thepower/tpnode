@@ -221,7 +221,7 @@ verify(#{
   from := From,
   sig := HSigs,
   timestamp := T
- }=Tx, Opts) ->
+ }=Tx, _Opts) ->
   Message=mkmsg(Tx),
   if is_integer(T) ->
        ok;
@@ -253,8 +253,8 @@ verify(#{
                                throw(verify_error)
                        end;
                      {true, _IAddr} ->
-                       LedgerInfo=ledger:get(
-                                    proplists:get_value(ledger,Opts,ledger),
+                       LedgerInfo=mledger:get(
+                                   % proplists:get_value(ledger,Opts,ledger),
                                     From),
                        case LedgerInfo of
                          #{pubkey:=PK} when is_binary(PK) ->

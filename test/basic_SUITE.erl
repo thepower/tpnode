@@ -434,7 +434,7 @@ api_register_wallet() ->
 
 % get current sequence for wallet
 get_sequence(Node, Wallet) ->
-    Ledger = rpc:call(Node, ledger, get, [naddress:decode(Wallet)]),
+    Ledger = rpc:call(Node, mledger, get, [naddress:decode(Wallet)]),
     case bal:get(seq, Ledger) of
         Seq when is_integer(Seq) ->
           logger(

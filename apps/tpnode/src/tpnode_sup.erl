@@ -51,6 +51,7 @@ init([]) ->
             _ ->
               []
           end,
+    mledger:start_db(),
 
     Discovery=#{name=>discovery, services=>MandatoryServices},
     application:set_env(mnesia, dir,
@@ -96,9 +97,9 @@ init([]) ->
             { topology, {topology, start_link, []},
               permanent, 5000, worker, []},
 
-            { ledger, {ledger, start_link, []},
-              permanent, 5000, worker, []},
-
+%            { ledger, {ledger, start_link, []},
+%              permanent, 5000, worker, []},
+%
             { discovery, {discovery, start_link, [Discovery]},
               permanent, 5000, worker, []},
 

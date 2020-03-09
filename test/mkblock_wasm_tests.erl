@@ -122,7 +122,7 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
            error({bad_setting, Other})
        end,
   GetAddr=fun(Addr) ->
-              case ledger:get(LedgerPID, Addr) of
+              case mledger:get(LedgerPID, Addr) of
                 #{amount:=_}=Bal -> Bal;
                 not_found -> bal:new()
               end
@@ -141,7 +141,7 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
               {mean_time, MeanTime}
              ]))
   end,
-  ledger:deploy4test(Ledger, Test)
+  mledger:deploy4test(Ledger, Test)
 after
   lists:foreach(
     fun(TermFun) ->
