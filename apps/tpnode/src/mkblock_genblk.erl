@@ -150,7 +150,11 @@ run_generate(
         file:write_file("tmp/mkblk_" ++
                         integer_to_list(PHeight) ++ "_" ++
                         binary_to_list(nodekey:node_id())++ "_" ++
-                        integer_to_list(os:system_time()),
+                        integer_to_list(os:system_time())++ "_" ++
+                        if is_integer(Temporary) ->
+                             integer_to_list(Temporary);
+                           true -> ""
+                        end,
                         io_lib:format("~p.~n~p.~n~p.~n~p.~n",
                                       [PreTXL,
                                        {PHeight, PHash},

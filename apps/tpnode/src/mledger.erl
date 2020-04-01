@@ -107,7 +107,8 @@ start_db() ->
   mnesia:start(),
   mnesia_rocksdb:register(),
   %mnesia:change_table_copy_type(schema, node(), disc_copies),
-  ensure_tables(tables()).
+  true=is_list(ensure_tables(tables())),
+  ok.
 
 bi_set_ver(#bal_items{address=Address, key=Key, path=Path}=BI,Ver) ->
   BI#bal_items{version=Ver,

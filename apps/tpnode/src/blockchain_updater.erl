@@ -654,6 +654,8 @@ apply_ledger(Action, #{bals:=S, hash:=_BlockHash, header:=#{height:=Height}}) ->
                  )
                }|Acc]
           end, [], S),
+  lager:info("Apply bals ~p", [Patch]),
+  lager:info("Apply patches ~p", [mledger:bals2patch(Patch)]),
   LR=case Action of
        check ->
          mledger:apply_patch(mledger:bals2patch(Patch), check);

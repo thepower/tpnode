@@ -51,7 +51,7 @@ init([]) ->
             _ ->
               []
           end,
-    mledger:start_db(),
+    ok=mledger:start_db(),
 
     Discovery=#{name=>discovery, services=>MandatoryServices},
     application:set_env(mnesia, dir,
