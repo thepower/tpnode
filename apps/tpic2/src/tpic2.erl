@@ -57,6 +57,7 @@ unicast(ReqID, Peer, Stream, Srv, Data, Opts) ->
           case erlang:is_process_alive(ConnPID)  of
             true ->
               gen_server:cast(ConnPID,{send, Srv, ReqID, Data}),
+              tpic2_cmgr:add_trans(ReqID, self()),
               [Peer];
             false ->
               []
@@ -64,6 +65,7 @@ unicast(ReqID, Peer, Stream, Srv, Data, Opts) ->
         false ->
           case gen_server:call(ConnPID,{send, Srv, ReqID, Data}) of
             ok ->
+              tpic2_cmgr:add_trans(ReqID, self()),
               [Peer];
             _ ->
               []

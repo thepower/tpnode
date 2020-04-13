@@ -97,7 +97,7 @@ handle_call({push_etx, [{_, _}|_]=Lst}, _From, State) ->
 handle_call({new_tx, Tx}, _From, State) when is_map(Tx) ->
   handle_call({new_tx, tx:pack(Tx)}, _From, State);
 
-handle_call({new_tx, BinTx}, _From, #{sync_timer:=Tmr, queue:=Queue}=State)
+handle_call({new_tx, BinTx}, _From, #{sync_timer:=_Tmr, queue:=_Queue}=State)
   when is_binary(BinTx) ->
     try
         case tx:verify(BinTx) of
@@ -106,10 +106,12 @@ handle_call({new_tx, BinTx}, _From, #{sync_timer:=Tmr, queue:=Queue}=State)
               error ->
                 {reply, {error, cant_gen_txid}, State};
               {ok, TxID} ->
+                Res=gen_server:cast(txqueue, {push_tx, TxID, BinTx}),
+                lager:info("New TX ~s cast in to queue ~p",[TxID,Res]),
                 {reply, {ok, TxID},
-                  State#{
-                    queue=>queue:in({TxID, BinTx}, Queue),
-                    sync_timer => update_sync_timer(Tmr)
+                 State#{
+                   %queue=>queue:in({TxID, BinTx}, Queue),
+                   %sync_timer => update_sync_timer(Tmr)
                   }}
             end;
             Err ->
@@ -332,7 +334,7 @@ pullx({N, MaxSize}, Q, Acc) ->
     {Element, Q1}=queue:out(Q),
     case Element of
         {value, E1} ->
-          MaxSize1 = MaxSize - size(E1),
+          MaxSize1 = MaxSize - txsize(E1),
           if
             MaxSize1 < 0 ->
               {Q, lists:reverse(Acc)};
@@ -343,6 +345,14 @@ pullx({N, MaxSize}, Q, Acc) ->
         empty ->
             {Q, lists:reverse(Acc)}
     end.
+
+txsize(Bin) when is_binary(Bin) ->
+  size(Bin);
+txsize({TxID, Bin}) when is_binary(TxID), is_binary(Bin) ->
+  size(TxID)+size(Bin);
+txsize(_) ->
+  0.
+
 
 %% ------------------------------------------------------------------
 

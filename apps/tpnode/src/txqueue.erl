@@ -49,6 +49,13 @@ handle_call(_Request, _From, State) ->
   lager:notice("Unknown call ~p", [_Request]),
   {reply, ok, State}.
 
+handle_cast({push_tx, TxId, TxBody},
+            #{queue:=Queue} = State) when is_binary(TxId), is_binary(TxBody) ->
+  lager:info("Pushed TX ~s",[TxId]),
+  {noreply, State#{
+              queue => queue:in({TxId, TxBody},Queue)
+             }
+  };
 
 handle_cast(
   {push, BatchNo, TxIds}, #{queue:=Queue, batch_state := BatchState} = State)
@@ -164,11 +171,14 @@ handle_cast(settings, State) ->
 handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = State) ->
 
   Time = erlang:system_time(seconds),
+  lager:info("Q ~p",[Queue]),
   {InProc1, Queue1} = recovery_lost(InProc0, Queue, Time),
-  ETime = Time + 1,
+  lager:info("Q1 ~p",[Queue1]),
+  ETime = Time + 20,
 
   {Queue2, TxIds} =
   txpool:pullx({txpool:get_max_pop_tx(), txpool:get_max_tx_size()}, Queue1, []),
+  lager:info("Q2 ~p",[Queue2]),
 
   txlog:log(TxIds, #{where => txqueue_prepare}),
 
@@ -203,7 +213,12 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
     LastBlk=block:pack(blockchain:last_meta()),
     TxMap =
     lists:foldl(
-      fun(Id, Acc) -> maps:put(Id, null, Acc) end,
+      fun
+        ({Id, Body}, Acc) ->
+          maps:put(Id, Body, Acc);
+        (Id, Acc) ->
+          maps:put(Id, null, Acc)
+      end,
       #{},
       TxIds
      ),
@@ -233,8 +248,8 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
    State#{
      queue=>Queue2,
      inprocess=>lists:foldl(
-                  fun(TxId, Acc) ->
-                      hashqueue:add(TxId, ETime, null, Acc)
+                  fun({TxId,TxB}, Acc) ->
+                      hashqueue:add(TxId, ETime, TxB, Acc)
                   end,
                   InProc1,
                   TxIds
@@ -293,9 +308,9 @@ recovery_lost(InProc, Queue, Now, AccTxs) ->
       case hashqueue:pop(InProc) of
         {InProc1, empty} ->
           {InProc1, push_queue_head(AccTxs, Queue)};
-        {InProc1, {TxID, _TxBody}} ->
+        {InProc1, {TxID, TxBody}} ->
           txlog:log([TxID], #{where => txqueue_recovery1}),
-          recovery_lost(InProc1, Queue, Now, [TxID | AccTxs])
+          recovery_lost(InProc1, Queue, Now, [{TxID,TxBody} | AccTxs])
       end
   end.
 

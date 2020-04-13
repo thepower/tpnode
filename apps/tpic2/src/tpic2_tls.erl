@@ -151,6 +151,12 @@ system_continue(_PID,_,{State}) ->
   ?MODULE:loop(State).
 
 send_gen_msg(Process, ReqID, Payload, State) ->
+  try
+    {ok, Unpacked} = msgpack:unpack(Payload),
+    lager:debug("Send gen msg ~p: ~p",[ReqID, Unpacked])
+  catch _:_ ->
+          lager:debug("Send gen msg ~p: ~p",[ReqID, Payload])
+  end,
   Res=send_msg(#{
       null=><<"gen">>,
       proc=>Process,
@@ -245,7 +251,13 @@ handle_msg(#{null:=<<"gen">>,
 %               error
 %           end,
 %
-%  lager:debug("From sid ~p socket ~p - ~p",[SID, Me, Peer]),
+  try
+    {ok, Unpacked} = msgpack:unpack(Data),
+    lager:debug("Inbound msg sid ~p ReqID ~p proc  ~p: ~p",[SID, ReqID, Proc, Unpacked])
+  catch _:_ ->
+          lager:debug("Inbound msg sid ~p ReqID ~p proc ~p: ~p",[SID, ReqID, Proc, Data])
+  end,
+
   tpic2_response:handle(PK, SID, ReqID, Proc, Data, State),
   State;
 

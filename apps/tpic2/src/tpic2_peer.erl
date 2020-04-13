@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1]).
+-export([start_link/1,filter_rfc1918/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -61,7 +61,8 @@ handle_call(active_out, _From, #{outctl:=OC}=State) ->
    end, State};
 
 handle_call(addr, _From, #{peer_ipport:=IPP}=State) ->
-  {reply, IPP, State};
+  IPP1=filter_rfc1918(IPP),
+  {reply, IPP1, State#{peer_ipport => IPP1}};
 
 handle_call(info, _From, #{streams:=Streams,
                            pubkey:=PK,
@@ -92,7 +93,7 @@ handle_call({get_stream, Name}, _From, #{streams:=Streams}=State) ->
 
 handle_call({add, IP, Port}, _From, #{peer_ipport:=IPP}=State) ->
   IPP2=[{IP,Port}|(IPP--[{IP,Port}])],
-  {reply, IPP2, State#{peer_ipport=>IPP2}};
+  {reply, IPP2, State#{peer_ipport=>filter_rfc1918(IPP2)}};
 
 handle_call({streams, AddStr}, _From, #{streams:=Str, pubkey:=TheirPub}=State) ->
   OurPub=nodekey:get_pub(),
@@ -291,4 +292,18 @@ apply_ctl(State, 0, out, PID) ->
 
 apply_ctl(State, _StreamID, _Dir, _PID) ->
   State.
+
+filter_rfc1918(IPP) ->
+  lists:filter(
+    fun({Addr,_}) ->
+        case inet:parse_address(Addr) of
+          {ok, {10,_,_,_}} -> false;
+          {ok, {0,0,0,0}} -> false;
+          {ok, {172,O,_,_}} when O>=16, O<24 -> false;
+          {ok, {192,168,_,_}} -> false;
+          {ok, _} -> true;
+          _ -> false
+        end
+    end,
+    IPP).
 
