@@ -176,21 +176,32 @@ handle_info(try_connect, #{streams:=Str,peer_ipport:=[{Host,Port}|RestIPP]}=Stat
              }
   };
 
-handle_info(tmr, #{tmr:=Tmr}=State) ->
+handle_info(tmr, #{tmr:=Tmr, pubkey:=PubKey, streams:=Str}=State) ->
   erlang:cancel_timer(Tmr),
   lager:debug("tmr"),
+  MyKey=nodekey:get_pub(),
+  if(MyKey == PubKey ) ->
+      lager:notice("Found peer for myself, terminating"),
+      lists:foreach(
+        fun({_,_,PID}) when is_pid(PID) ->
+            exit(PID,stop);
+           (_) ->
+            ok
+        end, Str),
+      {stop, normal, State};
+    true ->
+      OCState=case maps:get(outctl,State,undefined) of
+                undefined ->
+                  open_control(State);
+                _ ->
+                  State
+              end,
 
-  OCState=case maps:get(outctl,State,undefined) of
-       undefined ->
-         open_control(State);
-       _ ->
-         State
-     end,
-
-  {noreply, OCState#{
-              tmr=>erlang:send_after(10000,self(),tmr)
-             }
-  };
+      {noreply, OCState#{
+                  tmr=>erlang:send_after(10000,self(),tmr)
+                 }
+      }
+  end;
 
 handle_info({'DOWN',_Ref,process,PID,_Reason}, #{mpid:=MPID,
                                                  streams:=Str,

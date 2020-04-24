@@ -83,7 +83,9 @@ handle_call({pick, PubKey}, _From, State) ->
   {reply, {ok, PID}, State2};
 
 handle_call(peers, _From, #{peers:=P}=State) ->
-  {reply, P, State};
+  {reply, 
+   maps:remove(nodekey:get_pub(), P),
+   State};
 
 handle_call(_Request, _From, State) ->
     {reply, unhandled, State}.
@@ -111,8 +113,11 @@ handle_info(cleanup, #{cleanup:=ClTmr,peers:=P}=State) ->
 handle_info(init_peers, State) ->
   try
     {ok,[DBPeers]}=file:consult(peers_db()),
+    MyKey=nodekey:get_pub(),
     State1=lists:foldl(
-             fun({PubKey,IPS},Acc) ->
+             fun({PubKey,_},Acc) when MyKey==PubKey ->
+                 Acc;
+                ({PubKey,IPS},Acc) ->
                  {PID, Acc1}=get_conn(PubKey, Acc),
                  lists:foreach(fun({IP,Port}) ->
                                    gen_server:call(PID,{add,IP,Port})
