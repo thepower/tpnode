@@ -9,7 +9,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0, get_lbh/1, get_state/0, get_max_reassembly_tries/0]).
+-export([start_link/0, get_lbh/1, get_state/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -298,49 +298,4 @@ get_state() ->
   gen_server:call(?MODULE, state).
 
 %% ------------------------------------------------------------------
-
-reassembly_batch(#{try_count := ?MAX_REASSEMBLY_TRIES} = BatchState) ->
-  #{holding_storage := Holding} = BatchState,
-
-  case lists:sort(maps:keys(Holding)) of
-    [] ->
-      BatchState#{try_count => 0};
-    [FirstBatchNo | _] ->
-      % if tries count reached, then patch current batch number to restart processes
-      reassembly_batch(BatchState#{current_batch => FirstBatchNo, try_count => 0})
-  end;
-
-reassembly_batch(#{
-    queue := Queue,
-    current_batch := CurrentBatch,
-    holding_storage := Holding,
-    try_count := TryCount
-  } = BatchState) ->
-
-    case maps:get(CurrentBatch, Holding, undefined) of
-      undefined -> BatchState#{try_count := TryCount + 1};
-      TxIds ->
-        txlog:log(TxIds,
-          #{where => reassembly_batch,
-            batchno => CurrentBatch,
-            trycount => TryCount}),
-
-        reassembly_batch(
-          BatchState#{
-            queue => lists:foldl(fun queue:in/2, Queue, TxIds),
-            holding_storage => maps:remove(CurrentBatch, Holding),
-            current_batch => CurrentBatch + 1,
-            try_count => 0
-          }
-        )
-    end;
-
-reassembly_batch(#{try_count := TryCount} = BatchState) ->
-  BatchState#{try_count := TryCount + 1}.
-
-
-%% ------------------------------------------------------------------
-
-get_max_reassembly_tries() ->
-  ?MAX_REASSEMBLY_TRIES.
 
