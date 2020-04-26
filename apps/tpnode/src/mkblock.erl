@@ -34,6 +34,7 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
+  gen_server:cast(self(), settings),
     {ok, #{
        nodeid=>nodekey:node_id(),
        preptxm=>#{},
@@ -282,7 +283,7 @@ decode_tpic_txs(TXs) ->
       % get pre synced transaction body from txstorage
       ({TxID, null}) ->
         TxBody =
-          case txstorage:get_tx(TxID) of
+          case tpnode_txstorage:get_tx(TxID) of
             {ok, {TxID, Tx, _Nodes}} when is_binary(Tx) ->
               tx:unpack(Tx);
             error ->

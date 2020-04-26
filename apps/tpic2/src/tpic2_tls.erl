@@ -296,6 +296,7 @@ timeout(State, idle_timeout) ->
 my_streams() ->
   [<<"blockchain">>,
    <<"blockvote">>,
-   <<"mkblock">>
+   <<"mkblock">>,
+   <<"txpool">>
   ].
 

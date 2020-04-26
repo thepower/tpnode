@@ -93,7 +93,6 @@ handle_call({push_etx, [{_, _}|_]=Lst}, _From, State) ->
   gen_server:cast(txstorage, {store, Lst, [], #{push_head_queue => true}}),
   {reply, ok, State};
 
-
 handle_call({new_tx, Tx}, _From, State) when is_map(Tx) ->
   handle_call({new_tx, tx:pack(Tx)}, _From, State);
 
@@ -106,13 +105,20 @@ handle_call({new_tx, BinTx}, _From, #{sync_timer:=_Tmr, queue:=_Queue}=State)
               error ->
                 {reply, {error, cant_gen_txid}, State};
               {ok, TxID} ->
-                Res=gen_server:cast(txqueue, {push_tx, TxID, BinTx}),
-                lager:info("New TX ~s cast in to queue ~p",[TxID,Res]),
-                {reply, {ok, TxID},
-                 State#{
-                   %queue=>queue:in({TxID, BinTx}, Queue),
-                   %sync_timer => update_sync_timer(Tmr)
-                  }}
+                case gen_server:call(txstorage, {new_tx, TxID, BinTx}) of
+                  ok ->
+                    {reply, {ok, TxID}, State};
+                  {error, Any} ->
+                    {reply, {error, Any}, State}
+                end
+
+%                Res=gen_server:cast(txqueue, {push_tx, TxID, BinTx}),
+%                lager:info("New TX ~s cast in to queue ~p",[TxID,Res]),
+%                {reply, {ok, TxID},
+%                 State#{
+%                   %queue=>queue:in({TxID, BinTx}, Queue),
+%                   %sync_timer => update_sync_timer(Tmr)
+%                  }}
             end;
             Err ->
                 {reply, {error, Err}, State}

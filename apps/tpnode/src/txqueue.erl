@@ -57,57 +57,13 @@ handle_cast({push_tx, TxId, TxBody},
              }
   };
 
-handle_cast(
-  {push, BatchNo, TxIds}, #{queue:=Queue, batch_state := BatchState} = State)
-  when is_list(TxIds) and is_number(BatchNo) ->
-
-  #{holding_storage := Holding, current_batch := CurrentBatch} = BatchState,
-
-  case BatchNo of
-    CurrentBatch ->
-      stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, queue} ]),
-
-      txlog:log(TxIds, #{where => queue_push_current}),
-
-      % trying reassemble the hold storage after the last batch was added
-      #{queue := NewQueue} = NewBatchState =
-        reassembly_batch(
-          BatchState#{
-            queue => lists:foldl( fun queue:in/2, Queue, TxIds),
-            current_batch => BatchNo + 1,
-            try_count => 0
-          }),
-
-      {noreply, State#{
-        queue => NewQueue,
-        batch_state => maps:without([queue], NewBatchState)
-      }};
-
-    _ when BatchNo < CurrentBatch -> % skip batch with number less than current
-      stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, skip} ]),
-      {noreply, State};
-
-    _ ->
-      stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, hold} ]),
-
-      txlog:log(TxIds, #{where => queue_push_hold}),
-
-      % trying reassemble the hold storage
-      % (we can exceed number of tries, so should force reassemble the hold storage)
-
-      #{queue := NewQueue2} = NewBatchState2 =
-        reassembly_batch(
-          BatchState#{
-            queue => Queue,
-            holding_storage => maps:put(BatchNo, TxIds, Holding)
-          }
-        ),
-
-      {noreply, State#{
-        queue => NewQueue2,
-        batch_state => maps:without([queue], NewBatchState2)
-      }}
-  end;
+handle_cast({push_tx, TxId},
+            #{queue:=Queue} = State) when is_binary(TxId) ->
+  lager:info("Pushed TX ~s without body",[TxId]),
+  {noreply, State#{
+              queue => queue:in({TxId,null},Queue)
+             }
+  };
 
 handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
 %%  lager:debug("push head ~p", [TxIds]),
