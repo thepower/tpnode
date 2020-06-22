@@ -229,6 +229,10 @@ childspec() ->
 
 node_addresses() ->
   {ok,IA}=inet:getifaddrs(),
+  AllowLocal=maps:get(allow_localip,application:get_env(tpnode,tpic,#{}),false)==true,
+  TPICAddr=[ list_to_binary(A) || #{address:=A,proto:=tpic} <-
+                                  maps:get(addresses,application:get_env(tpnode,discovery,#{}),[])
+           ],
   lists:foldl(
     fun({_IFName,Attrs},Acc) ->
         Flags=proplists:get_value(flags,Attrs,[]),
@@ -240,13 +244,21 @@ node_addresses() ->
              lists:foldl(
                fun({addr, {65152,_,_,_,_,_,_,_}}, Acc1) ->
                    Acc1;
+                  ({addr, {192,168,_,_}}, Acc1) when (not AllowLocal) ->
+                   Acc1;
+                  ({addr, {172,SixTeenToThirdtyOne,_,_}}, Acc1) when (not AllowLocal) andalso
+                                                              SixTeenToThirdtyOne >= 16 andalso
+                                                              SixTeenToThirdtyOne < 31 ->
+                   Acc1;
+                  ({addr, {10,_,_,_}}, Acc1) when not AllowLocal ->
+                   Acc1;
                   ({addr, ADDR}, Acc1) ->
                    [list_to_binary(inet:ntoa(ADDR)) | Acc1];
                   (_,Acc1) -> Acc1
                end,
                Acc,
                Attrs)
-        end end, [],
+        end end, TPICAddr,
     IA).
 
 cert(Key, Subject) ->
