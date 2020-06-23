@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 -define(CLEANUP, 30000).
--define(TIMEOUT, 300).
+-define(TIMEOUT, 600).
 
 -ifndef(TEST).
 -define(TEST, 1).

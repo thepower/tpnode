@@ -9,7 +9,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0, get_lbh/1, get_state/0, get_max_reassembly_tries/0]).
+-export([start_link/0, get_lbh/1, get_state/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -49,58 +49,21 @@ handle_call(_Request, _From, State) ->
   lager:notice("Unknown call ~p", [_Request]),
   {reply, ok, State}.
 
+handle_cast({push_tx, TxId, TxBody},
+            #{queue:=Queue} = State) when is_binary(TxId), is_binary(TxBody) ->
+  lager:info("Pushed TX ~s",[TxId]),
+  {noreply, State#{
+              queue => queue:in({TxId, TxBody},Queue)
+             }
+  };
 
-handle_cast(
-  {push, BatchNo, TxIds}, #{queue:=Queue, batch_state := BatchState} = State)
-  when is_list(TxIds) and is_number(BatchNo) ->
-
-  #{holding_storage := Holding, current_batch := CurrentBatch} = BatchState,
-
-  case BatchNo of
-    CurrentBatch ->
-      stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, queue} ]),
-
-      txlog:log(TxIds, #{where => queue_push_current}),
-
-      % trying reassemble the hold storage after the last batch was added
-      #{queue := NewQueue} = NewBatchState =
-        reassembly_batch(
-          BatchState#{
-            queue => lists:foldl( fun queue:in/2, Queue, TxIds),
-            current_batch => BatchNo + 1,
-            try_count => 0
-          }),
-
-      {noreply, State#{
-        queue => NewQueue,
-        batch_state => maps:without([queue], NewBatchState)
-      }};
-
-    _ when BatchNo < CurrentBatch -> % skip batch with number less than current
-      stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, skip} ]),
-      {noreply, State};
-
-    _ ->
-      stout:log(txqueue_push, [ {ids, TxIds}, {batch, BatchNo}, {storage, hold} ]),
-
-      txlog:log(TxIds, #{where => queue_push_hold}),
-
-      % trying reassemble the hold storage
-      % (we can exceed number of tries, so should force reassemble the hold storage)
-
-      #{queue := NewQueue2} = NewBatchState2 =
-        reassembly_batch(
-          BatchState#{
-            queue => Queue,
-            holding_storage => maps:put(BatchNo, TxIds, Holding)
-          }
-        ),
-
-      {noreply, State#{
-        queue => NewQueue2,
-        batch_state => maps:without([queue], NewBatchState2)
-      }}
-  end;
+handle_cast({push_tx, TxId},
+            #{queue:=Queue} = State) when is_binary(TxId) ->
+  lager:info("Pushed TX ~s without body",[TxId]),
+  {noreply, State#{
+              queue => queue:in({TxId,null},Queue)
+             }
+  };
 
 handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
 %%  lager:debug("push head ~p", [TxIds]),
@@ -164,11 +127,14 @@ handle_cast(settings, State) ->
 handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = State) ->
 
   Time = erlang:system_time(seconds),
+  lager:info("Q ~p",[Queue]),
   {InProc1, Queue1} = recovery_lost(InProc0, Queue, Time),
-  ETime = Time + 1,
+  lager:info("Q1 ~p",[Queue1]),
+  ETime = Time + 20,
 
   {Queue2, TxIds} =
   txpool:pullx({txpool:get_max_pop_tx(), txpool:get_max_tx_size()}, Queue1, []),
+  lager:info("Q2 ~p",[Queue2]),
 
   txlog:log(TxIds, #{where => txqueue_prepare}),
 
@@ -203,7 +169,12 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
     LastBlk=block:pack(blockchain:last_meta()),
     TxMap =
     lists:foldl(
-      fun(Id, Acc) -> maps:put(Id, null, Acc) end,
+      fun
+        ({Id, Body}, Acc) ->
+          maps:put(Id, Body, Acc);
+        (Id, Acc) ->
+          maps:put(Id, null, Acc)
+      end,
       #{},
       TxIds
      ),
@@ -233,8 +204,8 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
    State#{
      queue=>Queue2,
      inprocess=>lists:foldl(
-                  fun(TxId, Acc) ->
-                      hashqueue:add(TxId, ETime, null, Acc)
+                  fun({TxId,TxB}, Acc) ->
+                      hashqueue:add(TxId, ETime, TxB, Acc)
                   end,
                   InProc1,
                   TxIds
@@ -293,9 +264,9 @@ recovery_lost(InProc, Queue, Now, AccTxs) ->
       case hashqueue:pop(InProc) of
         {InProc1, empty} ->
           {InProc1, push_queue_head(AccTxs, Queue)};
-        {InProc1, {TxID, _TxBody}} ->
+        {InProc1, {TxID, TxBody}} ->
           txlog:log([TxID], #{where => txqueue_recovery1}),
-          recovery_lost(InProc1, Queue, Now, [TxID | AccTxs])
+          recovery_lost(InProc1, Queue, Now, [{TxID,TxBody} | AccTxs])
       end
   end.
 
@@ -327,49 +298,4 @@ get_state() ->
   gen_server:call(?MODULE, state).
 
 %% ------------------------------------------------------------------
-
-reassembly_batch(#{try_count := ?MAX_REASSEMBLY_TRIES} = BatchState) ->
-  #{holding_storage := Holding} = BatchState,
-
-  case lists:sort(maps:keys(Holding)) of
-    [] ->
-      BatchState#{try_count => 0};
-    [FirstBatchNo | _] ->
-      % if tries count reached, then patch current batch number to restart processes
-      reassembly_batch(BatchState#{current_batch => FirstBatchNo, try_count => 0})
-  end;
-
-reassembly_batch(#{
-    queue := Queue,
-    current_batch := CurrentBatch,
-    holding_storage := Holding,
-    try_count := TryCount
-  } = BatchState) ->
-
-    case maps:get(CurrentBatch, Holding, undefined) of
-      undefined -> BatchState#{try_count := TryCount + 1};
-      TxIds ->
-        txlog:log(TxIds,
-          #{where => reassembly_batch,
-            batchno => CurrentBatch,
-            trycount => TryCount}),
-
-        reassembly_batch(
-          BatchState#{
-            queue => lists:foldl(fun queue:in/2, Queue, TxIds),
-            holding_storage => maps:remove(CurrentBatch, Holding),
-            current_batch => CurrentBatch + 1,
-            try_count => 0
-          }
-        )
-    end;
-
-reassembly_batch(#{try_count := TryCount} = BatchState) ->
-  BatchState#{try_count := TryCount + 1}.
-
-
-%% ------------------------------------------------------------------
-
-get_max_reassembly_tries() ->
-  ?MAX_REASSEMBLY_TRIES.
 

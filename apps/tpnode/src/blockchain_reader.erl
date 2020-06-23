@@ -362,9 +362,13 @@ send_block(TPIC, PeerID, Map, Arr) ->
   spawn(?MODULE,send_block_real,[TPIC, PeerID, Map, Arr]),
   ok.
 
-send_block_real(_TPIC, PeerID, Map, [BlockHead]) ->
+send_block_real(_TPIC, PeerID, Map, [<<Hdr:8/binary,_/binary>>=BlockHead]) ->
+  lager:debug("Send last block part to peer ~p: ~s",
+             [PeerID, hex:encode(Hdr)]),
   tpic2:cast(PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead})));
-send_block_real(_TPIC, PeerID, Map, [BlockHead|BlockTail]) ->
+send_block_real(_TPIC, PeerID, Map, [<<Hdr:8/binary,_/binary>>=BlockHead|BlockTail]) ->
+  lager:debug("Send block part to peer ~p, ~w to go: ~s",
+             [PeerID, length(BlockTail),hex:encode(Hdr)]),
   tpic2:cast(PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead}))),
   receive
     {'$gen_cast', {tpic, PeerID, Bin}} ->
@@ -377,6 +381,8 @@ send_block_real(_TPIC, PeerID, Map, [BlockHead|BlockTail]) ->
     {'$gen_cast', Any} ->
       lager:info("Unexpected message ~p", [Any])
   after 30000 ->
+          lager:info("Send block to ~p timeout, ~w parts throw away",
+                     [PeerID, length(BlockTail)]),
           timeout
   end.
 

@@ -138,7 +138,9 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
         fun(#{addr:=_Addr, auth:=Auth, state:=Sta, authdata:=AD}) ->
           #{auth=>Auth,
             state=>Sta,
-            node=>proplists:get_value(nodeid, AD, null)
+            node=>chainsettings:is_our_node(
+                    proplists:get_value(pubkey, AD, null)
+                   )
           };
           (#{addr:=_Addr}) ->
             #{auth=>unknown,

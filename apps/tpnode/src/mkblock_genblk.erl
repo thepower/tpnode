@@ -85,11 +85,16 @@ run_generate(
                   end
               end,
 
-    MeanTime=trunc(median(lists:sort(MT))),
-    Entropy=case Ent of
-              [] -> undefined;
-              _ ->
-                crypto:hash(sha256,[PHash,<<MeanTime:64/big>>|lists:usort(Ent)])
+  MT1=[ 1000*(TT div 1000) || TT <- MT ],
+  MeanTime=trunc(median(lists:sort( MT1 ))),
+  lager:info("MT0 ~p",[MT]),
+  lager:info("MT1 ~p",[MT1]),
+  lager:info("MT ~p",[MeanTime]),
+    AllowEntropy=chainsettings:by_path([<<"current">>,<<"gatherentropy">>])==true,
+    Entropy=if not(AllowEntropy) orelse Ent==[] ->
+                 undefined;
+               true ->
+                 crypto:hash(sha256,[PHash,<<MeanTime:64/big>>|lists:usort(Ent)])
             end,
     case application:get_env(tpnode,mkblock_debug) of
       {ok, true} ->

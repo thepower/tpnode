@@ -42,16 +42,23 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
            _ ->
              undefined
          end,
+  IsItMe=Pubkey==nodekey:get_pub(),
   lager:info("Peer PubKey ~p ~p",[Pubkey,
                                   try
                                     chainsettings:is_our_node(Pubkey)
                                   catch _:_ -> unkn0wn
                                   end]),
-  case Role of
-    server ->
+  case {IsItMe,Role} of
+    {true, server} ->
+      lager:notice("Looks like I received connection from myself, dropping session"),
+      done;
+    {true, _} ->
+      lager:notice("Looks like I received connected to myself, dropping session"),
+      done;
+    {false, server} ->
       {ok,PPID}=gen_server:call(tpic2_cmgr, {peer,Pubkey, {register, undefined, in, self()}}),
       ?MODULE:loop(State#{pubkey=>Pubkey,peerpid=>PPID});
-    _ ->
+    {false, _} ->
       Stream=maps:get(stream, Opts, 0),
       {IP, Port} = maps:get(address, State),
       WhatToDo=if Stream == 0 ->
@@ -151,6 +158,12 @@ system_continue(_PID,_,{State}) ->
   ?MODULE:loop(State).
 
 send_gen_msg(Process, ReqID, Payload, State) ->
+  try
+    {ok, Unpacked} = msgpack:unpack(Payload),
+    lager:debug("Send gen msg ~p: ~p",[ReqID, Unpacked])
+  catch _:_ ->
+          lager:debug("Send gen msg ~p: ~p",[ReqID, Payload])
+  end,
   Res=send_msg(#{
       null=><<"gen">>,
       proc=>Process,
@@ -245,7 +258,13 @@ handle_msg(#{null:=<<"gen">>,
 %               error
 %           end,
 %
-%  lager:debug("From sid ~p socket ~p - ~p",[SID, Me, Peer]),
+  try
+    {ok, Unpacked} = msgpack:unpack(Data),
+    lager:debug("Inbound msg sid ~p ReqID ~p proc  ~p: ~p",[SID, ReqID, Proc, Unpacked])
+  catch _:_ ->
+          lager:debug("Inbound msg sid ~p ReqID ~p proc ~p: ~p",[SID, ReqID, Proc, Data])
+  end,
+
   tpic2_response:handle(PK, SID, ReqID, Proc, Data, State),
   State;
 
@@ -277,6 +296,7 @@ timeout(State, idle_timeout) ->
 my_streams() ->
   [<<"blockchain">>,
    <<"blockvote">>,
-   <<"mkblock">>
+   <<"mkblock">>,
+   <<"txpool">>
   ].
 

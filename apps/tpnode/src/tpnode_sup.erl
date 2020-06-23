@@ -85,7 +85,8 @@ init([]) ->
             { txqueue, {txqueue, start_link, []},
               permanent, 5000, worker, []},
 
-            { txstorage, {txstorage, start_link, [#{}]},
+            { txstorage, {tpnode_txstorage, start_link, 
+                          [#{name => txstorage}]},
               permanent, 5000, worker, []},
 
             { txpool, {txpool, start_link, []},

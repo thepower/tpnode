@@ -61,6 +61,17 @@ connection_process(Parent, Host, Port, Opts) ->
                    {[],Addr};
                  {ok, {_,_,_,_,_,_,_,_}=Addr} ->
                    {[inet6],Addr};
+                  {error, einval} ->
+                    case inet:gethostbyname(Host) of
+                      {ok,{hostent,_,_,inet,_, [IPv4Addr|_]}} ->
+                        {[],IPv4Addr};
+                      {ok, Any} ->
+                        lager:error("Address ~p resolver unexpected result : ~p",[Host, Any]),
+                        throw({unexpected_gethostbyname_answer,Any});
+                      {error,nxdomain} ->
+                        lager:error("Address ~p can't resolve",[Host]),
+                        throw({bad_hostname,Host})
+                    end;
                  {error, Err} ->
                    lager:error("Address ~p error: ~p",[Host, Err]),
                    throw({parse_addr,Err})
