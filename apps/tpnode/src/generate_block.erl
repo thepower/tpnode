@@ -1692,6 +1692,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            AAcc
        end,
   Addrs=lists:foldl(Load, Addrs0, TXL),
+  lager:debug("Bals Loaded ~p",[Addrs]),
   lager:debug("MB Pre Setting ~p", [XSettings]),
   _T3=erlang:system_time(),
   Entropy=proplists:get_value(entropy, Options, <<>>),
@@ -1763,28 +1764,30 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
          {entropy, Entropy},
          {mean_time, <<MeanTime:64/big>>}
         ],
-  Blk=block:mkblock2(#{
-        txs=>Success,
-        parent=>Parent_Hash,
-        mychain=>GetSettings(mychain),
-        height=>Parent_Height+1,
-        bals=>NewBal,
-        failed=>Failed,
-        temporary=>proplists:get_value(temporary,Options),
-        retry=>proplists:get_value(retry,Options),
-        ledger_hash=>LedgerHash,
-        settings_hash=>SettingsHash,
-        settings=>Settings,
-        extra_roots=>Roots,
-        tx_proof=>[ TxID || {TxID, _ToChain} <- Outbound ],
-        inbound_blocks=>lists:foldl(
-                          fun(PickID, Acc) ->
-                              [{PickID,
-                                proplists:get_value(PickID, TXL)
-                               }|Acc]
-                          end, [], maps:keys(PickBlocks)),
-        extdata=>ExtraData
-       }),
+  BlkData=#{
+    txs=>Success,
+    parent=>Parent_Hash,
+    mychain=>GetSettings(mychain),
+    height=>Parent_Height+1,
+    bals=>NewBal,
+    failed=>Failed,
+    temporary=>proplists:get_value(temporary,Options),
+    retry=>proplists:get_value(retry,Options),
+    ledger_hash=>LedgerHash,
+    settings_hash=>SettingsHash,
+    settings=>Settings,
+    extra_roots=>Roots,
+    tx_proof=>[ TxID || {TxID, _ToChain} <- Outbound ],
+    inbound_blocks=>lists:foldl(
+                      fun(PickID, Acc) ->
+                          [{PickID,
+                            proplists:get_value(PickID, TXL)
+                           }|Acc]
+                      end, [], maps:keys(PickBlocks)),
+    extdata=>ExtraData
+   },
+  Blk=block:mkblock2(BlkData),
+  lager:info("BLK ~p",[BlkData]),
 
   % TODO: Remove after testing
   % Verify myself
@@ -1804,8 +1807,6 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
       end
 
   end,
-
-
 
   EmitTXs=lists:map(
             fun({TxID, ETx}) ->
@@ -1834,6 +1835,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
               GetSettings(mychain),
               proplists:get_value(temporary,Options)
              ]),
+  lager:info("Hdr ~p",[maps:get(header,Blk)]),
   lager:debug("BENCHMARK txs       ~w~n", [length(TXL)]),
   lager:debug("BENCHMARK sort tx   ~.6f ~n", [(_T2-_T1)/1000000]),
   lager:debug("BENCHMARK pull addr ~.6f ~n", [(_T3-_T2)/1000000]),

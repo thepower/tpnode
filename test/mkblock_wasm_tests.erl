@@ -122,7 +122,7 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
            error({bad_setting, Other})
        end,
   GetAddr=fun(Addr) ->
-              case mledger:get(LedgerPID, Addr) of
+              case mledger:get(Addr) of
                 #{amount:=_}=Bal -> Bal;
                 not_found -> bal:new()
               end
@@ -164,7 +164,8 @@ extcontract_test() ->
       Addr1=naddress:construct_public(1, OurChain, 1),
       Addr2=naddress:construct_public(1, OurChain, 3),
       Addr3=naddress:construct_public(1, OurChain, 5),
-      {ok, Code}=file:read_file("./examples/testcontract.wasm"),
+      %{ok, Code}=file:read_file("./examples/testcontract.wasm"),
+      {ok, Code}=file:read_file("./examples/sc_inc4.wasm.lz4"),
       TX3=tx:sign(
             tx:construct_tx(#{
               ver=>2,
@@ -173,7 +174,7 @@ extcontract_test() ->
               seq=>2,
               t=>os:system_time(millisecond),
               payload=>[
-                        #{purpose=>srcfee, amount=>200, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>500, cur=><<"FTT">>},
                         #{purpose=>gas, amount=>500, cur=><<"FTT">>}
                        ],
               call=>#{function=>"init",args=>[16]},
@@ -188,12 +189,12 @@ extcontract_test() ->
               from=>Addr2,
               to=>Addr1,
               cur=><<"FTT">>,
-              call=>#{function=>"dec",args=>[1]},
+              call=>#{function=>"add",args=>[4]},
               payload=>[
                         #{purpose=>transfer, amount=>1, cur=><<"FTT">>},
                         #{purpose=>transfer, amount=>3, cur=><<"TST">>},
                         #{purpose=>gas, amount=>10, cur=><<"TST">>}, %wont be used
-                        #{purpose=>gas, amount=>3, cur=><<"SK">>}, %will be used 1
+                        #{purpose=>gas, amount=>10, cur=><<"SK">>}, %will be used 1
                         #{purpose=>gas, amount=>10, cur=><<"FTT">>},
                         #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
                        ],
@@ -207,7 +208,7 @@ extcontract_test() ->
               from=>Addr3,
               to=>Addr1,
               cur=><<"FTT">>,
-              call=>#{function=>"expensive",args=>[1]},
+              call=>#{function=>"expensive",args=>[1000]},
               payload=>[
                         #{purpose=>gas, amount=>1, cur=><<"FTT">>},
                         #{purpose=>srcfee, amount=>1, cur=><<"FTT">>}
@@ -248,20 +249,15 @@ extcontract_test() ->
                               ),
                   io:format("Fee  ~p~n",[Fee]),
                   {ok,ContractState}=msgpack:unpack(maps:get(state, NewSCLedger)),
-                  io:format("St ~s~n",[hex:encode(
-                                         maps:get(<<1,1,1,1,1,1,1,1,
-                                                    1,1,1,1,1,1,1,1,
-                                                    1,1,1,1,1,1,1,1,
-                                                    1,1,1,1,1,1,1,1>>,ContractState))]),
+                  StateKey=msgpack:pack("v"),
+                  StateVal=msgpack:pack(20),
+                  io:format("St ~p~n",[ maps:get(StateKey,ContractState) ]),
                   [
                    ?assertMatch([{<<"5willfail">>,insufficient_gas}],Failed),
                    ?assertMatch([<<"4testexec">>,<<"3testdeploy">>],Success),
-                   ?assertMatch(<<15:256/big>>,maps:get(<<1,1,1,1,1,1,1,1,
-                                                          1,1,1,1,1,1,1,1,
-                                                          1,1,1,1,1,1,1,1,
-                                                          1,1,1,1,1,1,1,1>>,ContractState)),
-                   ?assertMatch(#{<<"TST">>:=29, <<"FTT">>:=676},maps:get(amount, NewSCLedger)),
-                   ?assertMatch(#{<<"SK">>:=2, <<"FTT">>:=328},Fee)
+                   ?assertMatch(StateVal,maps:get(StateKey,ContractState)),
+                   ?assertMatch(#{<<"TST">>:=29, <<"FTT">>:=390},maps:get(amount, NewSCLedger)),
+                   ?assertMatch(#{<<"SK">>:=5, <<"FTT">>:=614},Fee)
                   ]
               end,
       Ledger=[
@@ -269,7 +265,7 @@ extcontract_test() ->
                #{amount => #{ <<"FTT">> => 1000, <<"SK">> => 3, <<"TST">> => 26 }}
               },
               {Addr2,
-               #{amount => #{ <<"FTT">> => 10, <<"SK">> => 3, <<"TST">> => 26 }}
+               #{amount => #{ <<"FTT">> => 10, <<"SK">> => 10, <<"TST">> => 26 }}
               },
               {Addr3,
                #{amount => #{ <<"FTT">> => 10, <<"SK">> => 2, <<"TST">> => 26 }}

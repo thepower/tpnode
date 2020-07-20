@@ -89,11 +89,14 @@ reset_node() {
     node_host="${node}@${HOST}"
     db_dir="db/db_${node_host}"
     ledger_dir="db/ledger_${node_host}"
+    mledger_dir="Mnesia.${node_host}"
 
     echo "removing ${db_dir}"
     rm -rf "${db_dir}"
     echo "removing ${ledger_dir}"
     rm -rf "${ledger_dir}"
+    echo "removing ${mledger_dir}"
+    rm -rf "${mledger_dir}"
 }
 
 reset_testnet() {

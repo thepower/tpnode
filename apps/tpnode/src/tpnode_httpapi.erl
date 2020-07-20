@@ -200,7 +200,7 @@ h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
            _ ->
              naddress:decode(TAddr)
          end,
-    Ledger=mledger:get([Addr]),
+    Ledger=mledger:get(Addr),
     case maps:is_key(Addr, Ledger) of
       false ->
           err(
@@ -237,7 +237,7 @@ h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
            _ ->
              naddress:decode(TAddr)
          end,
-    Ledger=mledger:get([Addr]),
+    Ledger=mledger:get(Addr),
     case maps:is_key(Addr, Ledger) of
       false ->
           err(
@@ -338,7 +338,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    Ledger=mledger:get([Addr]),
+    Ledger=mledger:get(Addr),
     case maps:is_key(Addr, Ledger) of
       false ->
           err(
@@ -402,7 +402,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    Ledger=mledger:get([Addr]),
+    Ledger=mledger:get(Addr),
     case maps:is_key(Addr, Ledger) of
       false ->
           err(
@@ -444,17 +444,16 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
            _ ->
              naddress:decode(TAddr)
          end,
-    Ledger=mledger:get([Addr]),
-    case maps:is_key(Addr, Ledger) of
-      false ->
+    Info=mledger:get(Addr),
+    case Info == #{amount => #{}} of
+      true ->
           err(
               10003,
               <<"Not found">>,
               #{result => <<"not_found">>},
               #{http_code => 404}
           );
-      true ->
-        Info=maps:get(Addr, Ledger),
+      false ->
         InfoL=case maps:is_key(lastblk, Info) of
                 false ->
                   #{};

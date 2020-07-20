@@ -5,6 +5,7 @@
 -export([bals2patch/1, apply_patch/2]).
 -export([dbmtfun/3]).
 -export([mb2item/1,item2mb/1]).
+-export([dump_ledger/0]).
 
 -record(bal_items,
         {
@@ -12,6 +13,9 @@
          address,version,key,path,introduced,value,
          addr_ver, addr_key
         }).
+-opaque bal_items() :: #bal_items{}.
+-export_type([bal_items/0]).
+
 -record(mb,
         {
          address,
@@ -107,7 +111,9 @@ start_db() ->
   mnesia:start(),
   mnesia_rocksdb:register(),
   %mnesia:change_table_copy_type(schema, node(), disc_copies),
-  true=is_list(ensure_tables(tables())),
+  L=ensure_tables(tables()),
+  lager:info("Created tables ~p",[L]),
+  true=is_list(L),
   ok.
 
 bi_set_ver(#bal_items{address=Address, key=Key, path=Path}=BI,Ver) ->
@@ -381,16 +387,16 @@ do_apply([E1|_]=Patches, Height) when is_record(E1, bal_items) ->
   end,
   ChAddrs=lists:usort([ Address || #bal_items{address=Address} <- Patches ]),
   NewLedger=[ {Address, hashl(get_raw(Address,notrans))} || Address <- ChAddrs ],
-  io:format("NL ~p~n",[NewLedger]),
+  %io:format("NL ~p~n",[NewLedger]),
   lists:foldl(
     fun({Addr,Hash},Acc) ->
         db_merkle_trees:enter(Addr, Hash, {fun dbmtfun/3,Acc})
     end, #{}, NewLedger),
-  {ok,
-   db_merkle_trees:root_hash({fun dbmtfun/3,
-                              db_merkle_trees:balance({fun dbmtfun/3,#{}})
-                             })
-  };
+  RH=db_merkle_trees:root_hash({fun dbmtfun/3,
+                                db_merkle_trees:balance({fun dbmtfun/3,#{}})
+                               }),
+  %io:format("RH ~p~n",[RH]),
+  {ok, RH};
 
 do_apply([E1|_],_) ->
   throw({bad_patch, E1}).
@@ -400,6 +406,7 @@ apply_patch(Patches, check) ->
         throw({'abort',do_apply(Patches, undefined)})
     end,
   {aborted,{throw,{abort,NewHash}}}=mnesia:transaction(F),
+  %io:format("Check hash ~p~n",[NewHash]),
   NewHash;
 
 apply_patch(Patches, {commit, Height}) ->
@@ -407,5 +414,13 @@ apply_patch(Patches, {commit, Height}) ->
         do_apply(Patches, Height)
     end,
   {atomic,Res}=mnesia:transaction(F),
+  io:format("Apply hash ~p~n",[Res]),
   Res.
+
+dump_ledger() ->
+  file:write_file("ledger_"++atom_to_list(node()),
+                  io_lib:format("~p.~n",
+                                [
+                                 mnesia:dirty_match_object(#bal_items{_='_',version=latest})
+                                ])).
 

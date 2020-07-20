@@ -296,6 +296,8 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         if (NewHash =/= Hash) -> lager:notice("bal root mismatch");
           true -> ok
         end,
+        io:format("BR1 ~p~n",[Hash]),
+        io:format("BR2 ~p~n",[NewHash]),
         {balroot, NewHash};
       ({setroot, Hash}) ->
         Settings=maps:get(settings, Blk, []),
@@ -341,11 +343,12 @@ verify(#{ header:=#{parent:=Parent, %blkv2
     end, Roots0),
 
   {BHeader, #{roots:=_NewRoots}}=build_header2(Roots, Parent, H, Chain),
-%  io:format("vHI ~p~n", [NewRoots]),
+  io:format("HI ~p~n", [Roots0]),
+  io:format("vHI ~p~n", [_NewRoots]),
 
   Hash=crypto:hash(sha256, BHeader),
-%  io:format("H1 ~s ~nH2 ~s~n~n", [bin2hex:dbin2hex(Hash),
-%                               bin2hex:dbin2hex(HdrHash)]),
+  io:format("H1 ~s ~nH2 ~s~n~n", [bin2hex:dbin2hex(Hash),
+                               bin2hex:dbin2hex(HdrHash)]),
   if Hash =/= HdrHash ->
        lager:notice("Block hash mismatch"),
        false;
@@ -476,10 +479,17 @@ binarize_settings([{TxID, #{ patch:=_LPatch }=Patch}|Rest]) ->
 
 
 mkblock2(#{ txs:=Txs, parent:=Parent,
-            height:=H, bals:=Bals,
+            height:=H, bals:=Bals0,
             settings:=Settings,
             mychain:=Chain
           }=Req) ->
+  TempID=case maps:get(temporary, Req, false) of
+           X when is_integer(X) -> X;
+           _ -> false
+         end,
+  Bals=if TempID==false -> Bals0;
+          true -> #{} %avoid calculating bals_root on temporary block
+       end,
   LH=maps:get(ledger_hash, Req, undefined),
   Txsl=lists:keysort(1, lists:usort(Txs)),
   BTxs=binarizetx(Txsl),
@@ -493,11 +503,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
   TxRoot=gb_merkle_trees:root_hash(TxMT),
   BalsRoot=gb_merkle_trees:root_hash(BalsMT),
   SettingsRoot=gb_merkle_trees:root_hash(SettingsMT),
-  TempID=case maps:get(temporary, Req, false) of
-           X when is_integer(X) -> X;
-           _ -> false
-         end,
-
+  
   ExtraRoots=case maps:is_key(extra_roots, Req) of
                true ->
                  maps:get(extra_roots, Req);

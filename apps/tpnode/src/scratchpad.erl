@@ -81,10 +81,11 @@ test_alloc_addr2(Promo) ->
     keys => [Pub1]
    },
   TXConstructed=tx:sign(tx:construct_tx(T1,[{pow_diff,8}]),Pvt1),
-  %  Packed=tx:pack(TXConstructed),
-  {TXConstructed,
-   txpool:new_tx(TXConstructed)
-  }.
+  Packed=tx:pack(TXConstructed),
+  %{TXConstructed,
+  % txpool:new_tx(TXConstructed)
+  %},
+  Packed.
 
 test_gen_invites_patch(PowDiff,From,To,Secret) ->
   settings:dmp(
@@ -743,7 +744,9 @@ post_tx("http://"++Base, Tx) ->
                                   {"http://"++Base++"/api/tx/new.bin",
                                    [],
                                    "binary/octet-stream",
-                                   tx:pack(Tx)
+                                   if is_binary(Tx) -> Tx;
+                                      is_map(Tx) -> tx:pack(Tx)
+                                   end
                                   },
                                   [], [{body_format, binary}]),
   io:format("~s~n",[Res]),
@@ -754,7 +757,9 @@ post_tx(Base, Tx) ->
                                   {"http://"++Base++"/api/tx/new.bin",
                                    [],
                                    "binary/octet-stream",
-                                   tx:pack(Tx)
+                                   if is_binary(Tx) -> Tx;
+                                      is_map(Tx) -> tx:pack(Tx)
+                                   end
                                   },
                                   [], [{body_format, binary}]),
   io:format("~s~n",[Res]),
@@ -792,4 +797,8 @@ init_chain(ChNo) ->
            ),
           "../tpnode_extras/tn2/out/c"++integer_to_list(ChNo)++"n?.config"),
   Patch.
+
+testch102() ->
+  scratchpad:post_tx("http://c102n9.thepower.io:43382",tx:sign(tx:construct_tx(#{kind=>lstore,ver=>2,from=>naddress:decode(<<"AA100000171127859544">>),t=>os:system_time(millisecond),seq=>os:system_time(second),payload=>[],patches=>[]}),<<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>)).
+
 

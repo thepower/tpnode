@@ -454,7 +454,7 @@ bbyb_sync(Hash, Handler, Candidates) ->
             lager:info("CRes ~p",[CRes]),
             case maps:find(child, Block) of
               {ok, Child} ->
-                lager:info("block ~s have child ~s", [blkid(NewH), blkid(Child)]),
+                lager:info("block ~s has child ~s", [blkid(NewH), blkid(Child)]),
                 bbyb_sync(NewH, Handler, Candidates);
 %                self() ! {bbyb_sync, NewH},
 %                sync_cont;
@@ -466,6 +466,7 @@ bbyb_sync(Hash, Handler, Candidates) ->
                 done
             end;
           false ->
+            file:write_file("log/brokenblock_"++integer_to_list(os:system_time()),BinBlock),
             lager:error("Broken block ~s got from ~p. Sync stopped",
                         [blkid(NewH), Handler]),
             %%              erlang:send_after(10000, self(), runsync), % chainkeeper do that
