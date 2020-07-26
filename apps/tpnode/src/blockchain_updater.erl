@@ -309,16 +309,18 @@ handle_call({new_block, #{hash:=BlockHash,
                                 tmpblock=>MBlk
                                }};
                 true ->
+                  Roots=maps:get(roots,Header,[]),
                   %normal block installation
-                  {ok, LHash}=apply_ledger(check, MBlk),
+                  %Filename="ledger_"++integer_to_list(os:system_time(millisecond))++atom_to_list(node())++"_bcupd",
+                  %lager:info("Dumping to file ~s",[Filename]),
+                  %mledger:dump_ledger({block_roots,Roots},Filename),
+                  %
+                  %
+                  BlockLedgerHash=proplists:get_value(ledger_hash,Roots,<<0,0,0,0>>),
+
                   %NewTable=apply_bals(MBlk, Tbl),
                   Sets1_pre=apply_block_conf(MBlk, Sets),
                   Sets1=apply_block_conf_meta(MBlk, Sets1_pre),
-                  lager:info("Ledger dst hash ~s, block ~s",
-                             [hex:encode(LHash),
-                              hex:encode(maps:get(ledger_hash, Header, <<0:256>>))
-                             ]
-                            ),
                   lager:debug("Txs ~p", [ Txs ]),
 
                   NewLastBlock=LastBlock#{
@@ -326,15 +328,25 @@ handle_call({new_block, #{hash:=BlockHash,
                                 },
                   T2=erlang:system_time(),
 
-                  {ok, LH1} = apply_ledger(put, MBlk),
-                  if(LH1 =/= LHash) ->
-                      lager:error("Ledger error, hash mismatch on check and put ~p =/= ~p",
-                                  [LH1, LHash]),
-                      lager:error("Database corrupted"),
-                      tpnode:die("Ledger hash mismatch");
-                    true ->
-                      ok
-                  end,
+                  LApply=apply_ledger(
+                           case BlockLedgerHash of
+                             <<0,0,0,0>> ->
+                               put;
+                             _ ->
+                               {checkput, BlockLedgerHash}
+                           end, MBlk),
+                  lager:info("LApply ~p",[LApply]),
+
+                  LHash=case LApply of
+                          {ok, LH11} ->
+                            LH11;
+                          {error, LH11} ->
+                            %mledger:dump_ledger(MBlk,Filename++"FUCK"),
+                            lager:error("Ledger error, hash mismatch on check and put ~p =/= ~p",
+                                        [LH11, BlockLedgerHash]),
+                            lager:error("Database corrupted"),
+                            tpnode:die("Ledger hash mismatch")
+                        end,
 
                   save_block(LDB, NewLastBlock, false),
                   lastblock2ets(BTable, MBlk),
@@ -404,8 +416,7 @@ handle_call({new_block, #{hash:=BlockHash,
                              {sig, SigLen},
                              {node, nodekey:node_name()},
                              {height,maps:get(height, maps:get(header, Blk))},
-                             {ledger_hash_actual, LH1},
-                             {ledger_hash_checked, LHash}
+                             {ledger_hash_actual, LHash}
                             ]),
 
 
@@ -657,12 +668,14 @@ apply_ledger(Action, #{bals:=S, hash:=_BlockHash, header:=#{height:=Height}}) ->
   lager:info("Apply bals ~p", [Patch]),
   lager:info("Apply patches ~p", [mledger:bals2patch(Patch)]),
   LR=case Action of
-       check ->
-         mledger:apply_patch(mledger:bals2patch(Patch), check);
+       {checkput, Hash} ->
+         mledger:apply_patch(mledger:bals2patch(Patch), {commit, Height, Hash});
+%       check ->
+%         mledger:apply_patch(mledger:bals2patch(Patch), check);
        put ->
-         mledger:apply_patch(mledger:bals2patch(Patch), {commit, Height})
+         {ok,mledger:apply_patch(mledger:bals2patch(Patch), {commit, Height})}
      end,
-  lager:info("Apply ~p", [LR]),
+  lager:info("Apply ~p ~p", [Action, LR]),
   LR.
 
 apply_block_conf_meta(#{hash:=Hash}=Block, Conf0) ->
