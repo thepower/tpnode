@@ -17,6 +17,7 @@
       mkmap,
       tables,
       tpic2,
+      sext,
       stout,
       mnesia,
       mnesia_rocksdb
