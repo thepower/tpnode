@@ -11,7 +11,7 @@
  {<<"cowlib">>,{pkg,<<"cowlib">>,<<"2.0.1">>},1},
  {<<"db_merkle_trees">>,
   {git,"https://github.com/cleverfox/db_merkle_trees.git",
-       {ref,"3679b62ba2f84f557587db035535c6882d15986b"}},
+       {ref,"07e76d2ea74a40b1c39e9f2cbd3a5212cf0ee1ac"}},
   0},
  {<<"gb_merkle_trees">>,
   {git,"https://github.com/KrzysiekJ/gb_merkle_trees.git",
