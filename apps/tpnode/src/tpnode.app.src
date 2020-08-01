@@ -19,6 +19,7 @@
       tpic2,
       sext,
       stout,
+      db_merkle_trees,
       mnesia,
       mnesia_rocksdb
     ]},
