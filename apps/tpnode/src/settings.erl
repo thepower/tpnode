@@ -300,7 +300,10 @@ get_patches(Settings, Mode = export) when is_map(Settings) ->
     dmp(mp(lists:reverse(parse_settings(maps:keys(Settings), Settings, [], [], Mode))));
 
 get_patches(Settings, Mode = ets) when is_map(Settings) ->
-    lists:reverse(parse_settings(maps:keys(Settings), Settings, [], [], Mode)).
+    lists:reverse(parse_settings(maps:keys(Settings), Settings, [], [], Mode));
+
+get_patches(Settings, Mode = scalar) when is_map(Settings) ->
+    lists:reverse(parse_settings_scalar(maps:keys(Settings), Settings, [], [], Mode)).
 
 parse_settings([], _, _, Patches, _Mode) -> Patches;
 parse_settings([H|T], Settings, Path, Patches, Mode) ->
@@ -322,3 +325,16 @@ parse_settings([H|T], Settings, Path, Patches, Mode) ->
                       <<"v">> => Item}|Patches]
                end,
   parse_settings(T, Settings, Path, NewPatches, Mode).
+
+parse_settings_scalar([], _, _, Patches, _Mode) -> Patches;
+parse_settings_scalar([H|T], Settings, Path, Patches, Mode) ->
+  NewPath = [H|Path],
+  Item = maps:get(H, Settings),
+  NewPatches = case Item of
+                 _ when not is_map(Item) ->
+                   [{lists:reverse(NewPath),Item}|Patches];
+                 #{} ->
+                   parse_settings_scalar(maps:keys(Item), Item, NewPath, Patches, Mode)
+               end,
+  parse_settings_scalar(T, Settings, Path, NewPatches, Mode).
+
