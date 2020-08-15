@@ -296,8 +296,8 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         if (NewHash =/= Hash) -> lager:notice("bal root mismatch");
           true -> ok
         end,
-        io:format("BR1 ~p~n",[Hash]),
-        io:format("BR2 ~p~n",[NewHash]),
+        %io:format("BR1 ~p~n",[Hash]),
+        %io:format("BR2 ~p~n",[NewHash]),
         {balroot, NewHash};
       ({setroot, Hash}) ->
         Settings=maps:get(settings, Blk, []),
@@ -343,12 +343,12 @@ verify(#{ header:=#{parent:=Parent, %blkv2
     end, Roots0),
 
   {BHeader, #{roots:=_NewRoots}}=build_header2(Roots, Parent, H, Chain),
-  io:format("HI ~p~n", [Roots0]),
-  io:format("vHI ~p~n", [_NewRoots]),
+  %io:format("HI ~p~n", [Roots0]),
+  %io:format("vHI ~p~n", [_NewRoots]),
 
   Hash=crypto:hash(sha256, BHeader),
-  io:format("H1 ~s ~nH2 ~s~n~n", [bin2hex:dbin2hex(Hash),
-                               bin2hex:dbin2hex(HdrHash)]),
+  %io:format("H1 ~s ~nH2 ~s~n~n", [bin2hex:dbin2hex(Hash),
+  %                             bin2hex:dbin2hex(HdrHash)]),
   if Hash =/= HdrHash ->
        lager:notice("Block hash mismatch"),
        false;
