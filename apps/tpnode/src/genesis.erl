@@ -51,11 +51,12 @@ new(HPrivKey, Set0) ->
               tx:sign(Acc, PrivKey)
           end, Set0, PrivKeys),
   Settings=[ { bin2hex:dbin2hex(crypto:hash(md5,maps:get(body,Set0))), Patch } ],
-  Blk0=block:mkblock(
+  Blk0=block:mkblock2(
          #{ parent=><<0, 0, 0, 0, 0, 0, 0, 0>>,
             height=>0,
             txs=>[],
             bals=>#{},
+            mychain=>1,
             settings=>Settings,
             sign=>[]
           }),
