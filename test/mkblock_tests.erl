@@ -1765,7 +1765,7 @@ tstore_test() ->
             ?assertMatch(#{<<"root1">> := #{<<"1k">> := 1000},
                            <<"root2">> :=
                            #{<<"list1">> := [<<"medved">>,<<"preved">>]}},
-                         bal:get(lstore,maps:get(From,maps:get(bals,Block)))
+                         mbal:get(lstore,maps:get(From,maps:get(bals,Block)))
                         )
            ]
        end,

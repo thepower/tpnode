@@ -224,7 +224,7 @@ put(view, V, Bal) when is_list(V) ->
 %          }
 %  end;
 
-put(state, V, Bal) when is_function(V) ->
+put(state, V, Bal) when is_function(V); is_binary(V) ->
   Bal#{ state=>V };
 
 put(code, V, Bal) when is_function(V); is_binary(V) ->
