@@ -1,6 +1,6 @@
 -module(mledger).
 -compile({no_auto_import,[get/1]}).
--export([start_db/0,deploy4test/2, put/2,get/1,get_vers/1,hash/1]).
+-export([start_db/0,deploy4test/2, put/2,get/1,get_vers/1,hash/1,hashl/1]).
 -export([bi_create/6,bi_set_ver/2]).
 -export([bals2patch/1, apply_patch/2]).
 -export([dbmtfun/3]).
@@ -92,6 +92,7 @@ rm_rf(Dir) ->
 deploy4test(LedgerData, TestFun) ->
   no=mnesia:system_info(),
   TmpDir="/tmp/ledger_test."++(integer_to_list(os:system_time(),16)),
+  filelib:ensure_dir(TmpDir),
   application:set_env(mnesia, dir, TmpDir),
   _ = mnesia:create_schema([node()]),
   mnesia:start(),
@@ -182,16 +183,14 @@ get(Address) ->
 get_raw(Address, notrans) ->
   mnesia:match_object(bal_items,
                       #bal_items{
-                         address=Address,
-                         version=latest,
+                         addr_ver={Address, latest},
                          _ ='_'
                         },
                       read).
 
 get(Address, notrans) -> 
-  Pattern=#bal_items{address=Address, version = latest, key='$1', value='$2',_='_'},
-%  PatternCode=#bal_items{address=Address, version = latest, key='$1', path='$2',_='_'},
-  PatternCode=#bal_items{address=Address, version = latest, key='$1', path='$2', value='$3', _='_'},
+  Pattern=#bal_items{ addr_ver={Address, latest}, key='$1', value='$2', _='_'},
+  PatternCode=#bal_items{addr_ver={Address, latest}, key='$1', path='$2', value='$3', _='_'},
   maps:remove(changes,
               lists:foldl(
                 fun(#bal_items{key=K, path=P, value=V},A) ->
@@ -211,6 +210,8 @@ get(Address, notrans) ->
 %                                 end
 %                             end,
 %                             A);
+                   ([lstore,K,V1], A) ->
+                    mbal:put(lstore, K, V1, A);
                    ([state,K,V1], A) ->
                     mbal:put(state, K, V1, A)
                     %case maps:is_key(state, A) of
@@ -249,20 +250,21 @@ get(Address, notrans) ->
                     %    %               end,A)
                     %end
                 end,
-                bal:new(),
+                mbal:new(),
                 mnesia:select(bal_items,
                               [
-                               {Pattern,[{'==','$1',amount}],['$_']},
-                               {Pattern,[{'==','$1',lastblk}],['$_']},
-                               {Pattern,[{'==','$1',pubkey}],['$_']},
-                               {Pattern,[{'==','$1',seq}],['$_']},
-                               {Pattern,[{'==','$1',t}],['$_']},
-                               {Pattern,[{'==','$1',ublk}],['$_']},
-                               {Pattern,[{'==','$1',usk}],['$_']},
-                               {Pattern,[{'==','$1',view}],['$_']},
-                               {Pattern,[{'==','$1',vm}],['$_']},
-                               {PatternCode,[{'==','$1',code}],['$$']},
-                               {PatternCode,[{'==','$1',state}],['$$']}
+                               {Pattern,    [{'==','$1',amount}  ],['$_']},
+                               {Pattern,    [{'==','$1',lastblk} ],['$_']},
+                               {Pattern,    [{'==','$1',pubkey}  ],['$_']},
+                               {Pattern,    [{'==','$1',seq}     ],['$_']},
+                               {Pattern,    [{'==','$1',t}       ],['$_']},
+                               {Pattern,    [{'==','$1',ublk}    ],['$_']},
+                               {Pattern,    [{'==','$1',usk}     ],['$_']},
+                               {Pattern,    [{'==','$1',view}    ],['$_']},
+                               {Pattern,    [{'==','$1',vm}      ],['$_']},
+                               {PatternCode,[{'==','$1',lstore}  ],['$$']},
+                               {PatternCode,[{'==','$1',code}    ],['$$']},
+                               {PatternCode,[{'==','$1',state}   ],['$$']}
                               ],
                               read)
                ));
@@ -298,50 +300,60 @@ hashl(BIs) when is_list(BIs) ->
   gb_merkle_trees:root_hash(MT).
 
 hash(Address) when is_binary(Address) ->
-  BIs=get(Address),
-  PL=lists:map(
-    fun(#bal_items{key=K,path=P,value=V}) ->
-        {sext:encode({K,P}),sext:encode(V)}
-    end, BIs),
-  MT=gb_merkle_trees:from_list(PL),
-  gb_merkle_trees:root_hash(MT).
-
+  BIs=get_raw(Address,notrans),
+  hashl(BIs).
+  
 bals2patch(Data) ->
   bals2patch(Data,[]).
 
 bals2patch([], Acc) -> Acc; 
 bals2patch([{A,Bal}|Rest], PRes) ->
-  Res=maps:fold(
-        fun (Key,Val,Acc) when Key == amount;
-                               Key == code;
-                               Key == pubkey;
-                               Key == vm;
-                               Key == view;
-                               Key == t;
-                               Key == seq;
-                               Key == usk;
-                               Key == lastblk ->
-            [bi_create(A, latest, Key, [], here, Val)|Acc];
-            (state,BState,Acc) ->
-            case bal:get(vm,Bal) of
-              <<"chainfee">> ->
-                [bi_create(A, latest, state, <<>>, here, BState)|Acc];
-              <<"erltest">> ->
-                [bi_create(A, latest, state, <<>>, here, BState)|Acc];
-              _ ->
-                io:format("BS ~p~n",[BState]),
-                {ok, State} = msgpack:unpack(BState),
-                maps:fold(
-                  fun(K,V,Ac) ->
-                      [bi_create(A, latest, state, K, here, V)|Ac]
-                  end, Acc, State)
-            end;
-            (changes,_,Acc) -> Acc;
-            (Key,_,Acc) ->
-            io:format("Unhandled field ~p~n",[Key]),
-            Acc
-        end, PRes, Bal),
-   bals2patch(Rest,Res).
+  FoldFun=fun (Key,Val,Acc) when Key == amount;
+                                 Key == code;
+                                 Key == pubkey;
+                                 Key == vm;
+                                 Key == view;
+                                 Key == t;
+                                 Key == seq;
+                                 Key == usk;
+                                 Key == lastblk ->
+              [bi_create(A, latest, Key, [], here, Val)|Acc];
+              (state,BState,Acc) ->
+              case mbal:get(vm,Bal) of
+                <<"chainfee">> ->
+                  [bi_create(A, latest, state, <<>>, here, BState)|Acc];
+                <<"erltest">> ->
+                  [bi_create(A, latest, state, <<>>, here, BState)|Acc];
+                _ ->
+                  %                io:format("BS ~p~n",[BState]),
+                  {ok, State} = msgpack:unpack(BState),
+                  maps:fold(
+                    fun(K,V,Ac) ->
+                        [bi_create(A, latest, state, K, here, V)|Ac]
+                    end, Acc, State)
+              end;
+              (changes,_,Acc) ->
+              Acc;
+              (lstore,BState,Acc) ->
+              State=if is_binary(BState) ->
+                         {ok, S1} = msgpack:unpack(BState),
+                         S1;
+                       is_map(BState) ->
+                         BState
+                    end,
+
+              Patches=settings:get_patches(State,scalar),
+              %io:format("LStore ~p~n",[Patches]),
+              lists:foldl(
+                fun({K,V},Ac1) ->
+                    [bi_create(A, latest, lstore, K, here, V)|Ac1]
+                end, Acc, Patches);
+              (Key,_,Acc) ->
+              io:format("Unhandled field ~p~n",[Key]),
+              Acc
+          end,
+  Res=maps:fold(FoldFun, PRes, Bal),
+  bals2patch(Rest,Res).
 
 dbmtfun(get, Key, Acc) ->
   [{ledger_tree, Key, Val}] = mnesia:read({ledger_tree,Key}),
@@ -383,7 +395,7 @@ do_apply([E1|_]=Patches, Height) when is_record(E1, bal_items) ->
        lists:foreach( fun mnesia:write/1, Patches)
   end,
   ChAddrs=lists:usort([ Address || #bal_items{address=Address} <- Patches ]),
-  NewLedger=[ {Address, hashl(get_raw(Address,notrans))} || Address <- ChAddrs ],
+  NewLedger=[ {Address, hash(Address)} || Address <- ChAddrs ],
   lager:debug("Apply ledger ~p",[NewLedger]),
   lists:foldl(
     fun({Addr,Hash},Acc) ->

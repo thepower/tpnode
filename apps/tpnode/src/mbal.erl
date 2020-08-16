@@ -66,6 +66,14 @@ changes(Bal) ->
        maps:with([amount|Changes], maps:remove(changes, Bal))
   end.
 
+decode_fetched(Bal) ->
+  maps:map(
+    fun(lstore,Bin) when is_binary(Bin) ->
+        {ok, Map} = settings:dmp(Bin),
+        Map;
+       (_,Any) ->
+        Any
+    end, Bal).
 
 -spec fetch (binary(), binary(), boolean(),
              bal(), fun()) -> bal().
@@ -76,7 +84,7 @@ fetch(Address, _Currency, _Header, Bal, FetchFun) ->
   case maps:is_key(seq, Bal) of
     true -> Bal;
     false ->
-      FetchFun(Address)
+      decode_fetched(FetchFun(Address))
   end.
 
 -spec get_cur (binary(), bal()) -> integer().
@@ -145,8 +153,10 @@ put(lstore, [], V, Bal) ->
   put(lstore, V, Bal);
 
 %TODO: fix lstore
-%put(lstore, P, V, Bal) ->
-%  put(lstore, ,Bal);
+put(lstore, P, V, Bal) ->
+  D=get(lstore, Bal),
+  D1=settings:patch([#{<<"p">>=>P,<<"t">>=><<"set">>,<<"v">>=>V}],D),
+  put(lstore, D1, Bal);
 
 put(state, <<>>, V, Bal) ->
   put(state, V, Bal);
@@ -228,7 +238,7 @@ put(code, V, Bal) when is_function(V); is_binary(V) ->
   end;
 
 put(lstore, V, Bal) when is_map(V) ->
-  Bal#{ lstore=>settings:mp(V),
+  Bal#{ lstore=>(V),
         changes=>[lstore|maps:get(changes, Bal, [])]
       };
 
@@ -252,7 +262,12 @@ get(state, Bal) ->  maps:get(state, Bal, undefined);
 get(code, #{code:=C}) when is_function(C) -> C();
 get(code, #{code:=C}) when is_binary(C) -> C;
 get(code, _Bal) -> undefined;
-get(lstore, Bal) -> settings:dmp(maps:get(lstore, Bal, <<128>>));
+get(lstore, Bal) -> case maps:get(lstore, Bal, #{}) of
+                       B when is_binary(B) ->
+                         settings:dmp(B);
+                       M when is_map(M) ->
+                         M
+                    end;
 get(lastblk, Bal) ->maps:get(lastblk, Bal, <<0, 0, 0, 0, 0, 0, 0, 0>>);
 get(T, _) ->      throw({"unsupported bal field for get", T}).
 

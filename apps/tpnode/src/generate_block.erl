@@ -7,8 +7,8 @@
 -type mkblock_acc() :: #{'emit':=[{_,_}],
                          'export':=list(),
                          'failed':=[{_,_}],
-                         'fee':=bal:bal(),
-                         'tip':=bal:bal(),
+                         'fee':=mbal:bal(),
+                         'tip':=mbal:bal(),
                          'height':=number(),
                          'outbound':=[{_,_}],
                          'parent':=binary(),
@@ -30,7 +30,7 @@ getaddr([E|Rest], GetFun, Fallback) ->
   end.
 
 deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings) ->
-  TBal=maps:get(Addr, Addresses, bal:new()),
+  TBal=maps:get(Addr, Addresses, mbal:new()),
   {TBal2, TXL2}=maps:fold(
            fun(Cur, Summ, {Acc, TxAcc}) ->
                {NewT, NewTXL, _}=deposit(Addr, Acc,
@@ -379,10 +379,10 @@ try_process([{TxID, #{
     {NewF, _GasF, GotFee, _Gas}=withdraw(Bal, Tx, GetFun, SetState, [nogas,notransfer]),
 
     NewF4=maps:remove(keep, NewF),
-    Set1=bal:get(lstore, NewF4),
+    Set1=mbal:get(lstore, NewF4),
 
     Set2=settings:patch({TxID, Tx}, Set1),
-    NewF5=bal:put(lstore, Set2, NewF4),
+    NewF5=mbal:put(lstore, Set2, NewF4),
 
     NewAddresses=maps:put(Owner, NewF5, Addresses),
 
@@ -492,12 +492,12 @@ try_process([{TxID, #{
 
     try
 
-      NewF1=bal:put(vm, VMType, NewF),
-      NewF2=bal:put(code, Code, NewF1),
+      NewF1=mbal:put(vm, VMType, NewF),
+      NewF2=mbal:put(code, Code, NewF1),
       NewF3=case maps:find("view", TxExt) of
               error -> NewF2;
               {ok, View} ->
-                bal:put(view, View, NewF2)
+                mbal:put(view, View, NewF2)
             end,
       lager:info("Deploy contract ~s for ~s gas ~w",
                  [VM, naddress:encode(Owner), {GCur,GAmount,GRate}]),
@@ -537,7 +537,7 @@ try_process([{TxID, #{
                          end
                     end,
       NewF4=maps:remove(keep,
-                        bal:put(state, St1, NewF3)
+                        mbal:put(state, St1, NewF3)
                        ),
 
       NewAddresses=case GasLeft of
@@ -607,7 +607,7 @@ try_process([{TxID, #{
     end,
 
     Bal=maps:get(Owner, Addresses),
-    case bal:get(vm, Bal) of
+    case mbal:get(vm, Bal) of
       VM when is_binary(VM) ->
         ok;
       _ ->
@@ -617,7 +617,7 @@ try_process([{TxID, #{
     {NewF, _GasF, GotFee, Gas}=withdraw(Bal, Tx, GetFun, SetState, []),
 
     NewF1=maps:remove(keep,
-                      bal:put(view, NewView, NewF)
+                      mbal:put(view, NewView, NewF)
                      ),
     lager:info("F1 ~p",[maps:without([code,state],NewF1)]),
 
@@ -715,7 +715,7 @@ try_process([{TxID, #{ver:=2,
                 bin2hex:dbin2hex(PubKey)
                ]),
 
-    NewF=bal:put(pubkey, PubKey, bal:new()),
+    NewF=mbal:put(pubkey, PubKey, bal:new()),
     NewAddresses=maps:put(NewBAddr, NewF, Addresses),
     NewTx=maps:remove(inv,tx:set_ext(<<"addr">>,NewBAddr,Tx)),
     lager:info("try process register tx [~p]: ~p", [NewBAddr, NewTx]),
@@ -788,7 +788,7 @@ try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
                 bin2hex:dbin2hex(PubKey)
                ]),
 
-    NewF=bal:put(pubkey, PubKey, bal:new()),
+    NewF=mbal:put(pubkey, PubKey, bal:new()),
     NewAddresses=maps:put(NewBAddr, NewF, Addresses),
     FixTx=case maps:get(<<"cleanpow">>, RegSettings, 0) of
             1 ->
@@ -933,9 +933,9 @@ try_process_inbound([{TxID,
         if Amount >= 0 -> ok;
            true -> throw ('bad_amount')
         end,
-        NewTAmount=bal:get_cur(Cur, TBal) + Amount,
+        NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
         NewT=maps:remove(keep,
-                         bal:put_cur(
+                         mbal:put_cur(
                            Cur,
                            NewTAmount,
                            TBal)
@@ -1172,8 +1172,8 @@ savegas({Cur, Amount1, _}, {Cur, Amount2, _},
   lager:info("save gas ~s ~w ~w",[Cur,Amount1, Amount2]),
   if Amount1-Amount2 > 0 ->
        Acc#{
-         fee=>bal:put_cur(Cur, Amount1-Amount2 +
-                          bal:get_cur(Cur, FeeBal), FeeBal)
+         fee=>mbal:put_cur(Cur, Amount1-Amount2 +
+                          mbal:get_cur(Cur, FeeBal), FeeBal)
         };
      true ->
        Acc
@@ -1184,8 +1184,8 @@ savegas({Cur, Amount1, _}, {Cur, Amount2, _},
 
 savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
   Acc#{
-    fee=>bal:put_cur(Cur, Fee+bal:get_cur(Cur, FeeBal), FeeBal),
-    tip=>bal:put_cur(Cur, Tip+bal:get_cur(Cur, TipBal), TipBal)
+    fee=>mbal:put_cur(Cur, Fee+bal:get_cur(Cur, FeeBal), FeeBal),
+    tip=>mbal:put_cur(Cur, Tip+bal:get_cur(Cur, TipBal), TipBal)
    }.
 
 gas_plus_int({Cur,Amount, Rate}, Int, false) ->
@@ -1201,10 +1201,10 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit) ->
   NewT=maps:remove(keep,
                    lists:foldl(
                      fun(#{amount:=Amount, cur:= Cur}, TBal) ->
-                         NewTAmount=bal:get_cur(Cur, TBal) + Amount,
-                         bal:put_cur( Cur, NewTAmount, TBal)
+                         NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
+                         mbal:put_cur( Cur, NewTAmount, TBal)
                      end, TBal0, tx:get_payloads(Tx,transfer))),
-  case bal:get(vm, NewT) of
+  case mbal:get(vm, NewT) of
     undefined ->
       {NewT, [], GasLimit};
     VMType ->
@@ -1237,7 +1237,7 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit) ->
             end,
       {L1, lists:map(
              fun(#{seq:=Seq}=ETx) ->
-                 H=base64:encode(crypto:hash(sha, bal:get(state, TBal0))),
+                 H=base64:encode(crypto:hash(sha, mbal:get(state, TBal0))),
                  BSeq=bin2hex:dbin2hex(<<Seq:64/big>>),
                  EA=(naddress:encode(Address)),
                  TxID= <<EA/binary, BSeq/binary, H/binary>>,
@@ -1250,11 +1250,11 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit) ->
 deposit(Address, TBal,
     #{cur:=Cur, amount:=Amount}=Tx,
     GetFun, _Settings, GasLimit) ->
-  NewTAmount=bal:get_cur(Cur, TBal) + Amount,
+  NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
   NewT=maps:remove(keep,
-           bal:put_cur( Cur, NewTAmount, TBal)
+           mbal:put_cur( Cur, NewTAmount, TBal)
           ),
-  case bal:get(vm, NewT) of
+  case mbal:get(vm, NewT) of
     undefined ->
       {NewT, [], GasLimit};
     VMType ->
@@ -1262,7 +1262,7 @@ deposit(Address, TBal,
       {L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
       {L1, lists:map(
           fun(#{seq:=Seq}=ETx) ->
-              H=base64:encode(crypto:hash(sha, bal:get(state, TBal))),
+              H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
               BSeq=bin2hex:dbin2hex(<<Seq:64/big>>),
               EA=(naddress:encode(Address)),
               TxID= <<EA/binary, BSeq/binary, H/binary>>,
@@ -1278,7 +1278,7 @@ withdraw(FBal0,
          GetFun, Settings, Opts) ->
   try
     Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
-    IsContract=is_binary(bal:get(vm, FBal0)) andalso Contract_Issued=={ok, From},
+    IsContract=is_binary(mbal:get(vm, FBal0)) andalso Contract_Issued=={ok, From},
 
     lager:info("Withdraw ~p ~p", [IsContract, maps:without([body,sig],Tx)]),
     if Timestamp==0 andalso IsContract ->
@@ -1292,18 +1292,18 @@ withdraw(FBal0,
          end;
        true -> throw ('non_int_timestamp')
     end,
-    LD=bal:get(t, FBal0) div 86400000,
+    LD=mbal:get(t, FBal0) div 86400000,
     CD=Timestamp div 86400000,
     if IsContract -> ok;
        true ->
          NoSK=settings:get([<<"current">>, <<"nosk">>], Settings)==1,
          if NoSK -> ok;
             true ->
-              FSK=bal:get_cur(<<"SK">>, FBal0),
+              FSK=mbal:get_cur(<<"SK">>, FBal0),
               FSKUsed=if CD>LD ->
                            0;
                          true ->
-                           bal:get(usk, FBal0)
+                           mbal:get(usk, FBal0)
                       end,
               lager:debug("usk ~p SK ~p",[FSKUsed,FSK]),
               if FSK < 1 ->
@@ -1316,7 +1316,7 @@ withdraw(FBal0,
               end
          end
     end,
-    CurFSeq=bal:get(seq, FBal0),
+    CurFSeq=mbal:get(seq, FBal0),
     if CurFSeq < Seq -> ok;
        true ->
          %==== DEBUG CODE
@@ -1330,7 +1330,7 @@ withdraw(FBal0,
          %==== END DEBU CODE
          throw ('bad_seq')
     end,
-    CurFTime=bal:get(t, FBal0),
+    CurFTime=mbal:get(t, FBal0),
     if CurFTime < Timestamp -> ok;
        IsContract andalso Timestamp==0 -> ok;
        true -> throw ('bad_timestamp')
@@ -1390,7 +1390,7 @@ withdraw(FBal0,
                    true ->
                      throw ('bad_amount')
                 end,
-                CurFAmount=bal:get_cur(Cur, FBal),
+                CurFAmount=mbal:get_cur(Cur, FBal),
                 NewFAmount=if CurFAmount >= Amount ->
                                 CurFAmount - Amount;
                               true ->
@@ -1401,7 +1401,7 @@ withdraw(FBal0,
                                     throw ('insufficient_fund')
                                 end
                            end,
-                bal:put_cur(Cur,
+                mbal:put_cur(Cur,
                             NewFAmount,
                             FBal)
                
@@ -1409,7 +1409,7 @@ withdraw(FBal0,
     ToTransfer=tx:get_payloads(Tx,transfer),
 
     FBal1=maps:remove(keep,
-                      bal:mput(
+                      mbal:mput(
                         Seq,
                         Timestamp,
                         FBal0,
@@ -1456,7 +1456,7 @@ withdraw(FBal,
        throw ('bad_amount')
   end,
   Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
-  IsContract=is_binary(bal:get(vm, FBal)) andalso Contract_Issued=={ok, From},
+  IsContract=is_binary(mbal:get(vm, FBal)) andalso Contract_Issued=={ok, From},
 
   lager:info("Withdraw ~p ~p", [IsContract, Tx]),
   if Timestamp==0 andalso IsContract ->
@@ -1470,7 +1470,7 @@ withdraw(FBal,
        end;
      true -> throw ('non_int_timestamp')
   end,
-  LD=bal:get(t, FBal) div 86400000,
+  LD=mbal:get(t, FBal) div 86400000,
   CD=Timestamp div 86400000,
   NoSK=if IsContract -> true;
           true ->
@@ -1481,11 +1481,11 @@ withdraw(FBal,
        end,
   if NoSK -> ok;
      true ->
-       FSK=bal:get_cur(<<"SK">>, FBal),
+       FSK=mbal:get_cur(<<"SK">>, FBal),
        FSKUsed=if CD>LD ->
               0;
             true ->
-              bal:get(usk, FBal)
+              mbal:get(usk, FBal)
            end,
        if FSK < 1 ->
           case GetFun({endless, From, <<"SK">>}) of
@@ -1496,7 +1496,7 @@ withdraw(FBal,
         true -> ok
        end
   end,
-  CurFSeq=bal:get(seq, FBal),
+  CurFSeq=mbal:get(seq, FBal),
   if CurFSeq < Seq -> ok;
      true ->
        %==== DEBUG CODE
@@ -1510,12 +1510,12 @@ withdraw(FBal,
        %==== END DEBU CODE
        throw ('bad_seq')
   end,
-  CurFTime=bal:get(t, FBal),
+  CurFTime=mbal:get(t, FBal),
   if CurFTime < Timestamp -> ok;
      IsContract andalso Timestamp==0 -> ok;
      true -> throw ('bad_timestamp')
   end,
-  CurFAmount=bal:get_cur(Cur, FBal),
+  CurFAmount=mbal:get_cur(Cur, FBal),
   NewFAmount=if CurFAmount >= Amount ->
             CurFAmount - Amount;
           true ->
@@ -1527,10 +1527,10 @@ withdraw(FBal,
             end
          end,
   NewBal=maps:remove(keep,
-                     bal:put_cur(
+                     mbal:put_cur(
                        Cur,
                        NewFAmount,
-                       bal:mput(
+                       mbal:mput(
                          Seq,
                          Timestamp,
                          FBal,
@@ -1569,7 +1569,7 @@ withdraw(FBal,
            _ -> Tip0
          end,
        FeeAmount=FeeCost+Tip,
-       CurFFeeAmount=bal:get_cur(FeeCur, NewBal),
+       CurFFeeAmount=mbal:get_cur(FeeCur, NewBal),
        NewFFeeAmount=if CurFFeeAmount >= FeeAmount ->
                CurFFeeAmount - FeeAmount;
              true ->
@@ -1580,7 +1580,7 @@ withdraw(FBal,
                    throw ('insufficient_fund_for_fee')
                end
             end,
-       NewBal2=bal:put_cur(FeeCur,
+       NewBal2=mbal:put_cur(FeeCur,
                  NewFFeeAmount,
                  NewBal
                 ),
@@ -1617,13 +1617,13 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            fun(default, Acc) ->
                BinAddr=naddress:construct_private(0, 0),
                maps:put(BinAddr,
-                        bal:fetch(BinAddr, <<"ANY">>, true, bal:new(), GetAddr),
+                        mbal:fetch(BinAddr, <<"ANY">>, true, bal:new(), GetAddr),
                         Acc);
               (Type, Acc) ->
                case settings:get([<<"current">>, <<"fee">>, params, Type], XSettings) of
                  BinAddr when is_binary(BinAddr) ->
                    maps:put(BinAddr,
-                            bal:fetch(BinAddr, <<"ANY">>, true, bal:new(), GetAddr),
+                            mbal:fetch(BinAddr, <<"ANY">>, true, bal:new(), GetAddr),
                             Acc);
                  _ ->
                    Acc
@@ -1631,13 +1631,12 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            end, #{}, [<<"feeaddr">>, <<"tipaddr">>, default]),
 
   Load=fun({_, #{hash:=_, header:=#{}, txs:=Txs}}, AAcc0) ->
-           lager:debug("TXs ~p", [Txs]),
             lists:foldl(
               fun({_, #{to:=T, cur:=_}}, AAcc) ->
-                  TB=bal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
+                  TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
                   maps:put(T, TB, AAcc);
                  ({_, #{ver:=2, kind:=generic, to:=T, payload:=_}}, AAcc) ->
-                  TB=bal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
+                  TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
                   maps:put(T, TB, AAcc)
               end, AAcc0, Txs);
           ({_, #{patch:=_}}, AAcc) -> AAcc;
@@ -1669,23 +1668,23 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
 %                  AAcc
 %              end;
           ({_TxID, #{ver:=2, to:=T, from:=F, payload:=_}}=_TX, AAcc) ->
-           FB=bal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
-           TB=bal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
+           FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
+           TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
            maps:put(F, FB, maps:put(T, TB, AAcc));
           ({_TxID, #{ver:=2, kind:=register}}=_TX, AAcc) ->
             AAcc;
           ({_TxID, #{ver:=2, kind:=deploy, from:=F, payload:=_}}=_TX, AAcc) ->
-           FB=bal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
+           FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
            maps:put(F, FB, AAcc);
           ({_TxID, #{ver:=2, kind:=tstore, from:=F, payload:=_}}=_TX, AAcc) ->
-           FB=bal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
+           FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
            maps:put(F, FB, AAcc);
           ({_TxID, #{ver:=2, kind:=lstore, from:=F, payload:=_}}=_TX, AAcc) ->
-           FB=bal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
+           FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
            maps:put(F, FB, AAcc);
           ({_, #{to:=T, from:=F, cur:=Cur}}, AAcc) ->
-           FB=bal:fetch(F, Cur, true, maps:get(F, AAcc, #{}), GetAddr),
-           TB=bal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
+           FB=mbal:fetch(F, Cur, true, maps:get(F, AAcc, #{}), GetAddr),
+           TB=mbal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
            maps:put(F, FB, maps:put(T, TB, AAcc));
           ({_,_Any}, AAcc) ->
            lager:info("Can't load address for tx ~p",[_Any]),
@@ -1715,8 +1714,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                    outbound=>[],
                    table=>#{},
                    emit=>[],
-                   fee=>bal:new(),
-                   tip=>bal:new(),
+                   fee=>mbal:new(),
+                   tip=>mbal:new(),
                    pick_block=>#{},
                    entropy=>Entropy,
                    mean_time=>MeanTime,
@@ -1875,7 +1874,7 @@ cleanup_bals(NewBal0) ->
                    false ->
                      maps:put(K, V, BA);
                    true ->
-                     C1=bal:changes(V),
+                     C1=mbal:changes(V),
                      case (maps:size(C1)>0) of
                        true ->
                          maps:put(K,
@@ -1916,8 +1915,8 @@ return_gas(_Tx, {<<"NONE">>, _GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
 return_gas(_Tx, {GCur, GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
   lager:debug("return_gas ~p left ~b",[GCur, GAmount]),
   if(GAmount > 0) ->
-      B1=bal:get_cur(GCur,Bal0),
-      bal:put_cur(GCur, B1+GAmount, Bal0);
+      B1=mbal:get_cur(GCur,Bal0),
+      mbal:put_cur(GCur, B1+GAmount, Bal0);
     true ->
       Bal0
   end.
