@@ -434,10 +434,10 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
   end;
 
 
-h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
-  QS=cowboy_req:parse_qs(_Req),
+h(<<"GET">>, [<<"address">>, TAddr], Req) ->
+  QS=cowboy_req:parse_qs(Req),
   try
-    BinPacker=packer(_Req,hex),
+    BinPacker=packer(Req,hex),
     Addr=case TAddr of
            <<"0x", Hex/binary>> ->
              hex:parse(Hex);
@@ -468,7 +468,19 @@ h(<<"GET">>, [<<"address">>, TAddr], _Req) ->
                   UBlk=maps:get(ublk, Info),
                   InfoL#{lastblk=>UBlk}
               end,
-        Info1=maps:merge(maps:remove(ublk, Info), InfoU),
+        InfoLS=case maps:is_key(lstore, Info) of
+                false ->
+                  InfoU;
+                true ->
+                  LStoreData=maps:get(lstore, Info),
+                  case maps:get(req_format,Req) of
+                    <<"mp">> ->
+                      InfoU#{lstore=>settings:mp(LStoreData)};
+                    _ ->
+                      InfoU
+                  end
+              end,
+        Info1=maps:merge(maps:remove(ublk, Info), InfoLS),
         Info2=maps:map(
                 fun
                   (lastblk, V) -> BinPacker(V);

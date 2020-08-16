@@ -92,7 +92,7 @@ handle_request(Method, Path, Req, Target, Format, _Opts) ->
         _ ->
           Req
       end,
-    Target:h(Method, Path, Req1)
+    Target:h(Method, Path, Req1#{req_format=>Format})
   catch
     throw:{return, Code, MSG} when is_list(MSG) ->
       {Code, #{error=>list_to_binary(MSG)}};
