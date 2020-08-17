@@ -293,7 +293,10 @@ get(Address, trans) ->
 hashl(BIs) when is_list(BIs) ->
   MT=gb_merkle_trees:balance(
        lists:foldl(
-         fun(#bal_items{key=K,path=P,value=V},Acc) ->
+         fun
+           (#bal_items{key=ublk},Acc) ->
+             Acc;
+           (#bal_items{key=K,path=P,value=V},Acc) ->
              gb_merkle_trees:enter(sext:encode({K,P}),sext:encode(V),Acc)
          end, gb_merkle_trees:empty(), BIs)
       ),
@@ -324,13 +327,19 @@ bals2patch([{A,Bal}|Rest], PRes) ->
                   [bi_create(A, latest, state, <<>>, here, BState)|Acc];
                 <<"erltest">> ->
                   [bi_create(A, latest, state, <<>>, here, BState)|Acc];
-                _ ->
+                _ when is_binary(BState) ->
                   %                io:format("BS ~p~n",[BState]),
                   {ok, State} = msgpack:unpack(BState),
                   maps:fold(
                     fun(K,V,Ac) ->
                         [bi_create(A, latest, state, K, here, V)|Ac]
-                    end, Acc, State)
+                    end, Acc, State);
+                _ when is_map(BState) ->
+                  %                io:format("BS ~p~n",[BState]),
+                  maps:fold(
+                    fun(K,V,Ac) ->
+                        [bi_create(A, latest, state, K, here, V)|Ac]
+                    end, Acc, BState)
               end;
               (changes,_,Acc) ->
               Acc;
@@ -372,29 +381,41 @@ do_apply([], _) ->
    db_merkle_trees:root_hash({fun dbmtfun/3, #{} })
   };
 
-do_apply([E1|_]=Patches, Height) when is_record(E1, bal_items) ->
-  if is_integer(Height) ->
-       lists:foreach(
-         fun(#bal_items{addr_key_ver_path=AKVP,value=NewVal}=BalItem) ->
-             case mnesia:read(bal_items, AKVP) of
-               [] ->
-                 mnesia:write(BalItem#bal_items{introduced=Height});
-               [#bal_items{introduced=OVer, value=OVal}=OldBal]  ->
-                 if(OVal == NewVal) ->
-                     ok;
-                   true ->
-                     OldBal1=bi_set_ver(OldBal,OVer),
-                     mnesia:write(OldBal1),
-                     mnesia:write(BalItem#bal_items{introduced=Height})
-                 end
-             end
-         end,
-         Patches
-        );
-     true ->
-       lists:foreach( fun mnesia:write/1, Patches)
-  end,
+do_apply([E1|_]=Patches, HeiHash) when is_record(E1, bal_items) ->
   ChAddrs=lists:usort([ Address || #bal_items{address=Address} <- Patches ]),
+
+  WriteWHeight=fun(#bal_items{addr_key_ver_path=AKVP,value=NewVal}=BalItem,Height) ->
+                case mnesia:read(bal_items, AKVP) of
+                  [] ->
+                    mnesia:write(BalItem#bal_items{introduced=Height});
+                  [#bal_items{introduced=OVer, value=OVal}=OldBal]  ->
+                    if(OVal == NewVal) ->
+                        ok;
+                      true ->
+                        OldBal1=bi_set_ver(OldBal,OVer),
+                        mnesia:write(OldBal1),
+                        mnesia:write(BalItem#bal_items{introduced=Height})
+                    end
+                end
+            end,
+  case HeiHash of
+    _ when is_integer(HeiHash) ->
+      lists:foreach( fun(E) ->
+                         WriteWHeight(E,HeiHash)
+                     end, Patches);
+    {Height, Hash} when is_integer(Height), is_binary(Hash) ->
+      lists:foreach( fun(E) ->
+                         WriteWHeight(E, Height)
+                     end, Patches),
+      lists:foreach(fun(Address) ->
+                        WriteWHeight(
+                          bi_create(Address,latest,ublk,[],Height,Hash),
+                          Height
+                         )
+                        end,ChAddrs);
+    _ ->
+      lists:foreach( fun mnesia:write/1, Patches)
+  end,
   NewLedger=[ {Address, hash(Address)} || Address <- ChAddrs ],
   lager:debug("Apply ledger ~p",[NewLedger]),
   lists:foldl(
@@ -419,9 +440,9 @@ apply_patch(Patches, check) ->
   %io:format("Check hash ~p~n",[NewHash]),
   NewHash;
 
-apply_patch(Patches, {commit, Height, ExpectedHash}) ->
+apply_patch(Patches, {commit, HeiHash, ExpectedHash}) ->
   F=fun() ->
-        {ok,LH}=do_apply(Patches, Height),
+        {ok,LH}=do_apply(Patches, HeiHash),
         lager:info("check and commit expected ~p actual ~p",[ExpectedHash, LH]),
         case LH == ExpectedHash of
           true ->
@@ -437,13 +458,13 @@ apply_patch(Patches, {commit, Height, ExpectedHash}) ->
       {error, NewHash}
   end;
 
-apply_patch(Patches, {commit, Height}) ->
+apply_patch(Patches, {commit, HeiHash}) ->
   %Filename="ledger_"++integer_to_list(os:system_time(millisecond))++atom_to_list(node()),
   %lager:info("Ledger dump ~s",[Filename]),
   %wrfile(Filename, Patches),
   %dump_ledger("pre",Filename),
   F=fun() ->
-        do_apply(Patches, Height)
+        do_apply(Patches, HeiHash)
     end,
   {atomic,Res}=mnesia:transaction(F),
   %dump_ledger("post",Filename),

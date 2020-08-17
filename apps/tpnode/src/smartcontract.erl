@@ -101,7 +101,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
   try
     case erlang:apply(VM,
                       handle_tx,
-                      [Tx, Ledger, GasLimit, GetFun]) of
+                      [Tx, mbal:msgpack_state(Ledger), GasLimit, GetFun]) of
       {ok, NewState, GasLeft, EmitTxs} when
           NewState==unchanged orelse is_binary(NewState) ->
         if NewState == unchanged ->

@@ -648,7 +648,7 @@ load_sets(LDB, LastBlock) ->
       binary_to_term(Bin)
   end.
 
-apply_ledger(Action, #{bals:=S, hash:=_BlockHash, header:=#{height:=Height}}) ->
+apply_ledger(Action, #{bals:=S, hash:=BlockHash, header:=#{height:=Height}}) ->
   Patch=maps:fold(
           fun(_Addr, #{chain:=_NewChain}, Acc) ->
               Acc;
@@ -669,11 +669,11 @@ apply_ledger(Action, #{bals:=S, hash:=_BlockHash, header:=#{height:=Height}}) ->
   lager:info("Apply patches ~p", [mledger:bals2patch(Patch)]),
   LR=case Action of
        {checkput, Hash} ->
-         mledger:apply_patch(mledger:bals2patch(Patch), {commit, Height, Hash});
+         mledger:apply_patch(mledger:bals2patch(Patch), {commit, {Height, BlockHash}, Hash});
 %       check ->
 %         mledger:apply_patch(mledger:bals2patch(Patch), check);
        put ->
-         {ok,mledger:apply_patch(mledger:bals2patch(Patch), {commit, Height})}
+         {ok,mledger:apply_patch(mledger:bals2patch(Patch), {commit, {Height, BlockHash}})}
      end,
   lager:info("Apply ~p ~p", [Action, LR]),
   LR.

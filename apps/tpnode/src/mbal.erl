@@ -13,7 +13,8 @@
          pack/2,
          unpack/1,
          merge/2,
-         changes/1
+         changes/1,
+         msgpack_state/1
         ]).
 
 -define(FIELDS,
@@ -52,6 +53,12 @@
                   'lstore'=>binary(),
                   'ublk'=>binary() %external attr
                  }.
+
+msgpack_state(#{state:=Map}=MBal) when is_map(Map) ->
+  MBal#{state=>msgpack:pack(Map)};
+
+msgpack_state(MBal) -> 
+  MBal.
 
 -spec new () -> bal().
 new() ->
@@ -246,6 +253,10 @@ put(usk, V, Bal) when is_integer(V) ->
   Bal#{ usk=>V,
         changes=>[usk|maps:get(changes, Bal, [])]
       };
+
+put(ublk, V, Bal) ->
+  Bal#{ ublk=>V };
+
 put(T, _, _) ->
   throw({"unsupported bal field for put", T}).
 

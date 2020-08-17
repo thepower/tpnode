@@ -339,7 +339,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
            _ -> naddress:decode(TAddr)
          end,
     Ledger=mledger:get(Addr),
-    case maps:is_key(Addr, Ledger) of
+    case maps:is_key(pubkey, Ledger) of
       false ->
           err(
               10003,
@@ -348,15 +348,14 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
               #{http_code => 404}
           );
       true ->
-        Info=maps:get(Addr, Ledger),
-        State=maps:get(state, Info, <<>>),
+        State=maps:get(state, Ledger, #{}),
         case Path of
           [] ->
             lager:info("F ~p",[F]),
             case F of <<>> ->
-                        {200, [{"Content-Type","binary/octet-stream"}], State};
+                        S1=msgpack:pack(State),
+                        {200, [{"Content-Type","binary/octet-stream"}], S1};
                       <<"json">> ->
-                        {ok,S}=msgpack:unpack(State),
                         S1=maps:fold(
                           fun(K,V,Acc) ->
                               maps:put(
@@ -365,7 +364,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
                                 Acc)
                           end, #{
                             notice => <<"Only for Sasha">>
-                           }, S),
+                           }, State),
                         {200, [{"Content-Type","application/json"}], S1}
             end;
           [Key] ->
@@ -373,8 +372,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
                    <<"0x", HexK/binary>> -> hex:parse(HexK);
                    _ -> base64:decode(Key)
                  end,
-            {ok,S}=msgpack:unpack(State),
-            Val=maps:get(K,S,<<>>),
+            Val=maps:get(K,State,<<>>),
             {200, [{"Content-Type","binary/octet-stream"}], Val}
         end
     end
@@ -496,7 +494,8 @@ h(<<"GET">>, [<<"address">>, TAddr], Req) ->
       (view, View) ->
                     [ list_to_binary(M) || M<- View];
       (code, V) -> size(V);
-      (state, V) -> size(V);
+      (state, V) when is_binary(V) -> size(V);
+      (state, V) when is_map(V) -> maps:size(V);
       (_, V) -> V
                 end, Info1),
         Info3=try
