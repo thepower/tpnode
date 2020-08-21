@@ -151,13 +151,6 @@ after
 
 
 extcontract_test() ->
-  case catch vm:run(fun(Pid)->Pid ! {ping,self()} end,"wasm",2,[]) of
-    {'EXIT', _} ->
-      [];
-    {error, noworkers} ->
-      [];
-    {ok, pong} ->
-
       OurChain=150,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
               248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
@@ -271,6 +264,112 @@ extcontract_test() ->
                #{amount => #{ <<"FTT">> => 10, <<"SK">> => 2, <<"TST">> => 26 }}
               }
              ],
-      extcontract_template(OurChain, TxList, Ledger, TestFun)
-  end.
+      extcontract_template(OurChain, TxList, Ledger, TestFun).
 
+brom_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+      Addr2=naddress:construct_public(1, OurChain, 2),
+      %{ok, Code}=file:read_file("./examples/testcontract.wasm"),
+      {ok, Code}=file:read_file("./examples/brom.wasm.lz4"),
+      TX3=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>deploy,
+              from=>Addr1,
+              seq=>2,
+              t=>os:system_time(millisecond),
+              payload=>[
+                        #{purpose=>srcfee, amount=>1100, cur=><<"FTT">>},
+                        #{purpose=>gas, amount=>30000, cur=><<"FTT">>}
+                       ],
+              call=>#{function=>"init",args=> [
+                      [binary_to_list(naddress:encode(Addr2)),"AA100000171127710742",
+              "AA100000171127710742"]
+                      ]},
+              txext=>#{ "code"=> Code,
+                        "vm" => "wasm"
+                      }
+             }), Pvt1),
+      TX4=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr2,
+              to=>Addr1,
+              cur=><<"FTT">>,
+              call=>#{
+                function => "set_settings",
+                args => [["20.08.20","edfsdfsdaf","1111","2222","0","100000","0","0"]]
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>29000, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>2,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+      TxList1=[
+              {<<"3testdeploy">>, maps:put(sigverify,#{valid=>1},TX3)}
+             ],
+      TxList2=[
+              {<<"4testexec">>, maps:put(sigverify,#{valid=>1},TX4)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    emit:=_Emit,
+                    failed:=Failed}) ->
+                  ?assertMatch([],Failed),
+                  Bals=maps:get(bals, Block),
+                  {ok,Bals}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{ <<"FTT">> => 40000, <<"SK">> => 3, <<"TST">> => 26 }}
+              }
+             ],
+      {ok,L1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      Ledger2=maps:to_list(
+                maps:put(
+                  Addr2,
+                  #{amount => #{ <<"FTT">> => 30000, <<"SK">> => 10, <<"TST">> => 26 }},
+                  L1)),
+
+
+      TestFun2=fun(#{block:=Block,
+                    emit:=_Emit,
+                    failed:=Failed}) ->
+                   ?assertMatch([],Failed),
+                   Bals=maps:get(bals, Block),
+                   msgpack:unpack(
+                     maps:get(state,
+                              maps:get(<<128,0,32,0,150,0,0,1>>,Bals)
+                             )
+                    )
+              end,
+      {ok,EState1}=
+               msgpack:unpack(
+                     maps:get(state,
+                              maps:get(<<128,0,32,0,150,0,0,1>>,L1)
+                             )
+                    ),
+      {ok,EState2}=extcontract_template(OurChain, TxList2, Ledger2, TestFun2),
+      State2=decode_state(EState2),
+      State1=decode_state(EState1),
+      [
+       ?assertMatch(false,maps:is_key("set",State1)),
+       ?assertMatch(true,maps:is_key("self",State1)),
+       ?assertMatch(true,maps:is_key("admins",State1)),
+
+       ?assertMatch(true,maps:is_key("set",State2)),
+       ?assertMatch(true,maps:is_key("self",State2)),
+       ?assertMatch(true,maps:is_key("admins",State2))
+      ].
+
+decode_state(State) ->
+  maps:fold(fun(K,V,A) ->
+                {ok,K1}=msgpack:unpack(K),
+                {ok,V1}=msgpack:unpack(V),
+                maps:put(K1,V1,A)
+            end, #{}, State).
