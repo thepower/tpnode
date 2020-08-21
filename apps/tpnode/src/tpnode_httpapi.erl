@@ -401,7 +401,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
            _ -> naddress:decode(TAddr)
          end,
     Ledger=mledger:get(Addr),
-    case maps:is_key(Addr, Ledger) of
+    case maps:is_key(pubkey, Ledger) of
       false ->
           err(
               10003,
@@ -410,8 +410,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
               #{http_code => 404}
           );
       true ->
-        Info=maps:get(Addr, Ledger),
-        Code=maps:get(code, Info, <<>>),
+        Code=maps:get(code, Ledger, <<>>),
         {200, [{"Content-Type","binary/octet-stream"}], Code}
     end
   catch

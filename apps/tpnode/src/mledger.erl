@@ -189,99 +189,23 @@ get_raw(Address, notrans) ->
                       read).
 
 get(Address, notrans) -> 
-  Pattern=#bal_items{ addr_ver={Address, latest}, key='$1', value='$2', _='_'},
-  PatternCode=#bal_items{addr_ver={Address, latest}, key='$1', path='$2', value='$3', _='_'},
+  Pattern=#bal_items{ addr_ver={Address, latest}, _='_'},
+
   maps:remove(changes,
               lists:foldl(
-                fun(#bal_items{key=K, path=P, value=V},A) ->
-                    mbal:put(K,P,V,A);
-                   ([code,_,Code], A) ->
+                fun
+                   (#bal_items{key=code, path=_, value=Code}, A) ->
                     mbal:put(code,[], Code,A);
-%                                 case mnesia:dirty_match_object(
-%                                        #bal_items{
-%                                           address=Address,
-%                                           version=latest,
-%                                           key=code,
-%                                           _ = '_'
-%                                          }
-%                                       ) of
-%                                   [] -> undefined;
-%                                   [#bal_items{value=Code}] -> Code
-%                                 end
-%                             end,
-%                             A);
-                   ([lstore,K,V1], A) ->
+                   (#bal_items{key=lstore, path=K, value=V1}, A) ->
                     mbal:put(lstore, K, V1, A);
-                   ([state,K,V1], A) ->
-                    mbal:put(state, K, V1, A)
-                    %case maps:is_key(state, A) of
-                    %  true ->
-                    %  false ->
-                    %    mbal:put(state, K, V1, A)
-                    %    %mbal:put(state,fun(Key) when is_binary(Key) ->
-                    %    %                   io:format("Req key ~p~n",[Key]),
-                    %    %                   case mnesia:dirty_match_object(
-                    %    %                          #bal_items{
-                    %    %                             address=Address,
-                    %    %                             version=latest,
-                    %    %                             key=state,
-                    %    %                             path=Key,
-                    %    %                             _ = '_'
-                    %    %                            }
-                    %    %                         ) of
-                    %    %                     [] -> undefined;
-                    %    %                     [#bal_items{value=Code}] -> Code
-                    %    %                   end;
-                    %    %                  (full) ->
-                    %    %                   io:format("Req all keys~n"),
-                    %    %                   WholeState=mnesia:dirty_match_object(
-                    %    %                                #bal_items{
-                    %    %                                   address=Address,
-                    %    %                                   version=latest,
-                    %    %                                   key=state,
-                    %    %                                   _ = '_'
-                    %    %                                  }
-                    %    %                               ),
-                    %    %                   WholeMap=lists:foldl(
-                    %    %                              fun(#bal_items{path=SK,value=SV},SA) ->
-                    %    %                                  maps:put(SK,SV,SA)
-                    %    %                              end, #{}, WholeState),
-                    %    %                   msgpack:pack(WholeMap)
-                    %    %               end,A)
-                    %end
+                   (#bal_items{key=state, path=K, value=V1}, A) ->
+                    mbal:put(state, K, V1, A);
+                   (#bal_items{key=K, path=P, value=V},A) ->
+                    mbal:put(K,P,V,A)
                 end,
                 mbal:new(),
-                mnesia:select(bal_items,
-                              [
-                               {Pattern,    [{'==','$1',amount}  ],['$_']},
-                               {Pattern,    [{'==','$1',lastblk} ],['$_']},
-                               {Pattern,    [{'==','$1',pubkey}  ],['$_']},
-                               {Pattern,    [{'==','$1',seq}     ],['$_']},
-                               {Pattern,    [{'==','$1',t}       ],['$_']},
-                               {Pattern,    [{'==','$1',ublk}    ],['$_']},
-                               {Pattern,    [{'==','$1',usk}     ],['$_']},
-                               {Pattern,    [{'==','$1',view}    ],['$_']},
-                               {Pattern,    [{'==','$1',vm}      ],['$_']},
-                               {PatternCode,[{'==','$1',lstore}  ],['$$']},
-                               {PatternCode,[{'==','$1',code}    ],['$$']},
-                               {PatternCode,[{'==','$1',state}   ],['$$']}
-                              ],
-                              read)
+                mnesia:match_object(bal_items, Pattern ,read)
                ));
-
-    %mnesia:match_object(bal_items,
-    %                    #bal_items{
-    %                       address=Address,
-    %                       version=latest,
-    %                       key='_',
-    %                       path='_',
-    %                       introduced='_',
-    %                       value='_',
-    %                       addr_ver='_',
-    %                       addr_key='_',
-    %                       addr_key_ver_path='_'
-    %                      },
-    %                    read)
 
 get(Address, trans) -> 
   {atomic,List}=mnesia:transaction(
