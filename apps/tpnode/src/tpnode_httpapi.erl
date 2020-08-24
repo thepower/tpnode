@@ -238,7 +238,7 @@ h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
              naddress:decode(TAddr)
          end,
     Ledger=mledger:get(Addr),
-    case maps:is_key(Addr, Ledger) of
+    case Ledger =/= undefined of
       false ->
           err(
               10009,
@@ -247,8 +247,7 @@ h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
               #{ address => Addr, http_code => 404 }
           );
       true ->
-        Info=maps:get(Addr, Ledger),
-        VMName=maps:get(vm, Info),
+        VMName=maps:get(vm, Ledger),
         {ok,CN,CD}=smartcontract:info(VMName),
         {ok,List}=smartcontract:getters(VMName),
 
@@ -284,7 +283,7 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
     if
         (MyChain == Blk) ->
             case mledger:get(Addr) of
-                not_found ->
+                undefined ->
                     err(
                         10000,
                         <<"Not found">>,
@@ -339,7 +338,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
            _ -> naddress:decode(TAddr)
          end,
     Ledger=mledger:get(Addr),
-    case maps:is_key(pubkey, Ledger) of
+    case Ledger =/= undefined of
       false ->
           err(
               10003,
@@ -401,7 +400,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
            _ -> naddress:decode(TAddr)
          end,
     Ledger=mledger:get(Addr),
-    case maps:is_key(pubkey, Ledger) of
+    case Ledger =/= undefined of
       false ->
           err(
               10003,
@@ -430,19 +429,80 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
               )
   end;
 
+h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
+  try
+    BinPacker=packer(Req,hex),
+    Addr=case TAddr of
+           <<"0x", Hex/binary>> -> hex:parse(Hex);
+           _ -> naddress:decode(TAddr)
+         end,
+    Info=mledger:get_kv(Addr),
+    case Info == undefined of
+      true ->
+          err(
+              10003,
+              <<"Not found">>,
+              #{result => <<"not_found">>},
+              #{http_code => 404}
+          );
+      false ->
+%        II=[ #{
+%          key => BinPacker(sext:encode(K)),
+%          path => BinPacker(sext:encode(P)),
+%          kp => BinPacker(sext:encode({K,P})),
+%          v => BinPacker(sext:encode(V))
+%         } || {{K,P},V} <- Info, K=/=ublk ],
+
+        {MT0,UBlk}=lists:foldl(
+               fun
+                 ({{ublk,_},V},{Acc,_}) ->
+                   {Acc,V};
+                 ({{K,P},V},{Acc,UB}) ->
+                   {gb_merkle_trees:enter(sext:encode({K,P}),sext:encode(V),Acc),
+                    UB}
+               end, {gb_merkle_trees:empty(), undefined}, Info),
+
+        {_,MRoot}=MT=gb_merkle_trees:balance(MT0),
+        JMT=mt2json(MRoot,BinPacker),
+
+        io:format("~p~n",[UBlk]),
+        %io:format("~p~n",[MT]),
+        %io:format("~p~n",[ JMT ]),
+
+        answer(
+         #{ result => <<"ok">>,
+            root=>BinPacker(gb_merkle_trees:root_hash(MT)),
+            mt=>JMT
+          },
+         #{address => Addr}
+        )
+    end
+  catch throw:{error, address_crc} ->
+              err(
+                  10004,
+                  <<"Invalid address">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              );
+          throw:bad_addr ->
+              err(
+                  10005,
+                  <<"Invalid address (2)">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              )
+  end;
 
 h(<<"GET">>, [<<"address">>, TAddr], Req) ->
   QS=cowboy_req:parse_qs(Req),
   try
     BinPacker=packer(Req,hex),
     Addr=case TAddr of
-           <<"0x", Hex/binary>> ->
-             hex:parse(Hex);
-           _ ->
-             naddress:decode(TAddr)
+           <<"0x", Hex/binary>> -> hex:parse(Hex);
+           _ -> naddress:decode(TAddr)
          end,
     Info=mledger:get(Addr),
-    case Info == #{amount => #{}} of
+    case Info == undefined of
       true ->
           err(
               10003,
@@ -481,21 +541,21 @@ h(<<"GET">>, [<<"address">>, TAddr], Req) ->
         Info2=maps:map(
                 fun
                   (lastblk, V) -> BinPacker(V);
-      (ublk, V) -> BinPacker(V);
-      (pubkey, V) ->
+                  (ublk, V) -> BinPacker(V);
+                  (pubkey, V) ->
                     case proplists:get_value(<<"pubkey">>, QS) of
                       <<"b64">> -> base64:encode(V);
                       <<"pem">> -> tpecdsa:export(V,pem);
                       <<"raw">> -> V;
                       _ -> BinPacker(V)
                     end;
-      (preblk, V) -> BinPacker(V);
-      (view, View) ->
+                  (preblk, V) -> BinPacker(V);
+                  (view, View) ->
                     [ list_to_binary(M) || M<- View];
-      (code, V) -> size(V);
-      (state, V) when is_binary(V) -> size(V);
-      (state, V) when is_map(V) -> maps:size(V);
-      (_, V) -> V
+                  (code, V) -> size(V);
+                  (state, V) when is_binary(V) -> size(V);
+                  (state, V) when is_map(V) -> maps:size(V);
+                  (_, V) -> V
                 end, Info1),
         Info3=try
                 Contract=maps:get(vm, Info2),
@@ -792,7 +852,7 @@ prettify_bal(V, BinPacker) ->
   maps:map(
     fun(pubkey, PubKey) ->
         BinPacker(PubKey);
-       (state, PubKey) ->
+       (state, PubKey) when is_binary(PubKey) ->
         BinPacker(PubKey);
        (view, View) ->
         [ list_to_binary(M) || M<- View];
@@ -1184,4 +1244,9 @@ postbatch(<<Size:32/big,Body:Size/binary,Rest/binary>>) ->
       lager:info("error ~p", [Err]),
       [iolist_to_binary(io_lib:format("bad_tx:~p", [Err])) | postbatch(Rest)]
   end.
+
+mt2json({Key,Val,_Hash},BP) ->
+  [BP(Key), BP(Val) ];
+mt2json({Key,Val,Left,Right},BP) ->
+  [BP(Key), BP(Val), mt2json(Left,BP), mt2json(Right,BP) ].
 

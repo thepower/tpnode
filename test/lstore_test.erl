@@ -89,6 +89,11 @@ lstore_test() ->
            ]
        end,
   Ledger=[
+          {<<128, 1, 64, 0, 2, 0, 0, 2>>, 
+           #{amount => #{
+              }
+            }
+          },
           {Addr,
            #{amount => #{
                <<"FTT">> => 110,

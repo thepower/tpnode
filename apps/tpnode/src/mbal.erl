@@ -85,13 +85,15 @@ decode_fetched(Bal) ->
 -spec fetch (binary(), binary(), boolean(),
              bal(), fun()) -> bal().
 fetch(Address, _Currency, _Header, Bal, FetchFun) ->
-  %    FetchCur=not maps:is_key(Currency, Bal0),
-  %    IsHdr=maps:is_key(seq, Bal0),
-  %    if(Header and not IsHdr) ->
   case maps:is_key(seq, Bal) of
     true -> Bal;
     false ->
-      decode_fetched(FetchFun(Address))
+      Fetched=FetchFun(Address),
+      if Fetched==undefined ->
+           throw({no_address,Address});
+         true -> ok
+      end,
+      decode_fetched(Fetched)
   end.
 
 -spec get_cur (binary(), bal()) -> integer().
@@ -163,17 +165,25 @@ put(lstore, [], V, Bal) ->
 put(lstore, P, V, Bal) ->
   D=get(lstore, Bal),
   D1=settings:patch([#{<<"p">>=>P,<<"t">>=><<"set">>,<<"v">>=>V}],D),
-  put(lstore, D1, Bal);
+  put(lstore, D1, Bal#{
+                    changes=>[lstore|maps:get(changes, Bal, [])]
+                   }
+  );
 
 put(state, <<>>, V, Bal) ->
-  put(state, V, Bal);
+  put(state, V, Bal#{
+                  changes=>[state|maps:get(changes, Bal, [])]
+                 }
+     );
 
 put(state, P, V, Bal) ->
   case maps:find(state, Bal) of
     error ->
-      Bal#{state=>#{P=>V}};
+      Bal#{state=>#{P=>V},
+        changes=>[state|maps:get(changes, Bal, [])]};
     {ok, PV} ->
-      Bal#{state=>PV#{P=>V}}
+      Bal#{state=>PV#{P=>V},
+        changes=>[state|maps:get(changes, Bal, [])]}
   end;
 
 put(K, [], V, Bal) ->
@@ -232,7 +242,14 @@ put(view, V, Bal) when is_list(V) ->
 %  end;
 
 put(state, V, Bal) when is_function(V); is_binary(V) ->
-  Bal#{ state=>V };
+  Bal#{ state=>V,
+        changes=>[state|maps:get(changes, Bal, [])]
+      };
+
+put(state, V, Bal) when is_map(V) ->
+  Bal#{ state=>V,
+        changes=>[state|maps:get(changes, Bal, [])]
+      };
 
 put(code, V, Bal) when is_function(V); is_binary(V) ->
   case maps:get(code, Bal, undefined) of

@@ -126,12 +126,12 @@ run_generate(
     AddrFun=fun({Addr, _Cur}) ->
                 case mledger:get(Addr) of
                   #{amount:=_}=Bal -> maps:without([changes],Bal);
-                  not_found -> bal:new()
+                  undefined -> bal:new()
                 end;
                (Addr) ->
                 case mledger:get(Addr) of
                   #{amount:=_}=Bal -> maps:without([changes],Bal);
-                  not_found -> bal:new()
+                  undefined -> bal:new()
                 end
             end,
 
@@ -186,6 +186,7 @@ run_generate(
                                      ]
                                     ),
     #{block:=Block, failed:=Failed, emit:=EmitTXs}=GB,
+    lager:info("NewS block ~p",[maps:get(bals,Block)]),
     T2=erlang:system_time(),
 
     case application:get_env(tpnode,mkblock_debug) of

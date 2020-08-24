@@ -536,8 +536,10 @@ try_process([{TxID, #{
                              throw({'deploy_error', other})
                          end
                     end,
+
+      {ok, St1Dec}=msgpack:unpack(St1),
       NewF4=maps:remove(keep,
-                        mbal:put(state, St1, NewF3)
+                        mbal:put(state, St1Dec, NewF3)
                        ),
 
       NewAddresses=case GasLeft of
@@ -1696,6 +1698,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   _T3=erlang:system_time(),
   Entropy=proplists:get_value(entropy, Options, <<>>),
   MeanTime=proplists:get_value(mean_time, Options, 0),
+
   #{failed:=Failed,
     table:=NewBal0,
     success:=Success,

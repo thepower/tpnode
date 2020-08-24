@@ -136,7 +136,7 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun, Workers) ->
     GetAddr=fun(Addr) ->
                 case mledger:get(Addr) of
                   #{amount:=_}=Bal -> Bal;
-                  not_found -> bal:new()
+                  undefined -> mbal:new()
                 end
             end,
 
@@ -543,12 +543,11 @@ xchain_test_callingblock() ->
   GetAddr=fun(Addr) ->
               case mledger:get(Addr) of
                 #{amount:=_}=Bal -> Bal;
-                not_found -> bal:new()
+                undefined -> mbal:new()
               end
           end,
 
   ParentHash=crypto:hash(sha256, <<"parent">>),
-
 
   #{block:=Blk}=generate_block:generate_block(
              TxList,

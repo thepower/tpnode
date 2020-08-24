@@ -124,7 +124,7 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
   GetAddr=fun(Addr) ->
               case mledger:get(Addr) of
                 #{amount:=_}=Bal -> Bal;
-                not_found -> bal:new()
+                undefined -> mbal:new()
               end
           end,
 
@@ -273,7 +273,7 @@ brom_test() ->
       Addr1=naddress:construct_public(1, OurChain, 1),
       Addr2=naddress:construct_public(1, OurChain, 2),
       %{ok, Code}=file:read_file("./examples/testcontract.wasm"),
-      {ok, Code}=file:read_file("./examples/brom.wasm.lz4"),
+      {ok, Code}=file:read_file("./examples/brom1"),
       TX3=tx:sign(
             tx:construct_tx(#{
               ver=>2,
@@ -286,9 +286,10 @@ brom_test() ->
                         #{purpose=>gas, amount=>30000, cur=><<"FTT">>}
                        ],
               call=>#{function=>"init",args=> [
-                      [binary_to_list(naddress:encode(Addr2)),"AA100000171127710742",
-              "AA100000171127710742"]
-                      ]},
+                                               [binary_to_list(naddress:encode(Addr2)),
+                                                "AA100000171127710742",
+                                                "AA100000171127710742"]
+                                              ]},
               txext=>#{ "code"=> Code,
                         "vm" => "wasm"
                       }
@@ -312,8 +313,8 @@ brom_test() ->
               t=>os:system_time(millisecond)
              }), Pvt1),
       TxList1=[
-              {<<"3testdeploy">>, maps:put(sigverify,#{valid=>1},TX3)}
-             ],
+               {<<"3testdeploy">>, maps:put(sigverify,#{valid=>1},TX3)}
+              ],
       TxList2=[
               {<<"4testexec">>, maps:put(sigverify,#{valid=>1},TX4)}
               ],
