@@ -6,6 +6,8 @@
 -export([dbmtfun/3]).
 -export([mb2item/1,item2mb/1]).
 -export([dump_ledger/0, dump_ledger/2]).
+-export([get_raw/1, get_kv/1, rebuild_tree/0]).
+-export([addr_proof/1]).
 
 -record(bal_items,
         {
@@ -180,6 +182,19 @@ mb2item( #mb{ address=A, key=K, path=P, value=V, version=Ver, introduced=Int }) 
 get(Address) -> 
   get(Address,trans).
 
+get_kv(Address) ->
+  {atomic,Items}=mnesia:transaction(
+    fun() ->
+        get_raw(Address, notrans)
+    end),
+  [ {{K,P},V} || #bal_items{ key=K,path=P,value=V } <- Items ].
+
+get_raw(Address) ->
+  mnesia:transaction(
+    fun() ->
+        get_raw(Address, notrans)
+    end).
+
 get_raw(Address, notrans) ->
   mnesia:match_object(bal_items,
                       #bal_items{
@@ -189,23 +204,26 @@ get_raw(Address, notrans) ->
                       read).
 
 get(Address, notrans) -> 
-  Pattern=#bal_items{ addr_ver={Address, latest}, _='_'},
-
-  maps:remove(changes,
-              lists:foldl(
-                fun
-                   (#bal_items{key=code, path=_, value=Code}, A) ->
-                    mbal:put(code,[], Code,A);
-                   (#bal_items{key=lstore, path=K, value=V1}, A) ->
-                    mbal:put(lstore, K, V1, A);
-                   (#bal_items{key=state, path=K, value=V1}, A) ->
-                    mbal:put(state, K, V1, A);
-                   (#bal_items{key=K, path=P, value=V},A) ->
-                    mbal:put(K,P,V,A)
-                end,
-                mbal:new(),
-                mnesia:match_object(bal_items, Pattern ,read)
-               ));
+  Raw=get_raw(Address, notrans),
+  if Raw == [] ->
+       undefined;
+     true ->
+       maps:remove(changes,
+                   lists:foldl(
+                     fun
+                       (#bal_items{key=code, path=_, value=Code}, A) ->
+                         mbal:put(code,[], Code,A);
+                       (#bal_items{key=lstore, path=K, value=V1}, A) ->
+                         mbal:put(lstore, K, V1, A);
+                       (#bal_items{key=state, path=K, value=V1}, A) ->
+                         mbal:put(state, K, V1, A);
+                       (#bal_items{key=K, path=P, value=V},A) ->
+                         mbal:put(K,P,V,A)
+                     end,
+                     mbal:new(),
+                     Raw
+                    ))
+  end;
 
 get(Address, trans) -> 
   {atomic,List}=mnesia:transaction(
@@ -340,14 +358,9 @@ do_apply([E1|_]=Patches, HeiHash) when is_record(E1, bal_items) ->
     _ ->
       lists:foreach( fun mnesia:write/1, Patches)
   end,
-  NewLedger=[ {Address, hash(Address)} || Address <- ChAddrs ],
-  lager:debug("Apply ledger ~p",[NewLedger]),
-  lists:foldl(
-    fun({Addr,Hash},Acc) ->
-        db_merkle_trees:enter(Addr, Hash, {fun dbmtfun/3,Acc})
-    end, #{}, NewLedger),
+  NewMT=apply_mt(ChAddrs),
   RH=db_merkle_trees:root_hash({fun dbmtfun/3,
-                                db_merkle_trees:balance({fun dbmtfun/3,#{}})
+                                NewMT
                                }),
   %io:format("RH ~p~n",[RH]),
   {ok, RH};
@@ -417,4 +430,38 @@ dump_ledger() ->
                                  mnesia:dirty_match_object(#bal_items{_='_',version=latest}),
                                  mnesia:dirty_match_object({ledger_tree,'_','_'})
                                 ])).
+apply_mt(ChAddrs) ->
+  NewLedger=[ {Address, hash(Address)} || Address <- ChAddrs ],
+  lager:debug("Apply ledger ~p",[NewLedger]),
+  lists:foldl(
+    fun({Addr,Hash},Acc) ->
+        db_merkle_trees:enter(Addr, Hash, {fun dbmtfun/3,Acc})
+    end, #{}, NewLedger),
+  db_merkle_trees:balance({fun dbmtfun/3,#{}}).
+
+rebuild_tree() ->
+  mnesia:transaction(
+    fun() ->
+        AddrList=maps:keys(
+          mnesia:foldl(fun(#bal_items{address=Addr},Acc) ->
+                           maps:put(Addr,1,Acc)
+                       end,
+                       #{},
+                       bal_items)
+         ),
+        NewMT=apply_mt(AddrList),
+        RH=db_merkle_trees:root_hash({fun dbmtfun/3, NewMT }),
+        {ok, RH}
+    end).
+
+addr_proof(Address) ->
+  {atomic,Res}=mnesia:transaction(
+    fun() ->
+        {
+         db_merkle_trees:root_hash({fun dbmtfun/3, #{}}),
+        db_merkle_trees:merkle_proof(Address,{fun dbmtfun/3, #{}})
+        }
+    end),
+  Res.
+
 

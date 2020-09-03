@@ -231,11 +231,12 @@ get_renderer() ->
       TxIds = proplists:get_value(ts, PL, []),
       Ts =
         lists:map(
-          fun(TxId) ->
-            case txpool:decode_txid(TxId) of
-              {ok, _, [_, _, Timestamp]} -> Timestamp;
-              _ -> 0
-            end
+          fun(_TxId) ->
+              0
+            %case txpool:decode_txid(TxId) of
+            %  {ok, _, [_, _, Timestamp]} -> Timestamp;
+            %  _ -> 0
+            %end
           end,
           TxIds),
   

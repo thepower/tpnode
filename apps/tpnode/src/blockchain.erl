@@ -3,6 +3,7 @@
 -export([last_meta/0,
          ready/0,
          last/0, last/1, chain/0,
+         last_permanent_meta/0,
          rel/2]).
 
 receive_block(Handler, BlockPart) ->
@@ -46,6 +47,14 @@ last_meta() ->
   [{last_meta, Blk}]=ets:lookup(lastblock,last_meta),
   Blk.
 
+last_permanent_meta() ->
+  [{header, Hdr}]=ets:lookup(lastblock,header),
+  [{hash, Hash}]=ets:lookup(lastblock,hash),
+  [{sign, Sign}]=ets:lookup(lastblock,sign),
+  #{ hash => Hash,
+     header => Hdr,
+     sign => Sign
+   }.
 last(N) ->
   gen_server:call(blockchain_reader, {last_block, N}).
 

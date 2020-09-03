@@ -7,6 +7,7 @@
          prettify_tx/2,
          postbatch/1,
          packer/2,
+         mp2json/2,
          binjson/1]).
 
 -export([answer/0, answer/1, answer/2, err/1, err/2, err/3, err/4]).
@@ -192,42 +193,41 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
        }
     });
 
-h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
-  try
-    Addr=case TAddr of
-           <<"0x", Hex/binary>> ->
-             hex:parse(Hex);
-           _ ->
-             naddress:decode(TAddr)
-         end,
-    Ledger=mledger:get(Addr),
-    case maps:is_key(Addr, Ledger) of
-      false ->
-          err(
-              10011,
-              <<"Not found">>,
-              #{ result => <<"not_found">> }
-              #{ address => Addr, http_code => 404 }
-          );
-      true ->
-        Info=maps:get(Addr, Ledger),
-        VMName=maps:get(vm, Info),
-        {ok,List}=smartcontract:get(VMName,Method,Args,Info),
-        answer(
-           #{result => List},
-           #{address => Addr}
-        )
-    end
-  catch throw:{error, address_crc} ->
-      err(
-          10012,
-          <<"Invalid address">>,
-          #{
-              result => <<"error">>,
-              error => <<"invalid address">>
-          }
-      )
-  end;
+%h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
+%  try
+%    Addr=case TAddr of
+%           <<"0x", Hex/binary>> ->
+%             hex:parse(Hex);
+%           _ ->
+%             naddress:decode(TAddr)
+%         end,
+%    Ledger=mledger:get(Addr),
+%    case Ledger =/= undefined of
+%      false ->
+%          err(
+%              10011,
+%              <<"Not found">>,
+%              #{ result => <<"not_found">> }
+%              #{ address => Addr, http_code => 404 }
+%          );
+%      true ->
+%        VMName=maps:get(vm, Ledger),
+%        {ok,List}=smartcontract:get(VMName,Method,Args,Info),
+%        answer(
+%           #{result => List},
+%           #{address => Addr}
+%        )
+%    end
+%  catch throw:{error, address_crc} ->
+%      err(
+%          10012,
+%          <<"Invalid address">>,
+%          #{
+%              result => <<"error">>,
+%              error => <<"invalid address">>
+%          }
+%      )
+%  end;
 
 h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
   try
@@ -465,14 +465,21 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
         {_,MRoot}=MT=gb_merkle_trees:balance(MT0),
         JMT=mt2json(MRoot,BinPacker),
 
+        {LRH,LMP}=mledger:addr_proof(Addr),
         io:format("~p~n",[UBlk]),
         %io:format("~p~n",[MT]),
         %io:format("~p~n",[ JMT ]),
 
+        MP=mp2json(LMP,BinPacker),
         answer(
          #{ result => <<"ok">>,
-            root=>BinPacker(gb_merkle_trees:root_hash(MT)),
-            mt=>JMT
+            bal_root=>BinPacker(gb_merkle_trees:root_hash(MT)),
+            bal_mt=>JMT,
+            ledger_root=>BinPacker(LRH),
+            ledger_proof=>MP,
+            block=>prettify_block(
+                     maps:with([hash,header],blockchain:last_permanent_meta()),
+                     BinPacker)
           },
          #{address => Addr}
         )
@@ -565,7 +572,6 @@ h(<<"GET">>, [<<"address">>, TAddr], Req) ->
                 {ok, VN, VD} = CV,
                 maps:put(contract, [VN,VD], Info2)
               catch _:_ ->
-%%                      lager:error("NC"),
                       Info2
               end,
 
@@ -1249,4 +1255,16 @@ mt2json({Key,Val,_Hash},BP) ->
   [BP(Key), BP(Val) ];
 mt2json({Key,Val,Left,Right},BP) ->
   [BP(Key), BP(Val), mt2json(Left,BP), mt2json(Right,BP) ].
+
+
+mp2json_element(Element, BP) when is_binary(Element) ->
+  BP(Element);
+mp2json_element(Element, BP) when is_tuple(Element) ->
+  mp2json(Element, BP).
+
+mp2json({Hash1,Hash2},BP) ->
+  [
+   mp2json_element(Hash1, BP),
+   mp2json_element(Hash2, BP)
+  ].
 
