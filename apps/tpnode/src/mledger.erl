@@ -61,7 +61,12 @@ table_descr(ledger_tree) ->
     {attributes,[key,value]},
     {rocksdb_copies, [node()]}
    ],[],fun() ->
-            mnesia:write({ledger_tree,<<"R">>,db_merkle_trees:empty()})
+            case mnesia:read({ledger_tree,<<"R">>}) of
+              [] ->
+                mnesia:write({ledger_tree,<<"R">>,db_merkle_trees:empty()});
+              {ledger_tree,<<"R">>,_} ->
+                ok
+            end
         end
   };
 %mnesia:transaction(fun()-> mnesia:write({ledger_tree,<<"R">>,db_merkle_trees:empty()}) end)
