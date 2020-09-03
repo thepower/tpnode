@@ -191,7 +191,12 @@ new_tx(TxID, TxBody, #{my_ttl:=TTL, ets_name:=Table} = State) ->
   ets:insert(Table, {TxID, TxBody, me, [], ValidUntil}),
   MS=chainsettings:by_path([<<"current">>,chain,minsig]),
   true=is_integer(MS),
-  tpnode_txsync:synchronize(TxID, #{min_peers=>max(MS-1,0)}),
+  case length(nodekey:get_privs()) >= MS of
+    true ->
+      tpnode_txsync:synchronize(TxID, #{min_peers=>0});
+    false ->
+      tpnode_txsync:synchronize(TxID, #{min_peers=>max(MS-1,0)})
+  end,
   {ok, State}.
 
 store_tx(TxID, TxBody, FromPeer, #{ets_ttl_sec:=TTL, ets_name:=Table} = State) ->
