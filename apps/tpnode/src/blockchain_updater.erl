@@ -129,14 +129,14 @@ handle_call(saveset, _From, #{settings:=Settings}=State) ->
 handle_call(rollback, _From, #{
                         pre_settings:=PreSets,
                         btable:=BTable,
-                        lastblock:=#{header:=#{parent:=Parent}},
+                        lastblock:=#{header:=#{parent:=Parent,height:=Hei}},
                         ldb:=LDB}=State) ->
   case block_rel(LDB, Parent, self) of
     Error when is_atom(Error) ->
       {reply, {error, Error}, State};
     #{hash:=H}=Blk ->
       LH=block:ledger_hash(Blk),
-      case gen_server:call(ledger,{rollback, LH}) of
+      case mledger:rollback(Hei, LH) of
         {ok, LH} ->
           save_block(LDB, maps:remove(child,Blk), true),
           chainsettings:settings_to_ets(PreSets),
@@ -152,7 +152,9 @@ handle_call(rollback, _From, #{
             )
           };
         {error, Err} ->
-          {reply, {ledger_error, Err}, State}
+          {reply, {ledger_error, Err}, State};
+        Any ->
+          {reply, {unknown_error, Any}, State}
       end
   end;
 

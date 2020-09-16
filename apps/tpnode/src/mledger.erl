@@ -5,9 +5,10 @@
 -export([bals2patch/1, apply_patch/2]).
 -export([dbmtfun/3]).
 -export([mb2item/1,item2mb/1]).
--export([dump_ledger/0, dump_ledger/2]).
+-export([dump_ledger/0, dump_ledger/2, dump_ledger/1]).
 -export([get_raw/1, get_kv/1, rebuild_tree/0]).
--export([addr_proof/1]).
+-export([addr_proof/1, bi_decode/1]).
+-export([rollback/2]).
 
 -record(bal_items,
         {
@@ -46,7 +47,7 @@ table_descr(bal_items) ->
   {[
     {attributes,record_info(fields, bal_items)},
     {rocksdb_copies, [node()]}
-   ],[addr_ver, addr_key],
+   ],[addr_ver, addr_key, version],
    undefined};
 
 table_descr(bal_tree) ->
@@ -142,6 +143,10 @@ bi_create(Address,Ver,Key,Path,Introduced,Value) ->
              addr_key={Address, Key},
              addr_key_ver_path={Address, Key, Ver, Path}
             }.
+
+bi_decode(#bal_items{address=Address,version=Ver,key=Key,path=Path,introduced=Introduced,value=Value})
+->
+  {Address,Ver,Key,Path,Introduced,Value}.
 
 put(_Address, Bal) ->
   Changes=maps:get(changes,Bal),
@@ -335,11 +340,11 @@ do_apply([E1|_]=Patches, HeiHash) when is_record(E1, bal_items) ->
                 case mnesia:read(bal_items, AKVP) of
                   [] ->
                     mnesia:write(BalItem#bal_items{introduced=Height});
-                  [#bal_items{introduced=OVer, value=OVal}=OldBal]  ->
+                  [#bal_items{introduced=_OVer, value=OVal}=OldBal]  ->
                     if(OVal == NewVal) ->
                         ok;
                       true ->
-                        OldBal1=bi_set_ver(OldBal,OVer),
+                       OldBal1=bi_set_ver(OldBal,Height),
                         mnesia:write(OldBal1),
                         mnesia:write(BalItem#bal_items{introduced=Height})
                     end
@@ -418,6 +423,48 @@ apply_patch(Patches, {commit, HeiHash}) ->
 %                  io_lib:format("~p.~n", [ Data ])
 %                 ).
 
+
+rollback(Height, ExpectedHash) ->
+  case
+  mnesia:transaction(
+    fun() ->
+        ToDelete=mnesia:match_object(#bal_items{introduced=Height,_='_'}),
+        ToRestore=mnesia:match_object(#bal_items{version=Height,_='_'}),
+
+        OldAddr=lists:usort([ Address || #bal_items{address=Address} <- ToRestore ]),
+        NewAddr=lists:usort([ Address || #bal_items{address=Address} <- ToDelete ]),
+        Addr2Del=NewAddr -- OldAddr,
+
+        lists:foreach(
+          fun(#bal_items{version=latest}=BalItem) ->
+              mnesia:delete_object(BalItem)
+          end,
+          ToDelete),
+
+        lists:foreach(
+          fun(#bal_items{version=latest}=BalItem) ->
+              OldBal1=bi_set_ver(BalItem,latest),
+              mnesia:write(OldBal1)
+          end,
+          ToRestore),
+
+        del_mt(Addr2Del),
+        NewMT=apply_mt(OldAddr),
+        RH=db_merkle_trees:root_hash({fun dbmtfun/3,
+                                      NewMT
+                                     }),
+
+
+        if(RH==ExpectedHash) ->
+            {ok, RH};
+          true ->
+            throw({hash_mismatch, RH, ExpectedHash})
+        end
+    end) of
+    {atomic, {ok, Hash}} -> {ok, Hash};
+    {aborted, Err} -> {error,Err}
+  end.
+
 dump_ledger(Info,Filename) ->
   file:write_file(Filename,
                   io_lib:format("~p.~n~p.~n~p.~n",
@@ -432,9 +479,29 @@ dump_ledger() ->
   file:write_file("ledger_"++atom_to_list(node()),
                   io_lib:format("~p.~n~p.~n",
                                 [
-                                 mnesia:dirty_match_object(#bal_items{_='_',version=latest}),
+                                 [
+                                  bi_decode(I) || I<-
+                                                  mnesia:dirty_match_object(#bal_items{_='_',version=latest})
+                                 ],
                                  mnesia:dirty_match_object({ledger_tree,'_','_'})
                                 ])).
+
+dump_ledger(full) ->
+  file:write_file("ledger_"++atom_to_list(node()),
+                  io_lib:format("~p.~n~p.~n",
+                                [
+                                 [
+                                  bi_decode(I) || I<-
+                                                  mnesia:dirty_match_object(#bal_items{_='_'})
+                                 ],
+                                 mnesia:dirty_match_object({ledger_tree,'_','_'})
+                                ])).
+del_mt(ChAddrs) ->
+  lists:foldl(
+    fun(Addr,Acc) ->
+        db_merkle_trees:delete(Addr, {fun dbmtfun/3,Acc})
+    end, #{}, ChAddrs).
+
 apply_mt(ChAddrs) ->
   NewLedger=[ {Address, hash(Address)} || Address <- ChAddrs ],
   lager:debug("Apply ledger ~p",[NewLedger]),
