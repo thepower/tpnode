@@ -127,42 +127,52 @@ handle_call(saveset, _From, #{settings:=Settings}=State) ->
   {reply, Settings, State};
 
 handle_call(rollback, _From, #{
-                        pre_settings:=PreSets,
                         btable:=BTable,
-                        lastblock:=#{header:=#{parent:=Parent,height:=Hei}},
+                        settings:=Settings,
+                        lastblock:=#{header:=#{parent:=Parent,height:=Hei}}=Last,
                         ldb:=LDB}=State) ->
-  case block_rel(LDB, Parent, self) of
-    Error when is_atom(Error) ->
-      {reply, {error, Error}, State};
-    #{hash:=H}=Blk ->
-      LH=block:ledger_hash(Blk),
-      case mledger:rollback(Hei, LH) of
-        {ok, LH} ->
-          save_block(LDB, maps:remove(child,Blk), true),
-          chainsettings:settings_to_ets(PreSets),
-          lastblock2ets(BTable, Blk),
-          {reply,
-           {ok, H},
-           maps:without(
-             [pre_settings,tmpblock],
-             State#{
-               lastblock=>Blk,
-               settings=>PreSets
-              }
-            )
-          };
-        {error, Err} ->
-          {reply, {ledger_error, Err}, State};
-        Any ->
-          {reply, {unknown_error, Any}, State}
-      end
+  try
+    case block_rel(LDB, Parent, self) of
+      Error when is_atom(Error) ->
+        {reply, {error, Error}, State};
+      #{hash:=H}=Blk ->
+        LH=block:ledger_hash(Blk),
+        PreSets=case maps:get(settings, Last, []) of
+                  [] ->
+                    Settings;
+                  _ ->
+                    case ldb:read_key(LDB,
+                                      <<"settings:", Parent/binary>>,
+                                      undefined
+                                     ) of
+                      undefined ->
+                        throw(no_pre_set);
+                      Bin when is_binary(Bin) ->
+                        binary_to_term(Bin)
+                    end
+                end,
+        case mledger:rollback(Hei, LH) of
+          {ok, LH} ->
+            save_block(LDB, maps:remove(child,Blk), true),
+            chainsettings:settings_to_ets(PreSets),
+            lastblock2ets(BTable, Blk),
+            NewState=maps:without(
+                       [pre_settings,tmpblock],
+                       State#{
+                         lastblock=>Blk,
+                         settings=>PreSets
+                        }
+                      ),
+            {reply, {ok, H}, NewState};
+          {error, Err} ->
+            {reply, {ledger_error, Err}, State};
+          Any ->
+            {reply, {unknown_error, Any}, State}
+        end
+    end
+  catch throw:no_pre_set ->
+          {reply, {error, no_prev_state}, State}
   end;
-
-handle_call(rollback, _From, #{
-                        btable:=_,
-                        lastblock:=_,
-                        ldb:=_}=State) ->
-  {reply, {error, no_prev_state}, State};
 
 handle_call({new_block, #{hash:=BlockHash,
                           header:=#{height:=Hei}=Header}=Blk, PID}=_Message,
@@ -368,7 +378,7 @@ handle_call({new_block, #{hash:=BlockHash,
 
                       if(Sets1 =/= Sets) ->
                           notify_settings(),
-                          save_sets(LDB, Sets1);
+                          save_sets(LDB, MBlk, Sets, Sets1);
                         true -> ok
                       end
                   end,
@@ -627,8 +637,11 @@ format_status(_Opt, [_PDict, State]) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-save_sets(ignore, _Settings) -> ok;
-save_sets(LDB, Settings) ->
+save_sets(ignore, _Blk, _OldSettings, _Settings) -> ok;
+
+save_sets(LDB, #{hash:=Hash, header:=#{parent:=Parent}}, OldSettings, Settings) ->
+  ldb:put_key(LDB, <<"settings:",Parent/binary>>, erlang:term_to_binary(OldSettings)),
+  ldb:put_key(LDB, <<"settings:",Hash/binary>>, erlang:term_to_binary(Settings)),
   ldb:put_key(LDB, <<"settings">>, erlang:term_to_binary(Settings)).
 
 save_block(ignore, _Block, _IsLast) -> ok;
