@@ -179,6 +179,7 @@ get_vers(Address, notrans) ->
 get_vers(Address, trans) -> 
   {atomic,List}=mnesia:transaction(
                   fun()->
+                      mnesia:read_lock_table(bal_items),
                       get_vers(Address, notrans)
                   end),
   List.
@@ -206,6 +207,7 @@ get_raw(Address) ->
     end).
 
 get_raw(Address, notrans) ->
+  mnesia:read_lock_table(bal_items),
   mnesia:match_object(bal_items,
                       #bal_items{
                          addr_ver={Address, latest},
@@ -334,6 +336,7 @@ do_apply([], _) ->
   };
 
 do_apply([E1|_]=Patches, HeiHash) when is_record(E1, bal_items) ->
+  mnesia:write_lock_table(bal_items),
   ChAddrs=lists:usort([ Address || #bal_items{address=Address} <- Patches ]),
 
   WriteWHeight=fun(#bal_items{addr_key_ver_path=AKVP,value=NewVal}=BalItem,Height) ->
@@ -503,6 +506,7 @@ del_mt(ChAddrs) ->
     end, #{}, ChAddrs).
 
 apply_mt(ChAddrs) ->
+  mnesia:write_lock_table(ledger_tree),
   NewLedger=[ {Address, hash(Address)} || Address <- ChAddrs ],
   lager:debug("Apply ledger ~p",[NewLedger]),
   lists:foldl(
