@@ -349,12 +349,9 @@ brom_test() ->
                              )
                     )
               end,
-      {ok,EState1}=
-               msgpack:unpack(
-                     maps:get(state,
-                              maps:get(<<128,0,32,0,150,0,0,1>>,L1)
-                             )
-                    ),
+      EState1= maps:get(state,
+               maps:get(<<128,0,32,0,150,0,0,1>>,L1)
+              ),
       {ok,EState2}=extcontract_template(OurChain, TxList2, Ledger2, TestFun2),
       State2=decode_state(EState2),
       State1=decode_state(EState1),

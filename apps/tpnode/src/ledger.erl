@@ -484,55 +484,55 @@ open_db(#{args:=Args}) ->
   Pid.
 
 
--ifdef(TEST).
-ledger_test() ->
-  NeedStop=case whereis(rdb_dispatcher) of
-             P when is_pid(P) -> false;
-             undefined ->
-               {ok, P}=rdb_dispatcher:start_link(),
-               P
-           end,
-  Name=test_ledger,
-  {ok, Pid}=ledger:start_link(
-              [{filename, "db/ledger_test"},
-               {name, Name}
-              ]
-             ),
-  gen_server:call(Pid, '_flush'),
-
-  try
-    {ok, R1}=gen_server:call(Pid, {check, []}),
-    ABC1=#{amount=> #{<<"xxx">> => 123}},
-    gen_server:call(Pid,
-                    {put, [
-                           {<<"abc">>, ABC1},
-                           {<<"bcd">>, #{amount=> #{<<"yyy">> => 321}}}
-                          ]}),
-    {ok, R2}=gen_server:call(Pid, {check, []}),
-    DEF=#{amount=> #{<<"yyy">> => 210}},
-    ABC2=#{amount=> #{<<"xxx">> => 234}},
-    gen_server:call(Pid,
-                    {put, [
-                           {<<"abc">>, ABC2},
-                           {<<"def">>, DEF}
-                          ]}),
-    {ok, R3}=gen_server:call(Pid, {check, []}),
-    ?assertEqual(DEF,gen_server:call(Pid, {get, <<"def">>})),
-    ?assertEqual(ABC2,gen_server:call(Pid, {get, <<"abc">>})),
-    ?assertMatch({ok,R2},gen_server:call(Pid, {rollback, R2})),
-    ?assertEqual(not_found,gen_server:call(Pid, {get, <<"def">>})),
-    ?assertEqual(ABC1,gen_server:call(Pid, {get, <<"abc">>})),
-    {R1, R2, R3}
-  after
-    gen_server:cast(Pid, drop_terminate),
-    if NeedStop==false -> ok;
-       true ->
-         gen_server:stop(NeedStop, normal, 3000)
-    end,
-    error
-  end.
-
--endif.
+%-ifdef(TEST).
+%ledger_test() ->
+%  NeedStop=case whereis(rdb_dispatcher) of
+%             P when is_pid(P) -> false;
+%             undefined ->
+%               {ok, P}=rdb_dispatcher:start_link(),
+%               P
+%           end,
+%  Name=test_ledger,
+%  {ok, Pid}=ledger:start_link(
+%              [{filename, "db/ledger_test"},
+%               {name, Name}
+%              ]
+%             ),
+%  gen_server:call(Pid, '_flush'),
+%
+%  try
+%    {ok, R1}=gen_server:call(Pid, {check, []}),
+%    ABC1=#{amount=> #{<<"xxx">> => 123}},
+%    gen_server:call(Pid,
+%                    {put, [
+%                           {<<"abc">>, ABC1},
+%                           {<<"bcd">>, #{amount=> #{<<"yyy">> => 321}}}
+%                          ]}),
+%    {ok, R2}=gen_server:call(Pid, {check, []}),
+%    DEF=#{amount=> #{<<"yyy">> => 210}},
+%    ABC2=#{amount=> #{<<"xxx">> => 234}},
+%    gen_server:call(Pid,
+%                    {put, [
+%                           {<<"abc">>, ABC2},
+%                           {<<"def">>, DEF}
+%                          ]}),
+%    {ok, R3}=gen_server:call(Pid, {check, []}),
+%    ?assertEqual(DEF,gen_server:call(Pid, {get, <<"def">>})),
+%    ?assertEqual(ABC2,gen_server:call(Pid, {get, <<"abc">>})),
+%    ?assertMatch({ok,R2},gen_server:call(Pid, {rollback, R2})),
+%    ?assertEqual(not_found,gen_server:call(Pid, {get, <<"def">>})),
+%    ?assertEqual(ABC1,gen_server:call(Pid, {get, <<"abc">>})),
+%    {R1, R2, R3}
+%  after
+%    gen_server:cast(Pid, drop_terminate),
+%    if NeedStop==false -> ok;
+%       true ->
+%         gen_server:stop(NeedStop, normal, 3000)
+%    end,
+%    error
+%  end.
+%
+%-endif.
 
 mergekvs(KVS0, DB) ->
   lists:foldl(

@@ -307,44 +307,44 @@ open_db(#{args:=Args}) ->
                                 {open, DBPath, [{create_if_missing, true}]}),
     Pid.
 
-
--ifdef(TEST).
-ledger_test() ->
-    NeedStop=case whereis(rdb_dispatcher) of
-                 P when is_pid(P) -> false;
-                 undefined ->
-                     {ok, P}=rdb_dispatcher:start_link(),
-                     P
-             end,
-    Name=test_ledger,
-    {ok, Pid}=ledger:start_link(
-               [{filename, "db/ledger_test"},
-                {name, Name}
-               ]
-              ),
-    gen_server:call(Pid, '_flush'),
-    {ok, R1}=gen_server:call(Pid, {check, []}),
-    gen_server:call(Pid,
-                    {put, [
-                           {<<"abc">>, #{amount=> #{<<"xxx">> => 123}}},
-                           {<<"bcd">>, #{amount=> #{<<"yyy">> => 321}}}
-                          ]}),
-    {ok, R2}=gen_server:call(Pid, {check, []}),
-    gen_server:call(Pid,
-                    {put, [
-                           {<<"abc">>, #{amount=> #{<<"xxx">> => 234}}},
-                           {<<"def">>, #{amount=> #{<<"yyy">> => 210}}}
-                          ]}),
-    {ok, R3}=gen_server:call(Pid, {check, []}),
-    Expect=#{<<"def">>=>#{amount=> #{<<"yyy">> => 210}}},
-    Expect=gen_server:call(Pid, {get, [<<"def">>]}),
-    %gen_server:cast(Pid, terminate),
-    gen_server:cast(Pid, drop_terminate),
-    if NeedStop==false -> ok;
-       true ->
-           gen_server:stop(NeedStop, normal, 3000)
-    end,
-    {R1, R2, R3}.
-
--endif.
-
+%
+%-ifdef(TEST).
+%ledger_test() ->
+%    NeedStop=case whereis(rdb_dispatcher) of
+%                 P when is_pid(P) -> false;
+%                 undefined ->
+%                     {ok, P}=rdb_dispatcher:start_link(),
+%                     P
+%             end,
+%    Name=test_ledger,
+%    {ok, Pid}=ledger:start_link(
+%               [{filename, "db/ledger_test"},
+%                {name, Name}
+%               ]
+%              ),
+%    gen_server:call(Pid, '_flush'),
+%    {ok, R1}=gen_server:call(Pid, {check, []}),
+%    gen_server:call(Pid,
+%                    {put, [
+%                           {<<"abc">>, #{amount=> #{<<"xxx">> => 123}}},
+%                           {<<"bcd">>, #{amount=> #{<<"yyy">> => 321}}}
+%                          ]}),
+%    {ok, R2}=gen_server:call(Pid, {check, []}),
+%    gen_server:call(Pid,
+%                    {put, [
+%                           {<<"abc">>, #{amount=> #{<<"xxx">> => 234}}},
+%                           {<<"def">>, #{amount=> #{<<"yyy">> => 210}}}
+%                          ]}),
+%    {ok, R3}=gen_server:call(Pid, {check, []}),
+%    Expect=#{<<"def">>=>#{amount=> #{<<"yyy">> => 210}}},
+%    Expect=gen_server:call(Pid, {get, [<<"def">>]}),
+%    %gen_server:cast(Pid, terminate),
+%    gen_server:cast(Pid, drop_terminate),
+%    if NeedStop==false -> ok;
+%       true ->
+%           gen_server:stop(NeedStop, normal, 3000)
+%    end,
+%    {R1, R2, R3}.
+%
+%-endif.
+%
