@@ -1746,8 +1746,13 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   end,
   _T4=erlang:system_time(),
   lager:debug("Bals before clean ~p",[NewBal0]),
-  NewBal=cleanup_bals(NewBal0),
-  lager:debug("Bals after clean ~p",[NewBal]),
+  NewBal=maps:map(
+           fun(_,Bal) ->
+               mbal:prepare(Bal)
+           end,
+           cleanup_bals(NewBal0)
+          ),
+  lager:debug("Bals after clean and prepare ~p",[NewBal]),
   ExtraPatch=maps:fold(
                fun(ToChain, _NoOfTxs, AccExtraPatch) ->
                    [ToChain|AccExtraPatch]

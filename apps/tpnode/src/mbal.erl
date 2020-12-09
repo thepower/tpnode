@@ -14,7 +14,8 @@
          unpack/1,
          merge/2,
          changes/1,
-         msgpack_state/1
+         msgpack_state/1,
+         prepare/1
         ]).
 
 -define(FIELDS,
@@ -72,6 +73,14 @@ changes(Bal) ->
      true ->
        maps:with([amount|Changes], maps:remove(changes, Bal))
   end.
+
+prepare(Bal) ->
+  maps:map(
+    fun(lstore,Map) when is_map(Map) ->
+        settings:mp(Map);
+       (_,Any) ->
+        Any
+    end, Bal).
 
 decode_fetched(Bal) ->
   maps:map(
@@ -305,23 +314,25 @@ pack(Bal) ->
 
 
 -spec pack (bal(), boolean()) -> binary().
-pack(#{
-  amount:=Amount
- }=Bal, false) ->
-  msgpack:pack(
-    maps:put(
-      amount, Amount,
-      maps:with(?FIELDS, Bal)
-     )
-   );
+pack(#{ amount:=_ }=Bal, false) ->
+  pack1(Bal,?FIELDS);
 
-pack(#{
-  amount:=Amount
- }=Bal, true) ->
+pack(#{ amount:=_ }=Bal, true) ->
+  pack1(Bal,[ublk|?FIELDS]).
+
+pack1(#{ amount:=Amount }=Bal, Fields) ->
+  Others=maps:map(
+           fun(lstore,V) when is_map(V) ->
+               settings:mp(V);
+             (_,V) ->
+               V
+           end,
+           maps:with(Fields, Bal)
+          ),
   msgpack:pack(
     maps:put(
       amount, Amount,
-      maps:with([ublk|?FIELDS], Bal)
+      Others
      )
    ).
 

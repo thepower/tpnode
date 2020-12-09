@@ -231,23 +231,25 @@ pack(Bal) ->
 
 
 -spec pack (bal(), boolean()) -> binary().
-pack(#{
-  amount:=Amount
- }=Bal, false) ->
-  msgpack:pack(
-    maps:put(
-      amount, Amount,
-      maps:with(?FIELDS, Bal)
-     )
-   );
+pack(#{ amount:=_ }=Bal, false) ->
+  pack1(Bal,?FIELDS);
 
-pack(#{
-  amount:=Amount
- }=Bal, true) ->
+pack(#{ amount:=_ }=Bal, true) ->
+  pack1(Bal,[ublk|?FIELDS]).
+
+pack1(#{ amount:=Amount }=Bal, Fields) ->
+  Others=maps:map(
+           fun(lstore,V) when is_map(V) ->
+               settings:mp(V);
+             (_,V) ->
+               V
+           end,
+           maps:with(Fields, Bal)
+          ),
   msgpack:pack(
     maps:put(
       amount, Amount,
-      maps:with([ublk|?FIELDS], Bal)
+      Others
      )
    ).
 

@@ -807,7 +807,7 @@ bals2bin(NewBal) ->
          #{amount:=_}=Bal
         } , Acc) ->
         %TODO: check with integer addresses
-        [{Addr, bal:pack(Bal)}|Acc];
+        [{Addr, mbal:pack(Bal)}|Acc];
        ({Addr, %port
          #{chain:=NewChain}
         }, Acc) ->

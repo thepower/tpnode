@@ -592,6 +592,12 @@ transaction_test(_Config) ->
     logger("ChainSettngs: ~p~n", [ChainSettngs]),
     Amount = max(1000, rand:uniform(100000)),
 
+    LTxId = make_lstore_transaction(Wallet),
+    logger("lstore txid: ~p ~n", [LTxId]),
+    {ok, LStatus, _} = api_get_tx_status(LTxId),
+    ?assertMatch(#{<<"res">> := <<"ok">>}, LStatus),
+    logger("lstore transaction status: ~p ~n", [LStatus]),
+
     % send money from endless to Wallet2
     Message = <<"preved from common test">>,
     TxId3 = make_transaction(Wallet, Wallet2, Cur, Amount, Message),
@@ -621,7 +627,7 @@ transaction_test(_Config) ->
     logger("Status5: ~p", [Status5]),
     ?assertMatch(#{<<"res">> := <<"ok">>}, Status5),
     Wallet2Data5 = api_get_wallet(Wallet2),
-    logger("wallet [step 5, received 1 SK]: ~p ~n", [Wallet2Data5]),
+    logger("wallet [step 5, received 2 SK]: ~p ~n", [Wallet2Data5]),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{<<"SK">> := 1}}}, Wallet2Data5),
 
     % transaction from Wallet2 should be successful, because Wallet2 got 1 SK
@@ -646,8 +652,33 @@ transaction_test(_Config) ->
     logger("wallet [step 7, all sk are used today]: ~p ~n", [Wallet2Data7]),
     ?assertMatch(#{<<"res">> := <<"sk_limit">>}, Status7),
     ?assertMatch(#{<<"info">> := #{<<"amount">> := #{Cur := NewAmount6}}}, Wallet2Data7),
-  
+
+    LSData = api_get_wallet(Wallet),
+    logger("wallet [lstore]: ~p ~n", [LSData]),
+
     dump_testnet_state().
+
+make_lstore_transaction(From) ->
+  Node = get_node(get_default_nodename()),
+  Seq = get_sequence(Node, From),
+  logger("seq for wallet ~p is ~p ~n", [From, Seq]),
+  Tx = tx:construct_tx(
+         #{
+         kind => lstore,
+         payload => [ ],
+         patches => [
+                     #{<<"t">>=><<"set">>, <<"p">>=>[<<"a">>,<<"b">>], <<"v">>=>$b},
+                     #{<<"t">>=><<"set">>, <<"p">>=>[<<"a">>,<<"c">>], <<"v">>=>$c}
+                    ],
+         ver => 2,
+         t => os:system_time(millisecond),
+         seq=> Seq + 1,
+         from => naddress:decode(From)
+        }
+  ),
+  SignedTx = tx:sign(Tx, get_wallet_priv_key()),
+  Res = api_post_transaction(tx:pack(SignedTx)),
+  maps:get(<<"txid">>, Res, unknown).
 
 tpiccall(TPIC, Handler, Object, Atoms) ->
     Res=tpic:call(TPIC, Handler, msgpack:pack(Object)),
