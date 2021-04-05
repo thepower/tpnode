@@ -268,7 +268,7 @@ construct_tx(#{
   seq:=Seq,
   payload:=Amounts
  }=Tx0,_Params) ->
-  Tx=maps:with([ver,from,to,t,seq,payload,call,txext],Tx0),
+  Tx=maps:with([ver,from,to,t,seq,payload,call,txext,not_before,notify],Tx0),
   A1=lists:map(
        fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
              is_integer(Amount), is_binary(Cur) ->
@@ -285,18 +285,38 @@ construct_tx(#{
     "p"=>A1,
     "e"=>Ext
    },
-  {E1,Tx1}=case maps:find(call,Tx) of
-             {ok, #{function:=Fun,args:=Args}} when is_list(Fun),
-                                                    is_list(Args) ->
-               {E0#{"c"=>[Fun,{array,Args}]},Tx};
-             _ ->
-               {E0, maps:remove(call, Tx)}
-           end,
+
+  {E1,Tx1}=maps:fold(fun prepare_extra_args/3, {E0, Tx}, Tx),
   Tx1#{
     kind=>generic,
     body=>msgpack:pack(E1,[{spec,new},{pack_str, from_list}]),
     sig=>[]
    }.
+
+prepare_extra_args(call, #{function:=Fun,args:=Args}, {CE,CTx}) when 
+    is_list(Fun), is_list(Args) ->
+  {CE#{"c"=>[Fun,{array,Args}]},CTx};
+prepare_extra_args(call, _, {CE,CTx}) ->
+  {CE, maps:remove(call, CTx)};
+prepare_extra_args(notify, CVal, {CE,CTx}) when is_list(CVal) ->
+  Ntf=lists:map(
+        fun({URL,Payload}) when 
+              is_binary(Payload) andalso
+              (is_list(URL) orelse is_integer(URL)) ->
+            [URL,Payload]
+        end, CVal),
+  {CE#{"ev"=>Ntf},CTx};
+prepare_extra_args(notify, _CVal, {CE,CTx}) ->
+  {CE, maps:remove(notify, CTx)};
+prepare_extra_args(not_before, Int, {CE,CTx}) when is_integer(Int),
+                                                   Int > 1600000000,
+                                                   Int < 3000000000 ->
+  {CE#{"nb"=>Int},CTx};
+prepare_extra_args(not_before, _Int, {CE,CTx}) ->
+  {CE, maps:remove(not_before, CTx)};
+prepare_extra_args(_, _, {CE,CTx}) ->
+  {CE,CTx}.
+
 
 unpack_body(#{sig:=<<>>}=Tx) ->
   unpack_body(Tx#{sig:=[]});
@@ -349,6 +369,27 @@ unpack_payload(Amounts) when is_list(Amounts) ->
          }
     end, Amounts).
 
+
+unpack_call_ntf_etc("c",[Function, Args],Decoded) ->
+  Decoded#{
+        call=>#{function=>Function, args=>Args}
+   };
+unpack_call_ntf_etc("nb",Int,Decoded) when is_integer(Int),
+                                           Int > 1600000000,
+                                           Int < 3000000000 ->
+  Decoded#{
+    not_before => Int
+   };
+unpack_call_ntf_etc("ev",Events,Decoded) when is_list(Events) ->
+  Decoded#{
+    notify => [ {URL,Body} || [URL,Body] <- Events,
+                              is_binary(Body),
+                              is_list(URL) orelse is_integer(URL) ]
+   };
+unpack_call_ntf_etc(_,_,Decoded) ->
+  Decoded.
+
+
 unpack_body(#{ ver:=2,
               kind:=GenericOrDeploy
              }=Tx,
@@ -369,14 +410,15 @@ unpack_body(#{ ver:=2,
     payload=>Amounts,
     txext=>unpack_txext(maps:get("e", Unpacked, #{}))
    },
-  case maps:is_key("c",Unpacked) of
-    false -> Decoded;
-    true ->
-      [Function, Args]=maps:get("c",Unpacked),
-      Decoded#{
-        call=>#{function=>Function, args=>Args}
-       }
-  end;
+  maps:fold(fun unpack_call_ntf_etc/3, Decoded, Unpacked);
+%  case maps:is_key("c",Unpacked) of
+%    false -> Decoded;
+%    true ->
+%      [Function, Args]=maps:get("c",Unpacked),
+%      Decoded#{
+%        call=>#{function=>Function, args=>Args}
+%       }
+%  end;
 
 unpack_body(#{ ver:=2,
               kind:=deploy

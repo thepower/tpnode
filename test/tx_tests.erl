@@ -204,6 +204,46 @@ tx2_reg_test() ->
   ?assertMatch({ok,#{sigverify:=#{valid:=2}} }, tx:verify(Packed))
   ].
 
+tx2_notify_test() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  PubKey=tpecdsa:calc_pub(Pvt1, true),
+  T1=#{
+    kind => generic,
+    from => <<128,0,32,0,2,0,0,3>>,
+    payload =>
+    [#{amount => 10,cur => <<"XXX">>,purpose => transfer},
+     #{amount => 20,cur => <<"FEE">>,purpose => srcfee}],
+    seq => 5,sig => #{},t => 1530106238743,
+    notify => [ {"http://test.net/endpoint1", <<"binary">>},
+                {2, <<"binary for 2nd url">>}
+              ],
+    not_before => 1617366203,
+    to => <<128,0,32,0,2,0,0,5>>,
+    ver => 2
+   },
+  TXConstructed=tx:construct_tx(T1),
+  Packed=tx:pack(tx:sign(TXConstructed,Pvt1)),
+  Test=fun(LedgerPID) ->
+           [
+            ?assertMatch(#{ ver:=2, kind:=generic}, tx:unpack(Packed)),
+            ?assertMatch({ok,#{
+                            ver:=2,
+                            kind:=generic,
+                            sigverify:=#{valid:=1,invalid:=0},
+                            seq:=5,
+                            not_before:=1617366203,
+                            notify:=[ {_,_}, {_,_}],
+                            from:= <<128,0,32,0,2,0,0,3>>,
+                            to:= <<128,0,32,0,2,0,0,5>>,
+                            payload:= [_,_]
+                           }}, tx:verify(Packed, [{ledger, LedgerPID}]))
+           ]
+       end,
+  Ledger=[ {<<128,0,32,0,2,0,0,3>>, bal:put(pubkey, PubKey, bal:new()) } ],
+  mledger:deploy4test(Ledger, Test).
+
+
 tx2_generic_test() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,

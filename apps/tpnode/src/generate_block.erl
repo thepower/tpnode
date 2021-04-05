@@ -1784,6 +1784,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     settings_hash=>SettingsHash,
     settings=>Settings,
     extra_roots=>Roots,
+    etxs => EmitTXs0,
     tx_proof=>[ TxID || {TxID, _ToChain} <- Outbound ],
     inbound_blocks=>lists:foldl(
                       fun(PickID, Acc) ->

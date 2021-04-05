@@ -1,6 +1,6 @@
 -module(block).
 -export([blkid/1]).
--export([mkblock2/1, mkblock/1, binarizetx/1, extract/1, outward_mk/2, outward_mk/1]).
+-export([mkblock2/1, binarizetx/1, extract/1, outward_mk/2, outward_mk/1]).
 -export([verify/2]).
 -export([verify/1, outward_verify/1, sign/2, sign/3, sigverify/2]).
 -export([prepack/1, binarizefail/1]).
@@ -111,6 +111,12 @@ prepack(Block) ->
               [TxID, T#{<<"ext">>=>{array, Arr}}];
              ({TxID, T}) ->
               [TxID, T]
+          end, Txs
+         );
+       (etxs, Txs) ->
+        lists:map(
+          fun({TxID, T}) ->
+              [TxID, tx:pack(T,[withext])]
           end, Txs
          );
        (txs, Txs) ->
@@ -491,17 +497,29 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
           true -> #{} %avoid calculating bals_root on temporary block
        end,
   LH=maps:get(ledger_hash, Req, undefined),
+
+  ETxsl=lists:keysort(1, lists:usort(maps:get(etxs, Req, []))),
+
+  ETxRoot=case ETxsl of
+            [] ->
+              undefined;
+            _ ->
+              BETxs=binarizetx(ETxsl),
+              ETxMT=gb_merkle_trees:from_list(BETxs),
+              gb_merkle_trees:root_hash(ETxMT)
+          end,
+
   Txsl=lists:keysort(1, lists:usort(Txs)),
   BTxs=binarizetx(Txsl),
   TxMT=gb_merkle_trees:from_list(BTxs),
-  %TxHash=crypto:hash(sha256, BTxs),
+  TxRoot=gb_merkle_trees:root_hash(TxMT),
+  
   BalsBin=bals2bin(Bals),
   BalsMT=gb_merkle_trees:from_list(BalsBin),
+  BalsRoot=gb_merkle_trees:root_hash(BalsMT),
+
   BSettings=binarize_settings(Settings),
   SettingsMT=gb_merkle_trees:from_list(BSettings),
-
-  TxRoot=gb_merkle_trees:root_hash(TxMT),
-  BalsRoot=gb_merkle_trees:root_hash(BalsMT),
   SettingsRoot=gb_merkle_trees:root_hash(SettingsMT),
   
   ExtraRoots=case maps:is_key(extra_roots, Req) of
@@ -528,10 +546,11 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
            end,
   
   HeaderItems0=[{txroot, TxRoot},
-               {balroot, BalsRoot},
-               {ledger_hash, LH},
-               {setroot, SettingsRoot}
-               |FailRoot],
+                {etxroot, ETxRoot},
+                {balroot, BalsRoot},
+                {ledger_hash, LH},
+                {setroot, SettingsRoot}
+                |FailRoot],
   HeaderItems =
     case maps:get(settings_hash, Req, unknown) of
       unknown ->
@@ -578,78 +597,81 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
     List3 ->
       maps:put(extdata, List3, Block2)
   end,
-  maps:put(failed, Failed, Block3).
-
-
-mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }=Req) ->
-  LH=maps:get(ledger_hash, Req, undefined),
-  Txsl=lists:keysort(1, lists:usort(Txs)),
-  BTxs=binarizetx(Txsl),
-  TxMT=gb_merkle_trees:from_list(BTxs),
-  %TxHash=crypto:hash(sha256, BTxs),
-  BalsBin=bals2bin(Bals),
-  BalsMT=gb_merkle_trees:from_list(BalsBin),
-  BSettings=binarize_settings(Settings),
-  SettingsMT=gb_merkle_trees:from_list(BSettings),
-
-  TxRoot=gb_merkle_trees:root_hash(TxMT),
-  BalsRoot=gb_merkle_trees:root_hash(BalsMT),
-  SettingsRoot=gb_merkle_trees:root_hash(SettingsMT),
-
-  HeaderItems=[{txroot, TxRoot},
-               {balroot, BalsRoot},
-               {ledger_hash, LH},
-               {setroot, SettingsRoot}|
-               case maps:is_key(mychain, Req) of
-                 false -> [];
-                 true ->
-                   [{chain, maps:get(mychain, Req)}]
-               end],
-  {BHeader, Hdr}=build_header(HeaderItems, Parent, H),
-  %lager:info("HI ~p", [Hdr]),
-
-  Block=#{header=>Hdr,
-          hash=>crypto:hash(sha256, BHeader),
-          txs=>Txsl,
-          bals=>Bals,
-          settings=>Settings,
-          sign=>[] },
-  Block1=case maps:get(tx_proof, Req, []) of
-           [] ->
-             Block;
-           List ->
-             Proof=lists:map(
-                     fun(TxID) ->
-                         {TxID, gb_merkle_trees:merkle_proof (TxID, TxMT)}
-                     end, List),
-             maps:put(tx_proof, Proof, Block)
-         end,
-  Block2=case maps:get(inbound_blocks, Req, []) of
-           [] ->
-             Block1;
-           List2 ->
-             maps:put(inbound_blocks,
-                      lists:map(
-                        fun({InBlId, InBlk}) ->
-                            {InBlId, maps:remove(txs, InBlk)}
-                        end, List2),
-                      Block1)
-         end,
-  case maps:get(extdata, Req, []) of
-    [] ->
-      Block2;
-    List3 ->
-      maps:put(extdata, List3, Block2)
-  end;
-
-mkblock(Blk) ->
-  case maps:is_key(settings, Blk) of
-    false ->
-      mkblock(maps:put(settings, [], Blk));
-    true ->
-      io:format("s ~p~n", [maps:keys(Blk)]),
-      throw(badmatch)
+  Block4=maps:put(failed, Failed, Block3),
+  case ETxsl of
+    [] -> Block4;
+    _ -> maps:put(etxs,ETxsl, Block4)
   end.
+
+
+%mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }=Req) ->
+%  LH=maps:get(ledger_hash, Req, undefined),
+%  Txsl=lists:keysort(1, lists:usort(Txs)),
+%  BTxs=binarizetx(Txsl),
+%  TxMT=gb_merkle_trees:from_list(BTxs),
+%  BalsBin=bals2bin(Bals),
+%  BalsMT=gb_merkle_trees:from_list(BalsBin),
+%  BSettings=binarize_settings(Settings),
+%  SettingsMT=gb_merkle_trees:from_list(BSettings),
+%
+%  TxRoot=gb_merkle_trees:root_hash(TxMT),
+%  BalsRoot=gb_merkle_trees:root_hash(BalsMT),
+%  SettingsRoot=gb_merkle_trees:root_hash(SettingsMT),
+%
+%  HeaderItems=[{txroot, TxRoot},
+%               {balroot, BalsRoot},
+%               {ledger_hash, LH},
+%               {setroot, SettingsRoot}|
+%               case maps:is_key(mychain, Req) of
+%                 false -> [];
+%                 true ->
+%                   [{chain, maps:get(mychain, Req)}]
+%               end],
+%  {BHeader, Hdr}=build_header(HeaderItems, Parent, H),
+%  %lager:info("HI ~p", [Hdr]),
+%
+%  Block=#{header=>Hdr,
+%          hash=>crypto:hash(sha256, BHeader),
+%          txs=>Txsl,
+%          bals=>Bals,
+%          settings=>Settings,
+%          sign=>[] },
+%  Block1=case maps:get(tx_proof, Req, []) of
+%           [] ->
+%             Block;
+%           List ->
+%             Proof=lists:map(
+%                     fun(TxID) ->
+%                         {TxID, gb_merkle_trees:merkle_proof (TxID, TxMT)}
+%                     end, List),
+%             maps:put(tx_proof, Proof, Block)
+%         end,
+%  Block2=case maps:get(inbound_blocks, Req, []) of
+%           [] ->
+%             Block1;
+%           List2 ->
+%             maps:put(inbound_blocks,
+%                      lists:map(
+%                        fun({InBlId, InBlk}) ->
+%                            {InBlId, maps:remove(txs, InBlk)}
+%                        end, List2),
+%                      Block1)
+%         end,
+%  case maps:get(extdata, Req, []) of
+%    [] ->
+%      Block2;
+%    List3 ->
+%      maps:put(extdata, List3, Block2)
+%  end;
+%
+%mkblock(Blk) ->
+%  case maps:is_key(settings, Blk) of
+%    false ->
+%      mkblock(maps:put(settings, [], Blk));
+%    true ->
+%      io:format("s ~p~n", [maps:keys(Blk)]),
+%      throw(badmatch)
+%  end.
 
 outward_mk(Block) ->
   outward(maps:get(outbound, Block, []), Block, #{}).
