@@ -5,6 +5,7 @@
 -export([txlist_hash/1, rate/2, mergesig/2]).
 -export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1]).
 -export([construct_tx/1,construct_tx/2, get_payload/2, get_payloads/2]).
+-export([unpack_naked/1]).
 -export([hashdiff/1,upgrade/1]).
 
 -include("apps/tpnode/include/tx_const.hrl").
@@ -224,13 +225,13 @@ construct_tx(#{
 
 construct_tx(#{
   ver:=2,
-  kind:=deploy,
+  kind:=Kind,
   from:=F,
   t:=Timestamp,
   seq:=Seq,
   payload:=Amounts
- }=Tx0,_Params) ->
-  Tx=maps:with([ver,from,to,t,seq,payload,call,txext],Tx0),
+ }=Tx0,_Params) when Kind==deploy; Kind==notify ->
+  Tx=maps:with([ver,from,to,t,seq,payload,call,txext,notify,not_before],Tx0),
   A1=lists:map(
        fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
              is_integer(Amount), is_binary(Cur) ->
@@ -239,25 +240,20 @@ construct_tx(#{
   Ext=maps:get(txext, Tx, #{}),
   true=is_map(Ext),
   E0=#{
-    "k"=>encode_kind(2,deploy),
+    "k"=>encode_kind(2,Kind),
     "f"=>F,
     "t"=>Timestamp,
     "s"=>Seq,
     "p"=>A1,
     "e"=>Ext
    },
-  {E1,Tx1}=case maps:find(call,Tx) of
-             {ok, #{function:=Fun,args:=Args}} when is_list(Fun),
-                                                    is_list(Args) ->
-               {E0#{"c"=>[Fun,{array,Args}]},Tx};
-             error ->
-               {E0#{"c"=>["init",{array,[]}]}, maps:remove(call, Tx)}
-           end,
+  {E1,Tx1}=maps:fold(fun prepare_extra_args/3, {E0, Tx}, Tx),
   Tx1#{
-    kind=>deploy,
+    kind=>Kind,
     body=>msgpack:pack(E1,[{spec,new},{pack_str, from_list}]),
     sig=>[]
    };
+
 
 construct_tx(#{
   ver:=2,
@@ -447,6 +443,25 @@ unpack_body(#{ ver:=2,
   end;
 
 unpack_body(#{ ver:=2,
+              kind:=notify
+             }=Tx,
+            #{ "f":=From,
+               "t":=Timestamp,
+               "s":=Seq,
+               "p":=Payload
+             }=Unpacked) ->
+  Amounts=unpack_payload(Payload),
+  Decoded=Tx#{
+             ver=>2,
+             from=>unpack_addr(From,bad_from),
+             t=>unpack_timestamp(Timestamp),
+             seq=>unpack_seq(Seq),
+             payload=>Amounts,
+             txext=>unpack_txext(maps:get("e", Unpacked, #{}))
+            },
+  maps:fold(fun unpack_call_ntf_etc/3, Decoded, Unpacked);
+
+unpack_body(#{ ver:=2,
               kind:=tstore
              }=Tx,
             #{ "f":=From,
@@ -554,6 +569,7 @@ verify(#{
  }=Tx, Opts) when GenericOrDeploy==generic;
                   GenericOrDeploy==deploy;
                   GenericOrDeploy==tstore;
+                  GenericOrDeploy==notify;
                   GenericOrDeploy==lstore ->
   CI=get_ext(<<"contract_issued">>, Tx),
   Res=case checkaddr(From) of
@@ -727,6 +743,9 @@ pack(#{ ver:=2,
 
 pack(Any, _) ->
   tx1:pack(Any).
+
+unpack_naked(BB) when is_binary(BB) ->
+  unpack_body( #{ ver=>2, sig=>[], body=>BB }).
 
 unpack(Tx) when is_map(Tx) ->
   Tx;
