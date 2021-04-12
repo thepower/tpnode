@@ -144,7 +144,7 @@ pack(Block) ->
   end.
 
 unpack(Block) when is_binary(Block) ->
-  Atoms=[hash, outbound, header, settings, txs, sign, bals,
+  Atoms=[hash, outbound, header, settings, txs, etxs, sign, bals,
          balroot, ledger_hash, height, parent, txroot, tx_proof,
          amount, lastblk, seq, t, child, setroot, tmp, ver,
          inbound_blocks, chain, extdata, roots, failed,
@@ -179,6 +179,11 @@ unpack(Block) when is_binary(Block) ->
                      lists:map(
                        fun([TxID, Tx]) ->
                            {TxID, Tx}
+                       end, TXs);
+                     (etxs, TXs) ->
+                     lists:map(
+                       fun([TxID, Tx]) ->
+                           {TxID, tx:unpack(Tx,[trusted])}
                        end, TXs);
                      (txs, TXs) ->
                      lists:map(
@@ -314,6 +319,15 @@ verify(#{ header:=#{parent:=Parent, %blkv2
            true -> ok
         end,
         {setroot, NewHash};
+      ({etxroot, Hash}) ->
+        Txs=maps:get(etxs, Blk, []),
+        BTxs=binarizetx(Txs),
+        TxMT=gb_merkle_trees:from_list(BTxs),
+        NewHash=gb_merkle_trees:root_hash(TxMT),
+        if (NewHash =/= Hash) -> lager:notice("etxs root mismatch");
+          true -> ok
+        end,
+        {etxroot, NewHash};
       ({txroot, Hash}) ->
         Txs=maps:get(txs, Blk, []),
         BTxs=binarizetx(Txs),
@@ -598,10 +612,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
       maps:put(extdata, List3, Block2)
   end,
   Block4=maps:put(failed, Failed, Block3),
-  case ETxsl of
-    [] -> Block4;
-    _ -> maps:put(etxs,ETxsl, Block4)
-  end.
+  maps:put(etxs,ETxsl, Block4).
 
 
 %mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }=Req) ->

@@ -941,6 +941,11 @@ prettify_block(#{}=Block0, BinPacker) ->
           fun({TxID, Body}) ->
               {TxID,prettify_tx(Body, BinPacker)}
           end, TXS);
+       (etxs, TXS) ->
+        lists:map(
+          fun({TxID, Body}) ->
+              {TxID,prettify_tx(Body, BinPacker)}
+          end, TXS);
        (_, V) ->
         V
     end, Block0);
@@ -978,6 +983,11 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
          Bin=msgpack:pack(Val),
          {ok, R}=msgpack:unpack(Bin,[{spec,new},{unpack_str, as_binary}]),
          R;
+       (notify, Vals) ->
+        [ [if is_list(H) -> list_to_binary(H);
+              is_integer(H) -> H
+           end,
+           BinPacker(D)] || {H,D} <- Vals ];
        (sigverify, Fields) ->
         maps:map(
           fun(pubkeys, Val) ->

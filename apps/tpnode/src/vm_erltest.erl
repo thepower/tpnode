@@ -1,5 +1,5 @@
 -module(vm_erltest).
--export([run/2,client/2,loop/1]).
+-export([run/2,client/2,loop/1,eval/2]).
 
 run(Host, Port) ->
   spawn(?MODULE,client,[Host, Port]).
@@ -39,7 +39,8 @@ handle_res(Seq, Payload, State) ->
 handle_req(Seq, #{null:="exec",
                   "gas":=Gas,
                   "ledger":=Ledger,
-                  "tx":=BTx}, State) ->
+                  "tx":=BTx}=Req, State) ->
+  %io:format("Req ~p",[Req]),
   T1=erlang:system_time(),
   Tx=tx:unpack(BTx),
   Code=case maps:get(kind, Tx) of
@@ -49,15 +50,29 @@ handle_req(Seq, #{null:="exec",
            maps:get(<<"code">>,Ledger)
        end,
   %lager:info("Req ~b ~p",[Seq,maps:remove(body,Tx)]),
+  MapBind0=#{
+             'Gas'=>Gas,
+             'Ledger'=>Ledger,
+             'Tx'=>Tx
+            },
+  MapBind1=case maps:get("mean_time",Req,undefined) of
+            Int when is_integer(Int) ->
+               maps:put('MeanTime',Int, MapBind0);
+             _ ->
+               MapBind0
+           end,
+
+  MapBind2=case maps:get("entropy",Req,undefined) of
+            Bin when is_binary(Bin) ->
+               maps:put('Entropy',Bin, MapBind1);
+             _ ->
+               maps:put('Entropy',<<>>, MapBind1)
+           end,
+
   Bindings=maps:fold(
              fun erl_eval:add_binding/3,
              erl_eval:new_bindings(),
-             #{
-               'Gas'=>Gas,
-               'Ledger'=>Ledger,
-               'Tx'=>Tx
-              }
-            ),
+             MapBind2),
   try
   T2=erlang:system_time(),
   Ret=eval(Code, Bindings),
@@ -70,7 +85,7 @@ handle_req(Seq, #{null:="exec",
                              null => "exec",
                              "gas" => NewGas,
                              "ret" => RetVal,
-                             "state" => NewState,
+                             "state" => msgpack:pack(NewState),
                              "txs" => NewTxs,
                              "dt"=>[T2-T1,T3-T2,T4-T3]
                             },State);
@@ -87,9 +102,9 @@ handle_req(Seq, #{null:="exec",
   end
   catch Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
-          lager:error("Error ~p:~p", [Ec, Ee]),
+          io:format("Error ~p:~p~n", [Ec, Ee]),
           lists:foreach(fun(SE) ->
-                            lager:error("@ ~p", [SE])
+                            io:format("@ ~p~n", [SE])
                         end, S),
 
           tpnode_vmproto:reply(Seq,

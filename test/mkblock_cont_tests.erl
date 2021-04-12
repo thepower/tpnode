@@ -112,6 +112,8 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun, Workers) ->
                               };
                             ({endless, _Address, _Cur}) ->
                              false;
+                            (entropy) -> crypto:hash(sha256,<<1,2,3>>);
+                            (mean_time) -> 1617974752;
                             ({valid_timestamp, TS}) ->
                              abs(os:system_time(millisecond)-TS)<3600000
                              orelse
@@ -408,6 +410,7 @@ extcontract_baddeploy1_test() ->
 %          end,
 %  extcontract_template(OurChain, TxList, Ledger, TestFun, 1).
 
+
 xchain_test_callingblock() ->
   Chain1=1,
   Chain2=20,
@@ -435,7 +438,7 @@ xchain_test_callingblock() ->
           seq=>2,
           t=>os:system_time(millisecond)
          }), Pvt1),
-  TX5=tx:sign(
+  TX6=tx:sign(
         tx:construct_tx(#{
           ver=>2,
           kind=>generic,
@@ -453,7 +456,7 @@ xchain_test_callingblock() ->
 
   TxList=[
            {<<"4testexec">>, maps:put(sigverify,#{valid=>1},TX4)},
-           {<<"5willfail">>, maps:put(sigverify,#{valid=>1},TX5)}
+           {<<"6willfail">>, maps:put(sigverify,#{valid=>1},TX6)}
           ],
   Ledger=[
           {Addr2,
@@ -595,6 +598,63 @@ xchain_test() ->
          ],
   TxL=[
        {<<"inward">>, xchain_test_callingblock()},
+       {<<"1testdeploy">>, maps:put(sigverify,#{valid=>1},TX1)}
+      ],
+  extcontract_template(Chain1, TxL, Ledger1, TestFun, 1).
+
+
+contract_ntfy_test() ->
+  Chain1=1,
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr1=naddress:construct_public(1, Chain1, 1),
+  {ok, Code}=file:read_file("./examples/testcontract.ec"),
+  TX1=tx:sign(
+        tx:construct_tx(#{
+          ver=>2,
+          kind=>deploy,
+          from=>Addr1,
+          seq=>2,
+          t=>os:system_time(millisecond),
+          payload=>[
+                    #{purpose=>gas, amount=>10, cur=><<"FTT">>}
+                   ],
+          call=>#{function=>"init",args=>[1024]},
+          txext=>#{ "code"=> Code,
+                    "vm" => "erltest"
+                  }
+         }), Pvt1),
+  TX2=tx:sign(
+        tx:construct_tx(#{
+          ver=>2,
+          kind=>generic,
+          from=>Addr1,
+          to=>Addr1,
+          cur=><<"FTT">>,
+          call=>#{function=>"notify",args=>[256]},
+          payload=>[
+                    #{purpose=>gas, amount=>100, cur=><<"FTT">>},
+                    #{purpose=>srcfee, amount=>1, cur=><<"FTT">>}
+                   ],
+          seq=>2,
+          t=>os:system_time(millisecond)
+         }), Pvt1),
+
+
+
+  TestFun=fun(#{block:=Block,
+                failed:=Failed}) ->
+              io:format("Emit ~p~n",[maps:get(etxs,Block)]),
+              io:format("Block  ~p~n",[Block]),
+              io:format("Failed ~p~n",[Failed])
+          end,
+  Ledger1=[
+          {Addr1,
+           #{amount => #{ <<"FTT">> => 10, <<"SK">> => 3, <<"TST">> => 26 }}
+          }
+         ],
+  TxL=[
+       {<<"2ntfy">>, maps:put(sigverify,#{valid=>1},TX2)},
        {<<"1testdeploy">>, maps:put(sigverify,#{valid=>1},TX1)}
       ],
   extcontract_template(Chain1, TxL, Ledger1, TestFun, 1).

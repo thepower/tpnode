@@ -508,7 +508,7 @@ try_process([{TxID, #{
                {GCur, GL div GRate, GRate}
            end,
       {St1,GasLeft}=if A4 ->
-                         case erlang:apply(VM, deploy, [Tx, Bal, IGas, GetFun]) of
+                         case erlang:apply(VM, deploy, [Tx, mbal:msgpack_state(Bal), IGas, GetFun]) of
                            {ok, #{null:="exec",
                                   "err":=Err}} ->
                              try
@@ -526,7 +526,7 @@ try_process([{TxID, #{
                              throw(other_error)
                          end;
                        A6 ->
-                         case erlang:apply(VM, deploy, [Owner, Bal, Code, State0, 1, GetFun]) of
+                         case erlang:apply(VM, deploy, [Owner, mbal:msgpack_state(Bal), Code, State0, 1, GetFun]) of
                            {ok, NewS} ->
                              {NewS, Left(0)};
                            {error, Error} ->
@@ -578,6 +578,7 @@ try_process([{TxID, #{
                       Acc#{failed=>[{TxID, X}|Failed]});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
+          io:format("DEPLOY ERROR ~p:~p~n",[Ec,Ee]),
           lager:info("Contract deploy failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
@@ -1238,41 +1239,48 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit) ->
                  smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun)
             end,
       {L1, lists:map(
-             fun(#{seq:=Seq}=ETx) ->
-                 H=base64:encode(crypto:hash(sha, mbal:get(state, TBal0))),
-                 BSeq=bin2hex:dbin2hex(<<Seq:64/big>>),
-                 EA=(naddress:encode(Address)),
+             fun(ETxBody) ->
+                 #{from:=TxFrom,seq:=Seq}=ETx=tx:unpack_naked(ETxBody),
+                 if(TxFrom=/=Address) ->
+                     throw('emit_wrong_from');
+                   true ->
+                     ok
+                 end,
+                 H=base64:encode(crypto:hash(sha, ETxBody)),
+                 BinId=binary:encode_unsigned(Seq),
+                 BSeq=hex:encode(<<(size(BinId)):8,BinId/binary>>),
+                 EA=hex:encode(Address),
                  TxID= <<EA/binary, BSeq/binary, H/binary>>,
                  {TxID,
                   tx:set_ext( <<"contract_issued">>, Address, ETx)
                  }
              end, TXs), GasLeft}
-  end;
-
-deposit(Address, TBal,
-    #{cur:=Cur, amount:=Amount}=Tx,
-    GetFun, _Settings, GasLimit) ->
-  NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
-  NewT=maps:remove(keep,
-           mbal:put_cur( Cur, NewTAmount, TBal)
-          ),
-  case mbal:get(vm, NewT) of
-    undefined ->
-      {NewT, [], GasLimit};
-    VMType ->
-      lager:info("Smartcontract ~p", [VMType]),
-      {L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
-      {L1, lists:map(
-          fun(#{seq:=Seq}=ETx) ->
-              H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
-              BSeq=bin2hex:dbin2hex(<<Seq:64/big>>),
-              EA=(naddress:encode(Address)),
-              TxID= <<EA/binary, BSeq/binary, H/binary>>,
-              {TxID,
-               tx:set_ext( <<"contract_issued">>, Address, ETx)
-              }
-          end, TXs), Gas}
   end.
+
+%deposit(Address, TBal,
+%    #{cur:=Cur, amount:=Amount}=Tx,
+%    GetFun, _Settings, GasLimit) ->
+%  NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
+%  NewT=maps:remove(keep,
+%           mbal:put_cur( Cur, NewTAmount, TBal)
+%          ),
+%  case mbal:get(vm, NewT) of
+%    undefined ->
+%      {NewT, [], GasLimit};
+%    VMType ->
+%      lager:info("Smartcontract ~p", [VMType]),
+%      {L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
+%      {L1, lists:map(
+%          fun(#{seq:=Seq}=ETx) ->
+%              H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
+%              BSeq=bin2hex:dbin2hex(<<Seq:64/big>>),
+%              EA=(naddress:encode(Address)),
+%              TxID= <<EA/binary, BSeq/binary, H/binary>>,
+%              {TxID,
+%               tx:set_ext( <<"contract_issued">>, Address, ETx)
+%              }
+%          end, TXs), Gas}
+%  end.
 
 
 withdraw(FBal0,

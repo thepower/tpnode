@@ -185,7 +185,7 @@ run_generate(
                                       {mean_time, MeanTime}
                                      ]
                                     ),
-    #{block:=Block, failed:=Failed, emit:=EmitTXs}=GB,
+    #{block:=Block, failed:=Failed}=GB,
     lager:info("NewS block ~p",[maps:get(bals,Block)]),
     T2=erlang:system_time(),
 
@@ -233,10 +233,9 @@ run_generate(
       _ -> ok
     end,
     %Block signature for each other
-    lager:debug("MB My sign ~p emit ~p",
+    lager:debug("MB My sign ~p",
                 [
-                 maps:get(sign, SignedBlock),
-                 length(EmitTXs)
+                 maps:get(sign, SignedBlock)
                 ]),
     HBlk=msgpack:pack(
            #{null=><<"blockvote">>,
@@ -247,17 +246,7 @@ run_generate(
             }
           ),
     tpic2:cast(<<"blockvote">>, HBlk),
-    if EmitTXs==[] -> ok;
-       true ->
-         Push=gen_server:call(txpool, {push_etx, EmitTXs}),
-         stout:log(push_etx,
-                   [
-                    {node_name,NodeName},
-                    {txs, EmitTXs},
-                    {res, Push}
-                   ]),
-         lager:info("Inject TXs ~p", [Push])
-    end,
+
     done
   catch throw:empty ->
           lager:info("Skip empty block"),

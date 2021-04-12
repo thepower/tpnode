@@ -6,26 +6,34 @@
 info() ->
 	{<<"erltest">>, <<"Erlang VM for unit testing">>}.
 
-deploy(Tx, Ledger, GasLimit, _GetFun) ->
-  %State0=bal:get(state, Ledger),
+deploy(Tx, Ledger, GasLimit, GetFun) ->
+  Entropy=GetFun(entropy),
+  MeanTime=GetFun(mean_time),
+  XtraFields=#{ "mean_time" => MeanTime,
+                "entropy" => Entropy },
   vm:run(fun(VMPid) ->
              VMPid ! {run, 
                       tx:pack(Tx),
                       Ledger,
                       GasLimit,
                       self(),
-                      #{}
+                      XtraFields
                      }
          end, "erltest", 1, []).
 
-handle_tx(Tx, Ledger, GasLimit, _GetFun) ->
+handle_tx(Tx, Ledger, GasLimit, GetFun) ->
+  Entropy=GetFun(entropy),
+  MeanTime=GetFun(mean_time),
+  XtraFields=#{ "mean_time" => MeanTime,
+                "entropy" => Entropy },
+
   vm:run(fun(VMPid) ->
              VMPid ! {run, 
                       tx:pack(Tx),
                       Ledger,
                       GasLimit,
                       self(),
-                      #{}
+                      XtraFields
                      }
          end, "erltest", 1, []).
   %{ok, unchanged, GasLimit}.
