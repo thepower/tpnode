@@ -163,11 +163,17 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
                    TxBody;
 
                  _ ->
-                   {ok, Tx1} = tx:verify(TxBody, [{maxsize, txpool:get_max_tx_size()}]),
-                   tx:set_ext(origin, Origin, Tx1)
+                   case tx:verify(TxBody, [{maxsize, txpool:get_max_tx_size()}]) of
+                     bad_sig ->
+                       throw('bad_sig');
+                     {ok, Tx1} ->
+                       tx:set_ext(origin, Origin, Tx1)
+                   end
                end
              catch
                throw:no_transaction ->
+                 null;
+               throw:bad_sig ->
                  null;
                _Ec:_Ee:S ->
                  %S=erlang:get_stacktrace(),

@@ -82,6 +82,20 @@ handle_cast({tpic, FromPubKey, Peer, PayloadBin}, State) ->
       {noreply, State}
   end;
 
+handle_cast({store_etxs, Txs}, State) ->
+  S1=lists:foldl(
+    fun({TxID, TxBin},A) ->
+        case new_tx(TxID, TxBin, A) of
+          {ok, S1} ->
+            lager:info("Store Injected tx ~p",[TxID]),
+            S1;
+          Any ->
+            lager:error("Can't add tx: ~p",[Any]),
+            State
+        end
+    end, State, Txs),
+  {noreply, S1};
+
 handle_cast(_Msg, State) ->
   lager:notice("Unknown cast ~p", [_Msg]),
   {noreply, State}.

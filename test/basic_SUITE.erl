@@ -34,7 +34,8 @@ all() ->
         discovery_unregister_by_pid_test,
         discovery_ssl_test,
         transaction_test,
-        register_wallet_test
+        register_wallet_test,
+        smartcontract_test
         %instant_sync_test
     ].
 
@@ -558,6 +559,13 @@ wait_for_dumpers(Pids, StatesAcc) ->
   end.
 % -----------------------------------------------------------------------------
 
+smartcontract_test(_Config) ->
+  WalletAddr=application:get_env(tptest,endless_addr),
+  WalletKey=application:get_env(tptest,endless_addr_pk),
+  ?assertMatch(true, is_binary(WalletAddr)),
+  ?assertMatch(true, is_binary(WalletKey)),
+  ok.
+
 transaction_test(_Config) ->
     % register new wallets
     Wallet = new_wallet(),
@@ -655,6 +663,8 @@ transaction_test(_Config) ->
 
     LSData = api_get_wallet(Wallet),
     logger("wallet [lstore]: ~p ~n", [LSData]),
+    application:set_env(tptest,endless_addr,EndlessAddress),
+    application:set_env(tptest,endless_addr_pk,get_wallet_priv_key()),
 
     dump_testnet_state().
 

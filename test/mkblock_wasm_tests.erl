@@ -218,8 +218,8 @@ extcontract_test() ->
                     emit:=Emit,
                     failed:=Failed}) ->
                   ?assertMatch([{<<"5willfail">>,insufficient_gas}],Failed),
-                  io:format("Block ~p~n",[Block]),
-                  io:format("Failed ~p~n",[Failed]),
+%                  io:format("Block ~p~n",[Block]),
+                  %io:format("Failed ~p~n",[Failed]),
                   Success=proplists:get_keys(maps:get(txs, Block)),
                   NewCallerLedger=maps:get(amount,
                                            maps:get(

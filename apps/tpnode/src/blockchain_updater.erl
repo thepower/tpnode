@@ -316,7 +316,6 @@ handle_call({new_block, #{hash:=BlockHash,
                               })
                             }),
                   gen_server:cast(blockchain_reader,update),
-
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
@@ -431,6 +430,26 @@ handle_call({new_block, #{hash:=BlockHash,
                              {ledger_hash_actual, LHash}
                             ]),
 
+
+                  case maps:get(etxs, Blk, []) of
+                    [] -> ok;
+                    EmitTXs when is_list(EmitTXs) ->
+                      EmitBTXs=[ {TxID, tx:pack(
+                                          tx:sign(
+                                            Tx,
+                                            %tx:set_ext( origin, BlockHash, Tx),
+                                            nodekey:get_priv()),[withext])
+                                         } || {TxID, Tx} <- EmitTXs ],
+                      lager:info("Inject TXs ~p", [EmitTXs]),
+                      Push=gen_server:call(txpool, {push_etx, EmitBTXs}),
+                      lager:info("Inject TXs res ~p", [EmitBTXs]),
+                      stout:log(push_etx,
+                                [
+                                 %{node_name,NodeName},
+                                 {txs, EmitTXs},
+                                 {res, Push}
+                                ])
+                  end,
 
                   maps:fold(
                     fun(ChainID, OutBlock, _) ->

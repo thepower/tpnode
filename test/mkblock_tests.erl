@@ -575,10 +575,10 @@ mkblock_tx2_self_test() ->
                                            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>),
            ?assertMatch({true, {_, _}}, block:verify(SignedBlock)),
            #{bals:=NewBals}=Block,
-           lists:foreach(
-             fun({K,#{amount:=V}}) ->
-                 io:format("Bal ~p: ~p~n", [K,V])
-             end, maps:to_list(NewBals)),
+           %lists:foreach(
+           %  fun({K,#{amount:=V}}) ->
+           %      io:format("Bal ~p: ~p~n", [K,V])
+           %  end, maps:to_list(NewBals)),
            FinalBals=#{
              naddress:construct_public(1, OurChain, 3) =>
              #{<<"FTT">> => 119,<<"SK">> => 1,<<"TST">> => 26},
@@ -589,6 +589,8 @@ mkblock_tx2_self_test() ->
             },
            maps:fold(
              fun(Addr, Bal, Acc) ->
+                 io:format("Addr ~p~n   expected ~p~n    actual ~p~n",
+                           [Addr,Bal,maps:get(amount,maps:get(Addr,NewBals))]),
                  [?assertMatch(#{Addr := #{amount:=Bal}}, maps:with([Addr],NewBals))|Acc]
              end, [], FinalBals)
        end,

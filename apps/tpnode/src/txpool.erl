@@ -90,8 +90,8 @@ handle_call({portout, #{
     end;
 
 handle_call({push_etx, [{_, _}|_]=Lst}, _From, State) ->
-  gen_server:cast(txstorage, {store, Lst, [], #{push_head_queue => true}}),
-  {reply, ok, State};
+  gen_server:cast(txstorage, {store_etxs, Lst}),
+  {reply, push, State};
 
 handle_call({new_tx, Tx}, _From, State) when is_map(Tx) ->
   handle_call({new_tx, tx:pack(Tx)}, _From, State);
