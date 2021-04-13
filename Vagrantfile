@@ -53,8 +53,8 @@ Vagrant.configure("2") do |config|
     wget https://raw.githubusercontent.com/kerl/kerl/master/kerl -O kerl -o /dev/null
     chmod +x kerl
     ./kerl update releases
-    KERL_CONFIGURE_OPTIONS=--enable-sctp=lib ./kerl build 20.2 r20.2
-    sudo ./kerl install r20.2 /opt/erl
+    KERL_CONFIGURE_OPTIONS=--enable-sctp=lib ./kerl build 22.3 r22.3
+    sudo ./kerl install r22.3 /opt/erl
     ./kerl cleanup all
     . /opt/erl/activate
     echo ". /opt/erl/activate" >> /home/vagrant/.bash_profile
