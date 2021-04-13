@@ -621,9 +621,14 @@ smartcontract_test(_Config) ->
             }),Priv)),
 
   #{<<"txid">>:=TxID3} = api_post_transaction(DJTx),
-  {ok, Status3, _} = api_get_tx_status(TxID3),
+  {ok, #{<<"block">>:=Blkid3}=Status3, _} = api_get_tx_status(TxID3),
   ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
 
+  Block3=tpapi:get_fullblock(Blkid3,get_base_url()),
+
+  io:format("Block3 ~p~n",[Block3]),
+  ?assertMatch(#{etxs:=[{<<"8001400004",_/binary>>,#{not_before:=_}}]},Block3),
+%  ?assertMatch(crashme,Status3),
   ok.
 
 transaction_test(_Config) ->
