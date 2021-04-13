@@ -1255,32 +1255,32 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit) ->
                   tx:set_ext( <<"contract_issued">>, Address, ETx)
                  }
              end, TXs), GasLeft}
-  end.
+  end;
 
-%deposit(Address, TBal,
-%    #{cur:=Cur, amount:=Amount}=Tx,
-%    GetFun, _Settings, GasLimit) ->
-%  NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
-%  NewT=maps:remove(keep,
-%           mbal:put_cur( Cur, NewTAmount, TBal)
-%          ),
-%  case mbal:get(vm, NewT) of
-%    undefined ->
-%      {NewT, [], GasLimit};
-%    VMType ->
-%      lager:info("Smartcontract ~p", [VMType]),
-%      {L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
-%      {L1, lists:map(
-%          fun(#{seq:=Seq}=ETx) ->
-%              H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
-%              BSeq=bin2hex:dbin2hex(<<Seq:64/big>>),
-%              EA=(naddress:encode(Address)),
-%              TxID= <<EA/binary, BSeq/binary, H/binary>>,
-%              {TxID,
-%               tx:set_ext( <<"contract_issued">>, Address, ETx)
-%              }
-%          end, TXs), Gas}
-%  end.
+deposit(Address, TBal,
+    #{cur:=Cur, amount:=Amount}=Tx,
+    GetFun, _Settings, GasLimit) ->
+  NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
+  NewT=maps:remove(keep,
+           mbal:put_cur( Cur, NewTAmount, TBal)
+          ),
+  case mbal:get(vm, NewT) of
+    undefined ->
+      {NewT, [], GasLimit};
+    VMType ->
+      lager:info("Smartcontract ~p", [VMType]),
+      {L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
+      {L1, lists:map(
+          fun(#{seq:=Seq}=ETx) ->
+              H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
+              BSeq=bin2hex:dbin2hex(<<Seq:64/big>>),
+              EA=(naddress:encode(Address)),
+              TxID= <<EA/binary, BSeq/binary, H/binary>>,
+              {TxID,
+               tx:set_ext( <<"contract_issued">>, Address, ETx)
+              }
+          end, TXs), Gas}
+  end.
 
 
 withdraw(FBal0,

@@ -560,10 +560,70 @@ wait_for_dumpers(Pids, StatesAcc) ->
 % -----------------------------------------------------------------------------
 
 smartcontract_test(_Config) ->
-  WalletAddr=application:get_env(tptest,endless_addr),
-  WalletKey=application:get_env(tptest,endless_addr_pk),
-  ?assertMatch(true, is_binary(WalletAddr)),
-  ?assertMatch(true, is_binary(WalletKey)),
+  {ok,Addr}=application:get_env(tptest,endless_addr),
+  {ok,Priv}=application:get_env(tptest,endless_addr_pk),
+  ?assertMatch(true, is_binary(Addr)),
+  ?assertMatch(true, is_binary(Priv)),
+
+  %spawn erltest VMs
+  _Pids=[ vm_erltest:run("127.0.0.1",P) || P<- [29841,29842,29843] ],
+  timer:sleep(1000),
+
+  %{ok, Code}=file:read_file("../examples/testcontract_emit.ec"),
+  Code=zlib:uncompress(base64:decode("eJzNVmGL20YQ/a5fMcgckZL1WXZyoaiSIBRcStoQYlMKhzB70tinnryraldnG+P77Z2VLEvxtZc0SSEGI2l35s2bN6NZXVzA8PkQ1E5ovvUBy5yLlVmyrEz6S1muuXbs9yXeYwrLUq5BJQ/Cdll/+zfkAnS2RsgUPBS0z67N2pyWYjLdyzs201zjAUJYq1XBkzu/EubirHmh/BVqJwhsZWzsKGLwK6YrLFkQjCc/RJFLGNaHSoTLSlgATopFLnfMzkSmKdQvdPmd5zGDxXzrwuYWBRFZZEIjgTjHbReGETkDGDZgl6iqnLxhsA8CL4ogjCAIjrb+61ejm2wVRQcGP3PF4Do+/Pg48uIY8TOAvTPI4fgxKG4LFCq7x69E9uj3CH1xjqlvS7lxnmFZyvKZW5uuUGCZJSa9hHR9QtO+nkEw6ziEvXoSxabsVD5jOBuHM+8FubJPJjUbP6HXiWaK/xvN4ZfS7Et/Itqr7HdHtyPc8RVSZ8vdiexgb958P5wenub8DjfzbTjY32MZRhN2l4k0jBosZhDCaNqQpO4LI6+9V/hX76ngu1xycryO26UGglb29q3WhT8ajb3LydXx/8obaVR6hCItJNGyaWzYRT2xGKwxpavNzEv9cnLMPa5xDw38u/kfnbw3Mt0xvfUTKZQuq0Qv9Nap03Jbub2nivHv6s+80yyhiGd6p5jz3Z/y5tso3sJ+JLmW3e1J7b7yJPLiBmmko6HrtPMb0uweTJu48AJeH227Gg32RVUWUiGFNcnxtawEBbhqGiupiBeVYzqf20b4xj3heR5GlGMlEp1JEUanjuPlShHs1XgSH76PKnVlejRC/+PkG3/53LOouekMfGvqe4pjqs2A+DBrsDfCgR/CG9aqap6mh87cqG7MTcjamiLSO3Yyp0dqxCU3tA7mxL3oHfHNgdwe7jXmJtO3stLONdU3kWl9cPcO8Zg1Pm788cfCfPvPKHVRVbaKGWV05vMTUYcH5TwUbu05ZW/OLEiqFpZuzWaf/fssbXcV5kunxrcuzipB5AVuFt1XSH+gX1ofUIX0EeK8rWWfMpK6Eb/PI2mZUgvV/8INj5HNkKKO1SVPNKtBKA1GqIYMXS4t629FotGN")),
+
+  DeployTx=tx:pack(
+             tx:sign(
+             tx:construct_tx(
+               #{ver=>2,
+                 kind=>deploy,
+                 from=>Addr,
+                 seq=>os:system_time(millisecond),
+                 t=>os:system_time(millisecond),
+                 payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+                 call=>#{function=>"init",args=>[1024]},
+                 txext=>#{ "code"=> Code,"vm" => "erltest"}}
+              ),Priv)),
+
+  #{<<"txid">>:=TxID1} = api_post_transaction(DeployTx),
+  {ok, Status1, _} = api_get_tx_status(TxID1),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status1),
+
+  GenTx=tx:pack(
+          tx:sign(
+          tx:construct_tx(
+            #{ver=>2,
+              kind=>generic,
+              to=>Addr,
+              from=>Addr,
+              seq=>os:system_time(millisecond),
+              t=>os:system_time(millisecond),
+              payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+              call=>#{function=>"notify",args=>[1024]}
+             }
+           ),Priv)),
+
+  #{<<"txid">>:=TxID2} = api_post_transaction(GenTx),
+  {ok, Status2, _} = api_get_tx_status(TxID2),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
+
+  DJTx=tx:pack(
+         tx:sign(
+         tx:construct_tx(
+           #{ver=>2,
+             kind=>generic,
+             to=>Addr,
+             from=>Addr,
+             seq=>os:system_time(millisecond),
+             t=>os:system_time(millisecond),
+             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+             call=>#{function=>"delayjob",args=>[1024]}
+            }),Priv)),
+
+  #{<<"txid">>:=TxID3} = api_post_transaction(DJTx),
+  {ok, Status3, _} = api_get_tx_status(TxID3),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
+
   ok.
 
 transaction_test(_Config) ->
@@ -663,6 +723,7 @@ transaction_test(_Config) ->
 
     LSData = api_get_wallet(Wallet),
     logger("wallet [lstore]: ~p ~n", [LSData]),
+
     application:set_env(tptest,endless_addr,EndlessAddress),
     application:set_env(tptest,endless_addr_pk,get_wallet_priv_key()),
 
