@@ -635,14 +635,10 @@ smartcontract_test(_Config) ->
 check_blocks_test(_Config) ->
   lists:map(
     fun(Node) ->
-        RF=rpc:call(Node, erlang, whereis, [blockchain_reader]),
+        RF=rpc:call(get_node(list_to_binary(Node)), erlang, whereis, [blockchain_reader]),
         R=test_blocks_verify(RF, last,0),
         io:format("Node ~p block verify ok, verified blocks ~p~n",[RF,R])
-    end, [
-          get_node(<<"test_c4n1">>),
-          get_node(<<"test_c4n2">>),
-          get_node(<<"test_c4n1">>)
-         ]),
+    end, ?TESTNET_NODES),
   ok.
 
 test_blocks_verify(_, <<0,0,0,0,0,0,0,0>>, C) ->
