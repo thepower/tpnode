@@ -721,6 +721,20 @@ h(<<"GET">>, [<<"settings">>], _Req) ->
     #{jsx=>[ strict, {error_handler, EHF} ]}
    );
 
+h(<<"GET">>, [<<"settings_all">>], _Req) ->
+  Settings=chainsettings:by_path([]),
+  EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+          Conf1=jsx_config:list_to_config(Conf),
+          jsx_parser:resume([{Type, base64:encode(Str)}|Tokens],
+                            State, Handler, Stack, Conf1)
+      end,
+  answer(
+    #{ result => <<"ok">>,
+       settings => Settings
+     },
+    #{jsx=>[ strict, {error_handler, EHF} ]}
+   );
+
 h(<<"POST">>, [<<"register">>], Req) ->
   {_RemoteIP, _Port}=cowboy_req:peer(Req),
   Body=apixiom:bodyjs(Req),

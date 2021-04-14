@@ -148,7 +148,7 @@ unpack(Block) when is_binary(Block) ->
          balroot, ledger_hash, height, parent, txroot, tx_proof,
          amount, lastblk, seq, t, child, setroot, tmp, ver,
          inbound_blocks, chain, extdata, roots, failed,
-         mean_time, entropy],
+         mean_time, entropy, etxroot],
   case msgpack:unpack(Block, [{known_atoms, Atoms}]) of
     {ok, DMP} ->
       ConvertFun=fun (header, #{roots:=RootsList}=Header) ->
@@ -304,7 +304,9 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         BalsBin=bals2bin(Bals),
         BalsMT=gb_merkle_trees:from_list(BalsBin),
         NewHash=gb_merkle_trees:root_hash(BalsMT),
-        if (NewHash =/= Hash) -> lager:notice("bal root mismatch");
+        if (NewHash =/= Hash) ->
+             io:format("bal root mismatch~n"),
+             lager:notice("bal root mismatch");
           true -> ok
         end,
         %io:format("BR1 ~p~n",[Hash]),
@@ -315,7 +317,9 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         BSettings=binarize_settings(Settings),
         SettingsMT=gb_merkle_trees:from_list(BSettings),
         NewHash=gb_merkle_trees:root_hash(SettingsMT),
-        if (NewHash =/= Hash) -> lager:notice("set root mismatch");
+        if (NewHash =/= Hash) ->
+             io:format("set root mismatch~n"),
+             lager:notice("set root mismatch");
            true -> ok
         end,
         {setroot, NewHash};
@@ -324,7 +328,9 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         BTxs=binarizetx(Txs),
         TxMT=gb_merkle_trees:from_list(BTxs),
         NewHash=gb_merkle_trees:root_hash(TxMT),
-        if (NewHash =/= Hash) -> lager:notice("etxs root mismatch");
+        if (NewHash =/= Hash) ->
+             io:format("etxs root mismatch~n"),
+             lager:notice("etxs root mismatch");
           true -> ok
         end,
         {etxroot, NewHash};
@@ -333,7 +339,9 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         BTxs=binarizetx(Txs),
         TxMT=gb_merkle_trees:from_list(BTxs),
         NewHash=gb_merkle_trees:root_hash(TxMT),
-        if (NewHash =/= Hash) -> lager:notice("txs root mismatch");
+        if (NewHash =/= Hash) ->
+             io:format("txs root mismatch~n"),
+             lager:notice("txs root mismatch");
           true -> ok
         end,
         {txroot, NewHash};
@@ -345,7 +353,9 @@ verify(#{ header:=#{parent:=Parent, %blkv2
                      FailMT=gb_merkle_trees:from_list(binarizefail(Fail)),
                      gb_merkle_trees:root_hash(FailMT)
                  end,
-        if (NewHash =/= Hash) -> lager:notice("failed root mismatch");
+        if (NewHash =/= Hash) ->
+             io:format("failed root mismatch~n"),
+             lager:notice("failed root mismatch");
            true -> ok
         end,
         {failed, NewHash};

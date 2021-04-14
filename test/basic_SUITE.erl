@@ -35,7 +35,9 @@ all() ->
         discovery_ssl_test,
         transaction_test,
         register_wallet_test,
-        smartcontract_test
+        smartcontract_test,
+        check_blocks_test
+%        ,crashme_test
         %instant_sync_test
     ].
 
@@ -628,8 +630,47 @@ smartcontract_test(_Config) ->
 
   io:format("Block3 ~p~n",[Block3]),
   ?assertMatch(#{etxs:=[{<<"8001400004",_/binary>>,#{not_before:=_}}]},Block3),
-%  ?assertMatch(crashme,Status3),
   ok.
+
+check_blocks_test(_Config) ->
+  lists:map(
+    fun(Node) ->
+        RF=rpc:call(Node, erlang, whereis, [blockchain_reader]),
+        R=test_blocks_verify(RF, last,0),
+        io:format("Node ~p block verify ok, verified blocks ~p~n",[RF,R])
+    end, [
+          get_node(<<"test_c4n1">>),
+          get_node(<<"test_c4n2">>),
+          get_node(<<"test_c4n1">>)
+         ]),
+  ok.
+
+test_blocks_verify(_, <<0,0,0,0,0,0,0,0>>, C) ->
+  C;
+
+test_blocks_verify(Reader, Pos, C) ->
+ Blk=gen_server:call(Reader,{get_block,Pos}),
+ if(is_map(Blk)) ->
+     ok;
+   true ->
+     throw({noblock,Pos})
+ end,
+ {true,_}=block:verify(Blk),
+ case block:verify(block:unpack(block:pack(Blk))) of
+   false ->
+     io:format("bad block ~p (depth ~w)~n",[Pos,C]),
+     throw('BB');
+   {true,_} -> 
+     case Blk of
+       #{header:=#{parent:=PBlk}} ->
+         test_blocks_verify(Reader, PBlk, C+1);
+       _ ->
+         C+1
+     end
+ end.
+
+crashme_test(_Config) ->
+  ?assertMatch(crashme,ok).
 
 transaction_test(_Config) ->
     % register new wallets

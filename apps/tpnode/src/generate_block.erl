@@ -50,6 +50,49 @@ deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings) ->
            Addresses), TXL2}
   end.
 
+process_delayed_txs(_GetFun, #{emit:=[]}=Acc) ->
+  Acc;
+
+process_delayed_txs(_GetFun, #{emit:=Emit, settings:=Settings, parent:=P, height:=H}=Acc) ->
+  {NewEmit,ToSet}=lists:foldl(
+                    fun({TxID,#{not_before:=DT}=Tx},{AccEm,AccTos}) ->
+                        {
+                         [{TxID, tx:set_ext(<<"auto">>,0,Tx)}|AccEm],
+                         [{TxID,DT}|AccTos]
+                        };
+                       ({TxID,#{kind:=notify}=Tx},{AccEm,AccTos}) ->
+                        {
+                         [{TxID, tx:set_ext(<<"auto">>,0,Tx)}|AccEm],
+                         AccTos
+                        };
+                       ({TxID,Tx},{AccEm,AccTos}) ->
+                        {
+                         [{TxID, tx:set_ext(<<"auto">>,1,Tx)}|AccEm],
+                         AccTos
+                        }
+                    end, {[],[]}, Emit),
+
+  %settings:patch(settings:get_patches(#{<<"current">>=>#{<<"delaytx">>=>#{1234=>[<<"a">>,<<"b">>]}}}),#{<<"current">> =>#{<<"delaytx">> => #{1234 => [<<"x">>,<<"f">>]}}}).
+
+  case length(ToSet) of
+    0 ->
+      Acc#{
+        emit=>NewEmit
+       };
+    _ ->
+      Patches=[#{<<"p">> => [<<"current">>,<<"delaytx">>,Timestamp],
+                 <<"t">> => <<"list_add">>,<<"v">> => [H,P,TxID]} || {TxID, Timestamp} <- ToSet ],
+      SyncPatch={<<"delayjob">>, #{sig=>[], patch=>Patches}},
+
+      lager:info("Emit ~p~n",[NewEmit]),
+      lager:info("Patches ~p~n",[Patches]),
+
+      Acc#{
+        emit=>NewEmit,
+        settings=>[SyncPatch|Settings]
+       }
+  end.
+
 -spec try_process([{_,_}], map(), map(), fun(), mkblock_acc()) -> mkblock_acc().
 try_process([], Settings, Addresses, GetFun,
       #{fee:=FeeBal, tip:=TipBal, emit:=Emit}=Acc) ->
@@ -84,21 +127,24 @@ try_process([], Settings, Addresses, GetFun,
        true ->
          lager:info("NewEmit ~p", [NewEmit])
     end,
-    Acc#{
-      table=>Addresses2,
-      emit=>Emit ++ NewEmit,
-      new_settings => Settings
-    }
+    process_delayed_txs(GetFun,
+                        Acc#{
+                          table=>Addresses2,
+                          emit=>Emit ++ NewEmit,
+                          new_settings => Settings
+                         })
   catch _Ec:_Ee:S ->
           %S=erlang:get_stacktrace(),
         lager:error("Can't save fees: ~p:~p", [_Ec, _Ee]),
         lists:foreach(fun(E) ->
                   lager:info("Can't save fee at ~p", [E])
               end, S),
-        Acc#{
-          table=>Addresses,
-          new_settings => Settings
-        }
+        process_delayed_txs(GetFun,
+                            Acc#{
+                              table=>Addresses,
+                              new_settings => Settings
+                             }
+                           )
   end;
 
 %process inbound block
