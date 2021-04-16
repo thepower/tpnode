@@ -6,6 +6,7 @@
 -export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1]).
 -export([construct_tx/1,construct_tx/2, get_payload/2, get_payloads/2]).
 -export([unpack_naked/1]).
+-export([complete_tx/2]).
 -export([hashdiff/1,upgrade/1]).
 
 -include("apps/tpnode/include/tx_const.hrl").
@@ -743,6 +744,13 @@ pack(#{ ver:=2,
 
 pack(Any, _) ->
   tx1:pack(Any).
+
+
+complete_tx(BinTx,Comp) ->
+  {ok, #{"k":=IKind}=Tx0} = msgpack:unpack(BinTx, [{unpack_str, as_list}] ),
+  {Ver, Kind}=decode_kind(IKind),
+  B=maps:merge(Comp, Tx0),
+  construct_tx(unpack_body(#{ver=>Ver, kind=>Kind},B)).
 
 unpack_naked(BB) when is_binary(BB) ->
   unpack_body( #{ ver=>2, sig=>[], body=>BB }).

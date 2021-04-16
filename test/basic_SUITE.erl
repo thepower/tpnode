@@ -572,7 +572,7 @@ smartcontract_test(_Config) ->
   timer:sleep(1000),
 
   %{ok, Code}=file:read_file("../examples/testcontract_emit.ec"),
-  Code=zlib:uncompress(base64:decode("eJzNVmGL20YQ/a5fMcgckZL1WXZyoaiSIBRcStoQYlMKhzB70tinnryraldnG+P77Z2VLEvxtZc0SSEGI2l35s2bN6NZXVzA8PkQ1E5ovvUBy5yLlVmyrEz6S1muuXbs9yXeYwrLUq5BJQ/Cdll/+zfkAnS2RsgUPBS0z67N2pyWYjLdyzs201zjAUJYq1XBkzu/EubirHmh/BVqJwhsZWzsKGLwK6YrLFkQjCc/RJFLGNaHSoTLSlgATopFLnfMzkSmKdQvdPmd5zGDxXzrwuYWBRFZZEIjgTjHbReGETkDGDZgl6iqnLxhsA8CL4ogjCAIjrb+61ejm2wVRQcGP3PF4Do+/Pg48uIY8TOAvTPI4fgxKG4LFCq7x69E9uj3CH1xjqlvS7lxnmFZyvKZW5uuUGCZJSa9hHR9QtO+nkEw6ziEvXoSxabsVD5jOBuHM+8FubJPJjUbP6HXiWaK/xvN4ZfS7Et/Itqr7HdHtyPc8RVSZ8vdiexgb958P5wenub8DjfzbTjY32MZRhN2l4k0jBosZhDCaNqQpO4LI6+9V/hX76ngu1xycryO26UGglb29q3WhT8ajb3LydXx/8obaVR6hCItJNGyaWzYRT2xGKwxpavNzEv9cnLMPa5xDw38u/kfnbw3Mt0xvfUTKZQuq0Qv9Nap03Jbub2nivHv6s+80yyhiGd6p5jz3Z/y5tso3sJ+JLmW3e1J7b7yJPLiBmmko6HrtPMb0uweTJu48AJeH227Gg32RVUWUiGFNcnxtawEBbhqGiupiBeVYzqf20b4xj3heR5GlGMlEp1JEUanjuPlShHs1XgSH76PKnVlejRC/+PkG3/53LOouekMfGvqe4pjqs2A+DBrsDfCgR/CG9aqap6mh87cqG7MTcjamiLSO3Yyp0dqxCU3tA7mxL3oHfHNgdwe7jXmJtO3stLONdU3kWl9cPcO8Zg1Pm788cfCfPvPKHVRVbaKGWV05vMTUYcH5TwUbu05ZW/OLEiqFpZuzWaf/fssbXcV5kunxrcuzipB5AVuFt1XSH+gX1ofUIX0EeK8rWWfMpK6Eb/PI2mZUgvV/8INj5HNkKKO1SVPNKtBKA1GqIYMXS4t629FotGN")),
+  Code=zlib:uncompress(base64:decode("eJzNVm1v2zYQ/q5fQcgIKq10LMmW7WiSgGKAh6FbUdTGUCAQDFqiHS0yqUpUbMNwfvuOerFUZ83WdAUamOGJPD738O5I3tUV6v/UR/mBCbJ3EM0SwjZySFFi7qx5tiVCU99n9IFGaJ3xLcrDR6bquDv9ByUMiXhLUZyjxxTm8a0cW8BQAKpHfo/nggh6Qh7a5puUhPdOwWSnbUmaOxsqNNdVc6mj+j5Gv9NoQzPsuqY19X0dMJQPBfPWBVMQ0iKaJvyA1ZjFAkz9Bt2fJAkwWi72OtrdUQZEljETFEC0elpHfR8WIyTZIDWjeZHAatQ7uq7h+8jzkevWus54NFjFG98/YfQryTG6DU4/P7W8rC3+B2DjArJvPgWl+5SyPH6g34hswN8T9OUlprjL+E57RbOMZ6/0UnVDGc3iUG4vBL8+49OuP1133nLwOvEEilXYIXxScW56c+M1LMX/uqm5+Yy/zjQj+t1o9l9Ks+v6M9FOZH84ui3hli/jIl4fzmR7R3nyHW92ep7zO7pb7L3e8YFmnm/h+5hFnl9hYYng+bOKJGSf5xuNnNNPna+UHBJOYOFt0AxVEDByVO+ESJ3BwDSuLbtuI2MgaC4GlEUpB1oqXBtqWt5YGG1pBL2K5aEeWvXegxL3VMG/W3xs3bvi0QGLvRNylousCMVS7LVyW3rjbuO5YHzZ+3PjfJeAxQt/r0j0UpcDe4isOTSwOTaxaUywNQTRAhE+zSk2Rza0MbbMCR7ClDGC4XHdLGxP8Wgif/YQj24wKMJ/kO2JlKVglwIojKSybeLRtPlNAG5YW5Jwsr+BZtRjYOoGxi08qfkY06qB5tCqlWvFcsoAiuDS7+fpiCbk8Bdf/T+53cB+ltyCt+I5r7s5DqFerig8nlTS1ZqXEkXxA5IHUkev0bjWbU9D75gWWcpzCmbl5siWFwwM2NURDgvgBYk/WyxUmeLV8pAkiefDHgsWipgzzz+fbZJtcoC1TSs4/RjnoQ3Tk8fqK98Y8+UvjALXCFQbb2V8z3ZktDECPljpHaXjkOOhN7jxqvyanVp16XWpLk2W2mARbrOzOnxCIq6JpHWStc1Vp5iqSp+mjCoxd7G444XQbiG+IY/KEqlTLgW4WqMHn5dli/0/o5RBzeNNgGFHF2t+AeroMdceU71cOcNvLjTAVQ0siHKyy/59HDWzOU3WWomvXF1EAsgzulu29V736bxWPtDcg3JPe1u6fYbB1ZXzuzzChimkUNlS3asty+cAMlZkJBS4BIFtYECVZKC7VpS/AfaqJn8=")),
 
   DeployTx=tx:pack(
              tx:sign(
@@ -625,6 +625,24 @@ smartcontract_test(_Config) ->
   #{<<"txid">>:=TxID3} = api_post_transaction(DJTx),
   {ok, #{<<"block">>:=Blkid3}=Status3, _} = api_get_tx_status(TxID3),
   ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
+
+
+  BadResp=tx:pack(
+         tx:sign(
+         tx:construct_tx(
+           #{ver=>2,
+             kind=>generic,
+             to=>Addr,
+             from=>Addr,
+             seq=>os:system_time(millisecond),
+             t=>os:system_time(millisecond),
+             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+             call=>#{function=>"badnotify",args=>[1024]}
+            }),Priv)),
+
+  #{<<"txid">>:=TxID4} = api_post_transaction(BadResp),
+  {ok, Status4, _} = api_get_tx_status(TxID4),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status4),
 
   Block3=tpapi:get_fullblock(Blkid3,get_base_url()),
 

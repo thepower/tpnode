@@ -1286,7 +1286,15 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit) ->
             end,
       {L1, lists:map(
              fun(ETxBody) ->
-                 #{from:=TxFrom,seq:=Seq}=ETx=tx:unpack_naked(ETxBody),
+                 Template=#{
+                  "f"=>Address,
+                  "s"=>0,
+                  "t"=>0,
+                  "p"=>[],
+                  "k"=>tx:encode_kind(2,generic),
+                  "ev"=>[]},
+                 #{from:=TxFrom,seq:=Seq}=ETx=tx:complete_tx(ETxBody,Template),
+
                  if(TxFrom=/=Address) ->
                      throw('emit_wrong_from');
                    true ->
