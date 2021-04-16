@@ -59,9 +59,13 @@
   {git,"https://github.com/thepower/tpapi",
        {ref,"1abfb2f783d84f50ca52daf1a28798c2ba7f0a75"}},
   0},
+ {<<"tpecdsa">>,
+  {git,"https://github.com/thepower/tpecdsa",
+       {ref,"1a6823399a5282a762184f2dafe1a884771da337"}},
+  0},
  {<<"wanode">>,
-  {git,"https://github.com/thepower/wanode.git",
-       {ref,"9c12f4865ad9dfef48c94c5203de9e55e95d5eaf"}},
+  {git,"git@github.com:thepower/wanode.git",
+       {ref,"515216bc90b4fd9142f28f16018533be84c19bc1"}},
   0}]}.
 [
 {pkg_hash,[
