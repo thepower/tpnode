@@ -7,7 +7,7 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/1]).
--export([get_tx/1, get_tx/2]).
+-export([get_tx/1, get_tx/2, get_unpacked/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -215,8 +215,28 @@ new_tx(TxID, TxBody, #{my_ttl:=TTL, ets_name:=Table} = State) ->
 
 store_tx(TxID, TxBody, FromPeer, #{ets_ttl_sec:=TTL, ets_name:=Table} = State) ->
   ValidUntil = os:system_time(second) + TTL,
-  ets:insert(Table, {TxID, TxBody, FromPeer, [], ValidUntil}),
+  case ets:lookup(Table, TxID) of
+    [] ->
+      ets:insert(Table, {TxID, TxBody, FromPeer, [], ValidUntil});
+    [{TxID, Tx, me, Nodes, _ValidUntil1}] ->
+      ets:insert(Table, {TxID, Tx, me, Nodes, ValidUntil});
+    [{TxID, _Tx, _Origin, _Nodes, _ValidUntil1}] ->
+      ets:insert(Table, {TxID, TxBody, FromPeer, [], ValidUntil})
+  end,
   {ok, State}.
+
+get_unpacked(TxID) ->
+  case ets:lookup(txstorage, TxID) of
+    [{TxID, Tx, Origin, _Nodes, _ValidUntil}] ->
+      UTX=if(Origin==me) ->
+          tx:unpack(Tx,[trusted]);
+        true ->
+          tx:unpack(Tx)
+      end,
+      {TxID, UTX};
+    [] ->
+      error
+  end.
 
 get_tx(TxID) ->
   get_tx(TxID, txstorage).

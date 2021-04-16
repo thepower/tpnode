@@ -1381,6 +1381,7 @@ withdraw(FBal0,
     end,
     CurFSeq=mbal:get(seq, FBal0),
     if CurFSeq < Seq -> ok;
+       Seq==0 andalso IsContract -> ok;
        true ->
          %==== DEBUG CODE
          L=try
@@ -1512,7 +1513,7 @@ withdraw(FBal0,
 withdraw(FBal,
      #{cur:=Cur, seq:=Seq, timestamp:=Timestamp, amount:=Amount, from:=From}=Tx,
      GetFun, Settings, _Opts) ->
-  lager:notice("Deprecated withdraw"),
+  lager:error("Deprecated withdraw"),
   if Amount >= 0 ->
        ok;
      true ->

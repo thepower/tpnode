@@ -161,21 +161,24 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
 
                    %do nothing with inbound block
                    TxBody;
-
                  _ ->
                    case tx:verify(TxBody, [{maxsize, txpool:get_max_tx_size()}]) of
                      bad_sig ->
                        throw('bad_sig');
                      {ok, Tx1} ->
+                       lager:info("TX ok ~p",[TxID]),
                        tx:set_ext(origin, Origin, Tx1)
                    end
                end
              catch
                throw:no_transaction ->
+                 lager:info("TX absend ~p",[TxID]),
                  null;
                throw:bad_sig ->
+                 lager:info("TX bad_sig ~p",[TxID]),
                  null;
                _Ec:_Ee:S ->
+                 lager:info("TX error ~p",[TxID]),
                  %S=erlang:get_stacktrace(),
                  utils:print_error("Error", _Ec, _Ee, S),
                  file:write_file(
@@ -289,9 +292,9 @@ decode_tpic_txs(TXs) ->
       % get pre synced transaction body from txstorage
       ({TxID, null}) ->
         TxBody =
-          case tpnode_txstorage:get_tx(TxID) of
-            {ok, {TxID, Tx, _Nodes}} when is_binary(Tx) ->
-              tx:unpack(Tx);
+          case tpnode_txstorage:get_unpacked(TxID) of
+            {TxID, Tx} when is_map(Tx) ->
+              Tx;
             error ->
               lager:error("can't get body for tx ~p", [TxID]),
               null;
@@ -303,10 +306,14 @@ decode_tpic_txs(TXs) ->
       
       % unpack transaction body
       ({TxID, Tx}) when is_binary(Tx) ->
+        try
         Unpacked = tx:unpack(Tx),
 %%      lager:info("debug tx unpack: ~p", [Unpacked]),
-        {TxID, Unpacked};
-
+        {TxID, Unpacked}
+        catch Ec:Ee ->
+                lager:error("TX ~p decode error ~p:~p",[TxID,Ec,Ee]),
+                {TxID, null}
+        end;
       ({TxID, Tx}) when is_map(Tx) ->
         {TxID, Tx}
     end,

@@ -434,15 +434,27 @@ handle_call({new_block, #{hash:=BlockHash,
                   case maps:get(etxs, Blk, []) of
                     [] -> ok;
                     EmitTXs when is_list(EmitTXs) ->
-                      EmitBTXs=[ {TxID, tx:pack(
-                                          tx:sign(
-                                            Tx,
-                                            %tx:set_ext( origin, BlockHash, Tx),
-                                            nodekey:get_priv()),[withext])
-                                         } || {TxID, Tx} <- EmitTXs ],
+                      EmitBTXs=lists:filtermap(
+                                 fun({_,#{extdata:=#{<<"auto">>:=0}}}) ->
+                                     false;
+                                    ({TxID,Tx}) ->
+                                     {true,{TxID,
+                                            tx:pack(
+                                              tx:sign(
+                                                tx:set_ext(origin_height,Hei,
+                                                           tx:set_ext(origin_block,BlockHash,
+                                                                      Tx
+                                                                     )
+                                                          ),
+                                                nodekey:get_priv()),
+                                              [withext])
+                                           }}
+                                 end, EmitTXs),
+                      IDs=[ TxID || {TxID, _} <- EmitTXs ],
                       lager:info("Inject TXs ~p", [EmitTXs]),
-                      Push=gen_server:call(txpool, {push_etx, EmitBTXs}),
+                      Push=gen_server:cast(txstorage, {store_etxs, EmitBTXs}),
                       lager:info("Inject TXs res ~p", [EmitBTXs]),
+                      gen_server:cast(txqueue,{push_head, [ {TxID, null} || TxID <- IDs]}),
                       stout:log(push_etx,
                                 [
                                  %{node_name,NodeName},
