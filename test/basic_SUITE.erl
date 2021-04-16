@@ -572,7 +572,7 @@ smartcontract_test(_Config) ->
   timer:sleep(1000),
 
   %{ok, Code}=file:read_file("../examples/testcontract_emit.ec"),
-  Code=zlib:uncompress(base64:decode("eJzNVm1v2zYQ/q5fQcgIKq10LMmW7WiSgGKAh6FbUdTGUCAQDFqiHS0yqUpUbMNwfvuOerFUZ83WdAUamOGJPD738O5I3tUV6v/UR/mBCbJ3EM0SwjZySFFi7qx5tiVCU99n9IFGaJ3xLcrDR6bquDv9ByUMiXhLUZyjxxTm8a0cW8BQAKpHfo/nggh6Qh7a5puUhPdOwWSnbUmaOxsqNNdVc6mj+j5Gv9NoQzPsuqY19X0dMJQPBfPWBVMQ0iKaJvyA1ZjFAkz9Bt2fJAkwWi72OtrdUQZEljETFEC0elpHfR8WIyTZIDWjeZHAatQ7uq7h+8jzkevWus54NFjFG98/YfQryTG6DU4/P7W8rC3+B2DjArJvPgWl+5SyPH6g34hswN8T9OUlprjL+E57RbOMZ6/0UnVDGc3iUG4vBL8+49OuP1133nLwOvEEilXYIXxScW56c+M1LMX/uqm5+Yy/zjQj+t1o9l9Ks+v6M9FOZH84ui3hli/jIl4fzmR7R3nyHW92ep7zO7pb7L3e8YFmnm/h+5hFnl9hYYng+bOKJGSf5xuNnNNPna+UHBJOYOFt0AxVEDByVO+ESJ3BwDSuLbtuI2MgaC4GlEUpB1oqXBtqWt5YGG1pBL2K5aEeWvXegxL3VMG/W3xs3bvi0QGLvRNylousCMVS7LVyW3rjbuO5YHzZ+3PjfJeAxQt/r0j0UpcDe4isOTSwOTaxaUywNQTRAhE+zSk2Rza0MbbMCR7ClDGC4XHdLGxP8Wgif/YQj24wKMJ/kO2JlKVglwIojKSybeLRtPlNAG5YW5Jwsr+BZtRjYOoGxi08qfkY06qB5tCqlWvFcsoAiuDS7+fpiCbk8Bdf/T+53cB+ltyCt+I5r7s5DqFerig8nlTS1ZqXEkXxA5IHUkev0bjWbU9D75gWWcpzCmbl5siWFwwM2NURDgvgBYk/WyxUmeLV8pAkiefDHgsWipgzzz+fbZJtcoC1TSs4/RjnoQ3Tk8fqK98Y8+UvjALXCFQbb2V8z3ZktDECPljpHaXjkOOhN7jxqvyanVp16XWpLk2W2mARbrOzOnxCIq6JpHWStc1Vp5iqSp+mjCoxd7G444XQbiG+IY/KEqlTLgW4WqMHn5dli/0/o5RBzeNNgGFHF2t+AeroMdceU71cOcNvLjTAVQ0siHKyy/59HDWzOU3WWomvXF1EAsgzulu29V736bxWPtDcg3JPe1u6fYbB1ZXzuzzChimkUNlS3asty+cAMlZkJBS4BIFtYECVZKC7VpS/AfaqJn8=")),
+  Code=zlib:uncompress(base64:decode("eJzlVn+PozYQ/Z9PYRGtDu6cDZCQZCkgnSqlqq49nS5RVWmFIgecLF1ic2A2iaLsZ78xPwKXbbfttqee1FW8Nvb4zfObAc/VFeq/7qP8wATZO4hmCWEbOaUoMXfWPNsSoakfMvpAI7TO+Bbl4SNTddxd/pkShkS8pSjO0WMK6/hWzi1gKgDTI7/Hc0EEPSEPbfNNSsJ7p2Cy07YkzZ0NFZrrqrm0UX0fo59otKEZdl3Tmvq+DhjKx4J564IpCGkRTRN+wGrMYgGufoTuF5IEGC0Xex3t7igDIsuYCQogWr2so74PmxGSbJCa0bxIYDfqHV3X8H3k+ch1a1tnPBqs4o3vnzD6geQY3Qan7556XtYe/wKwcQHZN5+C0n1KWR4/0H+IbMDfE/TlJaa4y/hOe0WzjGev9NJ0QxnN4lAeLwRdn9G0q6frzlsOXieeQLEKO4RPGs5Nb268ga34Tw81N5/R60wzol+NZv+lNLvSn4l2IvvN0W0Jt3wZF/H6cCbbO8o33/Fmp+c5v6e7xd7rHR9o5vkWvo9Z5PkVFpYInj+rSEL2eb7RjHP6qfOUkkPCCWy8DZqpCgJmjuqdEKkzGJjGtWXXbWQMBM3FgLIo5UBLhc+GmpZfLIy2NIJexfKlHlr12YMS91TBv1/82sq74tEBi70TcpaLrAjFUuy18lh6I7fxXDD+WP25cf6WgMcLvVckeqnkwB4iaw4NbI5NbBoTbA1haMEQHs0pNkc2tDG2zAkewpIxgulx3SxsT/FoIn/2EI9uMBjCfxjbEzmWA7scgMFIGtsmHk2b3wTghrUnCSf7G2hGPQeubmDewpOajzGtGlgOrdq4NiyXDKAIkn49pem2vDL+hbxuIL9IbMHb4Tmnu/ndZnfvmBZZynMKUJIs2fKCwSa7eiXDAnxBIs8WC1WmbLU9JEni+cC7YKGIOfP887tKsk0OsLZpBadvLb8jmpDDb3z1XyoPOi1XFEoWKulqTX2CovgByc+gjt6g8f8wSm2YnpQIf/NmN19+ryvw8YYa752M79mPjDZGwAcrvaMUDjkeeosbVeXT7NSaS9WluXRZWoNHuEPO5vAIibgmktZJVpRXnRK2Kjib4rXE3MXijhdCu4X4hjwqC9NOkRrgao8efFkML/a/j1IGNY83AYYTXez5Hqijx1x7TPVy5wy/vbAAqRpYGMrFLvsPcdSs5jRZayW+cnURCSDP6G7ZVtndguVa+UhzD4ps7V0p+wyD1JX4XR5hwxRSqGyp7tWe5SUMGSsyEgpcgsAxMKBKMtBdK8pnhrKVtQ==")),
 
   DeployTx=tx:pack(
              tx:sign(
@@ -626,6 +626,22 @@ smartcontract_test(_Config) ->
   {ok, #{<<"block">>:=Blkid3}=Status3, _} = api_get_tx_status(TxID3),
   ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
 
+  Emit=tx:pack(
+         tx:sign(
+         tx:construct_tx(
+           #{ver=>2,
+             kind=>generic,
+             to=>Addr,
+             from=>Addr,
+             seq=>os:system_time(millisecond),
+             t=>os:system_time(millisecond),
+             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+             call=>#{function=>"emit",args=>[1024]}
+            }),Priv)),
+
+  #{<<"txid">>:=TxID4} = api_post_transaction(Emit),
+  {ok, Status4, _} = api_get_tx_status(TxID4),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status4),
 
   BadResp=tx:pack(
          tx:sign(
@@ -640,9 +656,9 @@ smartcontract_test(_Config) ->
              call=>#{function=>"badnotify",args=>[1024]}
             }),Priv)),
 
-  #{<<"txid">>:=TxID4} = api_post_transaction(BadResp),
-  {ok, Status4, _} = api_get_tx_status(TxID4),
-  ?assertMatch(#{<<"res">> := <<"ok">>}, Status4),
+  #{<<"txid">>:=TxID5} = api_post_transaction(BadResp),
+  {ok, Status5, _} = api_get_tx_status(TxID5),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status5),
 
   Block3=tpapi:get_fullblock(Blkid3,get_base_url()),
 

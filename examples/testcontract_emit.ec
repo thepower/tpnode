@@ -39,6 +39,17 @@ Run=fun
     NTX= <<130,161,107,23,162,101,118,145,146,217,33,104,116,116,112,58,47,47,53,49,46,49,53,57,46,53,55,46,57,54,58,51,48,48,48,47,103,101,116,111,119,110,101,114,196,12,72,101,108,108,111,32,119,111,114,108,100,33>>,
     S0=maps:get(<<0>>,State),
     {ok, "result", #{<<0>> => S0}, Gas, [NTX]};
+ (generic,"emit",[Val], #{from:=F}) when is_integer(Val) ->
+    NewTx=#{ver=>2,kind=>generic,from=>F,
+    to=>F,
+    t=>0,
+    seq=>0,
+    payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+    call=>#{function=>"notify",args=>[512]}
+    },
+    NTX=maps:get(body,tx:construct_tx(NewTx)),
+    S0=maps:get(<<0>>,State),
+    {ok, "result", #{<<0>> => S0}, Gas, [NTX]};
  (generic,"delayjob",[Val], #{from:=F}) when is_integer(Val) ->
     NewTx=#{ver=>2,kind=>generic,from=>F,
     to=>F,

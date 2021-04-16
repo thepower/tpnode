@@ -62,6 +62,7 @@ by_path(GetPath) ->
   end.
 
 settings_to_ets(NewSettings) ->
+  lager:debug("Settings2ets ~p",[maps:with([<<"current">>],settings:clean_meta(NewSettings))]),
   Patches=settings:get_patches(NewSettings,ets),
   Ver=erlang:system_time(),
   SetApply=lists:map(fun(#{<<"p">>:=Path,<<"t">>:=Action,<<"v">>:=Value}) ->

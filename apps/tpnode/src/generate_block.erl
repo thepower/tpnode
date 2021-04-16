@@ -1,7 +1,7 @@
 -module(generate_block).
 
 -export([generate_block/5, generate_block/6]).
--export([return_gas/4, sort_txs/1]).
+-export([return_gas/4, sort_txs/1, txfind/2]).
 
 
 -type mkblock_acc() :: #{'emit':=[{_,_}],
@@ -53,7 +53,8 @@ deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings) ->
 process_delayed_txs(_GetFun, #{emit:=[]}=Acc) ->
   Acc;
 
-process_delayed_txs(_GetFun, #{emit:=Emit, settings:=Settings, parent:=P, height:=H}=Acc) ->
+process_delayed_txs(_GetFun, #{emit:=Emit, settings:=Settings, parent:=P,
+                               height:=H, delayed:=DTX, new_settings:=NS}=Acc) ->
   {NewEmit,ToSet}=lists:foldl(
                     fun({TxID,#{not_before:=DT}=Tx},{AccEm,AccTos}) ->
                         {
@@ -71,10 +72,11 @@ process_delayed_txs(_GetFun, #{emit:=Emit, settings:=Settings, parent:=P, height
                          AccTos
                         }
                     end, {[],[]}, Emit),
-
   %settings:patch(settings:get_patches(#{<<"current">>=>#{<<"delaytx">>=>#{1234=>[<<"a">>,<<"b">>]}}}),#{<<"current">> =>#{<<"delaytx">> => #{1234 => [<<"x">>,<<"f">>]}}}).
 
-  case length(ToSet) of
+
+
+  NewDelayed=case length(ToSet) of
     0 ->
       Acc#{
         emit=>NewEmit
@@ -91,7 +93,46 @@ process_delayed_txs(_GetFun, #{emit:=Emit, settings:=Settings, parent:=P, height
         emit=>NewEmit,
         settings=>[SyncPatch|Settings]
        }
+  end,
+  ToDel=lists:foldl(
+          fun({TxID,DT},Acc1) ->
+              case settings:get([<<"current">>, <<"delaytx">>, DT], NS) of
+                L when is_list(L) ->
+                  case txfind(L,TxID) of
+                    false ->
+                      Acc1;
+                    [_,_,_]=Found ->
+                      [#{<<"p">>=>[<<"current">>,<<"delaytx">>,DT],
+                         <<"t">>=><<"list_del">>,
+                         <<"v">>=>Found}|Acc1]
+                  end;
+                _ -> Acc1
+              end
+          end, [], DTX),
+  if(ToDel==[]) ->
+      NewDelayed;
+    true ->
+      DelPatch={<<"cleanjob">>, #{sig=>[], patch=>ToDel}},
+      lager:info("Patches ~p~n",[ToDel]),
+      NewDelayed#{
+        settings=>[DelPatch|maps:get(settings,NewDelayed)]
+       }
   end.
+
+
+
+%  new_settings => Settings
+%{<<"p">>=>[<<"current">>,<<"delaytx">>,1618591958],<<"t">>=><<"list_del">>,<<"v">>=>
+
+txfind([],_TxID) ->
+  false;
+
+txfind([[_H,_P,TxID]=R|_],TxID) ->
+  R;
+
+txfind([_|Rest],TxID) ->
+  txfind(Rest,TxID).
+
 
 -spec try_process([{_,_}], map(), map(), fun(), mkblock_acc()) -> mkblock_acc().
 try_process([], Settings, Addresses, GetFun,
@@ -249,7 +290,6 @@ try_process([{BlID, #{ hash:=BHash,
                         failed=>[{BlID, unknown}|Failed]
                        })
   end;
-
 
 %process settings
 try_process([{TxID,
@@ -1760,6 +1800,12 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   _T3=erlang:system_time(),
   Entropy=proplists:get_value(entropy, Options, <<>>),
   MeanTime=proplists:get_value(mean_time, Options, 0),
+  Delayed=lists:foldl(
+            fun({TxID,#{not_before:=NBT}},Acc) ->
+                [{TxID,NBT}|Acc];
+               (_,Acc) ->
+                Acc
+            end, [], TXL),
 
   #{failed:=Failed,
     table:=NewBal0,
@@ -1773,6 +1819,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     new_settings := NewSettings
    }=try_process(TXL, XSettings, Addrs, GetSettings,
                  #{export=>[],
+                   delayed=>Delayed,
                    failed=>[],
                    success=>[],
                    settings=>[],

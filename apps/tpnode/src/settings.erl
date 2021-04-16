@@ -202,6 +202,15 @@ change(compare, [Path], Value, M, FPath) ->
            throw({'non_map', FPath})
     end;
 
+change(delete, [Path], [], M, _FPath) -> %delete if list empty
+  io:format("Del from ~p~n",[M]),
+  case M of
+    #{Path:=[]} ->
+      maps:remove(Path, M);
+    _ ->
+      M
+  end;
+
 change(delete, [Path], null, M, FPath) -> %force delete
     if is_map(M) ->
            maps:remove(Path, M);
@@ -320,7 +329,7 @@ parse_settings([H|T], Settings, Path, Patches, Mode) ->
                             <<"p">> => lists:reverse(NewPath),
                             <<"v">> => Elem}|Acc]
                      end, Patches, Item);
-                 _ when not is_map(Item), not is_list(Item) ->
+                 _ ->
                    [#{<<"t">> => <<"set">>,
                       <<"p">> => lists:reverse(NewPath),
                       <<"v">> => Item}|Patches]
