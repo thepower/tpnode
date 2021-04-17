@@ -3,6 +3,7 @@
 -export([generate_block/5, generate_block/6]).
 -export([return_gas/4, sort_txs/1, txfind/2]).
 
+-define(MAX(A,B), if A>B -> A; true -> B end).
 
 -type mkblock_acc() :: #{'emit':=[{_,_}],
                          'export':=list(),
@@ -1523,7 +1524,7 @@ withdraw(FBal0,
 
     FBal1=maps:remove(keep,
                       mbal:mput(
-                        Seq,
+                        ?MAX(Seq,CurFSeq),
                         Timestamp,
                         FBal0,
                         if IsContract ->
