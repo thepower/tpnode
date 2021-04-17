@@ -181,7 +181,7 @@ construct_tx(#{
     "f"=>F,
     "t"=>Timestamp,
     "s"=>Seq,
-    "p"=>A1,
+    "p"=>{array,A1},
     "e"=>Ext
    },
   Tx#{
@@ -213,7 +213,7 @@ construct_tx(#{
     "f"=>F,
     "t"=>Timestamp,
     "s"=>Seq,
-    "p"=>A1,
+    "p"=>{array,A1},
     "pa"=>EP,
     "e"=>Ext
    },
@@ -245,7 +245,7 @@ construct_tx(#{
     "f"=>F,
     "t"=>Timestamp,
     "s"=>Seq,
-    "p"=>A1,
+    "p"=>{array,A1},
     "e"=>Ext
    },
   {E1,Tx1}=maps:fold(fun prepare_extra_args/3, {E0, Tx}, Tx),
@@ -279,7 +279,7 @@ construct_tx(#{
     "to"=>To,
     "t"=>Timestamp,
     "s"=>Seq,
-    "p"=>A1,
+    "p"=>{array,A1},
     "e"=>Ext
    },
 
