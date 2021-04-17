@@ -30,7 +30,7 @@ getaddr([E|Rest], GetFun, Fallback) ->
       getaddr(Rest, GetFun, Fallback)
   end.
 
-deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings) ->
+deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings, GAcc) ->
   TBal=maps:get(Addr, Addresses, mbal:new()),
   {TBal2, TXL2}=maps:fold(
                   fun(Cur, Summ, {Acc, TxAcc}) ->
@@ -38,7 +38,7 @@ deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings) ->
                                                 #{cur=>Cur,
                                                   amount=>Summ,
                                                   to=>Addr},
-                                                GetFun, Settings, free),
+                                                GetFun, Settings, free, GAcc),
                       {NewT, TxAcc ++ NewTXL}
                   end,
                   {TBal, TXL},
@@ -169,7 +169,7 @@ try_process([], Settings, Addresses, GetFun,
                                          naddress:construct_private(0, 0)
                                      end,
                                 lager:debug("fee ~s ~p to ~p", [CType, CBal, Addr]),
-                                deposit_fee(CBal, Addr, FAcc, TXL, GetFun, Settings)
+                                deposit_fee(CBal, Addr, FAcc, TXL, GetFun, Settings,Acc)
                             end,
                             {Addresses, []},
                             [ {tip, TipBal}, {fee, FeeBal} ]
@@ -980,7 +980,7 @@ try_process_inbound([{TxID,
         end,
 
     lager:info("Orig Block ~p", [OriginBlock]),
-    {NewT, NewEmit, GasLeft}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings, Gas),
+    {NewT, NewEmit, GasLeft}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings, Gas, Acc),
     Addresses2=maps:put(To, NewT, Addresses),
 
     NewAddresses=case GasLeft of
@@ -1203,7 +1203,8 @@ try_process_local([{TxID,
     {NewF, GasF, GotFee, Gas}=withdraw(OrigF, Tx, GetFun, RealSettings, []),
     try
       Addresses1=maps:put(From, NewF, Addresses),
-      {NewT, NewEmit, GasLeft}=deposit(To, maps:get(To, Addresses1), Tx, GetFun, RealSettings, Gas),
+      {NewT, NewEmit, GasLeft}=deposit(To, maps:get(To, Addresses1), Tx, GetFun, 
+                                       RealSettings, Gas, Acc),
       lager:info("Local gas ~p -> ~p f ~p t ~p",[Gas, GasLeft, From, To]),
       Addresses2=maps:put(To, NewT, Addresses1),
 
@@ -1296,7 +1297,7 @@ gas_plus_int({Cur,Amount, Rate}, Int, true) ->
 is_gas_left({_,Amount,_Rate}) ->
   Amount>0.
 
-deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit) ->
+deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit, #{height:=Hei,parent:=Parent}=_Acc) ->
   NewT=maps:remove(keep,
                    lists:foldl(
                      fun(#{amount:=Amount, cur:= Cur}, TBal) ->
@@ -1342,15 +1343,15 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit) ->
                             "t"=>0,
                             "p"=>[],
                             "ev"=>[]},
-                 #{from:=TxFrom,seq:=Seq}=ETx=tx:complete_tx(ETxBody,Template),
+                 #{from:=TxFrom,seq:=_Seq}=ETx=tx:complete_tx(ETxBody,Template),
 
                  if(TxFrom=/=Address) ->
                      throw('emit_wrong_from');
                    true ->
                      ok
                  end,
-                 H=base64:encode(crypto:hash(sha, ETxBody)),
-                 BinId=binary:encode_unsigned(Seq),
+                 H=base64:encode(crypto:hash(sha, [Parent,ETxBody])),
+                 BinId=binary:encode_unsigned(Hei),
                  BSeq=hex:encode(<<(size(BinId)):8,BinId/binary>>),
                  EA=hex:encode(Address),
                  TxID= <<EA/binary, BSeq/binary, H/binary>>,
@@ -1362,7 +1363,7 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit) ->
 
 deposit(Address, TBal,
         #{cur:=Cur, amount:=Amount}=Tx,
-        GetFun, _Settings, GasLimit) ->
+        GetFun, _Settings, GasLimit, _Acc) ->
   NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
   NewT=maps:remove(keep,
                    mbal:put_cur( Cur, NewTAmount, TBal)
