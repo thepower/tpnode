@@ -22,24 +22,25 @@ map2binary(Map) when is_map(Map) ->
           V1 when is_map(V1) ->
             map2binary(V1);
           V2 ->
-            utils:make_binary(V2)
+            make_binary(V2)
         end,
-      KeyBin = utils:make_binary(CurrentKey),
+      KeyBin = make_binary(CurrentKey),
       <<(size(KeyBin)):64/big, KeyBin/binary, (size(Value)):64/big, Value/binary>>
     end,
   Map1 = [Converter(K, Map) || K <- Keys],
   binary:list_to_bin(Map1).
-  
-  
 
+make_binary(Arg) when is_integer(Arg) ->
+  integer_to_binary(Arg, 10);
 
+make_binary(Arg) when is_binary(Arg) ->
+  Arg;
 
+make_binary(Arg) when is_list(Arg) ->
+  list_to_binary([make_binary(E) || E <- Arg ]);
 
+make_binary(Arg) when is_atom(Arg) ->
+  atom_to_binary(Arg, utf8);
 
-
-  
-
-
-
-
-
+make_binary(_Arg) ->
+  throw(badarg).
