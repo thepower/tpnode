@@ -88,7 +88,7 @@ process_delayed_txs(_GetFun, #{emit:=[]}=Acc) ->
 
 process_delayed_txs(_GetFun, #{emit:=Emit, settings:=Settings, parent:=P,
                                height:=H}=Acc) ->
-  leger:info("process_delayed_txs"),
+  lager:info("process_delayed_txs"),
   {NewEmit,ToSet}=lists:foldl(
                     fun({TxID,#{not_before:=DT}=Tx},{AccEm,AccTos}) ->
                         {
