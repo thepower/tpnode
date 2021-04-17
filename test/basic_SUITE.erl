@@ -37,7 +37,7 @@ all() ->
         register_wallet_test,
         smartcontract_test,
         check_blocks_test
-%        ,crashme_test
+        %,crashme_test
         %instant_sync_test
     ].
 

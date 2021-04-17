@@ -7,7 +7,7 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/1]).
--export([get_tx/1, get_tx/2, get_unpacked/1]).
+-export([get_tx/1, get_tx/2, get_unpacked/1, exists/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -54,7 +54,7 @@ handle_call(get_table_name, _From, #{ets_name:=EtsName} = State) ->
   {reply, EtsName, State};
 
 handle_call({new_tx, TxID, TxBin}, _From, State) ->
-  case new_tx(TxID, TxBin, State) of
+  case new_tx(TxID, TxBin, sync, State) of
     {ok, S1} ->
       {reply, ok, S1};
     Any ->
@@ -85,7 +85,7 @@ handle_cast({tpic, FromPubKey, Peer, PayloadBin}, State) ->
 handle_cast({store_etxs, Txs}, State) ->
   S1=lists:foldl(
     fun({TxID, TxBin},A) ->
-        case new_tx(TxID, TxBin, A) of
+        case new_tx(TxID, TxBin, nosync, A) of
           {ok, S1} ->
             lager:info("Store Injected tx ~p",[TxID]),
             S1;
@@ -200,7 +200,13 @@ refresh_tx(TxID, #{ets_ttl_sec:=TTL, ets_name:=Table} = State) ->
       not_found
   end.
 
-new_tx(TxID, TxBody, #{my_ttl:=TTL, ets_name:=Table} = State) ->
+new_tx(TxID, TxBody, nosync, #{my_ttl:=TTL, ets_name:=Table} = State) ->
+  ValidUntil = os:system_time(second) + TTL,
+  ets:insert(Table, {TxID, TxBody, me, [], ValidUntil}),
+  {ok, State};
+
+
+new_tx(TxID, TxBody, sync, #{my_ttl:=TTL, ets_name:=Table} = State) ->
   ValidUntil = os:system_time(second) + TTL,
   ets:insert(Table, {TxID, TxBody, me, [], ValidUntil}),
   MS=chainsettings:by_path([<<"current">>,chain,minsig]),
@@ -240,6 +246,19 @@ get_unpacked(TxID) ->
 
 get_tx(TxID) ->
   get_tx(TxID, txstorage).
+
+exists(TxID) ->
+  case ets:lookup(txstorage, TxID) of
+    [{TxID, _Tx, _Origin, _Nodes, ValidUntil1}] ->
+      Now=os:system_time(second),
+      if(ValidUntil1 > Now+10) ->
+          true;
+        true ->
+          expiring
+      end;
+    [] ->
+      false
+  end.
 
 get_tx(TxID, Table) ->
   case ets:lookup(Table, TxID) of
