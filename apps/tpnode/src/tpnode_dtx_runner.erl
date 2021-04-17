@@ -1,6 +1,6 @@
 -module(tpnode_dtx_runner).
 
--export([prepare/0,ready4run/0,run/0]).
+-export([ready2prepare/0,prepare/0,ready4run/0,run/0]).
 
 run() ->
   case whereis(dtx_runner) of
@@ -16,15 +16,47 @@ run() ->
 
 
 prepare() ->
+  ET=ready2prepare(),
+  EmitBTXs=[{TxID, tx:pack(Tx,[withext])} || {TxID,Tx} <- ET ],
+  Push=gen_server:cast(txstorage, {store_etxs, EmitBTXs}),
+  {Push, ET}.
+
+cast_ready() ->
+  IDs = ready4run(),
+  [ gen_server:cast(txqueue, {push_tx, TxID}) || TxID <- IDs ].
+
+ready4run() ->
+  Now=os:system_time(second),
   Timestamps=[ Ready || Ready <- lists:sort(
                                    maps:keys(
                                      chainsettings:by_path([<<"current">>,<<"delaytx">>])
                                     )
                                   ),
                         is_integer(Ready),
-                        Ready<os:system_time(second)+60
+                        Ready<Now
              ],
-  ET=lists:foldl(
+  IDs=lists:foldl(
+    fun(Timestamp, Acc) ->
+        Txs=chainsettings:by_path([<<"current">>,<<"delaytx">>,Timestamp]),
+        lists:foldl(
+          fun([_BH, _BP, TxID], Acc1) ->
+              [TxID|Acc1]
+          end, Acc, Txs)
+    end, [], Timestamps),
+  IDs.
+
+
+ready2prepare() ->
+  MinFuture = os:system_time(second)+60,
+  Timestamps=[ Ready || Ready <- lists:sort(
+                                   maps:keys(
+                                     chainsettings:by_path([<<"current">>,<<"delaytx">>])
+                                    )
+                                  ),
+                        is_integer(Ready),
+                        Ready<MinFuture
+             ],
+  lists:foldl(
     fun(Timestamp, Acc) ->
         Txs=chainsettings:by_path([<<"current">>,<<"delaytx">>,Timestamp]),
         lists:foldl(
@@ -52,33 +84,5 @@ prepare() ->
                   end
               end
           end, Acc, Txs)
-    end, [], Timestamps),
-
-  EmitBTXs=[{TxID, tx:pack(Tx,[withext])} || {TxID,Tx} <- ET ],
-  Push=gen_server:cast(txstorage, {store_etxs, EmitBTXs}),
-  {Push, ET}.
-
-cast_ready() ->
-  IDs = ready4run(),
-  [ gen_server:cast(txqueue, {push_tx, TxID}) || TxID <- IDs ].
-
-ready4run() ->
-  Timestamps=[ Ready || Ready <- lists:sort(
-                                   maps:keys(
-                                     chainsettings:by_path([<<"current">>,<<"delaytx">>])
-                                    )
-                                  ),
-                        is_integer(Ready),
-                        Ready<os:system_time(second)
-             ],
-  IDs=lists:foldl(
-    fun(Timestamp, Acc) ->
-        Txs=chainsettings:by_path([<<"current">>,<<"delaytx">>,Timestamp]),
-        lists:foldl(
-          fun([_BH, _BP, TxID], Acc1) ->
-              [TxID|Acc1]
-          end, Acc, Txs)
-    end, [], Timestamps),
-  IDs.
-
+    end, [], Timestamps).
 
