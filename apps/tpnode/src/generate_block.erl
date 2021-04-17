@@ -50,11 +50,45 @@ deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings) ->
            Addresses), TXL2}
   end.
 
+finish_processing(GetFun, Acc0) ->
+	Acc1=process_delayed_txs(GetFun, Acc0),
+	Acc2=cleanup_delayed(GetFun, Acc1),
+	Acc2.
+
+cleanup_delayed(_GetFun, #{delayed:=DTX, new_settings:=NS, settings:=Sets} = Acc) ->
+  lager:info("Delayed ~p",[DTX]),
+  ToDel=lists:foldl(
+          fun({TxID,DT},Acc1) ->
+              case settings:get([<<"current">>, <<"delaytx">>, DT], NS) of
+                L when is_list(L) ->
+                  case txfind(L,TxID) of
+                    false ->
+                      Acc1;
+                    [_,_,_]=Found ->
+                      [#{<<"p">>=>[<<"current">>,<<"delaytx">>,DT],
+                         <<"t">>=><<"list_del">>,
+                         <<"v">>=>Found}|Acc1]
+                  end;
+                _ -> Acc1
+              end
+          end, [], DTX),
+  if(ToDel==[]) ->
+      Acc;
+    true ->
+      lager:info("Delayed clean ~p",[ToDel]),
+      DelPatch={<<"cleanjob">>, #{sig=>[], patch=>ToDel}},
+      lager:info("Patches ~p~n",[ToDel]),
+      Acc#{
+	settings=>[DelPatch|Sets]
+       }
+  end.
+
 process_delayed_txs(_GetFun, #{emit:=[]}=Acc) ->
   Acc;
 
 process_delayed_txs(_GetFun, #{emit:=Emit, settings:=Settings, parent:=P,
-                               height:=H, delayed:=DTX, new_settings:=NS}=Acc) ->
+                               height:=H}=Acc) ->
+  leger:info("process_delayed_txs"),
   {NewEmit,ToSet}=lists:foldl(
                     fun({TxID,#{not_before:=DT}=Tx},{AccEm,AccTos}) ->
                         {
@@ -76,7 +110,7 @@ process_delayed_txs(_GetFun, #{emit:=Emit, settings:=Settings, parent:=P,
 
 
 
-  NewDelayed=case length(ToSet) of
+  case length(ToSet) of
     0 ->
       Acc#{
         emit=>NewEmit
@@ -93,33 +127,7 @@ process_delayed_txs(_GetFun, #{emit:=Emit, settings:=Settings, parent:=P,
         emit=>NewEmit,
         settings=>[SyncPatch|Settings]
        }
-  end,
-  ToDel=lists:foldl(
-          fun({TxID,DT},Acc1) ->
-              case settings:get([<<"current">>, <<"delaytx">>, DT], NS) of
-                L when is_list(L) ->
-                  case txfind(L,TxID) of
-                    false ->
-                      Acc1;
-                    [_,_,_]=Found ->
-                      [#{<<"p">>=>[<<"current">>,<<"delaytx">>,DT],
-                         <<"t">>=><<"list_del">>,
-                         <<"v">>=>Found}|Acc1]
-                  end;
-                _ -> Acc1
-              end
-          end, [], DTX),
-  if(ToDel==[]) ->
-      NewDelayed;
-    true ->
-      DelPatch={<<"cleanjob">>, #{sig=>[], patch=>ToDel}},
-      lager:info("Patches ~p~n",[ToDel]),
-      NewDelayed#{
-        settings=>[DelPatch|maps:get(settings,NewDelayed)]
-       }
   end.
-
-
 
 %  new_settings => Settings
 %{<<"p">>=>[<<"current">>,<<"delaytx">>,1618591958],<<"t">>=><<"list_del">>,<<"v">>=>
@@ -137,6 +145,7 @@ txfind([_|Rest],TxID) ->
 -spec try_process([{_,_}], map(), map(), fun(), mkblock_acc()) -> mkblock_acc().
 try_process([], Settings, Addresses, GetFun,
       #{fee:=FeeBal, tip:=TipBal, emit:=Emit}=Acc) ->
+	lager:info("try_process finish"),
   try
     GetFeeFun=fun (Parameter) ->
               settings:get([<<"current">>, <<"fee">>, params, Parameter], Settings)
@@ -168,7 +177,7 @@ try_process([], Settings, Addresses, GetFun,
        true ->
          lager:info("NewEmit ~p", [NewEmit])
     end,
-    process_delayed_txs(GetFun,
+    finish_processing(GetFun,
                         Acc#{
                           table=>Addresses2,
                           emit=>Emit ++ NewEmit,
@@ -180,7 +189,7 @@ try_process([], Settings, Addresses, GetFun,
         lists:foreach(fun(E) ->
                   lager:info("Can't save fee at ~p", [E])
               end, S),
-        process_delayed_txs(GetFun,
+        finish_processing(GetFun,
                             Acc#{
                               table=>Addresses,
                               new_settings => Settings
