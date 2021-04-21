@@ -660,9 +660,10 @@ smartcontract_test(_Config) ->
   {ok, Status5, _} = api_get_tx_status(TxID5),
   ?assertMatch(#{<<"res">> := <<"ok">>}, Status5),
 
-  Block3=tpapi:get_fullblock(Blkid3,get_base_url()),
+  #{etxs:=[{TxID,_}|_]}=Block3=tpapi:get_fullblock(Blkid3,get_base_url()),
 
   io:format("Block3 ~p~n",[Block3]),
+  io:format("Have to wait for tx ~p~n",[TxID]),
   ?assertMatch(#{etxs:=[{<<"8001400004",_/binary>>,#{not_before:=_}}]},Block3),
   ok.
 

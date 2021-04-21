@@ -151,6 +151,25 @@ change(Action, [Element|Path], Value, M, FPath) when
       Element==<<"nodes">> ->
     change(Action, [binary_to_atom(Element, utf8)|Path], Value, M, FPath);
 
+change(lcleanup, [], <<"empty_list">>, Map, FPath) ->
+  if(is_map(Map)) ->
+      ToDel=maps:fold(
+              fun(K,[],A) ->
+                  [K|A];
+                (_,_,A) ->
+                  A
+              end, [], Map),
+      M1=maps:without(ToDel,Map),
+      case maps:is_key(<<".">>,Map) of
+        true ->
+          M1#{<<".">>=>maps:without(ToDel,maps:get(<<".">>,Map))};
+        false ->
+          M1
+      end;
+    true ->
+      throw({'non_map_of_lists',FPath})
+      end;
+
 change(add, [], Value, M, FPath) ->
     M1=if M==#{} -> [];
           is_list(M) -> M;
@@ -294,6 +313,7 @@ mp(Term) ->
 
 action(<<"list_add">>) -> add;
 action(<<"list_del">>) -> remove;
+action(<<"lists_cleanup">>) -> lcleanup;
 action(<<"set">>) -> set;
 action(<<"delete">>) -> delete;
 action(<<"compare">>) -> compare;

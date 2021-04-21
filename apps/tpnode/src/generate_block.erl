@@ -77,7 +77,10 @@ cleanup_delayed(_GetFun, #{delayed:=DTX, new_settings:=NS, settings:=Sets} = Acc
       Acc;
     true ->
       lager:info("Delayed clean ~p",[ToDel]),
-      DelPatch={<<"cleanjob">>, #{sig=>[], patch=>ToDel}},
+      Cleanup=[#{<<"p">>=>[<<"current">>,<<"delaytx">>],
+                 <<"t">>=><<"lists_cleanup">>,
+                 <<"v">>=><<"empty_list">>}],
+      DelPatch={<<"cleanjob">>, #{sig=>[], patch=>ToDel++Cleanup}},
       lager:info("Patches ~p~n",[ToDel]),
       Acc#{
         settings=>[DelPatch|Sets]
