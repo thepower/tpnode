@@ -300,7 +300,9 @@ prepare_extra_args(notify, CVal, {CE,CTx}) when is_list(CVal) ->
         fun({URL,Payload}) when 
               is_binary(Payload) andalso
               (is_list(URL) orelse is_integer(URL)) ->
-            [URL,Payload]
+            [URL,Payload];
+           (Map) when is_map(Map) ->
+            Map
         end, CVal),
   {CE#{"ev"=>Ntf},CTx};
 prepare_extra_args(notify, _CVal, {CE,CTx}) ->
@@ -379,9 +381,13 @@ unpack_call_ntf_etc("nb",Int,Decoded) when is_integer(Int),
    };
 unpack_call_ntf_etc("ev",Events,Decoded) when is_list(Events) ->
   Decoded#{
-    notify => [ {URL,Body} || [URL,Body] <- Events,
-                              is_binary(Body),
-                              is_list(URL) orelse is_integer(URL) ]
+    notify => lists:map(
+                fun([URL,Body]) when is_binary(Body),
+                                     is_list(URL) ->
+                    {URL, Body};
+                   (Map) when is_map(Map) ->
+                    Map
+                end, Events)
    };
 unpack_call_ntf_etc(_,_,Decoded) ->
   Decoded.

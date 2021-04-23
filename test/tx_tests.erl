@@ -216,7 +216,8 @@ tx2_notify_test() ->
      #{amount => 20,cur => <<"FEE">>,purpose => srcfee}],
     seq => 5,sig => #{},t => 1530106238743,
     notify => [ {"http://test.net/endpoint1", <<"binary">>},
-                {2, <<"binary for 2nd url">>}
+                #{"u"=>"http://127.0.0.1:1920/ep", "d"=><<"binary for 2nd url">>,
+                 "ct"=>"binary/octet-stream"}
               ],
     not_before => 1617366203,
     to => <<128,0,32,0,2,0,0,5>>,
@@ -233,7 +234,7 @@ tx2_notify_test() ->
                             sigverify:=#{valid:=1,invalid:=0},
                             seq:=5,
                             not_before:=1617366203,
-                            notify:=[ {_,_}, {_,_}],
+                            notify:=[ _, _],
                             from:= <<128,0,32,0,2,0,0,3>>,
                             to:= <<128,0,32,0,2,0,0,5>>,
                             payload:= [_,_]
