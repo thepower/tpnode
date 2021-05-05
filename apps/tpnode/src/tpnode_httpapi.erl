@@ -998,10 +998,20 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
          {ok, R}=msgpack:unpack(Bin,[{spec,new},{unpack_str, as_binary}]),
          R;
        (notify, Vals) ->
-        [ [if is_list(H) -> list_to_binary(H);
-              is_integer(H) -> H
-           end,
-           BinPacker(D)] || {H,D} <- Vals ];
+        lists:map(fun({H,D}) ->
+                      [if is_list(H) -> list_to_binary(H);
+                          is_integer(H) -> H
+                       end,
+                       BinPacker(D)];
+                     (Map) when is_map(Map) ->
+                      maps:map(fun("d",V) ->
+                                   BinPacker(V);
+                                  (_,V) when is_binary(V) ->
+                                   BinPacker(V);
+                                  (_,V) ->
+                                   V
+                               end, Map)
+                  end, Vals);
        (sigverify, Fields) ->
         maps:map(
           fun(pubkeys, Val) ->
