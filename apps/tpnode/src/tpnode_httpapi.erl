@@ -1003,14 +1003,26 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
                           is_integer(H) -> H
                        end,
                        BinPacker(D)];
-                     (Map) when is_map(Map) ->
-                      maps:map(fun("d",V) ->
-                                   BinPacker(V);
-                                  (_,V) when is_binary(V) ->
-                                   BinPacker(V);
-                                  (_,V) ->
-                                   V
-                               end, Map)
+                    (Map) when is_map(Map) ->
+                                 ToBin=fun(K) when is_list(K) ->
+                                                       list_to_binary(K);
+                                          (K) when is_binary(K) ->
+                                                       K;
+                                          (K) ->
+                                                       list_to_binary(
+                                                         io_lib:format("~p",[K])
+                                                        )
+                                       end,
+                                 maps:fold(
+                                   fun("d",V,A) ->
+                                                   maps:put(<<"d">>, BinPacker(V), A);
+                                      (K,V,A) when is_binary(V) ->
+                                                   maps:put(ToBin(K), BinPacker(V), A);
+                                      (K,V,A) when is_list(V) ->
+                                                   maps:put(ToBin(K), list_to_binary(V), A);
+                                      (K,V,A) ->
+                                                   maps:put(ToBin(K), V, A)
+                                   end, #{}, Map)
                   end, Vals);
        (sigverify, Fields) ->
         maps:map(
