@@ -18,6 +18,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
   terminate/2, code_change/3]).
 
+-export([recovery_lost/4]).
+
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -34,6 +36,7 @@ init(_Args) ->
     #{
       queue => queue:new(),
       inprocess => hashqueue:new(),
+      lost_cnt => #{},
       batch_state => #{
         holding_storage => #{},
         current_batch => 0,
@@ -66,7 +69,7 @@ handle_cast({push_tx, TxId},
   };
 
 handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
-%%  lager:debug("push head ~p", [TxIds]),
+  lager:info("push head ~p", [TxIds]),
   stout:log(txqueue_pushhead, [ {ids, TxIds} ]),
 
   RevIds = lists:reverse(TxIds),
@@ -77,7 +80,9 @@ handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
     queue=>lists:foldl( fun queue:in_r/2, Queue, RevIds)
   }};
 
-handle_cast({done, Txs}, #{inprocess:=InProc0} = State) ->
+handle_cast({done, Txs}, #{inprocess:=InProc0,
+                           lost_cnt:=LCnt
+                          } = State) ->
   stout:log(txqueue_done, [ {result, true}, {ids, Txs} ]),
   InProc1 =
     lists:foldl(
@@ -91,14 +96,27 @@ handle_cast({done, Txs}, #{inprocess:=InProc0} = State) ->
       end,
       InProc0,
       Txs),
+    LCnt1 = lists:foldl(
+              fun
+                ({TxID, _}, Acc) ->
+                  maps:remove(TxID, Acc);
+                (TxID, Acc) ->
+                  maps:remove(TxID, Acc)
+              end,
+              LCnt,
+              Txs
+             ),
   gen_server:cast(txstatus, {done, true, Txs}),
   gen_server:cast(tpnode_ws_dispatcher, {done, true, Txs}),
   {noreply,
     State#{
+      lost_cnt=>LCnt1,
       inprocess => InProc1
     }};
 
-handle_cast({failed, Txs}, #{inprocess:=InProc0} = State) ->
+handle_cast({failed, Txs}, #{inprocess:=InProc0,
+                             lost_cnt:=LCnt
+                            } = State) ->
   stout:log(txqueue_done, [ {result, failed}, {ids, Txs} ]),
   InProc1 = lists:foldl(
     fun
@@ -111,10 +129,21 @@ handle_cast({failed, Txs}, #{inprocess:=InProc0} = State) ->
     end,
     InProc0,
     Txs),
+  LCnt1 = lists:foldl(
+            fun
+              ({_, {overdue, Parent}}, Acc) ->
+                maps:remove(Parent, Acc);
+              ({TxID, _}, Acc) ->
+                maps:remove(TxID, Acc)
+            end,
+            LCnt,
+            Txs
+           ),
   gen_server:cast(txstatus, {done, false, Txs}),
   gen_server:cast(tpnode_ws_dispatcher, {done, false, Txs}),
   {noreply, State#{
-    inprocess => InProc1
+              lost_cnt=>LCnt1,
+              inprocess => InProc1
   }};
 
 
@@ -124,11 +153,11 @@ handle_cast({new_height, H}, State) ->
 handle_cast(settings, State) ->
   {noreply, load_settings(State)};
 
-handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = State) ->
+handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue, lost_cnt:=LCnt} = State) ->
 
   Time = erlang:system_time(seconds),
   lager:info("Q ~p",[Queue]),
-  {InProc1, Queue1} = recovery_lost(InProc0, Queue, Time),
+  {InProc1, {Queue1,LCnt1}} = recovery_lost(InProc0, Queue, Time, LCnt),
   lager:info("Q1 ~p",[Queue1]),
   ETime = Time + 20,
 
@@ -145,24 +174,6 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
     undefined -> nodekey:get_pub();
     FoundKey -> FoundKey
   end,
-
-  %  try
-  %    PreSig = maps:merge(
-  %      gen_server:call(blockchain_reader, lastsig),
-  %      #{null=><<"mkblock_lastsig">>,
-  %        chain=>MyChain
-  %      }),
-  %    MResX = msgpack:pack(PreSig),
-  %    gen_server:cast(mkblock, {tpic, PK, MResX}),
-  %    tpic2:cast(<<"mkblock">>, MResX),
-  %    stout:log(txqueue_xsig, [ {ids, TxIds} ])
-  %  catch
-  %    exit:{timeout,{gen_server,call,[blockchain,lastsig]}} ->
-  %      lager:error("can't send xsig, blockchain timeout");
-  %
-  %    Ec:Ee ->
-  %      utils:print_error("Can't send xsig", Ec, Ee, erlang:get_stacktrace())
-  %  end,
 
   try
     LBH = get_lbh(State),
@@ -203,6 +214,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue} = Sta
   {noreply,
    State#{
      queue=>Queue2,
+     lost_cnt=>LCnt1,
      inprocess=>lists:foldl(
                   fun({TxId,TxB}, Acc) ->
                       hashqueue:add(TxId, ETime, TxB, Acc)
@@ -244,29 +256,43 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-push_queue_head(Txs, Queue) ->
-%%  RevTxs = lists:reverse(Txs),
-  RevTxs = Txs,
+push_queue_head([], Queue, LCnt) ->
+  {Queue, LCnt};
+
+push_queue_head(Txs, Queue, LCnt) ->
+  {Txs1, LCnt1} = lists:foldl(
+                    fun({TxID, TxBody}, {Q0,LC0}) ->
+                        Recovered=maps:get(TxID,LC0,0),
+                        if(Recovered>5) ->
+                            lager:error("Giving up tx ~p",[TxID]),
+                            {Q0,maps:remove(TxID, LC0)};
+                          true ->
+                            {[{TxID, TxBody}|Q0],maps:put(TxID, Recovered+1, LC0)}
+                        end
+                    end, {[], LCnt}, Txs),
+  RevTxs = lists:reverse(Txs1),
+  %  RevTxs = Txs,
   txlog:log(lists:reverse(RevTxs), #{where => txqueue_recovery2}),
-  lists:foldl(fun queue:in_r/2, Queue, RevTxs).
+  {lists:foldl(fun queue:in_r/2, Queue, RevTxs),
+   LCnt1}.
 
 
-recovery_lost(InProc, Queue, Now) ->
-  recovery_lost(InProc, Queue, Now, []).
+recovery_lost(InProc, Queue, Now, LCnt) ->
+  recovery_lost(InProc, Queue, Now, LCnt, []).
 
-recovery_lost(InProc, Queue, Now, AccTxs) ->
+recovery_lost(InProc, Queue, Now, LCnt, AccTxs) ->
   case hashqueue:head(InProc) of
     empty ->
-      {InProc, push_queue_head(AccTxs, Queue)};
+      {InProc, push_queue_head(AccTxs, Queue, LCnt)};
     I when is_integer(I) andalso I >= Now ->
-      {InProc, push_queue_head(AccTxs, Queue)};
+      {InProc, push_queue_head(AccTxs, Queue, LCnt)};
     I when is_integer(I) ->
       case hashqueue:pop(InProc) of
         {InProc1, empty} ->
-          {InProc1, push_queue_head(AccTxs, Queue)};
+          {InProc1, push_queue_head(AccTxs, Queue, LCnt)};
         {InProc1, {TxID, TxBody}} ->
           txlog:log([TxID], #{where => txqueue_recovery1}),
-          recovery_lost(InProc1, Queue, Now, [{TxID,TxBody} | AccTxs])
+          recovery_lost(InProc1, Queue, Now, LCnt, [{TxID,TxBody} | AccTxs])
       end
   end.
 

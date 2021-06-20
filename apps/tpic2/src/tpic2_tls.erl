@@ -70,6 +70,8 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
              Pid when is_pid(Pid) ->
                gen_server:call(tpic2_cmgr,{peer, Pubkey, {add, IP, Port}}),
                lager:info("Add address ~p:~p to peer and shutdown",[IP,Port]),
+               tpic2_tls:send_msg(dup, State),
+               timer:sleep(6000),
                Transport:close(Socket),
                shutdown
            end;
@@ -171,6 +173,11 @@ send_gen_msg(Process, ReqID, Payload, State) ->
       data=>Payload}, State),
   {Res,State}.
 
+send_msg(dup, #{socket:=Socket, opts:=Opts}) ->
+  lager:debug("dup opts ~p",[Opts]),
+  Dup=#{null=><<"duplicate">>},
+  ssl:send(Socket,msgpack:pack(Dup));
+
 send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
   lager:debug("Hello opts ~p",[Opts]),
   Stream=maps:get(stream, Opts, 0),
@@ -190,6 +197,10 @@ send_msg(Msg, #{socket:=Socket}) when is_map(Msg) ->
   ssl:send(Socket,msgpack:pack(Msg)).
 
 handle_msg(#{null:=<<"KA">>}, State) ->
+  State;
+
+handle_msg(#{null:=<<"duplicate">>}, #{socket:=Socket}=State) ->
+  ssl:close(Socket),
   State;
 
 handle_msg(#{null:=<<"hello">>,

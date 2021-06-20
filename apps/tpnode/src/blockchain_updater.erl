@@ -450,10 +450,10 @@ handle_call({new_block, #{hash:=BlockHash,
                                               [withext])
                                            }}
                                  end, EmitTXs),
-                      IDs=[ TxID || {TxID, _} <- EmitTXs ],
                       lager:info("Inject TXs ~p", [EmitTXs]),
                       Push=gen_server:cast(txstorage, {store_etxs, EmitBTXs}),
                       lager:info("Inject TXs res ~p", [EmitBTXs]),
+                      IDs=[ TxID || {TxID, _} <- EmitBTXs ],
                       gen_server:cast(txqueue,{push_head, [ {TxID, null} || TxID <- IDs]}),
                       stout:log(push_etx,
                                 [

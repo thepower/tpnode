@@ -18,11 +18,17 @@ run() ->
 prepare() ->
   ET=ready2prepare(),
   EmitBTXs=[{TxID, tx:pack(Tx,[withext])} || {TxID,Tx} <- ET ],
+  if(EmitBTXs =/= []) ->
+      lager:info("Prepare dtxs ~p",[proplists:get_keys(EmitBTXs)]);
+    true ->
+      ok
+  end,
   Push=gen_server:cast(txstorage, {store_etxs, EmitBTXs}),
   {Push, ET}.
 
 cast_ready() ->
   IDs = ready4run(),
+  %lager:info("cast ready dtxs ~p",[IDs]),
   [ gen_server:cast(txqueue, {push_tx, TxID}) || TxID <- IDs ].
 
 ready4run() ->

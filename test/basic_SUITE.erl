@@ -324,17 +324,19 @@ discovery_got_announce_test(_Config) ->
     ?assertEqual([], Result5).
 
 api_get_tx_status(TxId) ->
-    api_get_tx_status(TxId, get_base_url()).
+    api_get_tx_status(TxId, get_base_url(), 40).
 
-api_get_tx_status(TxId, BaseUrl) ->
-    Status = tpapi:get_tx_status(TxId, BaseUrl),
+api_get_tx_status(TxId, N) when is_integer(N) ->
+    api_get_tx_status(TxId, get_base_url(), N).
+
+api_get_tx_status(TxId, BaseUrl, Timeout) ->
+    Status = tpapi:get_tx_status(TxId, BaseUrl, Timeout),
     case Status of
       {ok, timeout, _} ->
         logger("got transaction ~p timeout~n", [TxId]),
         dump_testnet_state();
       {ok, #{<<"res">> := <<"ok">>}, _} ->
-        logger("got transaction ~p res=ok~n", [TxId]),
-        dump_testnet_state();
+        logger("got transaction ~p res=ok~n", [TxId]);
       {ok, #{<<"res">> := <<"bad_seq">>}, _} ->
         logger("got transaction ~p badseq~n", [TxId]),
         dump_testnet_state();
@@ -660,11 +662,15 @@ smartcontract_test(_Config) ->
   {ok, Status5, _} = api_get_tx_status(TxID5),
   ?assertMatch(#{<<"res">> := <<"ok">>}, Status5),
 
-  #{etxs:=[{TxID,_}|_]}=Block3=tpapi:get_fullblock(Blkid3,get_base_url()),
+  #{etxs:=[{DJTxID,_}|_]}=Block3=tpapi:get_fullblock(Blkid3,get_base_url()),
 
   io:format("Block3 ~p~n",[Block3]),
-  io:format("Have to wait for tx ~p~n",[TxID]),
+  io:format("Have to wait for DJ tx ~p~n",[DJTxID]),
   ?assertMatch(#{etxs:=[{<<"8001400004",_/binary>>,#{not_before:=_}}]},Block3),
+
+  {ok, StatusDJ, _} = api_get_tx_status(DJTxID, 65),
+  io:format("DJ tx status ~p~n",[StatusDJ]),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, StatusDJ),
   ok.
 
 check_blocks_test(_Config) ->
