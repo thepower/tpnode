@@ -421,6 +421,7 @@ format_status(_Opt, [_PDict, State]) ->
    }.
 
 bbyb_sync(Hash, Handler, Candidates) ->
+  lager:info("bb_sync since ~s from ~p",[blkid(Hash), Handler]),
   case tpiccall(Handler,
                 #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
                 [block]
@@ -461,7 +462,7 @@ bbyb_sync(Hash, Handler, Candidates) ->
 
               error ->
                 %%                    erlang:send_after(1000, self(), runsync), % chainkeeper do that
-                lager:info("block ~s no child, sync done?", [blkid(NewH)]),
+                lager:info("block ~s no child, sync probably done", [blkid(NewH)]),
                 stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_child} ]),
                 done
             end;
@@ -481,7 +482,7 @@ bbyb_sync(Hash, Handler, Candidates) ->
               {broken_sync, skip_candidate(Candidates)}
       end;
     _R ->
-      lager:error("bbyb no response ~p",[_R]),
+      lager:error("bbyb no response ~p from ~p",[_R, Handler]),
       %%      erlang:send_after(10000, self(), runsync),
       stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_response} ]),
       {noresponse, skip_candidate(Candidates)}
