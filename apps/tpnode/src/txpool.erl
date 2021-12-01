@@ -148,7 +148,7 @@ handle_cast({inbound_block, #{hash:=Hash} = Block}, #{sync_timer:=Tmr, queue:=Qu
   % inbound blocks may arrive at two nodes or more at the same time
   % so, we may already have this inbound block in storage
   NewQueue =
-    case txstorage:get_tx(TxId) of
+    case tpnode_txstorage:get_tx(TxId) of
       error ->
         % we don't have this block in storage. process it as usual
         BinTx = tx:pack(Block),
