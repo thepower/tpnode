@@ -64,9 +64,18 @@ get_ssl_port(DefaultPort) ->
 
 childspec_ssl(CertFile, KeyFile) ->
   Port = get_ssl_port(),
+
+  CaFile = utils:make_list(CertFile)++".ca.crt",
   SslOpts = [
-    {certfile, utils:make_list(CertFile)},
-    {keyfile, utils:make_list(KeyFile)}],
+             {certfile, utils:make_list(CertFile)},
+             {keyfile, utils:make_list(KeyFile)}] ++
+  case file:read_file_info(CaFile) of
+    {ok,_} ->
+      [{cacertfile, CaFile}];
+    _ ->
+      []
+  end,
+
   HTTPOpts = get_http_opts(Port) ++ SslOpts,
   HTTPConnType = get_http_conn_type(),
   [
