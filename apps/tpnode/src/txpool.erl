@@ -56,38 +56,38 @@ init(_Args) ->
 handle_call(state, _Form, State) ->
     {reply, State, State};
 
-handle_call({portout, #{
-               from:=Address,
-               portout:=PortTo,
-               seq:=Seq,
-               timestamp:=Timestamp,
-               public_key:=HPub,
-               signature:=HSig
-              }
-            }, _From, #{sync_timer:=Tmr, queue:=Queue}=State) ->
-    lager:notice("TODO: Check keys"),
-    case generate_txid(State) of
-      error ->
-        {reply, {error,cant_gen_txid}, State};
-      {ok, TxID} ->
-        BinTx = tx:pack(
-          #{
-            from=>Address,
-            portout=>PortTo,
-            seq=>Seq,
-            timestamp=>Timestamp,
-            public_key=>HPub,
-            signature=>HSig
-          }
-        ),
-        {reply,
-         {ok, TxID},
-         State#{
-           queue=>queue:in({TxID, BinTx}, Queue),
-           sync_timer => update_sync_timer(Tmr)
-         }
-        }
-    end;
+%handle_call({portout, #{
+%               from:=Address,
+%               portout:=PortTo,
+%               seq:=Seq,
+%               timestamp:=Timestamp,
+%               public_key:=HPub,
+%               signature:=HSig
+%              }
+%            }, _From, #{sync_timer:=Tmr, queue:=Queue}=State) ->
+%    lager:notice("TODO: Check keys"),
+%    case generate_txid(State) of
+%      error ->
+%        {reply, {error,cant_gen_txid}, State};
+%      {ok, TxID} ->
+%        BinTx = tx:pack(
+%          #{
+%            from=>Address,
+%            portout=>PortTo,
+%            seq=>Seq,
+%            timestamp=>Timestamp,
+%            public_key=>HPub,
+%            signature=>HSig
+%          }
+%        ),
+%        {reply,
+%         {ok, TxID},
+%         State#{
+%           queue=>queue:in({TxID, BinTx}, Queue),
+%           sync_timer => update_sync_timer(Tmr)
+%         }
+%        }
+%    end;
 
 handle_call({new_tx, Tx}, _From, State) when is_map(Tx) ->
   handle_call({new_tx, tx:pack(Tx)}, _From, State);
@@ -141,85 +141,108 @@ handle_cast(settings, State) ->
 handle_cast({new_height, H}, State) ->
   {noreply, State#{height=>H}};
 
-handle_cast({inbound_block, #{hash:=Hash} = Block}, #{sync_timer:=Tmr, queue:=Queue} = State) ->
-  TxId = bin2hex:dbin2hex(Hash),
-  lager:info("Inbound block ~p", [{TxId, Block}]),
+handle_cast({inbound_block, #{hash:=Hash} = Block}, State) ->
+  TxID = bin2hex:dbin2hex(Hash),
+  lager:info("Inbound block ~p", [{TxID, Block}]),
   % we need synchronise inbound blocks as well as incoming transaction from user
   % inbound blocks may arrive at two nodes or more at the same time
   % so, we may already have this inbound block in storage
-  NewQueue =
-    case tpnode_txstorage:get_tx(TxId) of
-      error ->
-        % we don't have this block in storage. process it as usual
-        BinTx = tx:pack(Block),
-        queue:in({TxId, BinTx}, Queue);
-      {ok, {TxId, _, _}} ->
-        % we already have this block in storage. we only need add its txid to outbox
-        gen_server:cast(txqueue, {push, [TxId]}),
-        Queue
-    end,
+  case tpnode_txstorage:get_tx(TxID) of
+    error ->
+      BinTx = tx:pack(Block),
+      case gen_server:call(txstorage, {new_tx, TxID, BinTx}) of
+        ok ->
+          ok;
+        {error, Any} ->
+          lager:error("inbound block ~p can't put to txstorage ~p",[TxID, Any]),
+          error
+      end;
+    {ok, {TxId, _, _}} ->
+      % we already have this block in storage. we only need add its txid to outbox
+      gen_server:cast(txqueue, {push, [TxId]})
+  end,
   
-  
-  {noreply,
-    State#{
-      queue=>NewQueue,
-      sync_timer => update_sync_timer(Tmr)
-    }
-  };
+  {noreply, State };
+
+%handle_cast({inbound_block, #{hash:=Hash} = Block}, #{sync_timer:=Tmr, queue:=Queue} = State) ->
+%  TxId = bin2hex:dbin2hex(Hash),
+%  lager:info("Inbound block ~p", [{TxId, Block}]),
+%  % we need synchronise inbound blocks as well as incoming transaction from user
+%  % inbound blocks may arrive at two nodes or more at the same time
+%  % so, we may already have this inbound block in storage
+%  NewQueue =
+%    case tpnode_txstorage:get_tx(TxId) of
+%      error ->
+%        % we don't have this block in storage. process it as usual
+%        BinTx = tx:pack(Block),
+%        queue:in({TxId, BinTx}, Queue);
+%      {ok, {TxId, _, _}} ->
+%        % we already have this block in storage. we only need add its txid to outbox
+%        gen_server:cast(txqueue, {push, [TxId]}),
+%        Queue
+%    end,
+%  
+%  
+%  {noreply,
+%    State#{
+%      queue=>NewQueue,
+%      sync_timer => update_sync_timer(Tmr)
+%    }
+%  };
 
 handle_cast(_Msg, State) ->
     lager:info("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(sync_tx,
-  #{sync_timer:=Tmr, mychain:=_MyChain,
-    minsig:=MinSig, queue:=Queue, batch_no:=BatchNo} = State) ->
-  
-  catch erlang:cancel_timer(Tmr),
-  lager:info("run tx sync"),
-  MaxPop = chainsettings:get_val(<<"poptxs">>, ?SYNC_TX_COUNT_PER_PROCESS),
-  
-  % do nothing in case peers count less than minsig
-  Peers = tpic2:cast_prepare(<<"mkblock">>),
-  SingleNodeTest=case nodekey:get_privs() of
-                   [_,_|_] -> true;
-                   _ -> false
-                 end,
-  case length(Peers) of
-    _ when MinSig == undefined ->
-      % minsig unknown
-      lager:error("minsig is undefined, we can't run transaction synchronizer"),
-      {noreply, load_settings(State#{ sync_timer => update_sync_timer(undefined)})};
-    PeersCount when not SingleNodeTest andalso PeersCount+1<MinSig ->
-      % nodes count is less than we need, do nothing  (nodes = peers + 1)
-      lager:info("nodes count ~p is less than minsig ~p", [PeersCount+1, MinSig]),
-      {noreply, State#{ sync_timer => update_sync_timer(undefined) }};
-    _ ->
-      % peers count is OK, sync transactions
-      {NewQueue, Transactions} = pullx({MaxPop, get_max_tx_size()}, Queue, []),
-  
-      txlog:log(
-        [TxId1 || {TxId1, _TxBody1} <- Transactions],
-        #{where => txpool}
-      ),
-      
-      NewBatchNo =
-        case Transactions of
-          [] ->
-            BatchNo; % don't increase batch id number
-          _ ->
-            erlang:spawn(txsync, do_sync, [Transactions, #{ batch_no => BatchNo }]),
-            self() ! sync_tx,
-            BatchNo + 1   % increase batch id
-        end,
-      {noreply,
-        State#{
-          sync_timer => undefined,
-          queue => NewQueue,
-          batch_no => NewBatchNo
-        }
-      }
-  end;
+%handle_info(sync_tx,
+%  #{sync_timer:=Tmr, mychain:=_MyChain,
+%    minsig:=MinSig, queue:=Queue, batch_no:=BatchNo} = State) ->
+%  
+%  catch erlang:cancel_timer(Tmr),
+%  lager:info("run tx sync"),
+%  MaxPop = chainsettings:get_val(<<"poptxs">>, ?SYNC_TX_COUNT_PER_PROCESS),
+%  
+%  % do nothing in case peers count less than minsig
+%  Peers = tpic2:cast_prepare(<<"mkblock">>),
+%  SingleNodeTest=case nodekey:get_privs() of
+%                   [_,_|_] -> true;
+%                   _ -> false
+%                 end,
+%  case length(Peers) of
+%    _ when MinSig == undefined ->
+%      % minsig unknown
+%      lager:error("minsig is undefined, we can't run transaction synchronizer"),
+%      {noreply, load_settings(State#{ sync_timer => update_sync_timer(undefined)})};
+%    PeersCount when not SingleNodeTest andalso PeersCount+1<MinSig ->
+%      % nodes count is less than we need, do nothing  (nodes = peers + 1)
+%      lager:info("nodes count ~p is less than minsig ~p", [PeersCount+1, MinSig]),
+%      {noreply, State#{ sync_timer => update_sync_timer(undefined) }};
+%    _ ->
+%      % peers count is OK, sync transactions
+%      {NewQueue, Transactions} = pullx({MaxPop, get_max_tx_size()}, Queue, []),
+%  
+%      txlog:log(
+%        [TxId1 || {TxId1, _TxBody1} <- Transactions],
+%        #{where => txpool}
+%      ),
+%      
+%      NewBatchNo =
+%        case Transactions of
+%          [] ->
+%            BatchNo; % don't increase batch id number
+%          _ ->
+%            erlang:spawn(txsync, do_sync, [Transactions, #{ batch_no => BatchNo }]),
+%            self() ! sync_tx,
+%            BatchNo + 1   % increase batch id
+%        end,
+%      {noreply,
+%        State#{
+%          sync_timer => undefined,
+%          queue => NewQueue,
+%          batch_no => NewBatchNo
+%        }
+%      }
+%  end;
 
 handle_info(prepare, State) ->
   handle_cast(prepare, State);
@@ -369,13 +392,13 @@ load_settings(State) ->
 
 %% ------------------------------------------------------------------
 
-update_sync_timer(Tmr) ->
-  case Tmr of
-    undefined ->
-      erlang:send_after(?SYNC_TIMER_MS, self(), sync_tx);
-    _ ->
-      Tmr
-  end.
+%update_sync_timer(Tmr) ->
+%  case Tmr of
+%    undefined ->
+%      erlang:send_after(?SYNC_TIMER_MS, self(), sync_tx);
+%    _ ->
+%      Tmr
+%  end.
 
 %% ------------------------------------------------------------------
 
