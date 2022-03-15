@@ -636,7 +636,12 @@ try_process([{TxID, #{
                          end
                     end,
 
-      {ok, St1Dec}=msgpack:unpack(St1),
+      St1Dec = if is_binary(St1) ->
+                    {ok, St1Dec1}=msgpack:unpack(St1),
+                    St1Dec1;
+                  is_map(St1) ->
+                    St1
+               end,
       NewF4=maps:remove(keep,
                         mbal:put(state, St1Dec, NewF3)
                        ),

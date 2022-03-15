@@ -124,7 +124,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
             "gas" := GasLeft,
             "state" := NewState,
             "txs" := EmitTxs}} ->
-        if NewState == <<>> ->
+        if NewState == <<>> orelse NewState == unchanged ->
              {Ledger, EmitTxs, Left(GasLeft)};
            true ->
              {
