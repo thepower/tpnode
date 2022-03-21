@@ -185,6 +185,15 @@ put(state, <<>>, V, Bal) ->
                  }
      );
 
+put(state, P, <<>>, Bal) ->
+  case maps:find(state, Bal) of
+    error ->
+      Bal;
+    {ok, PV} ->
+      Bal#{state=>maps:remove(P,PV),
+           changes=>[state|maps:get(changes, Bal, [])]}
+  end;
+
 put(state, P, V, Bal) ->
   case maps:find(state, Bal) of
     error ->
@@ -259,6 +268,16 @@ put(state, V, Bal) when is_map(V) ->
   Bal#{ state=>V,
         changes=>[state|maps:get(changes, Bal, [])]
       };
+
+put(mergestate, V, Bal) when is_map(V) ->
+  case maps:find(state, Bal) of
+    error ->
+      Bal#{state=>V,
+           changes=>[state|maps:get(changes, Bal, [])]};
+    {ok, PV} ->
+      Bal#{state=>maps:merge(PV,V),
+           changes=>[state|maps:get(changes, Bal, [])]}
+  end;
 
 put(code, V, Bal) when is_function(V); is_binary(V) ->
   case maps:get(code, Bal, undefined) of

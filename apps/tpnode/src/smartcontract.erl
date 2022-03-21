@@ -99,9 +99,10 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
      end,
   lager:info("run contract ~s for ~s gas limit ~p", [VM, naddress:encode(To),GasLimit]),
   try
-    case erlang:apply(VM,
+    CallRes=erlang:apply(VM,
                       handle_tx,
-                      [Tx, mbal:msgpack_state(Ledger), GasLimit, GetFun]) of
+                      [Tx, mbal:msgpack_state(Ledger), GasLimit, GetFun]),
+    case CallRes of
       {ok, NewState, GasLeft, EmitTxs} when
           NewState==unchanged orelse is_binary(NewState) ->
         if NewState == unchanged ->
@@ -128,9 +129,17 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
              {Ledger, EmitTxs, Left(GasLeft)};
            true ->
              {
-              bal:put(state, NewState, Ledger),
+              mbal:put(state, NewState, Ledger),
               EmitTxs, Left(GasLeft)}
         end;
+      {ok,#{null := "exec",
+            "gas" := GasLeft,
+            "diffstate" := NewState,
+            "txs" := EmitTxs}} ->
+             {
+              mbal:put(mergestate, NewState, Ledger),
+              EmitTxs, Left(GasLeft)
+             };
       {ok,#{null := "exec",
             "gas" := _GasLeft,
             "err":=SReason}} ->
@@ -147,13 +156,14 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
       {error, Reason} ->
         throw({'run_failed', Reason});
       Any ->
+        io:format("Contract return error ~p", [Any]),
         lager:error("Contract return error ~p", [Any]),
         throw({'run_failed', other})
     end
   catch 
     Ec:Ee:S when Ec=/=throw ->
           %S=erlang:get_stacktrace(),
-          lager:error("Can't run contract ~p:~p @ ~p",
+          lager:info("Can't run contract ~p:~p @ ~p~n",
                       [Ec, Ee, hd(S)]),
           throw({'contract_error', [Ec, Ee]})
   end.

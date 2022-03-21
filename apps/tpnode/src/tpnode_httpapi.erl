@@ -778,7 +778,8 @@ h(<<"POST">>, [<<"register">>], Req) ->
       )
   end;
 
-h(<<"GET">>, [<<"tx">>, <<"status">>, TxID], _Req) ->
+h(<<"GET">>, [<<"tx">>, <<"status">>| TxID0], _Req) ->
+  TxID=list_to_binary(lists:join("/",TxID0)),
   R=txstatus:get_json(TxID),
   answer(#{res=>R});
 

@@ -606,7 +606,7 @@ try_process([{TxID, #{
                lager:info("VM run gas ~p -> ~p",[IGas,GL]),
                {GCur, GL div GRate, GRate}
            end,
-      {St1,GasLeft}=if A4 ->
+      {St1,GasLeft,NewCode}=if A4 ->
                          case erlang:apply(VM, deploy, [Tx, mbal:msgpack_state(Bal), IGas, GetFun]) of
                            {ok, #{null:="exec",
                                   "err":=Err}} ->
@@ -616,8 +616,10 @@ try_process([{TxID, #{
                              catch error:badarg ->
                                      throw(Err)
                              end;
+                           {ok, #{null:="exec", "state":=St2, "gas":=IGasLeft, "code":=Code1 }} ->
+                             {St2, Left(IGasLeft), Code1};
                            {ok, #{null:="exec", "state":=St2, "gas":=IGasLeft }} ->
-                             {St2, Left(IGasLeft)};
+                             {St2, Left(IGasLeft), undefined};
                            {error, Error} ->
                              throw(Error);
                            _Any ->
@@ -642,9 +644,13 @@ try_process([{TxID, #{
                   is_map(St1) ->
                     St1
                end,
+      AppliedState=mbal:put(mergestate, St1Dec, NewF3),
       NewF4=maps:remove(keep,
-                        mbal:put(state, St1Dec, NewF3)
-                       ),
+                        if NewCode==undefined ->
+                             AppliedState;
+                           true ->
+                             mbal:put(code,NewCode, AppliedState)
+                        end),
 
       NewAddresses=case GasLeft of
                      {_, 0, _} ->
@@ -682,10 +688,11 @@ try_process([{TxID, #{
                       Acc#{failed=>[{TxID, X}|Failed]});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
-          io:format("DEPLOY ERROR ~p:~p~n",[Ec,Ee]),
+          %io:format("DEPLOY ERROR ~p:~p~n",[Ec,Ee]),
           lager:info("Contract deploy failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
-                            lager:error("@ ~p", [SE])
+                            %io:format("@ ~p~n", [SE])
+                            lager:info("@ ~p~n", [SE])
                         end, S),
           try_process(Rest, SetState, Addresses, GetFun,
                       Acc#{failed=>[{TxID, other}|Failed]})
@@ -1343,30 +1350,31 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit, #{height:=Hei,
          true ->
            smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun)
       end,
-      {L1, lists:map(
-             fun(ETxBody) ->
-                 Template=#{
-                            "f"=>Address,
-                            "s"=>0,
-                            "t"=>0,
-                            "p"=>[],
-                            "ev"=>[]},
-                 #{from:=TxFrom,seq:=_Seq}=ETx=tx:complete_tx(ETxBody,Template),
+      EmitTxs=lists:map(
+                fun(ETxBody) ->
+                    Template=#{
+                               "f"=>Address,
+                               "s"=>0,
+                               "t"=>0,
+                               "p"=>[],
+                               "ev"=>[]},
+                    #{from:=TxFrom,seq:=_Seq}=ETx=tx:complete_tx(ETxBody,Template),
 
-                 if(TxFrom=/=Address) ->
-                     throw('emit_wrong_from');
-                   true ->
-                     ok
-                 end,
-                 H=base64:encode(crypto:hash(sha, [Parent,ETxBody])),
-                 BinId=binary:encode_unsigned(Hei),
-                 BSeq=hex:encode(<<(size(BinId)):8,BinId/binary>>),
-                 EA=hex:encode(Address),
-                 TxID= <<EA/binary, BSeq/binary, H/binary>>,
-                 {TxID,
-                  tx:set_ext( <<"contract_issued">>, Address, ETx)
-                 }
-             end, TXs), GasLeft}
+                    if(TxFrom=/=Address) ->
+                        throw('emit_wrong_from');
+                      true ->
+                        ok
+                    end,
+                    H=base64:encode(crypto:hash(sha, [Parent,ETxBody])),
+                    BinId=binary:encode_unsigned(Hei),
+                    BSeq=hex:encode(<<(size(BinId)):8,BinId/binary>>),
+                    EA=hex:encode(Address),
+                    TxID= <<EA/binary, BSeq/binary, H/binary>>,
+                    {TxID,
+                     tx:set_ext( <<"contract_issued">>, Address, ETx)
+                    }
+                end, TXs),
+      {L1, EmitTxs, GasLeft}
   end;
 
 deposit(Address, TBal,

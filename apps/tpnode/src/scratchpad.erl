@@ -802,3 +802,25 @@ testch102() ->
   scratchpad:post_tx("http://c102n9.thepower.io:43382",tx:sign(tx:construct_tx(#{kind=>lstore,ver=>2,from=>naddress:decode(<<"AA100000171127859544">>),t=>os:system_time(millisecond),seq=>os:system_time(second),payload=>[],patches=>[]}),<<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>)).
 
 
+catch_evm_hash(Fun) ->
+  register(eevm_tracer,self()),
+  Fun(),
+  unregister(eevm_tracer),
+  Res=recv_sha(),
+  flush_trace(),
+  Res.
+
+flush_trace() ->
+  receive {trace, _} ->
+            flush_trace()
+  after 0 ->
+          done
+  end.
+
+recv_sha() ->
+  receive {trace, {sha3, Data}} ->
+            [Data|recv_sha()]
+  after 0 ->
+          []
+  end.
+
