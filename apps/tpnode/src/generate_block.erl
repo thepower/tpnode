@@ -54,7 +54,22 @@ deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings, GAcc) ->
 finish_processing(GetFun, Acc0) ->
   Acc1=process_delayed_txs(GetFun, Acc0),
   Acc2=cleanup_delayed(GetFun, Acc1),
-  Acc2.
+  case Acc2 of
+    #{aalloc:={Allocated,{_CG,_CB,CA}},
+      new_settings:=SetState,
+      settings:=Settings} when Allocated>0 ->
+      IncAddr=#{<<"t">> => <<"set">>,
+                <<"p">> => [<<"current">>, <<"allocblock">>, <<"last">>],
+                <<"v">> => CA},
+      AAlloc={<<"aalloc">>, #{sig=>[], patch=>[IncAddr]}},
+      SS1=settings:patch(AAlloc, SetState),
+
+      Acc2#{new_settings=>SS1,
+            settings=>replace_set(AAlloc, Settings)
+           };
+    _Any ->
+      Acc2
+  end.
 
 cleanup_delayed(_GetFun, #{delayed:=DTX, new_settings:=NS, settings:=Sets} = Acc) ->
   lager:info("Delayed ~p",[DTX]),
@@ -773,8 +788,9 @@ try_process([{TxID, #{ver:=2,
                      }=Tx} |Rest],
             SetState, Addresses, GetFun,
             #{failed:=Failed,
+              aalloc:=AAl,
               success:=Success,
-              settings:=Settings }=Acc) ->
+              settings:=_Settings }=Acc) ->
   lager:notice("Ensure verified"),
   try
     %TODO: multisig fix here
@@ -807,7 +823,7 @@ try_process([{TxID, #{ver:=2,
        true -> ok
     end,
 
-    {ok,NewBAddr, SS1, AAlloc} = aalloc(SetState),
+    {ok, NewBAddr, AAl1} = aalloc(AAl),
 
     lager:info("Alloc address ~p ~s for key ~s",
                [NewBAddr,
@@ -819,9 +835,9 @@ try_process([{TxID, #{ver:=2,
     NewAddresses=maps:put(NewBAddr, NewF, Addresses),
     NewTx=maps:remove(inv,tx:set_ext(<<"addr">>,NewBAddr,Tx)),
     lager:info("try process register tx [~p]: ~p", [NewBAddr, NewTx]),
-    try_process(Rest, SS1, NewAddresses, GetFun,
+    try_process(Rest, SetState, NewAddresses, GetFun,
                 Acc#{success=> [{TxID, NewTx}|Success],
-                     settings=>replace_set(AAlloc, Settings)
+                     aalloc=>AAl1
                     })
   catch throw:X ->
           lager:info("Address alloc fail ~p", [X]),
@@ -832,8 +848,9 @@ try_process([{TxID, #{ver:=2,
 try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
             SetState, Addresses, GetFun,
             #{failed:=Failed,
+              aalloc:=AAl,
               success:=Success,
-              settings:=Settings }=Acc) ->
+              settings:=_Settings }=Acc) ->
   lager:notice("Deprecated register method"),
   try
     RegSettings=settings:get([<<"current">>, <<"register">>], SetState),
@@ -866,7 +883,7 @@ try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
        true -> ok
     end,
 
-    {ok,NewBAddr, SS1, AAlloc} = aalloc(SetState),
+    {ok, NewBAddr, AAl1} = aalloc(AAl),
     lager:info("Deprecated Alloc address ~p ~s for key ~s",
                [NewBAddr,
                 naddress:encode(NewBAddr),
@@ -881,9 +898,9 @@ try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
             _ ->
               Tx1#{address=>NewBAddr}
           end,
-    try_process(Rest, SS1, NewAddresses, GetFun,
+    try_process(Rest, SetState, NewAddresses, GetFun,
                 Acc#{success=> [{TxID, FixTx}|Success],
-                     settings=>replace_set(AAlloc, Settings)
+                     aalloc=>AAl1
                     })
   catch throw:X ->
           lager:info("Address alloc fail ~p", [X]),
@@ -1779,6 +1796,15 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                 Acc
             end, [], TXL),
 
+  AAlloc=case settings:get([<<"current">>, <<"allocblock">>], XSettings) of
+                 #{<<"block">> := CurBlk,
+                   <<"group">> := CurGrp,
+                   <<"last">> := CurAddr} ->
+                   {CurGrp, CurBlk, CurAddr};
+                 _ ->
+                   unallocable
+               end,
+
   #{failed:=Failed,
     table:=NewBal0,
     success:=Success,
@@ -1798,6 +1824,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                    outbound=>[],
                    table=>#{},
                    emit=>[],
+                   aalloc=>{0,AAlloc},
                    fee=>mbal:new(),
                    tip=>mbal:new(),
                    pick_block=>#{},
@@ -2017,22 +2044,13 @@ settings_hash(NewSettings) when is_map(NewSettings) ->
 replace_set({Key,_}=New,Settings) ->
   [New|lists:keydelete(Key, 1, Settings)].
 
-aalloc(SetState) ->
-  {CG, CB, CA}=case settings:get([<<"current">>, <<"allocblock">>], SetState) of
-                 #{<<"block">> := CurBlk,
-                   <<"group">> := CurGrp,
-                   <<"last">> := CurAddr} ->
-                   {CurGrp, CurBlk, CurAddr+1};
-                 _ ->
-                   throw(unallocable)
-               end,
+aalloc({_,{_CG,_CB, CA}}) when CA>=16#FFFFFE ->
+  throw(unallocable);
 
-    NewBAddr=naddress:construct_public(CG, CB, CA),
+aalloc({N,{CG,CB,CA}}) ->
+    NewBAddr=naddress:construct_public(CG, CB, CA+1),
+    {ok, NewBAddr, {N+1, {CG,CB,CA+1}}};
 
-    IncAddr=#{<<"t">> => <<"set">>,
-              <<"p">> => [<<"current">>, <<"allocblock">>, <<"last">>],
-              <<"v">> => CA},
-    AAlloc={<<"aalloc">>, #{sig=>[], patch=>[IncAddr]}},
-    SS1=settings:patch(AAlloc, SetState),
+aalloc({_N,unallocable}) ->
+  throw(unallocable).
 
-    {ok, NewBAddr, SS1, AAlloc}.
