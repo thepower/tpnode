@@ -5,7 +5,6 @@
 -export([bals2patch/1, apply_patch/2]).
 -export([dbmtfun/3]).
 -export([mb2item/1]).
--export([dump_ledger/0, dump_ledger/2, dump_ledger/1]).
 -export([get_kv/1]).
 -export([addr_proof/1, bi_decode/1]).
 -export([rollback/2]).
@@ -405,37 +404,6 @@ rollback(Height, ExpectedHash) ->
     {aborted, Err} -> {error,Err}
   end.
 
-dump_ledger(Info,Filename) ->
-  file:write_file(Filename,
-                  io_lib:format("~p.~n~p.~n~p.~n",
-                                [Info,
-                                 mnesia:dirty_match_object(#bal_items{_='_',version=latest}),
-                                 mnesia:dirty_match_object({ledger_tree,'_','_'})
-                                ]),
-                  [append]
-                 ).
-
-dump_ledger() ->
-  file:write_file("ledger_"++atom_to_list(node()),
-                  io_lib:format("~p.~n~p.~n",
-                                [
-                                 [
-                                  bi_decode(I) || I<-
-                                                  mnesia:dirty_match_object(#bal_items{_='_',version=latest})
-                                 ],
-                                 mnesia:dirty_match_object({ledger_tree,'_','_'})
-                                ])).
-
-dump_ledger(full) ->
-  file:write_file("ledger_"++atom_to_list(node()),
-                  io_lib:format("~p.~n~p.~n",
-                                [
-                                 [
-                                  bi_decode(I) || I<-
-                                                  mnesia:dirty_match_object(#bal_items{_='_'})
-                                 ],
-                                 mnesia:dirty_match_object({ledger_tree,'_','_'})
-                                ])).
 del_mt(ChAddrs) ->
   lists:foldl(
     fun(Addr,Acc) ->

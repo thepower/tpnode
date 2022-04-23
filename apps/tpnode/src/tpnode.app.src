@@ -17,6 +17,8 @@
       mkmap,
       tables,
       tpic2,
+      ksha3,
+      eevm,
       sext,
       stout,
       db_merkle_trees,

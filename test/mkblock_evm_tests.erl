@@ -234,7 +234,7 @@ tether_test() ->
               from=>Addr1,
               to=>Addr1,
               call=>#{
-                      args=>[<<12345:256/big>>, 1024],
+                      args=>[Addr3, 512],
                       function => "transfer(address,uint256)"
                      },
               payload=>[
@@ -293,9 +293,6 @@ tether_test() ->
                {<<"3transfer1">>, maps:put(sigverify,#{valid=>1},TX3)},
                {<<"4transfer2">>, maps:put(sigverify,#{valid=>1},TX4)}
               ],
-%      TxList2=[
-%              {<<"4testexec">>, maps:put(sigverify,#{valid=>1},TX4)}
-%              ],
       TestFun=fun(#{block:=Block,
                     emit:=_Emit,
                     failed:=Failed}) ->
@@ -312,29 +309,12 @@ tether_test() ->
               }
              ],
       {ok,L1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
-%      Ledger2=maps:to_list(
-%                maps:put(
-%                  Addr2,
-%                  #{amount => #{ <<"FTT">> => 30000, <<"SK">> => 10, <<"TST">> => 26 }},
-%                  L1)),
-%
-%
-%      TestFun2=fun(#{block:=Block,
-%                    emit:=_Emit,
-%                    failed:=Failed}) ->
-%                   ?assertMatch([],Failed),
-%                   Bals=maps:get(bals, Block),
-%                   msgpack:unpack(
-%                     maps:get(state,
-%                              maps:get(<<128,0,32,0,150,0,0,1>>,Bals)
-%                             )
-%                    )
-%              end,
       ContractLedger=maps:get(Addr1,L1),
       {ok,<<B1:256/big>>} = contract_evm:call(ContractLedger, "balanceOf(address)", [Addr1]),
       {ok,<<B2:256/big>>} = contract_evm:call(ContractLedger, "balanceOf(address)", [Addr2]),
       {ok,<<B3:256/big>>} = contract_evm:call(ContractLedger, "balanceOf(address)", [Addr3]),
-      io:format("Addr bal ~w/~w/~w~n",[B1,B2,B3]),
+      {ok,<<B4:256/big>>} = contract_evm:call(ContractLedger, "balanceOf(address)", [<<12345:256/big>>]),
+      io:format("Addr bal ~w/~w/~w/~w~n",[B1,B2,B3,B4]),
       State1= maps:get(state, ContractLedger),
       io:format("State1 ~p~n",[State1]),
       io:format("= ADDR1 var 2 ~p~n",[binary:decode_unsigned(maps:get(mapval(2,Addr1),State1))]),
@@ -342,6 +322,10 @@ tether_test() ->
 %      {ok,EState2}=extcontract_template(OurChain, TxList2, Ledger2, TestFun2),
 %      State2=decode_state(EState2),
       [
+       ?assertMatch(256,B2),
+       ?assertMatch(769,B3),
+       ?assertMatch(0,B4),
+       ?assertMatch(131072,B1+B2+B3+B4)
 %       ?assertMatch(false,maps:is_key("set",State1)),
 %       ?assertMatch(true,maps:is_key("self",State1)),
 %       ?assertMatch(true,maps:is_key("admins",State1))
@@ -352,9 +336,13 @@ tether_test() ->
       ].
 
 varn(N) ->
-  crypto:hash(sha256,<<N:256/big>>).
+  %crypto:hash(sha256,<<N:256/big>>).
+  {ok,Hash}=ksha3:hash(256, <<N:256/big>>),
+  Hash.
 
 mapval(N,Key) when is_binary(Key) ->
   NKey=binary:decode_unsigned(Key),
-  crypto:hash(sha256,<<NKey:256/big, N:256/big>>).
+  %crypto:hash(sha256,<<NKey:256/big, N:256/big>>).
+  {ok,Hash}=ksha3:hash(256, <<NKey:256/big, N:256/big>>),
+  Hash.
 

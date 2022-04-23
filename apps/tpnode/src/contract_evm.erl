@@ -37,11 +37,17 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, _GetFun) -
                  #{
                    logger=>Logger,
                    gas=>GasLimit,
-                   value=>Value,
-                   caller=>binary:decode_unsigned(From),
+                   data=>#{
+                           address=>binary:decode_unsigned(From),
+                           callvalue=>Value,
+                           caller=>binary:decode_unsigned(From),
+                           gasprice=>1,
+                           origin=>binary:decode_unsigned(From)
+                          },
                    trace=>whereis(eevm_tracer)
                   }) of
     {done, {return,NewCode}, #{ gas:=GasLeft, storage:=NewStorage }} ->
+      io:format("Deploy -> OK~n",[]),
       {ok, #{null=>"exec",
              "code"=>NewCode,
              "state"=>convert_storage(NewStorage),
@@ -49,16 +55,22 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, _GetFun) -
              "txs"=>[]
             }};
     {done, 'stop', _} ->
+      io:format("Deploy -> stop~n",[]),
       {error, deploy_stop};
     {done, 'invalid', _} ->
+      io:format("Deploy -> invalid~n",[]),
       {error, deploy_invalid};
     {done, {revert, _}, _} ->
+      io:format("Deploy -> revert~n",[]),
       {error, deploy_revert};
     {error, nogas, _} ->
+      io:format("Deploy -> nogas~n",[]),
       {error, nogas};
     {error, {jump_to,_}, _} ->
+      io:format("Deploy -> bad_jump~n",[]),
       {error, bad_jump};
     {error, {bad_instruction,_}, _} ->
+      io:format("Deploy -> bad_instruction~n",[]),
       {error, bad_instruction}
 %
 % {done, [stop|invalid|{revert,Err}|{return,Data}], State1}
@@ -78,7 +90,7 @@ encode_arg(_,_) ->
   throw(arg_encoding_error).
 
 
-handle_tx(#{from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit, _GetFun) ->
+handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit, _GetFun) ->
   {ok,State}=msgpack:unpack(State0),
 
   Value=case tx:get_payload(Tx, transfer) of
@@ -113,9 +125,14 @@ handle_tx(#{from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit, _GetF
                  #{
                    gas=>GasLimit,
                    sload=>SLoad,
-                   value=>Value,
+                   data=>#{
+                           address=>binary:decode_unsigned(To),
+                           callvalue=>Value,
+                           caller=>binary:decode_unsigned(From),
+                           gasprice=>1,
+                           origin=>binary:decode_unsigned(From)
+                          },
                    cd=>CD,
-                   caller=>binary:decode_unsigned(From),
                    logger=>Logger,
                    trace=>whereis(eevm_tracer)
                   }),

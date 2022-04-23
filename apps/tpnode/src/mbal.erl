@@ -19,10 +19,10 @@
         ]).
 
 -define(FIELDS,
-        [t, seq, lastblk, pubkey, ld, usk, state, code, vm, view, lstore]
+        [t, seq, lastblk, pubkey, ld, usk, state, code, vm, view, lstore, vmopts]
        ).
 
--type balfield() :: 'amount'|'t'|'seq'|'lastblk'|'pubkey'|'ld'|'usk'|'state'|'code'|'vm'|'view'|'lstore'.
+-type balfield() :: 'amount'|'t'|'seq'|'lastblk'|'pubkey'|'ld'|'usk'|'state'|'code'|'vm'|'view'|'lstore'|'vmopts'.
 -type sparsebal () :: #{'amount'=>map(),
                   'changes'=>[balfield()],
                   'seq'=>integer(),
@@ -34,6 +34,7 @@
                   'state'=>map(),
                   'code'=>binary(),
                   'vm'=>binary(),
+                  'vmopts'=>map(),
                   'view'=>binary(),
                   'lstore'=>binary(),
                   'ublk'=>binary() %external attr
@@ -50,6 +51,7 @@
                   'state'=>map(),
                   'code'=>binary(),
                   'vm'=>binary(),
+                  'vmopts'=>map(),
                   'view'=>binary(),
                   'lstore'=>binary(),
                   'ublk'=>binary() %external attr
@@ -239,6 +241,11 @@ put(vm, V, Bal) when is_binary(V) ->
   Bal#{ vm=>V,
         changes=>[vm|maps:get(changes, Bal, [])]
       };
+
+put(vmopts, V, Bal) ->
+  Bal#{ vmopts=>V,
+        changes=>[vmopts|maps:get(changes, Bal, [])]
+      };
 put(view, V, Bal) when is_list(V) ->
   case valid_latin1_str_list(V) of
     true ->
@@ -313,6 +320,7 @@ get(pubkey, Bal) -> maps:get(pubkey, Bal, <<>>);
 get(ld, Bal) ->     maps:get(ld, Bal, 0);
 get(usk, Bal) ->    maps:get(usk, Bal, 0);
 get(vm, Bal) ->     maps:get(vm, Bal, undefined);
+get(vmopts, Bal) -> maps:get(vmopts, Bal, #{});
 get(view, Bal) ->   maps:get(view, Bal, undefined);
 get(state, Bal) ->  maps:get(state, Bal, undefined);
 get(code, #{code:=C}) when is_function(C) -> C();

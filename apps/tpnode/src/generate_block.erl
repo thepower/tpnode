@@ -807,22 +807,8 @@ try_process([{TxID, #{ver:=2,
        true -> ok
     end,
 
-    {CG, CB, CA}=case settings:get([<<"current">>, <<"allocblock">>], SetState) of
-                   #{<<"block">> := CurBlk,
-                     <<"group">> := CurGrp,
-                     <<"last">> := CurAddr} ->
-                     {CurGrp, CurBlk, CurAddr+1};
-                   _ ->
-                     throw(unallocable)
-                 end,
+    {ok,NewBAddr, SS1, AAlloc} = aalloc(SetState),
 
-    NewBAddr=naddress:construct_public(CG, CB, CA),
-
-    IncAddr=#{<<"t">> => <<"set">>,
-              <<"p">> => [<<"current">>, <<"allocblock">>, <<"last">>],
-              <<"v">> => CA},
-    AAlloc={<<"aalloc">>, #{sig=>[], patch=>[IncAddr]}},
-    SS1=settings:patch(AAlloc, SetState),
     lager:info("Alloc address ~p ~s for key ~s",
                [NewBAddr,
                 naddress:encode(NewBAddr),
@@ -835,7 +821,7 @@ try_process([{TxID, #{ver:=2,
     lager:info("try process register tx [~p]: ~p", [NewBAddr, NewTx]),
     try_process(Rest, SS1, NewAddresses, GetFun,
                 Acc#{success=> [{TxID, NewTx}|Success],
-                     settings=>[AAlloc|lists:keydelete(<<"aalloc">>, 1, Settings)]
+                     settings=>replace_set(AAlloc, Settings)
                     })
   catch throw:X ->
           lager:info("Address alloc fail ~p", [X]),
@@ -880,23 +866,8 @@ try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
        true -> ok
     end,
 
-    {CG, CB, CA}=case settings:get([<<"current">>, <<"allocblock">>], SetState) of
-                   #{<<"block">> := CurBlk,
-                     <<"group">> := CurGrp,
-                     <<"last">> := CurAddr} ->
-                     {CurGrp, CurBlk, CurAddr+1};
-                   _ ->
-                     throw(unallocable)
-                 end,
-
-    NewBAddr=naddress:construct_public(CG, CB, CA),
-
-    IncAddr=#{<<"t">> => <<"set">>,
-              <<"p">> => [<<"current">>, <<"allocblock">>, <<"last">>],
-              <<"v">> => CA},
-    AAlloc={<<"aalloc">>, #{sig=>[], patch=>[IncAddr]}},
-    SS1=settings:patch(AAlloc, SetState),
-    lager:info("Alloc address ~p ~s for key ~s",
+    {ok,NewBAddr, SS1, AAlloc} = aalloc(SetState),
+    lager:info("Deprecated Alloc address ~p ~s for key ~s",
                [NewBAddr,
                 naddress:encode(NewBAddr),
                 bin2hex:dbin2hex(PubKey)
@@ -912,7 +883,7 @@ try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
           end,
     try_process(Rest, SS1, NewAddresses, GetFun,
                 Acc#{success=> [{TxID, FixTx}|Success],
-                     settings=>[AAlloc|lists:keydelete(<<"aalloc">>, 1, Settings)]
+                     settings=>replace_set(AAlloc, Settings)
                     })
   catch throw:X ->
           lager:info("Address alloc fail ~p", [X]),
@@ -1772,32 +1743,6 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
              end, AAcc0, Txs);
           ({_, #{patch:=_}}, AAcc) -> AAcc;
           ({_, #{register:=_}}, AAcc) -> AAcc;
-          %          ({_, #{from:=F, portin:=_ToChain}}, SAcc) ->
-          %           case maps:get(F, AAcc, undefined) of
-          %                undefined ->
-          %                  AddrInfo1=GetAddr(F),
-          %                  maps:put(F, AddrInfo1#{keep=>false}, AAcc);
-          %                _ ->
-          %                  AAcc
-          %              end;
-          %          ({_, #{from:=F, portout:=_ToChain}}, {AAcc, SAcc}) ->
-          %           A1=case maps:get(F, AAcc, undefined) of
-          %                undefined ->
-          %                  AddrInfo1=GetAddr(F),
-          %                  lager:info("Add address for portout ~p", [AddrInfo1]),
-          %                  maps:put(F, AddrInfo1#{keep=>false}, AAcc);
-          %                _ ->
-          %                  AAcc
-          %              end,
-          %           {A1, SAcc};
-          %          ({_, #{from:=F, deploy:=_}}, AAcc) ->
-          %           case maps:get(F, AAcc, undefined) of
-          %                undefined ->
-          %                  AddrInfo1=GetAddr(F),
-          %                  maps:put(F, AddrInfo1#{keep=>false}, AAcc);
-          %                _ ->
-          %                  AAcc
-          %              end;
           ({_TxID, #{ver:=2, to:=T, from:=F, payload:=_}}=_TX, AAcc) ->
            FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
            TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
@@ -2066,6 +2011,28 @@ return_gas(_Tx, {GCur, GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
       Bal0
   end.
 
-
 settings_hash(NewSettings) when is_map(NewSettings) ->
   maphash:hash(NewSettings).
+
+replace_set({Key,_}=New,Settings) ->
+  [New|lists:keydelete(Key, 1, Settings)].
+
+aalloc(SetState) ->
+  {CG, CB, CA}=case settings:get([<<"current">>, <<"allocblock">>], SetState) of
+                 #{<<"block">> := CurBlk,
+                   <<"group">> := CurGrp,
+                   <<"last">> := CurAddr} ->
+                   {CurGrp, CurBlk, CurAddr+1};
+                 _ ->
+                   throw(unallocable)
+               end,
+
+    NewBAddr=naddress:construct_public(CG, CB, CA),
+
+    IncAddr=#{<<"t">> => <<"set">>,
+              <<"p">> => [<<"current">>, <<"allocblock">>, <<"last">>],
+              <<"v">> => CA},
+    AAlloc={<<"aalloc">>, #{sig=>[], patch=>[IncAddr]}},
+    SS1=settings:patch(AAlloc, SetState),
+
+    {ok, NewBAddr, SS1, AAlloc}.
