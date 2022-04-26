@@ -263,7 +263,7 @@ node_addresses() ->
 
 cert(Key, Subject) ->
   Env=application:get_env(tpnode,tpic,#{}),
-  OpenSSL=maps:get(openssl,Env,"/usr/local/bin/openssl"),
+  OpenSSL=maps:get(openssl,Env,os:find_executable("openssl")),
   H=erlang:open_port(
       {spawn_executable, OpenSSL},
       [{args, [
