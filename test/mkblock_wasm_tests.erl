@@ -285,11 +285,12 @@ brom_test() ->
                         #{purpose=>srcfee, amount=>1100, cur=><<"FTT">>},
                         #{purpose=>gas, amount=>30000, cur=><<"FTT">>}
                        ],
-              call=>#{function=>"init",args=> [
-                                               [binary_to_list(naddress:encode(Addr2)),
-                                                "AA100000171127710742",
-                                                "AA100000171127710742"]
-                                              ]},
+              call=>#{function=>"init",
+                      args=> [
+                              [binary_to_list(naddress:encode(Addr2)),
+                               "AA100000171127710742",
+                               "AA100000171127710742"]
+                             ]},
               txext=>#{ "code"=> Code,
                         "vm" => "wasm"
                       }

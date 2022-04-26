@@ -125,9 +125,6 @@ process_delayed_txs(_GetFun, #{emit:=Emit, settings:=Settings, parent:=P,
                          AccTos
                         }
                     end, {[],[]}, Emit),
-  %settings:patch(settings:get_patches(#{<<"current">>=>#{<<"delaytx">>=>#{1234=>[<<"a">>,<<"b">>]}}}),#{<<"current">> =>#{<<"delaytx">> => #{1234 => [<<"x">>,<<"f">>]}}}).
-
-
 
   case length(ToSet) of
     0 ->
@@ -147,9 +144,6 @@ process_delayed_txs(_GetFun, #{emit:=Emit, settings:=Settings, parent:=P,
         settings=>[SyncPatch|Settings]
        }
   end.
-
-%  new_settings => Settings
-%{<<"p">>=>[<<"current">>,<<"delaytx">>,1618591958],<<"t">>=><<"list_del">>,<<"v">>=>
 
 txfind([],_TxID) ->
   false;
@@ -319,46 +313,6 @@ try_process([{BlID, #{ hash:=BHash,
                        })
   end;
 
-%process settings
-try_process([{TxID,
-              #{patch:=_LPatch,
-                sig:=_,
-                sigverify:=#{valid:=ValidSig}
-               }=Tx}|Rest], SetState, Addresses, GetFun,
-            #{failed:=Failed,
-              settings:=Settings}=Acc) ->
-  try
-    NeedSig=chainsettings:get(patchsig,SetState),
-    if(length(ValidSig)<NeedSig) ->
-        throw({patchsig, NeedSig});
-      true ->
-        ok
-    end,
-    SS1=settings:patch({TxID, Tx}, SetState),
-    lager:info("Success Patch ~p against settings ~p", [_LPatch, SetState]),
-    try_process(Rest, SS1, Addresses, GetFun,
-                Acc#{
-                  settings=>[{TxID, Tx}|Settings]
-                 }
-               )
-  catch throw:Ee ->
-          lager:info("Fail to Patch ~p ~p",
-                     [_LPatch, Ee]),
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{
-                        failed=>[{TxID, Ee}|Failed]
-                       });
-        Ec:Ee:S ->
-          %S=erlang:get_stacktrace(),
-          lager:info("Fail to Patch ~p ~p:~p against settings ~p",
-                     [_LPatch, Ec, Ee, SetState]),
-          lager:info("at ~p", [S]),
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{
-                        failed=>[{TxID, Tx}|Failed]
-                       })
-  end;
-
 try_process([{TxID, #{ver:=2,
                       kind:=patch,
                       patches:=[_|_]=_LPatch,
@@ -399,72 +353,6 @@ try_process([{TxID, #{ver:=2,
                       Acc#{
                         failed=>[{TxID, Tx}|Failed]
                        })
-  end;
-
-
-
-try_process([{TxID,
-              #{seq:=_Seq, timestamp:=_Timestamp, to:=To, portin:=PortInBlock}=Tx}
-             |Rest],
-            SetState, Addresses, GetFun,
-            #{success:=Success, failed:=Failed}=Acc) ->
-  lager:notice("TODO:Check signature once again and check seq"),
-  try
-    throw('fixme_portin'),
-    Bals=maps:get(To, Addresses),
-    case Bals of
-      #{} ->
-        ok;
-      #{chain:=_} ->
-        ok;
-      _ ->
-        throw('address_exists')
-    end,
-    lager:notice("TODO:check block before porting in"),
-    NewAddrBal=maps:get(To, maps:get(bals, PortInBlock)),
-
-    NewAddresses=maps:fold(
-                   fun(Cur, Info, FAcc) ->
-                       maps:put({To, Cur}, Info, FAcc)
-                   end, Addresses, maps:remove(To, NewAddrBal)),
-    try_process(Rest, SetState, NewAddresses, GetFun,
-                Acc#{success=>[{TxID, Tx}|Success]})
-  catch throw:X ->
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{failed=>[{TxID, X}|Failed]})
-  end;
-
-try_process([{TxID,
-              #{seq:=_Seq, timestamp:=_Timestamp, from:=From, portout:=PortTo}=Tx}
-             |Rest],
-            SetState, Addresses, GetFun,
-            #{success:=Success, failed:=Failed}=Acc) ->
-  lager:notice("Ensure verified"),
-  try
-    throw('fixme_portout'),
-    Bals=maps:get(From, Addresses),
-    A1=maps:remove(keep, Bals),
-    Empty=maps:size(A1)==0,
-    OffChain=maps:is_key(chain, A1),
-    if Empty -> throw('badaddress');
-       OffChain -> throw('offchain');
-       true -> ok
-    end,
-    ValidChains=chainsettings:by_path([chains]),
-    case lists:member(PortTo, ValidChains) of
-      true ->
-        ok;
-      false ->
-        throw ('bad_chain')
-    end,
-    NewAddresses=maps:put(From, #{chain=>PortTo}, Addresses),
-    lager:info("Portout ok"),
-    try_process(Rest, SetState, NewAddresses, GetFun,
-                Acc#{success=>[{TxID, Tx}|Success]})
-  catch throw:X ->
-          lager:info("Portout fail ~p", [X]),
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{failed=>[{TxID, X}|Failed]})
   end;
 
 try_process([{TxID, #{
@@ -596,7 +484,7 @@ try_process([{TxID, #{
                throw('unknown_vm')
        end,
     code:ensure_loaded(VM),
-    A4=erlang:function_exported(VM,deploy,4),
+    A5=erlang:function_exported(VM,deploy,5),
     A6=erlang:function_exported(VM,deploy,6),
 
     State0=maps:get(state, Tx, <<>>),
@@ -615,43 +503,53 @@ try_process([{TxID, #{
             end,
       lager:info("Deploy contract ~s for ~s gas ~w",
                  [VM, naddress:encode(Owner), {GCur,GAmount,GRate}]),
-      lager:info("A4 ~p A6 ~p",[A4,A6]),
+      lager:info("A5 ~p A6 ~p",[A5,A6]),
       IGas=GAmount*GRate,
       Left=fun(GL) ->
                lager:info("VM run gas ~p -> ~p",[IGas,GL]),
                {GCur, GL div GRate, GRate}
            end,
-      {St1,GasLeft,NewCode}=if A4 ->
-                         case erlang:apply(VM, deploy, [Tx, mbal:msgpack_state(Bal), IGas, GetFun]) of
+      OpaqueState=#{x=>deploy},
+      {St1,GasLeft,NewCode,OpaqueState2}=if A5 ->
+                         case erlang:apply(VM, deploy, [Tx, mbal:msgpack_state(Bal), IGas, GetFun,
+                                                        OpaqueState]) of
                            {ok, #{null:="exec",
-                                  "err":=Err}} ->
+                                  "err":=Err}, _Opaque} ->
                              try
                                AErr=erlang:list_to_existing_atom(Err),
                                throw(AErr)
                              catch error:badarg ->
                                      throw(Err)
                              end;
+                           {ok, #{null:="exec", "state":=St2, "gas":=IGasLeft, "code":=Code1 }, Opaque} ->
+                             {St2, Left(IGasLeft), Code1, Opaque};
+                           {ok, #{null:="exec", "state":=St2, "gas":=IGasLeft }, Opaque} ->
+                             {St2, Left(IGasLeft), undefined, Opaque};
                            {ok, #{null:="exec", "state":=St2, "gas":=IGasLeft, "code":=Code1 }} ->
-                             {St2, Left(IGasLeft), Code1};
+                             logger:info("Deploy does not returned opaque state"),
+                             {St2, Left(IGasLeft), Code1, OpaqueState};
                            {ok, #{null:="exec", "state":=St2, "gas":=IGasLeft }} ->
-                             {St2, Left(IGasLeft), undefined};
+                             logger:info("Deploy does not returned opaque state"),
+                             {St2, Left(IGasLeft), undefined, OpaqueState};
                            {error, Error} ->
                              throw(Error);
                            _Any ->
                              lager:error("Deploy error ~p",[_Any]),
                              throw(other_error)
-                         end;
-                       A6 ->
-                         case erlang:apply(VM, deploy, [Owner, mbal:msgpack_state(Bal), Code, State0, 1, GetFun]) of
-                           {ok, NewS} ->
-                             {NewS, Left(0)};
-                           {error, Error} ->
-                             throw({'deploy_error', Error});
-                           _Any ->
-                             lager:error("Deploy error ~p",[_Any]),
-                             throw({'deploy_error', other})
                          end
+%                         ;
+%                       A6 ->
+%                         case erlang:apply(VM, deploy, [Owner, mbal:msgpack_state(Bal), Code, State0, 1, GetFun]) of
+%                           {ok, NewS} ->
+%                             {NewS, Left(0)};
+%                           {error, Error} ->
+%                             throw({'deploy_error', Error});
+%                           _Any ->
+%                             lager:error("Deploy error ~p",[_Any]),
+%                             throw({'deploy_error', other})
+%                         end
                     end,
+      OpaqueState2=OpaqueState, %%assert
 
       St1Dec = if is_binary(St1) ->
                     {ok, St1Dec1}=msgpack:unpack(St1),
@@ -831,75 +729,12 @@ try_process([{TxID, #{ver:=2,
                 bin2hex:dbin2hex(PubKey)
                ]),
 
-    NewF=mbal:put(pubkey, PubKey, bal:new()),
+    NewF=mbal:put(pubkey, PubKey, mbal:new()),
     NewAddresses=maps:put(NewBAddr, NewF, Addresses),
     NewTx=maps:remove(inv,tx:set_ext(<<"addr">>,NewBAddr,Tx)),
     lager:info("try process register tx [~p]: ~p", [NewBAddr, NewTx]),
     try_process(Rest, SetState, NewAddresses, GetFun,
                 Acc#{success=> [{TxID, NewTx}|Success],
-                     aalloc=>AAl1
-                    })
-  catch throw:X ->
-          lager:info("Address alloc fail ~p", [X]),
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{failed=>[{TxID, X}|Failed]})
-  end;
-
-try_process([{TxID, #{register:=PubKey,pow:=Pow}=Tx} |Rest],
-            SetState, Addresses, GetFun,
-            #{failed:=Failed,
-              aalloc:=AAl,
-              success:=Success,
-              settings:=_Settings }=Acc) ->
-  lager:notice("Deprecated register method"),
-  try
-    RegSettings=settings:get([<<"current">>, <<"register">>], SetState),
-    Diff=maps:get(<<"diff">>,RegSettings,0),
-    Inv=maps:get(<<"invite">>,RegSettings,0),
-    lager:info("Expected diff ~p ~p",[Diff,Inv]),
-    lager:info("tx ~p",[Tx]),
-
-    Tx1=if Inv==1 ->
-             [Invite|_]=binary:split(Pow,<<" ">>,[global]),
-             Invites=maps:get(<<"invites">>,RegSettings,[]),
-             HI=crypto:hash(md5,Invite),
-             InvFound=lists:member(HI,Invites),
-             lager:info("Inv ~p ~p",[Invite,InvFound]),
-             if InvFound ->
-                  Tx#{invite=>HI};
-                true ->
-                  throw(bad_invite_code)
-             end;
-           true ->
-             Tx
-        end,
-
-    if Diff=/=0 ->
-         <<PowHash:Diff/big,_/binary>>=crypto:hash(sha512,Pow),
-         if PowHash>0 ->
-              throw({required_difficult,Diff});
-            true -> ok
-         end;
-       true -> ok
-    end,
-
-    {ok, NewBAddr, AAl1} = aalloc(AAl),
-    lager:info("Deprecated Alloc address ~p ~s for key ~s",
-               [NewBAddr,
-                naddress:encode(NewBAddr),
-                bin2hex:dbin2hex(PubKey)
-               ]),
-
-    NewF=mbal:put(pubkey, PubKey, bal:new()),
-    NewAddresses=maps:put(NewBAddr, NewF, Addresses),
-    FixTx=case maps:get(<<"cleanpow">>, RegSettings, 0) of
-            1 ->
-              Tx1#{pow=>crypto:hash(sha512,Pow),address=>NewBAddr};
-            _ ->
-              Tx1#{address=>NewBAddr}
-          end,
-    try_process(Rest, SetState, NewAddresses, GetFun,
-                Acc#{success=> [{TxID, FixTx}|Success],
                      aalloc=>AAl1
                     })
   catch throw:X ->
@@ -1287,8 +1122,8 @@ savegas({Cur, Amount1, _}, {Cur, Amount2, _},
 
 savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
   Acc#{
-    fee=>mbal:put_cur(Cur, Fee+bal:get_cur(Cur, FeeBal), FeeBal),
-    tip=>mbal:put_cur(Cur, Tip+bal:get_cur(Cur, TipBal), TipBal)
+    fee=>mbal:put_cur(Cur, Fee+mbal:get_cur(Cur, FeeBal), FeeBal),
+    tip=>mbal:put_cur(Cur, Tip+mbal:get_cur(Cur, TipBal), TipBal)
    }.
 
 gas_plus_int({Cur,Amount, Rate}, Int, false) ->
@@ -1316,28 +1151,34 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit, #{height:=Hei,
                 _ -> 0
               end,
       lager:info("Smartcontract ~p gas ~p free gas ~p", [VMType, GasLimit, FreeGas]),
-      {L1, TXs, GasLeft} =
+      OpaqueState=#{a=>deposit},
+
+      {L1, TXs, GasLeft, OpaqueState2} =
       if FreeGas > 0 ->
            GasWithFree=gas_plus_int(GasLimit,FreeGas,false),
            lager:info("Run with free gas ~p+~p=~p",
                       [GasLimit,FreeGas,GasWithFree]),
-           {L1x,TXsx,GasLeftx} =
+           {L1x,TXsx,GasLeftx,OpaqueState2a} =
            smartcontract:run(VMType, Tx, NewT,
                              GasWithFree,
-                             GetFun),
+                             GetFun,
+                             OpaqueState),
+
            TakenFree=gas_plus_int(GasLeftx,-FreeGas,true),
            case is_gas_left(TakenFree) of
              true ->
                lager:info("Gas left ~p, take back free gas and return ~p",
                           [GasLeftx,TakenFree]),
-               {L1x,TXsx,TakenFree};
+               {L1x,TXsx,TakenFree,OpaqueState2a};
              false ->
                lager:info("Gas left ~p, return nothing",[GasLeftx]),
-               {L1x,TXsx,{<<"NONE">>,0,1}}
+               {L1x,TXsx,{<<"NONE">>,0,1},OpaqueState2a}
            end;
          true ->
-           smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun)
+           smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun, OpaqueState)
       end,
+
+      OpaqueState2=OpaqueState, %%assert
       EmitTxs=lists:map(
                 fun(ETxBody) ->
                     Template=#{
@@ -1377,7 +1218,7 @@ deposit(Address, TBal,
       {NewT, [], GasLimit};
     VMType ->
       lager:info("Smartcontract ~p", [VMType]),
-      {L1, TXs, Gas}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun),
+      {L1, TXs, Gas, _Opaque}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun, #{}),
       {L1, lists:map(
              fun(#{seq:=Seq}=ETx) ->
                  H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
@@ -1500,7 +1341,6 @@ withdraw(FBal0,
                            tx:get_payloads(Tx,gas)
                           )
                      end,
-
     lager:info("Fee ~p Gas ~p", [GotFee,GotGas]),
 
     TakeMoney=fun(#{amount:=Amount, cur:= Cur}, FBal) ->
@@ -1563,147 +1403,6 @@ withdraw(FBal0,
                             lager:error("@ ~p", [SE])
                         end, S),
           throw('unknown_withdrawal_error')
-  end;
-
-withdraw(FBal,
-         #{cur:=Cur, seq:=Seq, timestamp:=Timestamp, amount:=Amount, from:=From}=Tx,
-         GetFun, Settings, _Opts) ->
-  lager:error("Deprecated withdraw"),
-  if Amount >= 0 ->
-       ok;
-     true ->
-       throw ('bad_amount')
-  end,
-  Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
-  IsContract=is_binary(mbal:get(vm, FBal)) andalso Contract_Issued=={ok, From},
-
-  lager:info("Withdraw ~p ~p", [IsContract, Tx]),
-  if Timestamp==0 andalso IsContract ->
-       ok;
-     is_integer(Timestamp) ->
-       case GetFun({valid_timestamp, Timestamp}) of
-         true ->
-           ok;
-         false ->
-           throw ('invalid_timestamp')
-       end;
-     true -> throw ('non_int_timestamp')
-  end,
-  LD=mbal:get(t, FBal) div 86400000,
-  CD=Timestamp div 86400000,
-  NoSK=if IsContract -> true;
-          true ->
-            case settings:get([<<"current">>, <<"nosk">>], Settings) of
-              1 -> true;
-              _ -> false
-            end
-       end,
-  if NoSK -> ok;
-     true ->
-       FSK=mbal:get_cur(<<"SK">>, FBal),
-       FSKUsed=if CD>LD ->
-                    0;
-                  true ->
-                    mbal:get(usk, FBal)
-               end,
-       if FSK < 1 ->
-            case GetFun({endless, From, <<"SK">>}) of
-              true -> ok;
-              false -> throw('no_sk')
-            end;
-          FSKUsed >= FSK -> throw('sk_limit');
-          true -> ok
-       end
-  end,
-  CurFSeq=mbal:get(seq, FBal),
-  if CurFSeq < Seq -> ok;
-     true ->
-       %==== DEBUG CODE
-       L=try
-           mledger:get(From)
-         catch _:_ ->
-                 cant_get_ledger
-         end,
-       lager:error("Bad seq addr ~p, cur ~p tx ~p, ledger ~p",
-                   [From, CurFSeq, Seq, L]),
-       %==== END DEBU CODE
-       throw ('bad_seq')
-  end,
-  CurFTime=mbal:get(t, FBal),
-  if CurFTime < Timestamp -> ok;
-     IsContract andalso Timestamp==0 -> ok;
-     true -> throw ('bad_timestamp')
-  end,
-  CurFAmount=mbal:get_cur(Cur, FBal),
-  NewFAmount=if CurFAmount >= Amount ->
-                  CurFAmount - Amount;
-                true ->
-                  case GetFun({endless, From, Cur}) of
-                    true ->
-                      CurFAmount - Amount;
-                    false ->
-                      throw ('insufficient_fund')
-                  end
-             end,
-  NewBal=maps:remove(keep,
-                     mbal:put_cur(
-                       Cur,
-                       NewFAmount,
-                       mbal:mput(
-                         Seq,
-                         Timestamp,
-                         FBal,
-                         if IsContract ->
-                              false;
-                            true ->
-                              if CD>LD -> reset;
-                                 true -> true
-                              end
-                         end
-                        )
-                      )
-                    ),
-  GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
-                settings:get([<<"current">>, <<"fee">>, FeeCur], Settings);
-                ({params, Parameter}) ->
-                settings:get([<<"current">>, <<"fee">>, params, Parameter], Settings)
-            end,
-  {FeeOK, #{cost:=MinCost}=Fee}=if IsContract ->
-                                     {true, #{cost=>0, tip=>0, cur=>Cur}};
-                                   true ->
-                                     Rate=tx:rate(Tx, GetFeeFun),
-                                     lager:info("Rate ~p", [Rate]),
-                                     Rate
-                                     %{true, #{cost=>0, tip=>0, cur=><<>>}}
-                                end,
-  if FeeOK -> ok;
-     true -> throw ({'insufficient_fee', MinCost})
-  end,
-  #{cost:=FeeCost, tip:=Tip0, cur:=FeeCur}=Fee,
-  if FeeCost == 0 ->
-       {NewBal, FBal, {Cur, 0, 0}, {<<"NONE">>,0,1}};
-     true ->
-       Tip=case GetFeeFun({params, <<"notip">>}) of
-             1 -> 0;
-             _ -> Tip0
-           end,
-       FeeAmount=FeeCost+Tip,
-       CurFFeeAmount=mbal:get_cur(FeeCur, NewBal),
-       NewFFeeAmount=if CurFFeeAmount >= FeeAmount ->
-                          CurFFeeAmount - FeeAmount;
-                        true ->
-                          case GetFun({endless, From, FeeCur}) of
-                            true ->
-                              CurFFeeAmount - FeeAmount;
-                            false ->
-                              throw ('insufficient_fund_for_fee')
-                          end
-                     end,
-       NewBal2=mbal:put_cur(FeeCur,
-                            NewFFeeAmount,
-                            NewBal
-                           ),
-       {NewBal2, FBal, {FeeCur, FeeCost, Tip} ,{<<"NONE">>,0,1}}
   end.
 
 sort_txs(PreTXL) ->
@@ -1736,13 +1435,13 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            fun(default, Acc) ->
                BinAddr=naddress:construct_private(0, 0),
                maps:put(BinAddr,
-                        mbal:fetch(BinAddr, <<"ANY">>, true, bal:new(), GetAddr),
+                        mbal:fetch(BinAddr, <<"ANY">>, true, mbal:new(), GetAddr),
                         Acc);
               (Type, Acc) ->
                case settings:get([<<"current">>, <<"fee">>, params, Type], XSettings) of
                  BinAddr when is_binary(BinAddr) ->
                    maps:put(BinAddr,
-                            mbal:fetch(BinAddr, <<"ANY">>, true, bal:new(), GetAddr),
+                            mbal:fetch(BinAddr, <<"ANY">>, true, mbal:new(), GetAddr),
                             Acc);
                  _ ->
                    Acc
@@ -1758,8 +1457,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                  TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
                  maps:put(T, TB, AAcc)
              end, AAcc0, Txs);
-          ({_, #{patch:=_}}, AAcc) -> AAcc;
-          ({_, #{register:=_}}, AAcc) -> AAcc;
+          ({_TxID, #{ver:=2, kind:=patches}}=_TX, AAcc) ->
+           AAcc;
           ({_TxID, #{ver:=2, to:=T, from:=F, payload:=_}}=_TX, AAcc) ->
            FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
            TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),

@@ -3,21 +3,25 @@
 -callback deploy(Tx :: tx:tx(),
          Ledger :: map(),
          GasLimit :: integer(),
-         GetFun :: fun()) ->
-  {'ok', NewLedger :: map()}.
+         GetFun :: fun(),
+         Opaque :: map()) ->
+  {'ok', NewLedger :: map(), Opaque::map()} | {'error', Reason::term()}.
 
 -callback handle_tx(Tx :: map(),
           Ledger :: map(),
           GasLimit :: integer(),
-          GetFun :: fun()) ->
+          GetFun :: fun(),
+          Opaque :: map()) ->
   {'ok',  %success finish, emit new txs
    NewState :: 'unchanged' | binary(), % atom unchanged if no state changed
    GasLeft :: integer(),
-   EmitTxs :: list()
+   EmitTxs :: list(),
+   Opaque :: map()
   } |
   {'ok',  %success finish
    NewState :: 'unchanged' | binary(), % atom unchanged if no state changed
-   GasLeft :: integer()
+   GasLeft :: integer(),
+   Opaque :: map()
   } |
   {'error', %error during execution
    Reason :: 'insufficient_gas' | string(),

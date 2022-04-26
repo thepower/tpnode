@@ -464,17 +464,22 @@ make_transaction(From, To, Currency, Amount, Message) ->
 make_transaction(Node, From, To, Currency, Amount, Message) ->
     Seq = get_sequence(Node, From),
     logger("seq for wallet ~p is ~p ~n", [From, Seq]),
-    Tx = #{
-        amount => Amount,
-        cur => Currency,
-        extradata =>jsx:encode(#{message=>Message}),
-        from => naddress:decode(From),
-        to => naddress:decode(To),
-        seq=> Seq + 1,
-        timestamp => os:system_time(millisecond)
-    },
+    Tx = tx:construct_tx(#{
+                           ver=>2,
+                           kind=>generic,
+                           from => naddress:decode(From),
+                           to => naddress:decode(To),
+                           t => os:system_time(millisecond),
+                           payload => [
+                                       #{purpose=>transfer, amount => Amount, cur => Currency}
+                                      ],
+                           txext =>#{
+                                     msg=>Message
+                                    },
+                           seq=> Seq + 1
+                          }),
     logger("transaction body ~p ~n", [Tx]),
-    SignedTx = tx:sign(Tx, get_wallet_priv_key()),
+    SignedTx = tx:pack(tx:sign(Tx, get_wallet_priv_key())),
     Res4 = api_post_transaction(SignedTx),
     maps:get(<<"txid">>, Res4, unknown).
 
@@ -827,18 +832,18 @@ transaction_test(_Config) ->
       rpc:call(get_node(get_default_nodename()), nodekey, get_priv, []),
   
     PatchTx = tx:sign(
-      tx:construct_tx(
-        #{kind=>patch,
-          ver=>2,
-          patches=>
-          [#{<<"t">>=><<"set">>,
-            <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, Cur],
-            <<"v">>=>true},
-            #{<<"t">>=><<"set">>,
-              <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, <<"SK">>],
-              <<"v">>=>true}]
-        }
-      ), C4N1NodePrivKey),
+                tx:construct_tx(
+                  #{kind=>patch,
+                    ver=>2,
+                    patches=>
+                    [#{<<"t">>=><<"set">>,
+                       <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, Cur],
+                       <<"v">>=>true},
+                     #{<<"t">>=><<"set">>,
+                       <<"p">>=>[<<"current">>, <<"endless">>, EndlessAddress, <<"SK">>],
+                       <<"v">>=>true}]
+                   }
+                 ), C4N1NodePrivKey),
   
     {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {new_tx, PatchTx}),
     logger("PatchTxId: ~p~n", [PatchTxId]),

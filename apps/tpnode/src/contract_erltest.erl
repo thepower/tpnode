@@ -1,12 +1,12 @@
 -module(contract_erltest).
 -behaviour(smartcontract2).
 
--export([deploy/4, handle_tx/4, getters/0, get/3, info/0]).
+-export([deploy/5, handle_tx/5, getters/0, get/3, info/0]).
 
 info() ->
 	{<<"erltest">>, <<"Erlang VM for unit testing">>}.
 
-deploy(Tx, Ledger, GasLimit, GetFun) ->
+deploy(Tx, Ledger, GasLimit, GetFun, _Opaque) ->
   Entropy=GetFun(entropy),
   MeanTime=GetFun(mean_time),
   XtraFields=#{ "mean_time" => MeanTime,
@@ -21,7 +21,7 @@ deploy(Tx, Ledger, GasLimit, GetFun) ->
                      }
          end, "erltest", 1, []).
 
-handle_tx(Tx, Ledger, GasLimit, GetFun) ->
+handle_tx(Tx, Ledger, GasLimit, GetFun, _Opaque) ->
   Entropy=GetFun(entropy),
   MeanTime=GetFun(mean_time),
   XtraFields=#{ "mean_time" => MeanTime,

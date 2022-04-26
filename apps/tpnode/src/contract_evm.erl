@@ -1,7 +1,7 @@
 -module(contract_evm).
 -behaviour(smartcontract2).
 
--export([deploy/4, handle_tx/4, getters/0, get/3, info/0, call/3]).
+-export([deploy/5, handle_tx/5, getters/0, get/3, info/0, call/3]).
 
 info() ->
 	{<<"evm">>, <<"EVM">>}.
@@ -15,7 +15,7 @@ convert_storage(Map) ->
     end,#{},Map).
 
 
-deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, _GetFun) ->
+deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, _GetFun, Opaque) ->
   %DefCur=maps:get("evmcur",TE,<<"SK">>),
   Value=case tx:get_payload(Tx, transfer) of
           undefined ->
@@ -53,7 +53,7 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, _GetFun) -
              "state"=>convert_storage(NewStorage),
              "gas"=>GasLeft,
              "txs"=>[]
-            }};
+            }, Opaque};
     {done, 'stop', _} ->
       io:format("Deploy -> stop~n",[]),
       {error, deploy_stop};
@@ -90,7 +90,7 @@ encode_arg(_,_) ->
   throw(arg_encoding_error).
 
 
-handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit, _GetFun) ->
+handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit, _GetFun, Opaque) ->
   {ok,State}=msgpack:unpack(State0),
 
   Value=case tx:get_payload(Tx, transfer) of
@@ -141,25 +141,25 @@ handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit
   case Result of
     {done, {return,RetVal}, #{ gas:=GasLeft, storage:=NewStorage }} ->
       {ok, #{null=>"exec",
-             "diffstate"=>convert_storage(NewStorage),
+             "storage"=>convert_storage(NewStorage),
              "return"=>RetVal,
              "gas"=>GasLeft,
-             "txs"=>[]}};
+             "txs"=>[]}, Opaque};
     {done, 'stop', #{ gas:=GasLeft, storage:=NewStorage }} ->
       {ok, #{null=>"exec",
-             "diffstate"=>convert_storage(NewStorage),
+             "storage"=>convert_storage(NewStorage),
              "gas"=>GasLeft,
-             "txs"=>[]}};
+             "txs"=>[]}, Opaque};
     {done, 'invalid', _} ->
       {ok, #{null=>"exec",
              "state"=>unchanged,
              "gas"=>0,
-             "txs"=>[]}};
+             "txs"=>[]}, Opaque};
     {done, {revert, _}, #{ gas:=GasLeft}} ->
       {ok, #{null=>"exec",
              "state"=>unchanged,
              "gas"=>GasLeft,
-             "txs"=>[]}};
+             "txs"=>[]}, Opaque};
     {error, nogas, #{storage:=NewStorage}} ->
       io:format("St ~w keys~n",[maps:size(NewStorage)]),
       io:format("St ~p~n",[(NewStorage)]),
