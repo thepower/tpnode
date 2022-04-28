@@ -1140,7 +1140,7 @@ deposit(Address, Addresses, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
                      end, TBal0, tx:get_payloads(Tx,transfer))),
   case mbal:get(vm, NewT) of
     undefined ->
-      {NewT, [], GasLimit, Acc};
+      {maps:put(Address,NewT,Addresses), [], GasLimit, Acc};
     VMType ->
       FreeGas=case settings:get([<<"current">>, <<"freegas">>], Settings) of
                 N when is_integer(N), N>0 -> N;
@@ -1208,9 +1208,7 @@ deposit(Address, Addresses, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
   end.
 
 %this is only for depositing gathered fees
-depositf(Address, TBal,
-        #{cur:=Cur, amount:=Amount}=Tx,
-        GetFun, _Settings, GasLimit, Acc) ->
+depositf(Address, TBal, #{cur:=Cur, amount:=Amount}=Tx, GetFun, _Settings, GasLimit, Acc) ->
   NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
   NewT=maps:remove(keep,
                    mbal:put_cur( Cur, NewTAmount, TBal)
@@ -1553,7 +1551,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
      true -> ok
   end,
   _T4=erlang:system_time(),
-  lager:debug("Bals before clean ~p",[NewBal0]),
+  io:format("Bals before clean ~p~n",[NewBal0]),
   NewBal=maps:map(
            fun(_,Bal) ->
                mbal:prepare(Bal)
