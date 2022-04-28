@@ -1,7 +1,7 @@
 -module(generate_block).
 
 -export([generate_block/5, generate_block/6]).
--export([return_gas/4, sort_txs/1, txfind/2]).
+-export([return_gas/4, sort_txs/1, txfind/2, aalloc/1]).
 
 -define(MAX(A,B), if A>B -> A; true -> B end).
 
@@ -34,7 +34,7 @@ deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings, GAcc) ->
   TBal=maps:get(Addr, Addresses, mbal:new()),
   {TBal2, TXL2}=maps:fold(
                   fun(Cur, Summ, {Acc, TxAcc}) ->
-                      {NewT, NewTXL, _}=deposit(Addr, Acc,
+                      {NewT, NewTXL, _, _}=depositf(Addr, Acc,
                                                 #{cur=>Cur,
                                                   amount=>Summ,
                                                   to=>Addr},
@@ -461,6 +461,7 @@ try_process([{TxID, #{
                      }=Tx} |Rest],
             SetState, Addresses, GetFun,
             #{failed:=Failed,
+              aalloc:=AAlloc,
               success:=Success}=Acc) ->
   try
     Verify=try
@@ -485,9 +486,8 @@ try_process([{TxID, #{
        end,
     code:ensure_loaded(VM),
     A5=erlang:function_exported(VM,deploy,5),
-    A6=erlang:function_exported(VM,deploy,6),
 
-    State0=maps:get(state, Tx, <<>>),
+    %State0=maps:get(state, Tx, <<>>),
     Bal=maps:get(Owner, Addresses),
     {NewF, GasF, GotFee, {GCur,GAmount,GRate}=Gas}=withdraw(Bal, Tx, GetFun, SetState, []),
 
@@ -503,16 +503,19 @@ try_process([{TxID, #{
             end,
       lager:info("Deploy contract ~s for ~s gas ~w",
                  [VM, naddress:encode(Owner), {GCur,GAmount,GRate}]),
-      lager:info("A5 ~p A6 ~p",[A5,A6]),
       IGas=GAmount*GRate,
       Left=fun(GL) ->
                lager:info("VM run gas ~p -> ~p",[IGas,GL]),
                {GCur, GL div GRate, GRate}
            end,
-      OpaqueState=#{x=>deploy},
+      OpaqueState=#{aalloc=>AAlloc},
       {St1,GasLeft,NewCode,OpaqueState2}=if A5 ->
-                         case erlang:apply(VM, deploy, [Tx, mbal:msgpack_state(Bal), IGas, GetFun,
-                                                        OpaqueState]) of
+                         case erlang:apply(VM, deploy,
+                                           [Tx,
+                                            mbal:msgpack_state(Bal),
+                                            IGas,
+                                            GetFun,
+                                            OpaqueState]) of
                            {ok, #{null:="exec",
                                   "err":=Err}, _Opaque} ->
                              try
@@ -537,19 +540,8 @@ try_process([{TxID, #{
                              lager:error("Deploy error ~p",[_Any]),
                              throw(other_error)
                          end
-%                         ;
-%                       A6 ->
-%                         case erlang:apply(VM, deploy, [Owner, mbal:msgpack_state(Bal), Code, State0, 1, GetFun]) of
-%                           {ok, NewS} ->
-%                             {NewS, Left(0)};
-%                           {error, Error} ->
-%                             throw({'deploy_error', Error});
-%                           _Any ->
-%                             lager:error("Deploy error ~p",[_Any]),
-%                             throw({'deploy_error', other})
-%                         end
                     end,
-      OpaqueState2=OpaqueState, %%assert
+      #{aalloc:=AAlloc2}=OpaqueState2,
 
       St1Dec = if is_binary(St1) ->
                     {ok, St1Dec1}=msgpack:unpack(St1),
@@ -580,7 +572,10 @@ try_process([{TxID, #{
       try_process(Rest, SetState, NewAddresses, GetFun,
                   savegas(Gas, GasLeft,
                           savefee(GotFee,
-                                  Acc#{success=> [{TxID, Tx}|Success]}
+                                  Acc#{
+                                    success=> [{TxID, Tx}|Success],
+                                    aalloc=>AAlloc2
+                                   }
                                  )
                          ))
     catch throw:insufficient_gas=ThrowReason ->
@@ -818,8 +813,8 @@ try_process_inbound([{TxID,
         end,
 
     lager:info("Orig Block ~p", [OriginBlock]),
-    {NewT, NewEmit, GasLeft}=deposit(To, maps:get(To, Addresses), Tx, GetFun, RealSettings, Gas, Acc),
-    Addresses2=maps:put(To, NewT, Addresses),
+    {Addresses2, NewEmit, GasLeft, Acc1}=deposit(To, Addresses, Tx, GetFun, RealSettings, Gas, Acc),
+    %Addresses2=maps:put(To, NewT, Addresses),
 
     NewAddresses=case GasLeft of
                    {_, 0, _} ->
@@ -842,7 +837,7 @@ try_process_inbound([{TxID,
             Tx#{extdata=>NewExt}
            ),
     try_process(Rest, SetState, NewAddresses, GetFun,
-                Acc#{success=>[{TxID, FixTX}|Success],
+                Acc1#{success=>[{TxID, FixTX}|Success],
                      emit=>Emit ++ NewEmit,
                      pick_block=>maps:put(OriginBlock, 1, PickBlock)
                     })
@@ -1041,10 +1036,11 @@ try_process_local([{TxID,
     {NewF, GasF, GotFee, Gas}=withdraw(OrigF, Tx, GetFun, RealSettings, []),
     try
       Addresses1=maps:put(From, NewF, Addresses),
-      {NewT, NewEmit, GasLeft}=deposit(To, maps:get(To, Addresses1), Tx, GetFun, 
-                                       RealSettings, Gas, Acc),
+      {Addresses2, NewEmit, GasLeft, Acc1}=deposit(To, Addresses1,
+                                                   Tx, GetFun,
+                                                   RealSettings, Gas, Acc),
       lager:info("Local gas ~p -> ~p f ~p t ~p",[Gas, GasLeft, From, To]),
-      Addresses2=maps:put(To, NewT, Addresses1),
+      %Addresses2=maps:put(To, NewT, Addresses1),
 
       NewAddresses=case GasLeft of
                      {_, 0, _} ->
@@ -1071,7 +1067,7 @@ try_process_local([{TxID,
       try_process(Rest, SetState, NewAddresses, GetFun,
                   savegas(Gas, GasLeft,
                           savefee(GotFee,
-                                  Acc#{
+                                  Acc1#{
                                     success=>[{TxID, Tx1}|Success],
                                     emit=>Emit ++ NewEmit
                                    }
@@ -1088,7 +1084,6 @@ try_process_local([{TxID,
                                    )
                            )
                    )
-
     end
   catch
     error:{badkey,From} ->
@@ -1105,8 +1100,7 @@ try_process_local([{TxID,
 savegas({Cur, Amount1, Rate1}, all, Acc) ->
   savegas({Cur, Amount1, Rate1}, {Cur, 0, Rate1}, Acc);
 
-savegas({Cur, Amount1, _}, {Cur, Amount2, _},
-        #{fee:=FeeBal}=Acc) ->
+savegas({Cur, Amount1, _}, {Cur, Amount2, _}, #{fee:=FeeBal}=Acc) ->
   lager:info("save gas ~s ~w ~w",[Cur,Amount1, Amount2]),
   if Amount1-Amount2 > 0 ->
        Acc#{
@@ -1135,7 +1129,9 @@ gas_plus_int({Cur,Amount, Rate}, Int, true) ->
 is_gas_left({_,Amount,_Rate}) ->
   Amount>0.
 
-deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit, #{height:=Hei,parent:=Parent}=_Acc) ->
+deposit(Address, Addresses, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
+        #{height:=Hei,parent:=Parent,aalloc:=AAlloc}=Acc) ->
+  TBal0=maps:get(Address,Addresses),
   NewT=maps:remove(keep,
                    lists:foldl(
                      fun(#{amount:=Amount, cur:= Cur}, TBal) ->
@@ -1144,14 +1140,14 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit, #{height:=Hei,
                      end, TBal0, tx:get_payloads(Tx,transfer))),
   case mbal:get(vm, NewT) of
     undefined ->
-      {NewT, [], GasLimit};
+      {NewT, [], GasLimit, Acc};
     VMType ->
       FreeGas=case settings:get([<<"current">>, <<"freegas">>], Settings) of
                 N when is_integer(N), N>0 -> N;
                 _ -> 0
               end,
       lager:info("Smartcontract ~p gas ~p free gas ~p", [VMType, GasLimit, FreeGas]),
-      OpaqueState=#{a=>deposit},
+      OpaqueState=#{aalloc=>AAlloc,created=>[]},
 
       {L1, TXs, GasLeft, OpaqueState2} =
       if FreeGas > 0 ->
@@ -1177,8 +1173,9 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit, #{height:=Hei,
          true ->
            smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun, OpaqueState)
       end,
+      io:format("Opaque2 ~p~n",[OpaqueState2]),
 
-      OpaqueState2=OpaqueState, %%assert
+      #{aalloc:=AAlloc2,created:=Created}=OpaqueState2,
       EmitTxs=lists:map(
                 fun(ETxBody) ->
                     Template=#{
@@ -1203,22 +1200,27 @@ deposit(Address, TBal0, #{ver:=2}=Tx, GetFun, Settings, GasLimit, #{height:=Hei,
                      tx:set_ext( <<"contract_issued">>, Address, ETx)
                     }
                 end, TXs),
-      {L1, EmitTxs, GasLeft}
-  end;
+      Addresses2=lists:foldl(
+                   fun(Addr1,AddrAcc) ->
+                       maps:put(Addr1,maps:get(Addr1,OpaqueState2),AddrAcc)
+                   end, maps:put(Address,L1,Addresses), Created),
+      {Addresses2, EmitTxs, GasLeft, Acc#{aalloc=>AAlloc2}}
+  end.
 
-deposit(Address, TBal,
+%this is only for depositing gathered fees
+depositf(Address, TBal,
         #{cur:=Cur, amount:=Amount}=Tx,
-        GetFun, _Settings, GasLimit, _Acc) ->
+        GetFun, _Settings, GasLimit, Acc) ->
   NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
   NewT=maps:remove(keep,
                    mbal:put_cur( Cur, NewTAmount, TBal)
                   ),
   case mbal:get(vm, NewT) of
     undefined ->
-      {NewT, [], GasLimit};
+      {NewT, [], GasLimit, Acc};
     VMType ->
       lager:info("Smartcontract ~p", [VMType]),
-      {L1, TXs, Gas, _Opaque}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun, #{}),
+      {L1, TXs, Gas, _}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun, #{}),
       {L1, lists:map(
              fun(#{seq:=Seq}=ETx) ->
                  H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
@@ -1228,9 +1230,8 @@ deposit(Address, TBal,
                  {TxID,
                   tx:set_ext( <<"contract_issued">>, Address, ETx)
                  }
-             end, TXs), Gas}
+             end, TXs), Gas, Acc}
   end.
-
 
 withdraw(FBal0,
          #{ver:=2, seq:=Seq, t:=Timestamp, from:=From}=Tx,

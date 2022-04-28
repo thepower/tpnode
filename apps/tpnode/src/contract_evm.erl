@@ -2,6 +2,7 @@
 -behaviour(smartcontract2).
 
 -export([deploy/5, handle_tx/5, getters/0, get/3, info/0, call/3]).
+-export([transform_extra/1]).
 
 info() ->
 	{<<"evm">>, <<"EVM">>}.
@@ -32,20 +33,24 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, _GetFun, O
           Map when is_map(Map) -> Map;
           _ -> #{}
         end,
-  case eevm:eval(Code,
-                 State,
-                 #{
-                   logger=>Logger,
-                   gas=>GasLimit,
-                   data=>#{
-                           address=>binary:decode_unsigned(From),
-                           callvalue=>Value,
-                           caller=>binary:decode_unsigned(From),
-                           gasprice=>1,
-                           origin=>binary:decode_unsigned(From)
-                          },
-                   trace=>whereis(eevm_tracer)
-                  }) of
+
+  io:format("Run EVM~n"),
+  EvalRes = eevm:eval(Code,
+                      State,
+                      #{
+                        logger=>Logger,
+                        gas=>GasLimit,
+                        data=>#{
+                                address=>binary:decode_unsigned(From),
+                                callvalue=>Value,
+                                caller=>binary:decode_unsigned(From),
+                                gasprice=>1,
+                                origin=>binary:decode_unsigned(From)
+                               },
+                        trace=>whereis(eevm_tracer)
+                       }),
+  io:format("EvalRes ~p~n",[EvalRes]),
+  case EvalRes of
     {done, {return,NewCode}, #{ gas:=GasLeft, storage:=NewStorage }} ->
       io:format("Deploy -> OK~n",[]),
       {ok, #{null=>"exec",
@@ -90,7 +95,8 @@ encode_arg(_,_) ->
   throw(arg_encoding_error).
 
 
-handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit, _GetFun, Opaque) ->
+handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit, _GetFun,
+          Opaque) ->
   {ok,State}=msgpack:unpack(State0),
 
   Value=case tx:get_payload(Tx, transfer) of
@@ -120,11 +126,45 @@ handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit
          <<>>
      end,
 
+  CreateFun = fun(Value1, Code1, #{aalloc:=AAlloc}=Ex0) ->
+                  io:format("Ex0 ~p~n",[Ex0]),
+                  {ok, Addr, AAlloc1}=generate_block:aalloc(AAlloc),
+                  io:format("Address ~p~n",[Addr]),
+                  Ex1=Ex0#{aalloc=>AAlloc1},
+                  io:format("Ex1 ~p~n",[Ex1]),
+                  Deploy=eevm:eval(Code1,#{},#{gas=>100000, extra=>Ex1}),
+                  {done,{return,RX},#{storage:=StRet,extra:=Ex2}}=Deploy,
+                  io:format("Ex2 ~p~n",[Ex2]),
+
+                  St2=maps:merge(
+                        maps:get({Addr,state},Ex0,#{}),
+                        StRet),
+                  Ex3=maps:merge(Ex2,
+                                 #{
+                                   {Addr,state} => St2,
+                                   {Addr,code} => RX,
+                                   {Addr,value} => Value1
+                                  }
+                                ),
+                  io:format("Ex3 ~p~n",[Ex3]),
+                  Ex4=maps:put(created,[Addr|maps:get(created,Ex3,[])],Ex3),
+
+                  {#{ address => Addr },Ex4}
+              end,
+  GetCodeFun = fun(Addr,Ex0) ->
+                   maps:get({Addr,code},Ex0,<<>>)
+               end,
+
   Result = eevm:eval(Code,
                  #{},
                  #{
                    gas=>GasLimit,
                    sload=>SLoad,
+                   extra=>Opaque,
+                   get=>#{
+                          code => GetCodeFun
+                         },
+                   create => CreateFun,
                    data=>#{
                            address=>binary:decode_unsigned(To),
                            callvalue=>Value,
@@ -139,17 +179,10 @@ handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit
 
   io:format("Call ~p -> {~p,~p,...}~n",[CD, element(1,Result),element(2,Result)]),
   case Result of
-    {done, {return,RetVal}, #{ gas:=GasLeft, storage:=NewStorage }} ->
-      {ok, #{null=>"exec",
-             "storage"=>convert_storage(NewStorage),
-             "return"=>RetVal,
-             "gas"=>GasLeft,
-             "txs"=>[]}, Opaque};
-    {done, 'stop', #{ gas:=GasLeft, storage:=NewStorage }} ->
-      {ok, #{null=>"exec",
-             "storage"=>convert_storage(NewStorage),
-             "gas"=>GasLeft,
-             "txs"=>[]}, Opaque};
+    {done, {return,RetVal}, RetState} ->
+      returndata(RetState,#{"return"=>RetVal});
+    {done, 'stop', RetState} ->
+      returndata(RetState,#{});
     {done, 'invalid', _} ->
       {ok, #{null=>"exec",
              "state"=>unchanged,
@@ -219,7 +252,53 @@ call(#{state:=State,code:=Code}=_Ledger,Method,Args) ->
       {error, bad_instruction, 0}
   end.
 
+transform_extra_created(#{created:=C}=Extra) ->
+  lists:foldl(
+    fun(Addr, ExtraAcc) ->
+        io:format("Created addr ~p~n",[Addr]),
+        {Acc1, ToDel}=maps:fold(
+          fun
+            ({Addr1, state}=K,Value,{IAcc,IToDel}) when Addr==Addr1 ->
+              {
+               mbal:put(state,Value,IAcc),
+               [K|IToDel]
+              };
+            ({Addr1, value}=K,Value,{IAcc,IToDel}) when Addr==Addr1 ->
+              {
+               mbal:put_cur(<<"SK">>,Value,IAcc),
+               [K|IToDel]
+              };
+            ({Addr1, code}=K,Value,{IAcc,IToDel}) when Addr==Addr1 ->
+              {
+               mbal:put(code,Value,IAcc),
+               [K|IToDel]
+              };
+            (_K,_V,A) ->
+              A
+          end, {mbal:new(),[]}, ExtraAcc),
+        maps:put(Addr, Acc1,
+                 maps:without(ToDel,ExtraAcc)
+                )
+    end, Extra, C);
 
+transform_extra_created(Extra) ->
+  Extra.
+
+transform_extra(Extra) ->
+  io:format("return extra ~p~n",[Extra]),
+  T1=transform_extra_created(Extra),
+  io:format("return extra1 ~p~n",[T1]),
+  T1.
+
+returndata(#{ gas:=GasLeft, storage:=NewStorage, extra:=Extra },Append) ->
+  {ok,
+   maps:merge(
+     #{null=>"exec",
+       "storage"=>convert_storage(NewStorage),
+       "gas"=>GasLeft,
+       "txs"=>[]},
+     Append),
+   transform_extra(Extra)}.
 
 getters() ->
   [].
