@@ -1551,7 +1551,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
      true -> ok
   end,
   _T4=erlang:system_time(),
-  io:format("Bals before clean ~p~n",[NewBal0]),
+  lager:debug("Bals before clean ~p",[NewBal0]),
   NewBal=maps:map(
            fun(_,Bal) ->
                mbal:prepare(Bal)
