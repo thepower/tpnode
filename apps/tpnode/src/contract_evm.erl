@@ -321,12 +321,14 @@ transform_extra_created(#{created:=C}=Extra) ->
                mbal:put_cur(<<"SK">>,Value,IAcc),
                [K|IToDel]
               };
-            ({Addr1, code}=K,Value,{IAcc,IToDel}) when Addr==Addr1 ->
+             ({Addr1, code}=K,Value,{IAcc,IToDel}) when Addr==Addr1 ->
               {
-               mbal:put(code,Value,IAcc),
+               mbal:put(vm,<<"evm">>,
+                        mbal:put(code,Value,IAcc)
+                       ),
                [K|IToDel]
               };
-            (_K,_V,A) ->
+             (_K,_V,A) ->
               A
                            end, {mbal:new(),[]}, ExtraAcc),
            maps:put(binary:encode_unsigned(Addr), Acc1,
