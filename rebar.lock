@@ -15,7 +15,7 @@
   0},
  {<<"eevm">>,
   {git,"git@github.com:thepower/eevm.git",
-       {ref,"f9d42ad7900a54a4fe9b5533e3b82e6e560e738c"}},
+       {ref,"bd4247e175fdc8d2f42d7c0453742511acf5928c"}},
   0},
  {<<"fs">>,{pkg,<<"fs">>,<<"6.1.1">>},2},
  {<<"gb_merkle_trees">>,

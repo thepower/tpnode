@@ -1,7 +1,7 @@
 -module(generate_block).
 
 -export([generate_block/5, generate_block/6]).
--export([return_gas/4, sort_txs/1, txfind/2, aalloc/1]).
+-export([return_gas/3, sort_txs/1, txfind/2, aalloc/1]).
 
 -define(MAX(A,B), if A>B -> A; true -> B end).
 
@@ -65,6 +65,12 @@ finish_processing(GetFun, Acc0) ->
       SS1=settings:patch(AAlloc, SetState),
 
       Acc2#{new_settings=>SS1,
+            table=>maps:map(
+                     fun(_,V) ->
+                         mbal:uchanges(V)
+                     end,
+                     maps:get(table,Acc2,#{})
+                    ),
             settings=>replace_set(AAlloc, Settings)
            };
     _Any ->
@@ -462,6 +468,7 @@ try_process([{TxID, #{
             SetState, Addresses, GetFun,
             #{failed:=Failed,
               aalloc:=AAlloc,
+              get_addr:=GetAddr,
               success:=Success}=Acc) ->
   try
     Verify=try
@@ -502,13 +509,13 @@ try_process([{TxID, #{
                 mbal:put(view, View, NewF2)
             end,
       lager:info("Deploy contract ~s for ~s gas ~w",
-                 [VM, naddress:encode(Owner), {GCur,GAmount,GRate}]),
+                 [VM, naddress:encode(Owner), Gas]),
       IGas=GAmount*GRate,
       Left=fun(GL) ->
                lager:info("VM run gas ~p -> ~p",[IGas,GL]),
                {GCur, GL div GRate, GRate}
            end,
-      OpaqueState=#{aalloc=>AAlloc},
+      OpaqueState=#{aalloc=>AAlloc,created=>[],changed=>[],get_addr=>GetAddr},
       {St1,GasLeft,NewCode,OpaqueState2}=if A5 ->
                          case erlang:apply(VM, deploy,
                                            [Tx,
@@ -563,7 +570,7 @@ try_process([{TxID, #{
                      {_, IGL, _} when IGL < 0 ->
                        throw('insufficient_gas');
                      {_, IGL, _} when IGL > 0 ->
-                       XBal1=return_gas(Tx, GasLeft, SetState, NewF4),
+                       XBal1=return_gas(GasLeft, SetState, NewF4),
                        maps:put(Owner, XBal1, Addresses)
                    end,
 
@@ -643,7 +650,7 @@ try_process([{TxID, #{
                      ),
     lager:info("F1 ~p",[maps:without([code,state],NewF1)]),
 
-    NewF2=return_gas(Tx, Gas, SetState, NewF1),
+    NewF2=return_gas(Gas, SetState, NewF1),
     lager:info("F2 ~p",[maps:without([code,state],NewF2)]),
     NewAddresses=maps:put(Owner, NewF2, Addresses),
 
@@ -721,7 +728,7 @@ try_process([{TxID, #{ver:=2,
     lager:info("Alloc address ~p ~s for key ~s",
                [NewBAddr,
                 naddress:encode(NewBAddr),
-                bin2hex:dbin2hex(PubKey)
+                hex:encode(PubKey)
                ]),
 
     NewF=mbal:put(pubkey, PubKey, mbal:new()),
@@ -1049,7 +1056,7 @@ try_process_local([{TxID,
                        throw('insufficient_gas');
                      {_, IGL, _} when IGL > 0 ->
                        Bal0=maps:get(From, Addresses2),
-                       Bal1=return_gas(Tx, GasLeft, RealSettings, Bal0),
+                       Bal1=return_gas(GasLeft, RealSettings, Bal0),
                        maps:put(From, Bal1, Addresses2)
                    end,
 
@@ -1094,13 +1101,18 @@ try_process_local([{TxID,
                   Acc#{failed=>[{TxID, no_dst_addr_loaded}|Failed]});
     throw:X ->
       try_process(Rest, SetState, Addresses, GetFun,
-                  Acc#{failed=>[{TxID, X}|Failed]})
+                  Acc#{failed=>[{TxID, fmterr(X)}|Failed]});
+    error:X:S ->
+      io:format("Error ~p at ~p/~p~n",[X,hd(S),hd(tl(S))]),
+      try_process(Rest, SetState, Addresses, GetFun,
+                  Acc#{failed=>[{TxID, fmterr(X)}|Failed]})
   end.
 
 savegas({Cur, Amount1, Rate1}, all, Acc) ->
   savegas({Cur, Amount1, Rate1}, {Cur, 0, Rate1}, Acc);
 
 savegas({Cur, Amount1, _}, {Cur, Amount2, _}, #{fee:=FeeBal}=Acc) ->
+  io:format("save gas ~s ~w-~w=~w ~n",[Cur,Amount1, Amount2,Amount1-Amount2]),
   lager:info("save gas ~s ~w ~w",[Cur,Amount1, Amount2]),
   if Amount1-Amount2 > 0 ->
        Acc#{
@@ -1115,6 +1127,7 @@ savegas({Cur, Amount1, _}, {Cur, Amount2, _}, #{fee:=FeeBal}=Acc) ->
               mkblock_acc()) -> mkblock_acc().
 
 savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
+  io:format("save fee  ~s ~w ~w~n",[Cur,Fee,Tip]),
   Acc#{
     fee=>mbal:put_cur(Cur, Fee+mbal:get_cur(Cur, FeeBal), FeeBal),
     tip=>mbal:put_cur(Cur, Tip+mbal:get_cur(Cur, TipBal), TipBal)
@@ -1129,35 +1142,67 @@ gas_plus_int({Cur,Amount, Rate}, Int, true) ->
 is_gas_left({_,Amount,_Rate}) ->
   Amount>0.
 
-deposit(Address, Addresses, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
-        #{height:=Hei,parent:=Parent,aalloc:=AAlloc}=Acc) ->
-  TBal0=maps:get(Address,Addresses),
+deposit(Address, Addresses0, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
+        #{height:=Hei,parent:=Parent,aalloc:=AAlloc,get_addr:=GetAddr}=Acc) ->
+  TBal0=maps:get(Address,Addresses0),
   NewT=maps:remove(keep,
                    lists:foldl(
                      fun(#{amount:=Amount, cur:= Cur}, TBal) ->
                          NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
                          mbal:put_cur( Cur, NewTAmount, TBal)
                      end, TBal0, tx:get_payloads(Tx,transfer))),
+  Addresses=maps:put(Address,NewT,Addresses0),
   case mbal:get(vm, NewT) of
     undefined ->
-      {maps:put(Address,NewT,Addresses), [], GasLimit, Acc};
+      {Addresses, [], GasLimit, Acc};
     VMType ->
       FreeGas=case settings:get([<<"current">>, <<"freegas">>], Settings) of
                 N when is_integer(N), N>0 -> N;
                 _ -> 0
               end,
       lager:info("Smartcontract ~p gas ~p free gas ~p", [VMType, GasLimit, FreeGas]),
-      OpaqueState=#{aalloc=>AAlloc,created=>[]},
+      GetAddr1=fun({storage,BAddr,BKey}=Q) ->
+                   case maps:get(BAddr,Addresses,undefined) of
+                     undefined ->
+                       GetAddr(Q);
+                     #{state:=#{BKey:=BVal}} ->
+                       BVal;
+                     _ ->
+                       GetAddr(Q)
+                   end
+               end,
+      OpaqueState=#{aalloc=>AAlloc,created=>[],changed=>[],get_addr=>GetAddr1},
 
-      {L1, TXs, GasLeft, OpaqueState2} =
+      GetFun1 = fun({addr,ReqAddr,code}) ->
+                    io:format("Request code for address ~p~n",[ReqAddr]),
+                    case maps:is_key(ReqAddr,Addresses) of
+                      true ->
+                        mbal:get(code,maps:get(ReqAddr, Addresses));
+                      false ->
+                        mbal:get(code,GetAddr(ReqAddr))
+                    end;
+                   ({addr,ReqAddr,storage,Key}=Request) ->
+                    io:format("Request storage key ~p address ~p~n",[Key,ReqAddr]),
+                    case maps:is_key(ReqAddr,Addresses) of
+                      true ->
+                        AddrStor=mbal:get(state,maps:get(ReqAddr, Addresses)),
+                        maps:get(Key,AddrStor,<<>>);
+                      false ->
+                        GetFun(Request)
+                    end;
+                  (Other) ->
+                   GetFun(Other)
+               end,
+
+      {LedgerPatches, TXs, GasLeft, OpaqueState2} =
       if FreeGas > 0 ->
-           GasWithFree=gas_plus_int(GasLimit,FreeGas,false),
+           GasWithFree=gas_plus_int(GasLimit,FreeGas,true),
            lager:info("Run with free gas ~p+~p=~p",
                       [GasLimit,FreeGas,GasWithFree]),
            {L1x,TXsx,GasLeftx,OpaqueState2a} =
            smartcontract:run(VMType, Tx, NewT,
                              GasWithFree,
-                             GetFun,
+                             GetFun1,
                              OpaqueState),
 
            TakenFree=gas_plus_int(GasLeftx,-FreeGas,true),
@@ -1171,11 +1216,12 @@ deposit(Address, Addresses, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
                {L1x,TXsx,{<<"NONE">>,0,1},OpaqueState2a}
            end;
          true ->
-           smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun, OpaqueState)
+           smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun1, OpaqueState)
       end,
+      io:format("Gas1 ~p left ~p~n",[GasLimit,GasLeft]),
       io:format("Opaque2 ~p~n",[OpaqueState2]),
 
-      #{aalloc:=AAlloc2,created:=Created}=OpaqueState2,
+      #{aalloc:=AAlloc2,created:=Created,changed:=Changes}=OpaqueState2,
       EmitTxs=lists:map(
                 fun(ETxBody) ->
                     Template=#{
@@ -1202,9 +1248,28 @@ deposit(Address, Addresses, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
                 end, TXs),
       Addresses2=lists:foldl(
                    fun(Addr1,AddrAcc) ->
-                       maps:put(Addr1,maps:get(Addr1,OpaqueState2),AddrAcc)
-                   end, maps:put(Address,L1,Addresses), Created),
-      {Addresses2, EmitTxs, GasLeft, Acc#{aalloc=>AAlloc2}}
+                       io:format("Put ~p into ~p~n",[maps:get(Addr1,OpaqueState2,undefined), Addr1]),
+                       maps:put(Addr1,maps:get(Addr1,OpaqueState2,#{}),AddrAcc)
+                   end, Addresses, Created),
+      Addresses3=lists:foldl(
+                   fun({{Addr1,mergestate},Data},AddrAcc) ->
+                       io:format("Merge state for ~p~n",[Addr1]),
+                       MBal0=case maps:is_key(Addr1,AddrAcc) of
+                              true ->
+                                maps:get(Addr1,AddrAcc);
+                              false ->
+                                 GetAddr(Addr1)
+                            end,
+                       MBal1=mbal:put(mergestate,Data,MBal0),
+                       maps:put(Addr1,MBal1,AddrAcc);
+                      (_Any,AddrAcc) ->
+                        lager:notice("Ignore patch from VM ~p",[_Any]),
+                        io:format("ignore patch ~p~n",[_Any]),
+                        AddrAcc
+                   end, Addresses2, Changes),
+                       LToPatch=maps:get(Address, Addresses3),
+      Addresses4=maps:put(Address, mbal:patch(LedgerPatches,LToPatch), Addresses3),
+      {Addresses4, EmitTxs, GasLeft, Acc#{aalloc=>AAlloc2}}
   end.
 
 %this is only for depositing gathered fees
@@ -1222,7 +1287,7 @@ depositf(Address, TBal, #{cur:=Cur, amount:=Amount}=Tx, GetFun, _Settings, GasLi
       {L1, lists:map(
              fun(#{seq:=Seq}=ETx) ->
                  H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
-                 BSeq=bin2hex:dbin2hex(<<Seq:64/big>>),
+                 BSeq=hex:encode(<<Seq:64/big>>),
                  EA=(naddress:encode(Address)),
                  TxID= <<EA/binary, BSeq/binary, H/binary>>,
                  {TxID,
@@ -1340,6 +1405,7 @@ withdraw(FBal0,
                            tx:get_payloads(Tx,gas)
                           )
                      end,
+    io:format("Fee ~p Gas ~p~n", [GotFee,GotGas]),
     lager:info("Fee ~p Gas ~p", [GotFee,GotGas]),
 
     TakeMoney=fun(#{amount:=Amount, cur:= Cur}, FBal) ->
@@ -1447,9 +1513,10 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                end
            end, #{}, [<<"feeaddr">>, <<"tipaddr">>, default]),
 
-  Load=fun({_, #{hash:=_, header:=#{}, txs:=Txs}}, AAcc0) ->
+  Load=fun({_, #{hash:=Hash, header:=#{}, txs:=Txs}}, AAcc0) ->
            lists:foldl(
-             fun({_, #{to:=T, cur:=_}}, AAcc) ->
+             fun({TxID, #{to:=T, cur:=_}}, AAcc) ->
+                 logger:notice("Deprecated transaction ~p in inbound block ~p",[TxID,Hash]),
                  TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
                  maps:put(T, TB, AAcc);
                 ({_, #{ver:=2, kind:=generic, to:=T, payload:=_}}, AAcc) ->
@@ -1529,7 +1596,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                    entropy=>Entropy,
                    mean_time=>MeanTime,
                    parent=>Parent_Hash,
-                   height=>Parent_Height+1
+                   height=>Parent_Height+1,
+                   get_addr=>GetAddr
                   }
                 ),
   lager:info("MB Collected fee ~p tip ~p", [_FeeCollected, _TipCollected]),
@@ -1645,7 +1713,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
               block:blkid(maps:get(hash, Blk)),
               length(Success),
               maps:size(NewBal),
-              bin2hex:dbin2hex(LedgerHash),
+              hex:encode(LedgerHash),
               GetSettings(mychain),
               proplists:get_value(temporary,Options)
              ]),
@@ -1724,11 +1792,11 @@ to_gas(#{amount:=A, cur:=C}, Settings) ->
       error
   end.
 
-return_gas(_Tx, {<<"NONE">>, _GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
+return_gas({<<"NONE">>, _GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
   Bal0;
 
-return_gas(_Tx, {GCur, GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
-  lager:debug("return_gas ~p left ~b",[GCur, GAmount]),
+return_gas({GCur, GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
+  io:format("return_gas ~p left ~b~n",[GCur, GAmount]),
   if(GAmount > 0) ->
       B1=mbal:get_cur(GCur,Bal0),
       mbal:put_cur(GCur, B1+GAmount, Bal0);
@@ -1751,4 +1819,13 @@ aalloc({N,{CG,CB,CA}}) ->
 
 aalloc({_N,unallocable}) ->
   throw(unallocable).
+
+fmterr(X) when is_atom(X) ->
+  X;
+
+fmterr({X,N}) when is_atom(X), is_integer(N) ->
+  {X,N};
+
+fmterr(X) ->
+  iolist_to_binary(io_lib:format("~p",[X],[{chars_limit, 80}])).
 

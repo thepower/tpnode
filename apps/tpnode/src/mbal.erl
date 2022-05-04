@@ -14,8 +14,10 @@
          unpack/1,
          merge/2,
          changes/1,
+         uchanges/1,
          msgpack_state/1,
-         prepare/1
+         prepare/1,
+         patch/2
         ]).
 
 -define(FIELDS,
@@ -122,6 +124,13 @@ put_cur(Currency, Value, #{amount:=A}=Bal) ->
         changes=>[amount|maps:get(changes, Bal, [])]
        }
   end.
+
+
+uchanges(#{changes:=Changes}=Bal) ->
+  Bal#{changes=>lists:usort(Changes)};
+
+uchanges(Bal) ->
+  Bal.
 
 -spec mput (Seq::non_neg_integer(), T::non_neg_integer(),
             Bal::bal(), UseSK::boolean()|'reset') -> bal().
@@ -385,6 +394,16 @@ merge(Old, New) ->
          maps:get(amount, New, #{})
         ),
   P1#{amount=>Bals}.
+
+-spec patch (list(), bal()) -> bal().
+patch([{state,S1}|Rest], Bal) ->
+  patch(Rest,mbal:put(state,S1,Bal));
+
+patch([{mergestate,S1}|Rest], Bal) ->
+  patch(Rest,mbal:put(mergestate,S1,Bal));
+
+patch([], Bal) ->
+  Bal.
 
 valid_latin1_str([C|Rest]) when C>=16#20, C<16#7F ->
   valid_latin1_str(Rest);

@@ -10,7 +10,7 @@ deploy(Tx, Ledger, GasLimit, GetFun, Opaque) ->
   handle_tx(Tx, Ledger, GasLimit, GetFun, Opaque).
 
 handle_tx(Tx, Ledger, GasLimit, GetFun, _Opaque) ->
-  io:format("wasm Opaque ~p~n",[_Opaque]),
+  %io:format("wasm Opaque ~p~n",[_Opaque]),
   Entropy=GetFun(entropy),
   MeanTime=GetFun(mean_time),
   Settings=GetFun(settings),

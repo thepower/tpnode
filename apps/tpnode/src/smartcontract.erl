@@ -88,7 +88,7 @@ getters(VMType) ->
   end.
 
 run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
-  io:format("smartcontract Opaque ~p~n",[Opaque]),
+  %io:format("smartcontract Opaque ~p~n",[Opaque]),
   GasLimit=trunc(GAmount*GRate),
   Left=fun(GL) ->
            lager:info("VM run gas ~p -> ~p",[GasLimit,GL]),
@@ -135,14 +135,14 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
             "gas" := GasLeft,
             "state" := NewState,
             "txs" := EmitTxs}, Opaque1} when NewState == <<>> orelse NewState == unchanged ->
-        {Ledger, EmitTxs, Left(GasLeft), Opaque1};
+        {[], EmitTxs, Left(GasLeft), Opaque1};
       {ok,
        #{null := "exec",
          "gas" := GasLeft,
          "state" := NewState,
          "txs" := EmitTxs}, Opaque1} ->
         {
-         mbal:put(state, NewState, Ledger),
+         [{state, NewState}],
          EmitTxs,
          Left(GasLeft),
          Opaque1};
@@ -152,7 +152,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
          "storage" := NewState,
          "txs" := EmitTxs}, Opaque1} ->
         {
-         mbal:put(mergestate, NewState, Ledger),
+         [{mergestate, NewState}],
          EmitTxs, Left(GasLeft),
          Opaque1
         };
@@ -162,14 +162,14 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
             "gas" := GasLeft,
             "state" := NewState,
             "txs" := EmitTxs}} when NewState == <<>> orelse NewState == unchanged ->
-        {Ledger, EmitTxs, Left(GasLeft), Opaque};
+        {[], EmitTxs, Left(GasLeft), Opaque};
       {ok,
        #{null := "exec",
          "gas" := GasLeft,
          "state" := NewState,
          "txs" := EmitTxs}} ->
         {
-         mbal:put(state, NewState, Ledger),
+         [{state, NewState}],
          EmitTxs,
          Left(GasLeft),
          Opaque};
@@ -179,7 +179,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
          "storage" := NewState,
          "txs" := EmitTxs}} ->
         {
-         mbal:put(mergestate, NewState, Ledger),
+         [{mergestate, NewState}],
          EmitTxs, Left(GasLeft),
          Opaque
         };
@@ -205,9 +205,10 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
     end
   catch 
     Ec:Ee:S when Ec=/=throw ->
-          %S=erlang:get_stacktrace(),
           lager:info("Can't run contract ~p:~p @ ~p~n",
                       [Ec, Ee, hd(S)]),
+          io:format("Can't run contract ~p:~p @ ~p/~p~n",
+                      [Ec, Ee, hd(S),hd(tl(S))]),
           throw({'contract_error', [Ec, Ee]})
   end.
 

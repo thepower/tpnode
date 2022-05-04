@@ -111,12 +111,19 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
           (Other) ->
            error({bad_setting, Other})
        end,
-  GetAddr=fun(Addr) ->
-              case mledger:get(Addr) of
-                #{amount:=_}=Bal -> Bal;
-                undefined -> mbal:new()
-              end
-          end,
+       GetAddr=fun({storage,Addr,Key}) ->
+                   Res=case mledger:get(Addr) of
+                     #{state:=State} -> maps:get(Key,State,<<>>);
+                     _ -> <<>>
+                   end,
+                   io:format("TEST get addr ~p key ~p = ~p~n",[Addr,Key,Res]),
+                   Res;
+                  (Addr) ->
+                   case mledger:get(Addr) of
+                     #{amount:=_}=Bal -> Bal;
+                     undefined -> mbal:new()
+                   end
+               end,
 
   ParentHash=crypto:hash(sha256, <<"parent">>),
 
@@ -136,130 +143,21 @@ after
   ok
   end.
 
-
-%test_evm() ->
-%  {ok,HexCode}=file:read_file("./examples/TetherToken.hex"),
-%  Code=hex:decode(HexCode),
-%  Tx1=tx:pack(tx:construct_tx(
-%               #{ver=>2,
-%                 kind=>deploy,
-%                 from=><<128,0,32,0,2,0,0,3>>,
-%                 seq=>5,
-%                 t=>1530106238743,
-%                 payload=>[
-%                           #{amount=>10, cur=><<"XXX">>, purpose=>transfer },
-%                           #{amount=>20, cur=><<"FEE">>, purpose=>srcfee }
-%                          ],
-%                 txext=>#{"code"=>Code,
-%                          "vm"=>"evm"}
-%                })),
-%    Entropy=crypto:hash(sha256,<<"test">>),
-%    MeanTime=1555555555555,
-%    XtraFields=#{ mean_time => MeanTime, entropy => Entropy },
-%  L0=msgpack:pack(
-%      #{
-%      %"code"=><<>>,
-%      "state"=>msgpack:pack(#{
-%%                 <<"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA">> => <<"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB">>,
-%%                 <<"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX">> => <<"YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY">>
-%                })
-%     }),
-%  {ok,#{"state":=S1}}=run(fun(Pid) ->
-%                              Pid ! {run, Tx1, L0, 11111, self(), XtraFields }
-%      end, "evm", 2, []),
-%
-%  Tx2=tx:pack(tx:construct_tx(
-%               #{ver=>2,
-%                 kind=>generic,
-%                 from=><<128,0,32,0,2,0,0,3>>,
-%                 to=><<128,0,32,0,2,0,0,3>>,
-%                 seq=>5,
-%                 t=>1530106238743,
-%                 payload=>[
-%                           #{amount=>10, cur=><<"XXX">>, purpose=>transfer },
-%                           #{amount=>20, cur=><<"FEE">>, purpose=>srcfee }
-%                          ],
-%                 call=>#{function=>"inc",args=>[<<1:256/big>>]}
-%                })),
-%  L1=msgpack:pack(
-%      #{
-%      "code"=>Code,
-%      "state"=>S1
-%      }),
-%  {ok,#{"state":=S2}=R2}=run(fun(Pid) ->
-%                      Pid ! {run, Tx2, L1, 11111, self(), XtraFields }
-%                  end, "wasm", 2, []),
-%%  {ok,UT2}=msgpack:unpack(Tx2),
-%  {msgpack:unpack(S1),
-%   msgpack:unpack(S2),
-%   R2
-%  }.
-
-
-create_test() ->
+balance_test() ->
       OurChain=150,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
               248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
       Addr1=naddress:construct_public(1, OurChain, 1),
       Code=eevm:asm(eevm:parse_asm(
 <<"
-push16 38
-push32 0x63000003e8600055716000546001018060005560005260206000F360701B6000
-push1 0
-mstore
-push6 0x5260126000F3
-push1 208
-shl
-push1 32
-mstore
-
-dup1
-PUSH1 0
-PUSH1 0
-CREATE
-
-
-push16 38
-push32 0x63000003e8600055716000546001018060005560005260206000F360701B6000
-push1 0
-mstore
-push6 0x5260126000F3
-push1 208
-shl
-push1 32
-mstore
-
-dup1
-PUSH1 0
-PUSH1 0
-CREATE
-
-push1 0
-push1 0
-push1 0
-push1 0
-push1 0
-dup6
-push3 262144
-call
-push1 0
-push1 0
-push1 0
-push1 0
-push1 0
-dup7
-push3 262144
-call
-
-returndatasize
-dup1
-push1 0
-push1 0
-returndatacopy
-push1 0
-return
+  address
+  balance
+  push1 0
+  mstore
+  push1 32
+  push1 0
+  return
 ">>)),
-
       Deploycode=deploycode(),
 
       TX1=tx:sign(
@@ -276,6 +174,7 @@ return
                        ],
               txext=>#{ "code"=> <<Deploycode/binary,Code/binary>>, "vm" => "evm" }
              }), Pvt1),
+ 
       TX2=tx:sign(
             tx:construct_tx(#{
               ver=>2,
@@ -334,6 +233,268 @@ return
       {ok,L1,S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       ContractLedger=maps:get(Addr1,L1),
       io:format("State1 ~p~n",[maps:map(fun(_,V)->maps:keys(V) end,L1)]),
+      State1= maps:get(state, ContractLedger),
+      io:format("State1 ~p~n",[State1]),
+      io:format("Sets ~p~n",[S1]),
+      %io:format("= ADDR1 var 2 ~p~n",[binary:decode_unsigned(maps:get(mapval(2,Addr1),State1))]),
+%      {ok,EState2}=extcontract_template(OurChain, TxList2, Ledger2, TestFun2),
+%      State2=decode_state(EState2),
+      [
+%       ?assertMatch(false,maps:is_key("set",State1)),
+%       ?assertMatch(true,maps:is_key("self",State1)),
+%       ?assertMatch(true,maps:is_key("admins",State1))
+
+%       ?assertMatch(true,maps:is_key("set",State2)),
+%       ?assertMatch(true,maps:is_key("self",State2)),
+%       ?assertMatch(true,maps:is_key("admins",State2))
+      ].
+
+
+
+call_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+      SkAddr1=naddress:construct_public(1, OurChain, 4),
+      Code1=eevm:asm(
+              [{push,1,0},
+ sload,
+ {push,1,1},
+ add,
+ {dup,1},
+ {push,1,0},
+ sstore,
+ {push,1,0},
+ mstore,
+ {push,1,32},
+ {push,1,0},
+ return]
+             ),
+
+      SkAddr=naddress:construct_public(1, OurChain, 5),
+      Code=eevm:asm(eevm:parse_asm(
+<<"
+push1 0
+push1 0
+push1 0
+push1 0
+push1 0
+push8 9223407223743447044
+push3 262144
+call
+
+returndatasize
+dup1
+push1 0
+push1 0
+returndatacopy
+push1 0
+return
+">>)),
+
+      TX2=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr,
+              call=>#{
+                %function => "0x095EA7B3", %"approve(address,uint256)",
+                %function => "approve(address,uint256)",
+                %args => [Addr2,1024]
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+
+      TX3=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr,
+              call=>#{
+                %function => "0x095EA7B3", %"approve(address,uint256)",
+                %function => "approve(address,uint256)",
+                %args => [Addr2,1024]
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>4,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+      TxList1=[
+               {<<"2xfer">>, maps:put(sigverify,#{valid=>1},TX2)},
+               {<<"3xfer">>, maps:put(sigverify,#{valid=>1},TX3)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    emit:=_Emit,
+                    failed:=Failed}) ->
+                  ?assertMatch([],Failed),
+                  Bals=maps:get(bals, Block),
+                  Sets=maps:get(settings, Block),
+                  {ok,Bals,Sets}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+              },
+              {SkAddr1,
+               #{amount => #{},
+                 code => Code1,
+                 vm => <<"evm">>,
+                 state => #{ <<0>> => <<2,0,0>> }
+                }
+              },
+              {SkAddr,
+               #{amount => #{},
+                 code => Code,
+                 vm => <<"evm">>
+                }
+              }
+             ],
+      {ok,L1,_S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      io:format("State1 ~p~n",[L1]),
+      [
+       ?assertMatch(#{state:=#{<<0>> := <<2,0,2>>}},
+                    maps:get(<<128,0,32,0,150,0,0,4>>,L1)),
+       ?assertMatch(true,true)
+      ].
+
+
+create_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+      Code=eevm:asm(eevm:parse_asm(
+<<"
+push16 38
+push32 0x63000003e8600055716000546001018060005560005260206000F360701B6000
+push1 0
+mstore
+push6 0x5260126000F3
+push1 208
+shl
+push1 32
+mstore
+
+dup1
+PUSH1 0
+PUSH1 0
+CREATE
+
+push1 0
+push1 0
+push1 0
+push1 0
+push1 0
+push8 9223723880743436294
+push3 262144
+call
+
+returndatasize
+dup1
+push1 0
+push1 0
+returndatacopy
+push1 0
+return
+">>)),
+
+      Deploycode=deploycode(),
+
+      TX1=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>deploy,
+              from=>Addr1,
+              seq=>2,
+              t=>os:system_time(millisecond),
+              payload=>[
+                        #{purpose=>transfer, amount=>0, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>1100, cur=><<"FTT">>},
+                        #{purpose=>gas, amount=>30000, cur=><<"FTT">>}
+                       ],
+              txext=>#{ "code"=> <<Deploycode/binary,Code/binary>>, "vm" => "evm" }
+             }), Pvt1),
+ 
+      TX2=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>Addr1,
+              call=>#{
+                %function => "0x095EA7B3", %"approve(address,uint256)",
+                %function => "approve(address,uint256)",
+                %args => [Addr2,1024]
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+      TX3=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>Addr1,
+              call=>#{
+                %function => "0x095EA7B3", %"approve(address,uint256)",
+                %function => "approve(address,uint256)",
+                %args => [Addr2,1024]
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>4,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+      TxList1=[
+               {<<"1testdeploy">>, maps:put(sigverify,#{valid=>1},TX1)},
+               {<<"2xfer">>, maps:put(sigverify,#{valid=>1},TX2)},
+               {<<"3xfer">>, maps:put(sigverify,#{valid=>1},TX3)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    emit:=_Emit,
+                    failed:=Failed}) ->
+                  ?assertMatch([],Failed),
+                  Bals=maps:get(bals, Block),
+                  Sets=maps:get(settings, Block),
+                  {ok,Bals,Sets}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+              },
+              {<<128,1,64,0,10,0,0,6>>,
+               #{amount => #{},
+                 code => <<96,0,84,96,1,1,128,96,0,85,96,0,82,96,32,96,0,243>>,
+                 vm => <<"evm">>,
+                 state => #{
+                            <<0>> => <<123>> 
+                           }
+                }
+              }
+             ],
+      {ok,L1,S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      ContractLedger=maps:get(Addr1,L1),
+      io:format("State1 ~p~n",[L1]),
       State1= maps:get(state, ContractLedger),
       io:format("State1 ~p~n",[State1]),
       io:format("Sets ~p~n",[S1]),
@@ -508,10 +669,10 @@ tether_test() ->
 %       ?assertMatch(true,maps:is_key("admins",State2))
       ].
 
-varn(N) ->
-  %crypto:hash(sha256,<<N:256/big>>).
-  {ok,Hash}=ksha3:hash(256, <<N:256/big>>),
-  Hash.
+%varn(N) ->
+%  %crypto:hash(sha256,<<N:256/big>>).
+%  {ok,Hash}=ksha3:hash(256, <<N:256/big>>),
+%  Hash.
 
 mapval(N,Key) when is_binary(Key) ->
   NKey=binary:decode_unsigned(Key),

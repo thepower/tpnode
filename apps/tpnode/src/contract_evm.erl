@@ -21,8 +21,10 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, _GetFun, O
   Value=case tx:get_payload(Tx, transfer) of
           undefined ->
             0;
-          #{amount:=A} ->
-            A
+          #{amount:=A,cur:= <<"SK">>} ->
+            A;
+          _ ->
+            0
         end,
 
   Logger=fun(Message,Args) ->
@@ -95,25 +97,28 @@ encode_arg(_,_) ->
   throw(arg_encoding_error).
 
 
-handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit, _GetFun,
-          Opaque) ->
-  {ok,State}=msgpack:unpack(State0),
+handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
+          GasLimit, GetFun, Opaque) ->
+  State=case maps:get(state,Ledger,#{}) of
+          BinState when is_binary(BinState) ->
+            {ok,MapState}=msgpack:unpack(BinState),
+            MapState;
+          MapState when is_map(MapState) ->
+            MapState
+        end,
 
   Value=case tx:get_payload(Tx, transfer) of
           undefined ->
             0;
-          #{amount:=A} ->
-            A
+          #{amount:=A,cur:= <<"SK">>} ->
+            A;
+          _ ->
+            0
         end,
-
+  
   Logger=fun(Message,Args) ->
              lager:info("EVM tx ~p log ~p ~p",[Tx,Message,Args])
          end,
-  SLoad=fun(IKey) ->
-            %io:format("Load key ~p~n",[IKey]),
-            BKey=binary:encode_unsigned(IKey),
-            binary:decode_unsigned(maps:get(BKey, State, <<0>>))
-        end,
   CD=case Tx of
        #{call:=#{function:="0x"++FunID,args:=CArgs}} ->
          FunHex=hex:decode(FunID),
@@ -126,18 +131,49 @@ handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit
          <<>>
      end,
 
+
+  SLoad=fun(Addr, IKey, _Ex0=#{get_addr:=GAFun}) ->
+            io:format("=== Load key ~p:~p ~p~n",[Addr,IKey,GAFun]),
+            BKey=binary:encode_unsigned(IKey),
+            binary:decode_unsigned(
+              if Addr == To ->
+                   case maps:is_key(BKey,State) of
+                     true ->
+                       maps:get(BKey, State, <<0>>);
+                     false ->
+                       GAFun({storage,binary:encode_unsigned(Addr),BKey})
+                   end;
+                 true ->
+                   GAFun({storage,binary:encode_unsigned(Addr),BKey})
+              end
+             )
+        end,
   CreateFun = fun(Value1, Code1, #{aalloc:=AAlloc}=Ex0) ->
                   io:format("Ex0 ~p~n",[Ex0]),
-                  {ok, Addr, AAlloc1}=generate_block:aalloc(AAlloc),
-                  io:format("Address ~p~n",[Addr]),
+                  {ok, Addr0, AAlloc1}=generate_block:aalloc(AAlloc),
+                  io:format("Address ~p~n",[Addr0]),
+                  Addr=binary:decode_unsigned(Addr0),
                   Ex1=Ex0#{aalloc=>AAlloc1},
                   io:format("Ex1 ~p~n",[Ex1]),
-                  Deploy=eevm:eval(Code1,#{},#{gas=>100000, extra=>Ex1}),
+                  Deploy=eevm:eval(Code1,#{},#{
+                                               gas=>100000,
+                                               extra=>Ex1,
+                                               sload=>SLoad,
+                                               data=>#{
+                                                       address=>Addr,
+                                                       callvalue=>Value,
+                                                       caller=>binary:decode_unsigned(From),
+                                                       gasprice=>1,
+                                                       origin=>binary:decode_unsigned(From)
+                                                      },
+                                               logger=>Logger,
+                                               trace=>whereis(eevm_tracer)
+                                              }),
                   {done,{return,RX},#{storage:=StRet,extra:=Ex2}}=Deploy,
                   io:format("Ex2 ~p~n",[Ex2]),
 
                   St2=maps:merge(
-                        maps:get({Addr,state},Ex0,#{}),
+                        maps:get({Addr,state},Ex2,#{}),
                         StRet),
                   Ex3=maps:merge(Ex2,
                                  #{
@@ -152,8 +188,24 @@ handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit
                   {#{ address => Addr },Ex4}
               end,
   GetCodeFun = fun(Addr,Ex0) ->
-                   maps:get({Addr,code},Ex0,<<>>)
+                   io:format(".: Get code for  ~p~n",[Addr]),
+                   case maps:is_key({Addr,code},Ex0) of
+                     true ->
+                       maps:get({Addr,code},Ex0,<<>>);
+                     false ->
+                       GotCode=GetFun({addr,binary:encode_unsigned(Addr),code}),
+                       {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)}
+                   end
                end,
+  GetBalFun = fun(Addr,Ex0) ->
+                  case maps:is_key({Addr,value},Ex0) of
+                    true ->
+                      maps:get({Addr,value},Ex0);
+                    false ->
+                      131071
+                  end
+              end,
+
 
   Result = eevm:eval(Code,
                  #{},
@@ -162,7 +214,8 @@ handle_tx(#{to:=To,from:=From}=Tx, #{state:=State0,code:=Code}=_Ledger, GasLimit
                    sload=>SLoad,
                    extra=>Opaque,
                    get=>#{
-                          code => GetCodeFun
+                          code => GetCodeFun,
+                          balance => GetBalFun
                          },
                    create => CreateFun,
                    data=>#{
@@ -253,14 +306,14 @@ call(#{state:=State,code:=Code}=_Ledger,Method,Args) ->
   end.
 
 transform_extra_created(#{created:=C}=Extra) ->
-  lists:foldl(
-    fun(Addr, ExtraAcc) ->
-        io:format("Created addr ~p~n",[Addr]),
-        {Acc1, ToDel}=maps:fold(
-          fun
-            ({Addr1, state}=K,Value,{IAcc,IToDel}) when Addr==Addr1 ->
+  M1=lists:foldl(
+       fun(Addr, ExtraAcc) ->
+           io:format("Created addr ~p~n",[Addr]),
+           {Acc1, ToDel}=maps:fold(
+           fun
+             ({Addr1, state}=K,Value,{IAcc,IToDel}) when Addr==Addr1 ->
               {
-               mbal:put(state,Value,IAcc),
+               mbal:put(state,convert_storage(Value),IAcc),
                [K|IToDel]
               };
             ({Addr1, value}=K,Value,{IAcc,IToDel}) when Addr==Addr1 ->
@@ -275,20 +328,41 @@ transform_extra_created(#{created:=C}=Extra) ->
               };
             (_K,_V,A) ->
               A
-          end, {mbal:new(),[]}, ExtraAcc),
-        maps:put(Addr, Acc1,
-                 maps:without(ToDel,ExtraAcc)
-                )
-    end, Extra, C);
+                           end, {mbal:new(),[]}, ExtraAcc),
+           maps:put(binary:encode_unsigned(Addr), Acc1,
+                    maps:without(ToDel,ExtraAcc)
+                   )
+       end, Extra, C),
+  M1#{created => [ binary:encode_unsigned(X) || X<-C ]};
 
 transform_extra_created(Extra) ->
   Extra.
 
+transform_extra_changed(#{changed:=C}=Extra) ->
+  {Changed,ToRemove}=lists:foldl(fun(Addr,{Acc,Remove}) ->
+                             case maps:is_key({Addr,state},Extra) of
+                               true ->
+                                 {
+                                  [{{binary:encode_unsigned(Addr),mergestate},
+                                    convert_storage(maps:get({Addr,state},Extra))}|Acc],
+                                  [{Addr,state}|Remove]
+                                 };
+                               false ->
+                                 {Acc,Remove}
+                             end
+                         end, {[],[]}, C),
+  maps:put(changed, Changed,
+           maps:without(ToRemove,Extra)
+          );
+
+transform_extra_changed(Extra) ->
+  Extra.
+
 transform_extra(Extra) ->
-  io:format("return extra ~p~n",[Extra]),
+  io:format("Extra ~p~n",[Extra]),
   T1=transform_extra_created(Extra),
-  io:format("return extra1 ~p~n",[T1]),
-  T1.
+  T2=transform_extra_changed(T1),
+  T2.
 
 returndata(#{ gas:=GasLeft, storage:=NewStorage, extra:=Extra },Append) ->
   {ok,

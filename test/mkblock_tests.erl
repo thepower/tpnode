@@ -612,7 +612,9 @@ mkblock_tx2_self_test() ->
 
 
 mkblock_tx2_test() ->
+  T0=erlang:system_time(),
   Test=fun(_) ->
+           io:format("T ~w ~w~n",[?LINE,erlang:system_time()-T0]),
            OurChain=5,
            GetSettings=fun(mychain) ->
                            OurChain;
@@ -670,11 +672,13 @@ mkblock_tx2_test() ->
                        end,
            GetAddr=fun test_getaddr/1,
 
+           io:format("T ~w ~w~n",[?LINE,erlang:system_time()-T0]),
            Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
                    248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
            ParentHash=crypto:hash(sha256, <<"parent">>),
            SG=3,
 
+           io:format("T ~w ~w~n",[?LINE,erlang:system_time()-T0]),
            TX1=tx:sign(
                  tx:construct_tx(
                    #{
@@ -801,6 +805,8 @@ mkblock_tx2_test() ->
            %          seq=>9,
            %          t=>os:system_time(millisecond)+86400000
            %         }), Pvt1),
+
+           io:format("T ~w ~w~n",[?LINE,erlang:system_time()-T0]),
            #{block:=Block,
              failed:=Failed}=generate_block:generate_block(
                                [
@@ -819,6 +825,7 @@ mkblock_tx2_test() ->
                                GetAddr,
                                []),
 
+           io:format("T ~w ~w~n",[?LINE,erlang:system_time()-T0]),
            Success=proplists:get_keys(maps:get(txs, Block)),
            ?assertMatch([{<<"2invalid">>, insufficient_fund},
                          {<<"5nosk">>, no_sk},
@@ -846,7 +853,9 @@ mkblock_tx2_test() ->
                        ),
            SignedBlock=block:sign(Block, <<1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                                            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>),
-           file:write_file("tmp/testblk.txt", io_lib:format("~p.~n", [Block])),
+           io:format("T ~w ~w~n",[?LINE,erlang:system_time()-T0]),
+           %file:write_file("tmp/testblk.txt", io_lib:format("~p.~n", [Block])),
+           io:format("T ~w ~w~n",[?LINE,erlang:system_time()-T0]),
            ?assertMatch({true, {_, _}}, block:verify(SignedBlock)),
            _=maps:get(OurChain+2, block:outward_mk(maps:get(outbound, Block), SignedBlock)),
            #{bals:=NewBals}=Block,
@@ -860,6 +869,7 @@ mkblock_tx2_test() ->
              <<160,0,0,0,0,0,0,0>> => #{amount => #{<<"FTT">> => 100,<<"TST">> => 100}},
              <<160,0,0,0,0,0,0,1>> => #{amount => #{<<"FTT">> => 103,<<"TST">> => 102}},
              <<160,0,0,0,0,0,0,2>> => #{amount => #{<<"FTT">> => 100,<<"TST">> => 100}}},
+           io:format("T ~w ~w~n",[?LINE,erlang:system_time()-T0]),
            maps:fold(
              fun(Addr, #{amount:=Bal}, Acc) ->
                  [?assertMatch(#{Addr := #{amount:=Bal}}, maps:with([Addr],NewBals))|Acc]
