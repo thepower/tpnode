@@ -27,19 +27,17 @@ websocket_handle({text, Msg}, State) ->
   try
     JS=jsx:decode(Msg, [return_maps]),
     lager:info("WS ~p", [JS]),
-    #{<<"sub">>:=SubT}=JS,
-    Ret=case SubT of
-          <<"block">> ->
+    Ret=case JS of
+          #{<<"sub">>:= <<"block">>} ->
             gen_server:cast(tpnode_ws_dispatcher, {subscribe, {block, json, full}, self()}),
             [new_block, full, json];
-          <<"blockstat">> ->
+          #{<<"sub">>:= <<"blockstat">>} ->
             gen_server:cast(tpnode_ws_dispatcher, {subscribe, {block, json, stat}, self()}),
             [new_block, stat, json];
-          <<"tx">> ->
+          #{<<"sub">>:= <<"tx">>} ->
             gen_server:cast(tpnode_ws_dispatcher, {subscribe, tx, self()}),
             [tx, any];
-          <<"addr">> ->
-            #{<<"addr">>:=Address, <<"get">>:=G}=JS,
+          #{<<"sub">>:= <<"addr">>, <<"addr">>:=Address, <<"get">>:=G} ->
             Get=lists:filtermap(
                   fun(<<"tx">>) -> {true, tx};
                      (<<"bal">>) -> {true, bal};

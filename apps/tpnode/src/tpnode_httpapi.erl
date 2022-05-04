@@ -331,6 +331,53 @@ h(<<"GET">>, [<<"nodes">>, Chain], _Req) ->
         chain_nodes => get_nodes(binary_to_integer(Chain, 10))
     });
 
+h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], _Req) ->
+  try
+    Addr=case TAddr of
+           <<"0x", Hex/binary>> -> hex:parse(Hex);
+           _ -> naddress:decode(TAddr)
+         end,
+    Ledger=mledger:get(Addr),
+    case Ledger =/= undefined of
+      false ->
+          err(
+              10003,
+              <<"Not found">>,
+              #{result => <<"not_found">>},
+              #{http_code => 404}
+          );
+      true ->
+        State=maps:get(state, Ledger, #{}),
+        S1=maps:fold(
+             fun(K,_,Acc) ->
+                [<<"0x",(hex:encode(K))/binary>>|Acc]
+             end, [], State),
+        {200, [{"Content-Type","application/json"}], 
+         #{
+           notice => <<"Only for debugging. Do not use it in scripts!!!">>,
+           keys => S1
+          }
+        }
+
+    end
+  catch
+    throw:{error, address_crc} ->
+              err(
+                  10004,
+                  <<"Invalid address">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              );
+          throw:bad_addr ->
+              err(
+                  10005,
+                  <<"Invalid address (2)">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              )
+  end;
+
+
 h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
   try
     Addr=case TAddr of
