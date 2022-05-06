@@ -515,7 +515,13 @@ try_process([{TxID, #{
                lager:info("VM run gas ~p -> ~p",[IGas,GL]),
                {GCur, GL div GRate, GRate}
            end,
-      OpaqueState=#{aalloc=>AAlloc,created=>[],changed=>[],get_addr=>GetAddr},
+      OpaqueState=#{aalloc=>AAlloc,
+                    created=>[],
+                    changed=>[],
+                    get_addr=>GetAddr,
+                    entropy=>maps:get(entropy,Acc,<<>>),
+                    mean_time=>maps:get(mean_time,Acc,0)
+                   },
       {St1,GasLeft,NewCode,OpaqueState2}=if A5 ->
                          case erlang:apply(VM, deploy,
                                            [Tx,
@@ -1171,7 +1177,13 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
                        GetAddr(Q)
                    end
                end,
-      OpaqueState=#{aalloc=>AAlloc,created=>[],changed=>[],get_addr=>GetAddr1},
+      OpaqueState=#{aalloc=>AAlloc,
+                    created=>[],
+                    changed=>[],
+                    get_addr=>GetAddr1,
+                    entropy=>maps:get(entropy,Acc,<<>>),
+                    mean_time=>maps:get(mean_time,Acc,0)
+},
 
       GetFun1 = fun({addr,ReqAddr,code}) ->
                     io:format("Request code for address ~p~n",[ReqAddr]),
@@ -1218,8 +1230,9 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
          true ->
            smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun1, OpaqueState)
       end,
-      io:format("Gas1 ~p left ~p~n",[GasLimit,GasLeft]),
+      io:format("Gas1 ~p left ~p free ~p~n",[GasLimit,GasLeft,FreeGas]),
       io:format("Opaque2 ~p~n",[OpaqueState2]),
+      true=is_list(LedgerPatches),
 
       #{aalloc:=AAlloc2,created:=Created,changed:=Changes}=OpaqueState2,
       EmitTxs=lists:map(
@@ -1267,7 +1280,7 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
                         io:format("ignore patch ~p~n",[_Any]),
                         AddrAcc
                    end, Addresses2, Changes),
-                       LToPatch=maps:get(Address, Addresses3),
+      LToPatch=maps:get(Address, Addresses3),
       Addresses4=maps:put(Address, mbal:patch(LedgerPatches,LToPatch), Addresses3),
       {Addresses4, EmitTxs, GasLeft, Acc#{aalloc=>AAlloc2}}
   end.

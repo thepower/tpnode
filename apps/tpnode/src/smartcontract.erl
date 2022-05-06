@@ -195,7 +195,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
       {error, Reason, GasLeft} ->
         %throw({'run_failed', Reason});
         lager:error("Contract error ~p", [Reason]),
-        {Ledger, [], Left(GasLeft), Opaque};
+        {[], [], Left(GasLeft), Opaque};
       {error, Reason} ->
         throw({'run_failed', Reason});
       Any ->

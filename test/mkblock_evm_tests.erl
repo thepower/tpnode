@@ -512,6 +512,187 @@ return
       ].
 
 
+embed_staticcall_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 10),
+      SC1=naddress:construct_public(1, OurChain, 1),
+
+      Code=eevm:asm(eevm:parse_asm(
+                      <<"
+PUSH1 64
+PUSH1 0
+PUSH1 0
+PUSH1 0
+push8 0xAFFFFFFFFF000000
+PUSH2 0xFFFF
+STATICCALL
+push1 0
+mload
+push1 1
+sstore
+push1 32
+mload
+push1 2
+sstore
+push1 0
+push1 32
+return
+">>
+                     )),
+
+
+      TX2=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SC1,
+              payload=>[
+                        #{purpose=>gas, amount=>5000, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+      
+      TxList1=[
+               {<<"2xfer">>, maps:put(sigverify,#{valid=>1},TX2)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    emit:=_Emit,
+                    failed:=Failed}) ->
+                  ?assertMatch([],Failed),
+                  Bals=maps:get(bals, Block),
+                  Sets=maps:get(settings, Block),
+                  {ok,Bals,Sets}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+              },
+              {SC1,
+               #{amount => #{},
+                 code => Code,
+                 vm => <<"evm">>,
+                 state => #{ }
+                }
+              }
+             ],
+      {ok,L1,S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      ContractLedger=maps:get(Addr1,L1),
+      io:format("State1 ~p~n",[L1]),
+      [
+       ?assertMatch(#{state:=#{<<1>>:=_T,<<2>>:=<<_Rnd:256/big>>}},maps:get(SC1,L1))
+      ].
+
+
+callcode_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 10),
+      SC1=naddress:construct_public(1, OurChain, 1),
+
+      SC2=naddress:construct_public(1, OurChain, 2),
+
+      Code=eevm:asm([{push,8,binary:decode_unsigned(SC1)}|eevm:parse_asm(
+                      <<"
+PUSH1 0
+PUSH1 0
+PUSH1 0
+PUSH1 0
+PUSH1 0
+DUP6
+PUSH2 0xFFFF
+CALLCODE
+
+// Set first slot in the current contract
+PUSH1 1
+PUSH1 0
+SSTORE
+
+// Call with storage slot 0 != 0, returns 1
+PUSH1 0
+PUSH1 0
+PUSH1 32
+PUSH1 0
+PUSH1 0
+DUP7
+PUSH2 0xFFFF
+CALLCODE
+">>
+)]),
+
+
+      TX2=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SC2,
+              payload=>[
+                        #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+      
+      TxList1=[
+               {<<"2xfer">>, maps:put(sigverify,#{valid=>1},TX2)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    emit:=_Emit,
+                    failed:=Failed}) ->
+                  ?assertMatch([],Failed),
+                  Bals=maps:get(bals, Block),
+                  Sets=maps:get(settings, Block),
+                  {ok,Bals,Sets}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+              },
+              {SC1,
+               #{amount => #{},
+                 code => hex:decode(<<"600054600757FE5B">>),
+                 vm => <<"evm">>,
+                 state => #{ }
+                }
+              },
+              {SC2,
+               #{amount => #{},
+                 code => Code,
+                 vm => <<"evm">>,
+                 state => #{ <<0>> => <<0>>}
+                }
+              }
+             ],
+      register(eevm_tracer,self()),
+      {ok,L1,S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      unregister(eevm_tracer),
+      ContractLedger=maps:get(Addr1,L1),
+      io:format("State1 ~p~n",[L1]),
+      CallRet=recv_callret(),
+      io:format("CallRet ~p~n",[CallRet]),
+
+      [
+       ?assertMatch([{<<0>>,invalid},{<<1>>,eof}],CallRet)
+      ].
+
+recv_callret() ->
+  receive 
+    {trace,{callret,_,_,Reason,Ret}} ->
+      [{Ret,Reason}|recv_callret()];
+    {trace,_} ->
+      recv_callret()
+  after 0 ->
+          []
+  end.
+
+
 
 tether_test() ->
       OurChain=150,

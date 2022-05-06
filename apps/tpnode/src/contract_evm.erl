@@ -148,6 +148,21 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
               end
              )
         end,
+  Functions=#{
+              16#AFFFFFFFFF000000 => fun(_) ->
+                                         MT=maps:get(mean_time,Opaque,0),
+                                         Ent=maps:get(entropy,Opaque,<<>>),
+                                         {1,<<MT:256/big,Ent/binary>>}
+                                     end,
+              16#AFFFFFFFFF000001 => fun(Bin) ->
+                                         {1,list_to_binary(
+                                              lists:reverse(
+                                                binary_to_list(Bin)
+                                               )
+                                             )}
+                                     end
+            },
+
   CreateFun = fun(Value1, Code1, #{aalloc:=AAlloc}=Ex0) ->
                   io:format("Ex0 ~p~n",[Ex0]),
                   {ok, Addr0, AAlloc1}=generate_block:aalloc(AAlloc),
@@ -166,6 +181,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                                                        gasprice=>1,
                                                        origin=>binary:decode_unsigned(From)
                                                       },
+                                               embedded_code => Functions,
                                                logger=>Logger,
                                                trace=>whereis(eevm_tracer)
                                               }),
@@ -225,6 +241,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                            gasprice=>1,
                            origin=>binary:decode_unsigned(From)
                           },
+                   embedded_code => Functions,
                    cd=>CD,
                    logger=>Logger,
                    trace=>whereis(eevm_tracer)
@@ -235,6 +252,8 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
     {done, {return,RetVal}, RetState} ->
       returndata(RetState,#{"return"=>RetVal});
     {done, 'stop', RetState} ->
+      returndata(RetState,#{});
+    {done, 'eof', RetState} ->
       returndata(RetState,#{});
     {done, 'invalid', _} ->
       {ok, #{null=>"exec",
