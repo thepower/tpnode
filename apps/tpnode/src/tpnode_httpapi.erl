@@ -193,42 +193,6 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
        }
     });
 
-%h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
-%  try
-%    Addr=case TAddr of
-%           <<"0x", Hex/binary>> ->
-%             hex:parse(Hex);
-%           _ ->
-%             naddress:decode(TAddr)
-%         end,
-%    Ledger=mledger:get(Addr),
-%    case Ledger =/= undefined of
-%      false ->
-%          err(
-%              10011,
-%              <<"Not found">>,
-%              #{ result => <<"not_found">> }
-%              #{ address => Addr, http_code => 404 }
-%          );
-%      true ->
-%        VMName=maps:get(vm, Ledger),
-%        {ok,List}=smartcontract:get(VMName,Method,Args,Info),
-%        answer(
-%           #{result => List},
-%           #{address => Addr}
-%        )
-%    end
-%  catch throw:{error, address_crc} ->
-%      err(
-%          10012,
-%          <<"Invalid address">>,
-%          #{
-%              result => <<"error">>,
-%              error => <<"invalid address">>
-%          }
-%      )
-%  end;
-
 h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
   try
     Addr=case TAddr of
@@ -781,49 +745,6 @@ h(<<"GET">>, [<<"settings_all">>], _Req) ->
      },
     #{jsx=>[ strict, {error_handler, EHF} ]}
    );
-
-h(<<"POST">>, [<<"register">>], Req) ->
-  {_RemoteIP, _Port}=cowboy_req:peer(Req),
-  Body=apixiom:bodyjs(Req),
-  PKey=case maps:get(<<"public_key">>, Body) of
-         <<"0x", BArr/binary>> ->
-           hex:parse(BArr);
-         Any ->
-           base64:decode(Any)
-       end,
-
-  BinTx=tx:pack( #{ type=>register,
-                    register=>PKey,
-                    pow=>maps:get(<<"pow">>,Body,<<>>),
-                    timestamp=>maps:get(<<"timestamp">>,Body,0)
-                  }),
-
-  case txpool:new_tx(BinTx) of
-    {ok, Tx} ->
-      answer(
-       #{ result => <<"ok">>,
-          notice => <<"method deprecated">>,
-          pkey=>bin2hex:dbin2hex(PKey),
-          txid => Tx
-        }
-      );
-    {error, Err} ->
-      lager:info("error ~p", [Err]),
-      ErrorMsg = iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
-      Data =
-       #{ result => <<"error">>,
-          notice => <<"method deprecated">>,
-          pkey=>bin2hex:dbin2hex(PKey),
-          tx=>base64:encode(BinTx),
-          error => ErrorMsg
-        },
-      err(
-          10007,
-          ErrorMsg,
-          Data,
-          #{http_code=>500}
-      )
-  end;
 
 h(<<"GET">>, [<<"tx">>, <<"status">>| TxID0], _Req) ->
   TxID=list_to_binary(lists:join("/",TxID0)),
