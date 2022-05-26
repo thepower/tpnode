@@ -597,9 +597,8 @@ callcode_test() ->
 
       SC2=naddress:construct_public(1, OurChain, 2),
 
-      Code=eevm:asm([{push,8,binary:decode_unsigned(SC1)}|eevm:parse_asm(
-                      <<"
-PUSH1 0
+      MainCode=eevm:parse_asm(
+<<"PUSH1 0
 PUSH1 0
 PUSH1 0
 PUSH1 0
@@ -623,7 +622,8 @@ DUP7
 PUSH2 0xFFFF
 CALLCODE
 ">>
-)]),
+),
+      Code=eevm:asm([{push,8,binary:decode_unsigned(SC1)}|MainCode]),
 
 
       TX2=tx:sign(
@@ -671,9 +671,9 @@ CALLCODE
               }
              ],
       register(eevm_tracer,self()),
-      {ok,L1,S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      {ok,L1,_S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       unregister(eevm_tracer),
-      ContractLedger=maps:get(Addr1,L1),
+      _ContractLedger=maps:get(Addr1,L1),
       io:format("State1 ~p~n",[L1]),
       CallRet=recv_callret(),
       io:format("CallRet ~p~n",[CallRet]),
@@ -684,9 +684,11 @@ CALLCODE
 
 recv_callret() ->
   receive 
-    {trace,{callret,_,_,Reason,Ret}} ->
+    {trace,{callret,_,_,Reason,Ret}=Any} ->
+      %io:format("trace ~p~n",[Any]),
       [{Ret,Reason}|recv_callret()];
-    {trace,_} ->
+    {trace,Any} ->
+      %io:format("trace ~p~n",[Any]),
       recv_callret()
   after 0 ->
           []

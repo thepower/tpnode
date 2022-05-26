@@ -1080,6 +1080,7 @@ mkblock_test() ->
                    seq=>9,
                    t=>os:system_time(millisecond)+86400000
                   }), Pvt1),
+           io:format("Test line ~p~n",[?LINE]),
            #{block:=Block,
              failed:=Failed}=generate_block:generate_block(
                                [
@@ -1100,6 +1101,13 @@ mkblock_test() ->
 
            Success=proplists:get_keys(maps:get(txs, Block)),
 
+           SignedBlock=block:sign(Block, <<1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                           1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>),
+           file:write_file("tmp/testblk.txt", io_lib:format("~p.~n", [Block])),
+           _=maps:get(OurChain+2, block:outward_mk(maps:get(outbound, Block), SignedBlock)),
+           #{bals:=NewBals}=Block,
+
+           [
            ?assertMatch([{<<"2invalid">>, insufficient_fund},
                          {<<"5nosk">>, no_sk},
                          {<<"6sklim">>, sk_limit},
@@ -1124,17 +1132,12 @@ mkblock_test() ->
                         ],
                         maps:get(outbound, Block)
                        ),
-           SignedBlock=block:sign(Block, <<1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                                           1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>),
-           file:write_file("tmp/testblk.txt", io_lib:format("~p.~n", [Block])),
            ?assertMatch({true, {_, _}}, block:verify(SignedBlock)),
-           _=maps:get(OurChain+2, block:outward_mk(maps:get(outbound, Block), SignedBlock)),
-           #{bals:=NewBals}=Block,
            ?assertMatch(#{<<160, 0, 0, 0, 0, 0, 0, 1>>:=#{
-              amount:=#{<<"FTT">>:=103, <<"TST">>:=102}}}, NewBals),
+                                                          amount:=#{<<"FTT">>:=103, <<"TST">>:=102}}}, NewBals),
            ?assertMatch(#{<<160, 0, 0, 0, 0, 0, 0, 2>>:=#{
-     amount:=#{<<"FTT">>:=100, <<"TST">>:=100}}}, NewBals),
-  NewBals
+                                                          amount:=#{<<"FTT">>:=100, <<"TST">>:=100}}}, NewBals)
+           ]
        end,
   Ledger=[],
   mledger:deploy4test(Ledger, Test).
