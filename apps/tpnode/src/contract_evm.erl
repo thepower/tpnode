@@ -163,6 +163,34 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                                      end
             },
 
+  FinFun = fun(_,_,#{data:=#{address:=Addr}, storage:=Stor, extra:=Xtra} = FinState) ->
+               NewS=maps:merge(
+                      maps:get({Addr, state}, Xtra, #{}),
+                      Stor
+                     ),
+               FinState#{extra=>Xtra#{{Addr, state} => NewS}}
+           end,
+
+  GetCodeFun = fun(Addr,Ex0) ->
+                   io:format(".: Get code for  ~p~n",[Addr]),
+                   case maps:is_key({Addr,code},Ex0) of
+                     true ->
+                       maps:get({Addr,code},Ex0,<<>>);
+                     false ->
+                       GotCode=GetFun({addr,binary:encode_unsigned(Addr),code}),
+                       {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)}
+                   end
+               end,
+  GetBalFun = fun(Addr,Ex0) ->
+                  case maps:is_key({Addr,value},Ex0) of
+                    true ->
+                      maps:get({Addr,value},Ex0);
+                    false ->
+                      131071
+                  end
+              end,
+
+
   CreateFun = fun(Value1, Code1, #{aalloc:=AAlloc}=Ex0) ->
                   io:format("Ex0 ~p~n",[Ex0]),
                   {ok, Addr0, AAlloc1}=generate_block:aalloc(AAlloc),
@@ -174,6 +202,11 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                                                gas=>100000,
                                                extra=>Ex1,
                                                sload=>SLoad,
+                                               finfun=>FinFun,
+                                               get=>#{
+                                                      code => GetCodeFun,
+                                                      balance => GetBalFun
+                                                     },
                                                data=>#{
                                                        address=>Addr,
                                                        callvalue=>Value,
@@ -203,26 +236,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
 
                   {#{ address => Addr },Ex4}
               end,
-  GetCodeFun = fun(Addr,Ex0) ->
-                   io:format(".: Get code for  ~p~n",[Addr]),
-                   case maps:is_key({Addr,code},Ex0) of
-                     true ->
-                       maps:get({Addr,code},Ex0,<<>>);
-                     false ->
-                       GotCode=GetFun({addr,binary:encode_unsigned(Addr),code}),
-                       {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)}
-                   end
-               end,
-  GetBalFun = fun(Addr,Ex0) ->
-                  case maps:is_key({Addr,value},Ex0) of
-                    true ->
-                      maps:get({Addr,value},Ex0);
-                    false ->
-                      131071
-                  end
-              end,
-
-
+  
   Result = eevm:eval(Code,
                  #{},
                  #{
@@ -234,6 +248,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                           balance => GetBalFun
                          },
                    create => CreateFun,
+                   finfun=>FinFun,
                    data=>#{
                            address=>binary:decode_unsigned(To),
                            callvalue=>Value,

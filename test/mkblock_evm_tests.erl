@@ -10,7 +10,8 @@ mkstring(Bin) when size(Bin)<32 ->
   <<Bin/binary,0:(PadL*8)/integer>>.
 
 deploycode() ->
-  Code=eevm:asm(eevm:parse_asm(<<"push1 14
+  Code=eevm_asm:assemble(<<"
+push1 14
 dup1
 codesize
 sub
@@ -20,7 +21,7 @@ push1 0
 codecopy
 dup1
 push1 0
-return">>)),
+return">>),
   Code.
 
 extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
@@ -148,7 +149,7 @@ balance_test() ->
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
               248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
       Addr1=naddress:construct_public(1, OurChain, 1),
-      Code=eevm:asm(eevm:parse_asm(
+      Code=eevm_asm:assemble(
 <<"
   address
   balance
@@ -157,7 +158,7 @@ balance_test() ->
   push1 32
   push1 0
   return
-">>)),
+">>),
       Deploycode=deploycode(),
 
       TX1=tx:sign(
@@ -257,7 +258,7 @@ call_test() ->
               248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
       Addr1=naddress:construct_public(1, OurChain, 1),
       SkAddr1=naddress:construct_public(1, OurChain, 4),
-      Code1=eevm:asm(
+      Code1=eevm_asm:asm(
               [{push,1,0},
  sload,
  {push,1,1},
@@ -273,7 +274,7 @@ call_test() ->
              ),
 
       SkAddr=naddress:construct_public(1, OurChain, 5),
-      Code=eevm:asm(eevm:parse_asm(
+      Code=eevm_asm:assemble(
 <<"
 push1 0
 push1 0
@@ -291,7 +292,7 @@ push1 0
 returndatacopy
 push1 0
 return
-">>)),
+">>),
 
       TX2=tx:sign(
             tx:construct_tx(#{
@@ -376,7 +377,7 @@ create_test() ->
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
               248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
       Addr1=naddress:construct_public(1, OurChain, 1),
-      Code=eevm:asm(eevm:parse_asm(
+      Code=eevm_asm:assemble(
 <<"
 push16 38
 push32 0x63000003e8600055716000546001018060005560005260206000F360701B6000
@@ -409,7 +410,7 @@ push1 0
 returndatacopy
 push1 0
 return
-">>)),
+">>),
 
       Deploycode=deploycode(),
 
@@ -519,7 +520,7 @@ embed_staticcall_test() ->
       Addr1=naddress:construct_public(1, OurChain, 10),
       SC1=naddress:construct_public(1, OurChain, 1),
 
-      Code=eevm:asm(eevm:parse_asm(
+      Code=eevm_asm:assemble(
                       <<"
 PUSH1 64
 PUSH1 0
@@ -540,7 +541,7 @@ push1 0
 push1 32
 return
 ">>
-                     )),
+                     ),
 
 
       TX2=tx:sign(
@@ -597,8 +598,10 @@ callcode_test() ->
 
       SC2=naddress:construct_public(1, OurChain, 2),
 
-      MainCode=eevm:parse_asm(
-<<"PUSH1 0
+      Code=eevm_asm:assemble(
+<<"
+push sc2
+PUSH1 0
 PUSH1 0
 PUSH1 0
 PUSH1 0
@@ -621,10 +624,9 @@ PUSH1 0
 DUP7
 PUSH2 0xFFFF
 CALLCODE
-">>
+">>,
+#{"sc2" => binary:decode_unsigned(SC1)}
 ),
-      Code=eevm:asm([{push,8,binary:decode_unsigned(SC1)}|MainCode]),
-
 
       TX2=tx:sign(
             tx:construct_tx(#{
