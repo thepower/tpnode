@@ -1103,7 +1103,7 @@ mkblock_test() ->
 
            SignedBlock=block:sign(Block, <<1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                                            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>),
-           file:write_file("tmp/testblk.txt", io_lib:format("~p.~n", [Block])),
+%           file:write_file("tmp/testblk.txt", io_lib:format("~p.~n", [Block])),
            _=maps:get(OurChain+2, block:outward_mk(maps:get(outbound, Block), SignedBlock)),
            #{bals:=NewBals}=Block,
 

@@ -161,9 +161,13 @@ txfind([_|Rest],TxID) ->
   txfind(Rest,TxID).
 
 
--spec try_process([{_,_}], map(), map(), fun(), mkblock_acc()) -> mkblock_acc().
-try_process([], Settings, Addresses, GetFun,
-            #{fee:=FeeBal, tip:=TipBal, emit:=Emit}=Acc) ->
+-spec try_process([{_,_}], mkblock_acc()) -> mkblock_acc().
+try_process([], #{fee:=FeeBal,
+                  tip:=TipBal,
+                  emit:=Emit,
+                  new_settings:=Settings,
+                  get_settings:=GetFun,
+                  table:=Addresses}=Acc) ->
   lager:info("try_process finish"),
   try
     GetFeeFun=fun (Parameter) ->
@@ -199,8 +203,7 @@ try_process([], Settings, Addresses, GetFun,
     finish_processing(GetFun,
                       Acc#{
                         table=>Addresses2,
-                        emit=>Emit ++ NewEmit,
-                        new_settings => Settings
+                        emit=>Emit ++ NewEmit
                        })
   catch _Ec:_Ee:S ->
           %S=erlang:get_stacktrace(),
@@ -208,22 +211,19 @@ try_process([], Settings, Addresses, GetFun,
           lists:foreach(fun(E) ->
                             lager:info("Can't save fee at ~p", [E])
                         end, S),
-          finish_processing(GetFun,
-                            Acc#{
-                              table=>Addresses,
-                              new_settings => Settings
-                             }
-                           )
+          finish_processing(GetFun, Acc)
   end;
 
 %process inbound block
 try_process([{BlID, #{ hash:=BHash,
                        txs:=TxList,
                        header:=#{chain:=ChID,height:=BHeight} }=Blk}|Rest],
-            SetState, Addresses, GetFun, #{
-                                           settings:=Settings,
-                                           failed:=Failed
-                                          }=Acc) ->
+            #{
+              new_settings:=SetState, %Addresses, GetFun,
+              get_settings:=GetFun,
+              settings:=Settings,
+              failed:=Failed
+             }=Acc) ->
   try
     MyChain=GetFun(mychain),
     OPatchTxID= <<"out", (xchain:pack_chid(MyChain))/binary>>,
@@ -262,9 +262,9 @@ try_process([{BlID, #{ hash:=BHash,
                           origin_chain=>ChID
                          }
                        } || {TxID, Tx} <- TxList ] ++ Rest,
-                     SetState, Addresses, GetFun, Acc#{
-                                                    settings=>[SyncPatch|lists:keydelete(PatchTxID, 1, Settings)]
-                                                   });
+                     Acc#{
+                       settings=>[SyncPatch|lists:keydelete(PatchTxID, 1, Settings)]
+                      });
        true ->
          IWS=settings:get([<<"current">>,<<"outward">>,xchain:pack_chid(MyChain)],settings:patch(P,#{})),
          case IWS of
@@ -296,16 +296,16 @@ try_process([{BlID, #{ hash:=BHash,
                           origin_chain=>ChID
                          }
                        } || {TxID, Tx} <- TxList ] ++ Rest,
-                     SS1, Addresses, GetFun, Acc#{
-                                               settings=>[SyncPatch|lists:keydelete(PatchTxID, 1, Settings)]
-                                              })
+                     Acc#{
+                       settings => [SyncPatch|lists:keydelete(PatchTxID, 1, Settings)],
+                       new_settings => SS1
+                      })
     end
   catch throw:Ee ->
           lager:info("Fail to process inbound ~p ~p", [BlID, Ee]),
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{
-                        failed=>[{BlID, Ee}|Failed]
-                       });
+          try_process(Rest, Acc#{
+                              failed=>[{BlID, Ee}|Failed]
+                             });
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
           lager:info("Fail to process inbound block ~p ~p:~p",
@@ -313,10 +313,9 @@ try_process([{BlID, #{ hash:=BHash,
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
                         end, S),
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{
-                        failed=>[{BlID, unknown}|Failed]
-                       })
+          try_process(Rest, Acc#{
+                              failed=>[{BlID, unknown}|Failed]
+                             })
   end;
 
 try_process([{TxID, #{ver:=2,
@@ -326,8 +325,8 @@ try_process([{TxID, #{ver:=2,
                                    pubkeys:=[_|_]=PubKeys
                                   }
                      }=Tx} |Rest],
-            SetState, Addresses, GetFun,
             #{failed:=Failed,
+              new_settings:=SetState, %Addresses, GetFun,
               settings:=Settings}=Acc) ->
   try
     NeedSig=chainsettings:get(patchsig,SetState),
@@ -338,27 +337,25 @@ try_process([{TxID, #{ver:=2,
     end,
     SS1=settings:patch({TxID, Tx}, SetState),
     lager:info("Success Patch ~p against settings ~p", [_LPatch, SetState]),
-    try_process(Rest, SS1, Addresses, GetFun,
-                Acc#{
-                  settings=>[{TxID, Tx}|Settings]
-                 }
+    try_process(Rest, Acc#{
+                        new_settings => SS1,
+                        settings=>[{TxID, Tx}|Settings]
+                       }
                )
   catch throw:Ee ->
           lager:info("Fail to Patch ~p ~p",
                      [_LPatch, Ee]),
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{
-                        failed=>[{TxID, Ee}|Failed]
-                       });
+          try_process(Rest, Acc#{
+                              failed=>[{TxID, Ee}|Failed]
+                             });
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
           lager:info("Fail to Patch ~p ~p:~p against settings ~p",
                      [_LPatch, Ec, Ee, SetState]),
           lager:info("at ~p", [S]),
-          try_process(Rest, SetState, Addresses, GetFun,
-                      Acc#{
-                        failed=>[{TxID, Tx}|Failed]
-                       })
+          try_process(Rest, Acc#{
+                              failed=>[{TxID, Tx}|Failed]
+                             })
   end;
 
 try_process([{TxID, #{
@@ -367,8 +364,10 @@ try_process([{TxID, #{
                       from:=Owner,
                       patches:=_
                      }=Tx} |Rest],
-            SetState, Addresses, GetFun,
             #{failed:=Failed,
+              table:=Addresses,
+              new_settings:=SetState,
+              get_settings:=GetFun,
               success:=Success}=Acc) ->
   try
     Verify=try
@@ -394,13 +393,15 @@ try_process([{TxID, #{
 
     NewAddresses=maps:put(Owner, NewF5, Addresses),
 
-    try_process(Rest, SetState, NewAddresses, GetFun,
+    try_process(Rest,
                 savefee(GotFee,
-                        Acc#{success=> [{TxID, Tx}|Success]}
+                        Acc#{success=> [{TxID, Tx}|Success],
+                             table=>NewAddresses
+                            }
                        )
                )
   catch error:{badkey,Owner} ->
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
@@ -408,7 +409,7 @@ try_process([{TxID, #{
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
                         end, S),
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, other}|Failed]})
   end;
 
@@ -418,8 +419,10 @@ try_process([{TxID, #{
                       from:=Owner,
                       txext:=#{}
                      }=Tx} |Rest],
-            SetState, Addresses, GetFun,
             #{failed:=Failed,
+              table:=Addresses,
+              new_settings:=SetState,
+              get_settings:=GetFun,
               success:=Success}=Acc) ->
   try
     Verify=try
@@ -441,13 +444,14 @@ try_process([{TxID, #{
 
     NewAddresses=maps:put(Owner, NewF4, Addresses),
 
-    try_process(Rest, SetState, NewAddresses, GetFun,
+    try_process(Rest,
                 savefee(GotFee,
-                        Acc#{success=> [{TxID, Tx}|Success]}
+                        Acc#{success=> [{TxID, Tx}|Success],
+                            table => NewAddresses}
                        )
                )
   catch error:{badkey,Owner} ->
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
@@ -455,7 +459,7 @@ try_process([{TxID, #{
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
                         end, S),
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, other}|Failed]})
   end;
 
@@ -465,9 +469,11 @@ try_process([{TxID, #{
                       from:=Owner,
                       txext:=#{"code":=Code,"vm":=VMType0}=TxExt
                      }=Tx} |Rest],
-            SetState, Addresses, GetFun,
             #{failed:=Failed,
               aalloc:=AAlloc,
+              table:=Addresses,
+              new_settings:=SetState,
+              get_settings:=GetFun,
               get_addr:=GetAddr,
               success:=Success}=Acc) ->
   try
@@ -498,9 +504,7 @@ try_process([{TxID, #{
     Bal=maps:get(Owner, Addresses),
     {NewF, GasF, GotFee, {GCur,GAmount,GRate}=Gas}=withdraw(Bal, Tx, GetFun, SetState, []),
 
-
     try
-
       NewF1=mbal:put(vm, VMType, NewF),
       NewF2=mbal:put(code, Code, NewF1),
       NewF3=case maps:find("view", TxExt) of
@@ -582,30 +586,33 @@ try_process([{TxID, #{
 
       %    NewAddresses=maps:put(Owner, NewF3, Addresses),
 
-      try_process(Rest, SetState, NewAddresses, GetFun,
+      try_process(Rest,
                   savegas(Gas, GasLeft,
                           savefee(GotFee,
                                   Acc#{
-                                    success=> [{TxID, Tx}|Success],
-                                    aalloc=>AAlloc2
+                                    success => [{TxID, Tx}|Success],
+                                    table   => NewAddresses,
+                                    aalloc  => AAlloc2
                                    }
                                  )
                          ))
     catch throw:insufficient_gas=ThrowReason ->
             NewAddressesG=maps:put(Owner, GasF, Addresses),
-            try_process(Rest, SetState, NewAddressesG, GetFun,
+            try_process(Rest,
                         savegas(Gas, all,
                                 savefee(GotFee,
-                                        Acc#{failed=> [{TxID, ThrowReason}|Failed]}
+                                        Acc#{failed=> [{TxID, ThrowReason}|Failed],
+                                             table => NewAddressesG
+                                            }
                                        )
                                ))
     end
   catch error:{badkey,Owner} ->
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
         throw:X ->
           lager:info("Contract deploy failed ~p", [X]),
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, X}|Failed]});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
@@ -615,7 +622,7 @@ try_process([{TxID, #{
                             %io:format("@ ~p~n", [SE])
                             lager:info("@ ~p~n", [SE])
                         end, S),
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, other}|Failed]})
   end;
 
@@ -625,8 +632,11 @@ try_process([{TxID, #{
                       from:=Owner,
                       txext:=#{"view":=NewView}
                      }=Tx} |Rest],
-            SetState, Addresses, GetFun,
+%            SetState, Addresses, GetFun,
             #{failed:=Failed,
+              table:=Addresses,
+              new_settings:=SetState,
+              get_settings:=GetFun,
               success:=Success}=Acc) ->
   try
     Verify=try
@@ -660,17 +670,19 @@ try_process([{TxID, #{
     lager:info("F2 ~p",[maps:without([code,state],NewF2)]),
     NewAddresses=maps:put(Owner, NewF2, Addresses),
 
-    try_process(Rest, SetState, NewAddresses, GetFun,
+    try_process(Rest,
                 savefee(GotFee,
-                        Acc#{success=> [{TxID, Tx}|Success]}
+                        Acc#{success=> [{TxID, Tx}|Success],
+                            table => NewAddresses
+                            }
                        )
                )
   catch error:{badkey,Owner} ->
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
         throw:X ->
           lager:info("Contract deploy failed ~p", [X]),
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, X}|Failed]});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
@@ -678,7 +690,7 @@ try_process([{TxID, #{
           lists:foreach(fun(SE) ->
                             lager:error("@ ~p", [SE])
                         end, S),
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, other}|Failed]})
   end;
 
@@ -692,8 +704,10 @@ try_process([{TxID, #{ver:=2,
                                    pubkeys:=[PubKey|_]
                                   }
                      }=Tx} |Rest],
-            SetState, Addresses, GetFun,
             #{failed:=Failed,
+              table:=Addresses,
+              new_settings:=SetState,
+              %get_settings:=GetFun,
               aalloc:=AAl,
               success:=Success,
               settings:=_Settings }=Acc) ->
@@ -741,55 +755,57 @@ try_process([{TxID, #{ver:=2,
     NewAddresses=maps:put(NewBAddr, NewF, Addresses),
     NewTx=maps:remove(inv,tx:set_ext(<<"addr">>,NewBAddr,Tx)),
     lager:info("try process register tx [~p]: ~p", [NewBAddr, NewTx]),
-    try_process(Rest, SetState, NewAddresses, GetFun,
-                Acc#{success=> [{TxID, NewTx}|Success],
-                     aalloc=>AAl1
+    try_process(Rest,
+                Acc#{success => [{TxID, NewTx}|Success],
+                     table  => NewAddresses,
+                     aalloc => AAl1
                     })
   catch throw:X ->
           lager:info("Address alloc fail ~p", [X]),
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, X}|Failed]})
   end;
 
 try_process([{TxID, #{from:=From, to:=To}=Tx} |Rest],
-            SetState, Addresses, GetFun,
-            #{failed:=Failed}=Acc) ->
+%            SetState, Addresses, GetFun,
+            #{failed:=Failed,
+              %table:=Addresses,
+              %new_settings:=SetState,
+              get_settings:=GetFun
+             }=Acc) ->
   MyChain=GetFun(mychain),
   FAddr=addrcheck(From),
   TAddr=addrcheck(To),
   case {FAddr, TAddr} of
     {{true, {chain, MyChain}}, {true, {chain, MyChain}}} ->
-      try_process_local([{TxID, Tx}|Rest],
-                        SetState, Addresses, GetFun, Acc);
+      try_process_local([{TxID, Tx}|Rest], Acc);
     {{true, {chain, MyChain}}, {true, {chain, OtherChain}}} ->
       try_process_outbound([{TxID, Tx#{
                                      outbound=>OtherChain
                                     }}|Rest],
-                           SetState, Addresses, GetFun, Acc);
+                           Acc);
     {{true, {chain, _OtherChain}}, {true, {chain, MyChain}}} ->
       try_process_inbound([{TxID,
                             maps:remove(outbound,
                                         Tx
                                        )}|Rest],
-                          SetState, Addresses, GetFun, Acc);
+                          Acc);
     {{true, private}, {true, {chain, MyChain}}}  -> %local from pvt
       try_process_local([{TxID, Tx}|Rest],
-                        SetState, Addresses, GetFun, Acc);
+                        Acc);
     {{true, {chain, MyChain}}, {true, private}}  -> %local to pvt
       try_process_local([{TxID, Tx}|Rest],
-                        SetState, Addresses, GetFun, Acc);
+                        Acc);
     _ ->
       lager:info("TX ~s addr error ~p -> ~p", [TxID, FAddr, TAddr]),
-      try_process(Rest, SetState, Addresses, GetFun,
+      try_process(Rest,
                   Acc#{failed=>[{TxID, 'bad_src_or_dst_addr'}|Failed]})
   end;
 
 try_process([{TxID, UnknownTx} |Rest],
-            SetState, Addresses, GetFun,
             #{failed:=Failed}=Acc) ->
   lager:info("Unknown TX ~p type ~p", [TxID, UnknownTx]),
-  try_process(Rest, SetState, Addresses, GetFun,
-              Acc#{failed=>[{TxID, 'unknown_type'}|Failed]}).
+  try_process(Rest, Acc#{failed=>[{TxID, 'unknown_type'}|Failed]}).
 
 try_process_inbound([{TxID,
                       #{ver:=2,
@@ -802,9 +818,11 @@ try_process_inbound([{TxID,
                         origin_chain:=ChID
                        }=Tx}
                      |Rest],
-                    SetState, Addresses, GetFun,
                     #{success:=Success,
                       failed:=Failed,
+                      table:=Addresses,
+                      new_settings:=SetState,
+                      get_settings:=GetFun,
                       emit:=Emit,
                       pick_block:=PickBlock}=Acc) ->
   lager:error("Check signature once again"),
@@ -849,13 +867,14 @@ try_process_inbound([{TxID,
             [origin_block,origin_block_height, origin_block_hash, origin_chain],
             Tx#{extdata=>NewExt}
            ),
-    try_process(Rest, SetState, NewAddresses, GetFun,
+    try_process(Rest,
                 Acc1#{success=>[{TxID, FixTX}|Success],
-                     emit=>Emit ++ NewEmit,
+                     emit => Emit ++ NewEmit,
+                     table => NewAddresses,
                      pick_block=>maps:put(OriginBlock, 1, PickBlock)
                     })
   catch throw:X ->
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, X}|Failed]})
   end;
 
@@ -867,8 +886,8 @@ try_process_inbound([{TxID,
                         origin_chain:=ChID
                        }=Tx}
                      |Rest],
-                    SetState, Addresses, GetFun,
                     #{success:=Success,
+                      table:=Addresses,
                       failed:=Failed,
                       pick_block:=PickBlock}=Acc) ->
   lager:notice("Check signature once again"),
@@ -896,23 +915,26 @@ try_process_inbound([{TxID,
             [origin_block,origin_block_height, origin_block_hash, origin_chain],
             Tx#{extdata=>NewExt}
            ),
-    try_process(Rest, SetState, NewAddresses, GetFun,
+    try_process(Rest,
                 Acc#{success=>[{TxID, FixTX}|Success],
+                     table => NewAddresses,
                      pick_block=>maps:put(OriginBlock, 1, PickBlock)
                     })
   catch throw:X ->
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, X}|Failed]})
   end.
 
 try_process_outbound([{TxID,
                        #{outbound:=OutTo, to:=To, from:=From}=Tx}
                       |Rest],
-                     SetState, Addresses, GetFun,
                      #{failed:=Failed,
                        success:=Success,
                        settings:=Settings,
                        outbound:=Outbound,
+                       table:=Addresses,
+                       get_settings:=GetFun,
+                       new_settings:=SetState,
                        parent:=ParentHash,
                        height:=MyHeight
                       }=Acc) ->
@@ -1005,24 +1027,29 @@ try_process_outbound([{TxID,
           {GasCur, GasAmount, _} ->
             tx:set_ext(<<"xc_gas">>, [GasCur, GasAmount], Tx)
         end,
-    try_process(Rest, SS2, NewAddresses, GetFun,
+    try_process(Rest,
                 savefee(GotFee,
                         Acc#{
                           settings=>Set2,
+                          new_settings=>SS2,
+                          table => NewAddresses,
                           success=>[{TxID, Tx1}|Success],
                           outbound=>[{TxID, OutTo}|Outbound]
                          })
                )
   catch throw:X ->
-          try_process(Rest, SetState, Addresses, GetFun,
+          try_process(Rest,
                       Acc#{failed=>[{TxID, X}|Failed]})
   end.
 
 try_process_local([{TxID,
                     #{to:=To, from:=From}=Tx}
                    |Rest],
-                  SetState, Addresses, GetFun,
+                  %SetState, Addresses, GetFun,
                   #{success:=Success,
+                    table:=Addresses,
+                    get_settings:=GetFun,
+                    new_settings:=SetState,
                     failed:=Failed,
                     emit:=Emit}=Acc) ->
   try
@@ -1077,11 +1104,12 @@ try_process_local([{TxID,
                Tx
           end,
 
-      try_process(Rest, SetState, NewAddresses, GetFun,
+      try_process(Rest,
                   savegas(Gas, GasLeft,
                           savefee(GotFee,
                                   Acc1#{
                                     success=>[{TxID, Tx1}|Success],
+                                    table => NewAddresses,
                                     emit=>Emit ++ NewEmit
                                    }
                                  )
@@ -1090,27 +1118,29 @@ try_process_local([{TxID,
     catch
       throw:insufficient_gas ->
         AddressesWoGas=maps:put(From, GasF, Addresses),
-        try_process(Rest, SetState, AddressesWoGas, GetFun,
+        try_process(Rest,
                     savegas(Gas, all,
                             savefee(GotFee,
-                                    Acc#{failed=>[{TxID, insufficient_gas}|Failed]}
+                                    Acc#{failed=>[{TxID, insufficient_gas}|Failed],
+                                         table => AddressesWoGas
+                                        }
                                    )
                            )
                    )
     end
   catch
     error:{badkey,From} ->
-      try_process(Rest, SetState, Addresses, GetFun,
+      try_process(Rest,
                   Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
     error:{badkey,To} ->
-      try_process(Rest, SetState, Addresses, GetFun,
+      try_process(Rest,
                   Acc#{failed=>[{TxID, no_dst_addr_loaded}|Failed]});
     throw:X ->
-      try_process(Rest, SetState, Addresses, GetFun,
+      try_process(Rest,
                   Acc#{failed=>[{TxID, fmterr(X)}|Failed]});
     error:X:S ->
       io:format("Error ~p at ~p/~p~n",[X,hd(S),hd(tl(S))]),
-      try_process(Rest, SetState, Addresses, GetFun,
+      try_process(Rest,
                   Acc#{failed=>[{TxID, fmterr(X)}|Failed]})
   end.
 
@@ -1593,14 +1623,17 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     tip:=_TipCollected,
     emit:=EmitTXs0,
     new_settings := NewSettings
-   }=try_process(TXL, XSettings, Addrs, GetSettings,
+   }=try_process(TXL,
                  #{export=>[],
+                   table => Addrs,
+                   new_settings=> XSettings,
+                   get_settings => GetSettings,
+
                    delayed=>Delayed,
                    failed=>[],
                    success=>[],
                    settings=>[],
                    outbound=>[],
-                   table=>#{},
                    emit=>[],
                    aalloc=>{0,AAlloc},
                    fee=>mbal:new(),

@@ -581,8 +581,8 @@ return
                 }
               }
              ],
-      {ok,L1,S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
-      ContractLedger=maps:get(Addr1,L1),
+      {ok,L1,_S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      _ContractLedger=maps:get(Addr1,L1),
       io:format("State1 ~p~n",[L1]),
       [
        ?assertMatch(#{state:=#{<<1>>:=_T,<<2>>:=<<_Rnd:256/big>>}},maps:get(SC1,L1))
@@ -686,11 +686,11 @@ CALLCODE
 
 recv_callret() ->
   receive 
-    {trace,{callret,_,_,Reason,Ret}=Any} ->
-      %io:format("trace ~p~n",[Any]),
+    {trace,{callret,_,_,Reason,Ret}=_Any} ->
+      %io:format("trace ~p~n",[_Any]),
       [{Ret,Reason}|recv_callret()];
-    {trace,Any} ->
-      %io:format("trace ~p~n",[Any]),
+    {trace,_Any} ->
+      %io:format("trace ~p~n",[_Any]),
       recv_callret()
   after 0 ->
           []
