@@ -193,7 +193,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
 
   CreateFun = fun(Value1, Code1, #{aalloc:=AAlloc}=Ex0) ->
                   io:format("Ex0 ~p~n",[Ex0]),
-                  {ok, Addr0, AAlloc1}=generate_block:aalloc(AAlloc),
+                  {ok, Addr0, AAlloc1}=generate_block_process:aalloc(AAlloc),
                   io:format("Address ~p~n",[Addr0]),
                   Addr=binary:decode_unsigned(Addr0),
                   Ex1=Ex0#{aalloc=>AAlloc1},
