@@ -81,6 +81,7 @@ to_list(Arg) when is_list(Arg) ->
 to_list(Arg) when is_binary(Arg) ->
   binary_to_list(Arg).
 
+-spec to_binary(Arg :: binary() | list()) -> binary().
 to_binary(Arg) when is_binary(Arg) ->
   Arg;
 to_binary(Arg) when is_list(Arg) ->
@@ -548,7 +549,7 @@ sign(Any, PrivKey) ->
         ver:=non_neg_integer(),
         kind:=atom(),
         body:=binary(),
-        sig:=list(),
+        sig=>list(),
         sigverify=>#{valid:=integer(),
                      invalid:=integer()
                     }

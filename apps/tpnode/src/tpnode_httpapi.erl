@@ -448,7 +448,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
            _ -> naddress:decode(TAddr)
          end,
     Info=mledger:get_kv(Addr),
-    case Info == undefined of
+    case Info == [] of
       true ->
           err(
               10003,
@@ -464,7 +464,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
 %          v => BinPacker(sext:encode(V))
 %         } || {{K,P},V} <- Info, K=/=ublk ],
 
-        {MT0,UBlk}=lists:foldl(
+        {MT0,_UBlk}=lists:foldl(
                fun
                  ({{ublk,_},V},{Acc,_}) ->
                    {Acc,V};
@@ -477,7 +477,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
         JMT=mt2json(MRoot,BinPacker),
 
         {LRH,LMP}=mledger:addr_proof(Addr),
-        io:format("~p~n",[UBlk]),
+        %io:format("~p~n",[UBlk]),
         %io:format("~p~n",[MT]),
         %io:format("~p~n",[ JMT ]),
 
