@@ -36,7 +36,6 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, _GetFun, O
           _ -> #{}
         end,
 
-  io:format("Run EVM~n"),
   EvalRes = eevm:eval(Code,
                       State,
                       #{
@@ -115,7 +114,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
           _ ->
             0
         end,
-  
+
   Logger=fun(Message,Args) ->
              lager:info("EVM tx ~p log ~p ~p",[Tx,Message,Args])
          end,
@@ -189,15 +188,42 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                       131071
                   end
               end,
-
+  BeforeCall = fun(CallKind,CFrom,_Code,_Gas,
+                   #{address:=CAddr, value:=V}=CallArgs,
+                   #{global_acc:=GAcc}=Xtra) ->
+                   io:format("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
+                   logger:info("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
+                   if V > 0 ->
+                        TX=msgpack:pack(#{
+                                          "k"=>tx:encode_kind(2,generic),
+                                          "to"=>binary:encode_unsigned(CAddr),
+                                          "p"=>[[tx:encode_purpose(transfer),<<"SK">>,V]]
+                                         }),
+                        {TxID,CTX}=generate_block_process:complete_tx(TX,
+                                                               binary:encode_unsigned(CFrom),
+                                                               GAcc),
+                        SCTX=CTX#{sigverify=>#{valid=>1},norun=>1},
+                        NewGAcc=generate_block_process:try_process([{TxID,SCTX}], GAcc),
+                        io:format(">><< LAST ~p~n",[maps:get(last,NewGAcc)]),
+                        case maps:get(last,NewGAcc) of
+                          failed ->
+                            throw({cancel_call,insufficient_fund});
+                          ok ->
+                            ok
+                        end,
+                        Xtra#{global_acc=>NewGAcc};
+                      true ->
+                        Xtra
+                   end
+               end,
 
   CreateFun = fun(Value1, Code1, #{aalloc:=AAlloc}=Ex0) ->
-                  io:format("Ex0 ~p~n",[Ex0]),
+                  %io:format("Ex0 ~p~n",[Ex0]),
                   {ok, Addr0, AAlloc1}=generate_block_process:aalloc(AAlloc),
-                  io:format("Address ~p~n",[Addr0]),
+                  %io:format("Address ~p~n",[Addr0]),
                   Addr=binary:decode_unsigned(Addr0),
                   Ex1=Ex0#{aalloc=>AAlloc1},
-                  io:format("Ex1 ~p~n",[Ex1]),
+                  %io:format("Ex1 ~p~n",[Ex1]),
                   Deploy=eevm:eval(Code1,#{},#{
                                                gas=>100000,
                                                extra=>Ex1,
@@ -215,11 +241,12 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                                                        origin=>binary:decode_unsigned(From)
                                                       },
                                                embedded_code => Functions,
+                                               cb_beforecall => BeforeCall,
                                                logger=>Logger,
                                                trace=>whereis(eevm_tracer)
                                               }),
                   {done,{return,RX},#{storage:=StRet,extra:=Ex2}}=Deploy,
-                  io:format("Ex2 ~p~n",[Ex2]),
+                  %io:format("Ex2 ~p~n",[Ex2]),
 
                   St2=maps:merge(
                         maps:get({Addr,state},Ex2,#{}),
@@ -231,12 +258,12 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                                    {Addr,value} => Value1
                                   }
                                 ),
-                  io:format("Ex3 ~p~n",[Ex3]),
+                  %io:format("Ex3 ~p~n",[Ex3]),
                   Ex4=maps:put(created,[Addr|maps:get(created,Ex3,[])],Ex3),
 
                   {#{ address => Addr },Ex4}
               end,
-  
+
   Result = eevm:eval(Code,
                  #{},
                  #{
@@ -257,6 +284,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                            origin=>binary:decode_unsigned(From)
                           },
                    embedded_code => Functions,
+                   cb_beforecall => BeforeCall,
                    cd=>CD,
                    logger=>Logger,
                    trace=>whereis(eevm_tracer)
@@ -395,7 +423,7 @@ transform_extra_changed(Extra) ->
   Extra.
 
 transform_extra(Extra) ->
-  io:format("Extra ~p~n",[Extra]),
+  %io:format("Extra ~p~n",[Extra]),
   T1=transform_extra_created(Extra),
   T2=transform_extra_changed(T1),
   T2.

@@ -1,6 +1,6 @@
 -module(generate_block_process).
 -export([try_process/2]).
--export([return_gas/3, aalloc/1]).
+-export([return_gas/3, aalloc/1, complete_tx/3]).
 
 -define(MAX(A,B), if A>B -> A; true -> B end).
 
@@ -113,7 +113,8 @@ try_process([{BlID, #{ hash:=BHash,
   catch throw:Ee ->
           lager:info("Fail to process inbound ~p ~p", [BlID, Ee]),
           try_process(Rest, Acc#{
-                              failed=>[{BlID, Ee}|Failed]
+                              failed=>[{BlID, Ee}|Failed],
+                              last => failed
                              });
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
@@ -123,7 +124,8 @@ try_process([{BlID, #{ hash:=BHash,
                             lager:error("@ ~p", [SE])
                         end, S),
           try_process(Rest, Acc#{
-                              failed=>[{BlID, unknown}|Failed]
+                              failed=>[{BlID, unknown}|Failed],
+                              last => failed
                              })
   end;
 
@@ -148,14 +150,16 @@ try_process([{TxID, #{ver:=2,
     lager:info("Success Patch ~p against settings ~p", [_LPatch, SetState]),
     try_process(Rest, Acc#{
                         new_settings => SS1,
-                        settings=>[{TxID, Tx}|Settings]
+                        settings=>[{TxID, Tx}|Settings],
+                        last => ok
                        }
                )
   catch throw:Ee ->
           lager:info("Fail to Patch ~p ~p",
                      [_LPatch, Ee]),
           try_process(Rest, Acc#{
-                              failed=>[{TxID, Ee}|Failed]
+                              failed=>[{TxID, Ee}|Failed],
+                              last => failed
                              });
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
@@ -163,7 +167,8 @@ try_process([{TxID, #{ver:=2,
                      [_LPatch, Ec, Ee, SetState]),
           lager:info("at ~p", [S]),
           try_process(Rest, Acc#{
-                              failed=>[{TxID, Tx}|Failed]
+                              failed=>[{TxID, Tx}|Failed],
+                              last => failed
                              })
   end;
 
@@ -205,13 +210,16 @@ try_process([{TxID, #{
     try_process(Rest,
                 savefee(GotFee,
                         Acc#{success=> [{TxID, Tx}|Success],
-                             table=>NewAddresses
+                             table=>NewAddresses,
+                             last => ok
                             }
                        )
                )
   catch error:{badkey,Owner} ->
           try_process(Rest,
-                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
+                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed],
+                           last => failed
+                          });
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
           lager:info("LStore failed ~p:~p", [Ec,Ee]),
@@ -219,7 +227,8 @@ try_process([{TxID, #{
                             lager:error("@ ~p", [SE])
                         end, S),
           try_process(Rest,
-                      Acc#{failed=>[{TxID, other}|Failed]})
+                      Acc#{failed=>[{TxID, other}|Failed],
+                           last => failed})
   end;
 
 try_process([{TxID, #{
@@ -256,12 +265,14 @@ try_process([{TxID, #{
     try_process(Rest,
                 savefee(GotFee,
                         Acc#{success=> [{TxID, Tx}|Success],
-                            table => NewAddresses}
+                            table => NewAddresses,
+                            last => ok}
                        )
                )
   catch error:{badkey,Owner} ->
           try_process(Rest,
-                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
+                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed],
+                           last => failed});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
           lager:info("TStore failed ~p:~p", [Ec,Ee]),
@@ -269,7 +280,8 @@ try_process([{TxID, #{
                             lager:error("@ ~p", [SE])
                         end, S),
           try_process(Rest,
-                      Acc#{failed=>[{TxID, other}|Failed]})
+                      Acc#{failed=>[{TxID, other}|Failed],
+                           last => failed})
   end;
 
 try_process([{TxID, #{
@@ -401,7 +413,8 @@ try_process([{TxID, #{
                                   Acc#{
                                     success => [{TxID, Tx}|Success],
                                     table   => NewAddresses,
-                                    aalloc  => AAlloc2
+                                    aalloc  => AAlloc2,
+                                    last => failed
                                    }
                                  )
                          ))
@@ -411,18 +424,21 @@ try_process([{TxID, #{
                         savegas(Gas, all,
                                 savefee(GotFee,
                                         Acc#{failed=> [{TxID, ThrowReason}|Failed],
-                                             table => NewAddressesG
+                                             table => NewAddressesG,
+                                             last => ok
                                             }
                                        )
                                ))
     end
   catch error:{badkey,Owner} ->
           try_process(Rest,
-                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
+                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed],
+                           last => failed});
         throw:X ->
           lager:info("Contract deploy failed ~p", [X]),
           try_process(Rest,
-                      Acc#{failed=>[{TxID, X}|Failed]});
+                      Acc#{failed=>[{TxID, X}|Failed],
+                           last => failed});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
           %io:format("DEPLOY ERROR ~p:~p~n",[Ec,Ee]),
@@ -432,7 +448,8 @@ try_process([{TxID, #{
                             lager:info("@ ~p~n", [SE])
                         end, S),
           try_process(Rest,
-                      Acc#{failed=>[{TxID, other}|Failed]})
+                      Acc#{failed=>[{TxID, other}|Failed],
+                           last => failed})
   end;
 
 try_process([{TxID, #{
@@ -482,17 +499,20 @@ try_process([{TxID, #{
     try_process(Rest,
                 savefee(GotFee,
                         Acc#{success=> [{TxID, Tx}|Success],
-                            table => NewAddresses
+                            table => NewAddresses,
+                            last => ok
                             }
                        )
                )
   catch error:{badkey,Owner} ->
           try_process(Rest,
-                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
+                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed],
+                           last => failed});
         throw:X ->
           lager:info("Contract deploy failed ~p", [X]),
           try_process(Rest,
-                      Acc#{failed=>[{TxID, X}|Failed]});
+                      Acc#{failed=>[{TxID, X}|Failed],
+                           last => failed});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
           lager:info("Contract deploy failed ~p:~p", [Ec,Ee]),
@@ -500,7 +520,8 @@ try_process([{TxID, #{
                             lager:error("@ ~p", [SE])
                         end, S),
           try_process(Rest,
-                      Acc#{failed=>[{TxID, other}|Failed]})
+                      Acc#{failed=>[{TxID, other}|Failed],
+                           last => failed})
   end;
 
 try_process([{TxID, #{ver:=2,
@@ -567,12 +588,14 @@ try_process([{TxID, #{ver:=2,
     try_process(Rest,
                 Acc#{success => [{TxID, NewTx}|Success],
                      table  => NewAddresses,
-                     aalloc => AAl1
+                     aalloc => AAl1,
+                     last => ok
                     })
   catch throw:X ->
           lager:info("Address alloc fail ~p", [X]),
           try_process(Rest,
-                      Acc#{failed=>[{TxID, X}|Failed]})
+                      Acc#{failed=>[{TxID, X}|Failed],
+                           last => failed})
   end;
 
 try_process([{TxID, #{from:=From, to:=To}=Tx} |Rest],
@@ -608,13 +631,15 @@ try_process([{TxID, #{from:=From, to:=To}=Tx} |Rest],
     _ ->
       lager:info("TX ~s addr error ~p -> ~p", [TxID, FAddr, TAddr]),
       try_process(Rest,
-                  Acc#{failed=>[{TxID, 'bad_src_or_dst_addr'}|Failed]})
+                  Acc#{failed=>[{TxID, 'bad_src_or_dst_addr'}|Failed],
+                       last => failed})
   end;
 
 try_process([{TxID, UnknownTx} |Rest],
             #{failed:=Failed}=Acc) ->
   lager:info("Unknown TX ~p type ~p", [TxID, UnknownTx]),
-  try_process(Rest, Acc#{failed=>[{TxID, 'unknown_type'}|Failed]}).
+  try_process(Rest, Acc#{failed=>[{TxID, 'unknown_type'}|Failed],
+                         last => failed}).
 
 try_process_inbound([{TxID,
                       #{ver:=2,
@@ -631,16 +656,10 @@ try_process_inbound([{TxID,
                       failed:=Failed,
                       table:=Addresses,
                       new_settings:=SetState,
-                      get_settings:=GetFun,
                       emit:=Emit,
                       pick_block:=PickBlock}=Acc) ->
   lager:error("Check signature once again"),
   try
-    EnsureSettings=fun(undefined) -> GetFun(settings);
-                      (SettingsReady) -> SettingsReady
-                   end,
-    RealSettings=EnsureSettings(SetState),
-
     Gas=case tx:get_ext(<<"xc_gas">>, Tx) of
           undefined -> {<<"NONE">>,0,1};
           {ok, [GasCur, GasAmount]} ->
@@ -653,7 +672,7 @@ try_process_inbound([{TxID,
         end,
 
     lager:info("Orig Block ~p", [OriginBlock]),
-    {Addresses2, NewEmit, GasLeft, Acc1}=deposit(To, Addresses, Tx, GetFun, RealSettings, Gas, Acc),
+    {Addresses2, NewEmit, GasLeft, Acc1}=deposit(To, Addresses, Tx, Gas, Acc),
     %Addresses2=maps:put(To, NewT, Addresses),
 
     NewAddresses=case GasLeft of
@@ -680,11 +699,13 @@ try_process_inbound([{TxID,
                 Acc1#{success=>[{TxID, FixTX}|Success],
                      emit => Emit ++ NewEmit,
                      table => NewAddresses,
-                     pick_block=>maps:put(OriginBlock, 1, PickBlock)
+                     pick_block=>maps:put(OriginBlock, 1, PickBlock),
+                     last => ok
                     })
   catch throw:X ->
           try_process(Rest,
-                      Acc#{failed=>[{TxID, X}|Failed]})
+                      Acc#{failed=>[{TxID, X}|Failed],
+                           last => failed})
   end;
 
 try_process_inbound([{TxID,
@@ -727,11 +748,13 @@ try_process_inbound([{TxID,
     try_process(Rest,
                 Acc#{success=>[{TxID, FixTX}|Success],
                      table => NewAddresses,
-                     pick_block=>maps:put(OriginBlock, 1, PickBlock)
+                     pick_block=>maps:put(OriginBlock, 1, PickBlock),
+                     last => ok
                     })
   catch throw:X ->
           try_process(Rest,
-                      Acc#{failed=>[{TxID, X}|Failed]})
+                      Acc#{failed=>[{TxID, X}|Failed],
+                           last => failed})
   end.
 
 try_process_outbound([{TxID,
@@ -751,13 +774,9 @@ try_process_outbound([{TxID,
   lager:notice("TODO:Check signature once again"),
   lager:info("outbound to chain ~p ~p", [OutTo, To]),
   FBal=maps:get(From, Addresses),
-  EnsureSettings=fun(undefined) -> GetFun(settings);
-                    (SettingsReady) -> SettingsReady
-                 end,
 
   try
-    RealSettings=EnsureSettings(SetState),
-    {NewF, _GasF, GotFee, GotGas}=withdraw(FBal, Tx, GetFun, RealSettings, []),
+    {NewF, _GasF, GotFee, GotGas}=withdraw(FBal, Tx, GetFun, SetState, []),
     lager:info("Got gas ~p",[GotGas]),
 
     PatchTxID= <<"out", (xchain:pack_chid(OutTo))/binary>>,
@@ -767,7 +786,7 @@ try_process_outbound([{TxID,
                   false ->
                     ChainPath=[<<"current">>, <<"outward">>,
                                xchain:pack_chid(OutTo)],
-                    SyncSet=settings:get(ChainPath, RealSettings),
+                    SyncSet=settings:get(ChainPath, SetState),
                     PC1=case SyncSet of
                           #{<<".">>:=#{<<"height">>:=#{<<"ublk">>:=UBLK}}} ->
                             [
@@ -826,7 +845,7 @@ try_process_outbound([{TxID,
                             |PCP ],
                     SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
                     {
-                     settings:patch(SyncPatch, RealSettings),
+                     settings:patch(SyncPatch, SetState),
                      [SyncPatch|Settings]
                     }
                 end,
@@ -843,24 +862,24 @@ try_process_outbound([{TxID,
                           new_settings=>SS2,
                           table => NewAddresses,
                           success=>[{TxID, Tx1}|Success],
-                          outbound=>[{TxID, OutTo}|Outbound]
+                          outbound=>[{TxID, OutTo}|Outbound],
+                          last => ok
                          })
                )
   catch throw:X ->
           try_process(Rest,
-                      Acc#{failed=>[{TxID, X}|Failed]})
+                      Acc#{failed=>[{TxID, X}|Failed],
+                           last => failed})
   end.
 
 try_process_local([{TxID,
                     #{to:=To, from:=From}=Tx}
-                   |Rest],
-                  %SetState, Addresses, GetFun,
-                  #{success:=Success,
+                   |Rest]=TXL,
+                  #{
                     table:=Addresses,
                     get_settings:=GetFun,
                     new_settings:=SetState,
-                    failed:=Failed,
-                    emit:=Emit}=Acc) ->
+                    failed:=Failed}=Acc) ->
   try
     Verify=try
              %TODO: If it contract issued tx check for minsig
@@ -875,21 +894,14 @@ try_process_local([{TxID,
          throw('unverified')
     end,
 
-    EnsureSettings=fun(undefined) -> GetFun(settings);
-                      (SettingsReady) -> SettingsReady
-                   end,
-
-    RealSettings=EnsureSettings(SetState),
     lager:info("Processing local =====[ ~s ]=======",[TxID]),
     OrigF=maps:get(From, Addresses),
-    {NewF, GasF, GotFee, Gas}=withdraw(OrigF, Tx, GetFun, RealSettings, []),
+    {NewF, GasF, GotFee, Gas}=withdraw(OrigF, Tx, GetFun, SetState, []),
     try
       Addresses1=maps:put(From, NewF, Addresses),
       {Addresses2, NewEmit, GasLeft, Acc1}=deposit(To, Addresses1,
-                                                   Tx, GetFun,
-                                                   RealSettings, Gas, Acc),
+                                                   Tx, Gas, Acc),
       lager:info("Local gas ~p -> ~p f ~p t ~p",[Gas, GasLeft, From, To]),
-      %Addresses2=maps:put(To, NewT, Addresses1),
 
       NewAddresses=case GasLeft of
                      {_, 0, _} ->
@@ -898,7 +910,7 @@ try_process_local([{TxID,
                        throw('insufficient_gas');
                      {_, IGL, _} when IGL > 0 ->
                        Bal0=maps:get(From, Addresses2),
-                       Bal1=return_gas(GasLeft, RealSettings, Bal0),
+                       Bal1=return_gas(GasLeft, SetState, Bal0),
                        maps:put(From, Bal1, Addresses2)
                    end,
 
@@ -913,17 +925,16 @@ try_process_local([{TxID,
                Tx
           end,
 
-      try_process(Rest,
-                  savegas(Gas, GasLeft,
-                          savefee(GotFee,
-                                  Acc1#{
-                                    success=>[{TxID, Tx1}|Success],
-                                    table => NewAddresses,
-                                    emit=>Emit ++ NewEmit
-                                   }
-                                 )
-                         )
-                 )
+      #{success:=Success, emit:=Emit} = Acc1,
+
+      Acc2=Acc1#{
+        success=>[{TxID, Tx1}|Success],
+        table => NewAddresses,
+        emit=>Emit ++ NewEmit
+       },
+      Acc3=savegas(Gas, GasLeft, savefee(GotFee, Acc2)),
+
+      try_process(Rest, Acc3#{last => ok})
     catch
       throw:insufficient_gas ->
         AddressesWoGas=maps:put(From, GasF, Addresses),
@@ -931,7 +942,8 @@ try_process_local([{TxID,
                     savegas(Gas, all,
                             savefee(GotFee,
                                     Acc#{failed=>[{TxID, insufficient_gas}|Failed],
-                                         table => AddressesWoGas
+                                         table => AddressesWoGas,
+                                         last => failed
                                         }
                                    )
                            )
@@ -940,17 +952,22 @@ try_process_local([{TxID,
   catch
     error:{badkey,From} ->
       try_process(Rest,
-                  Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed]});
+                  Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed],
+                       last => failed});
     error:{badkey,To} ->
-      try_process(Rest,
-                  Acc#{failed=>[{TxID, no_dst_addr_loaded}|Failed]});
+      %try_process(Rest,
+      %            Acc#{failed=>[{TxID, no_dst_addr_loaded}|Failed]});
+      Load=maps:get(loadaddr, Acc),
+      try_process(TXL, Acc#{table=>Load({TxID,Tx}, Addresses)});
     throw:X ->
       try_process(Rest,
-                  Acc#{failed=>[{TxID, fmterr(X)}|Failed]});
+                  Acc#{failed=>[{TxID, fmterr(X)}|Failed],
+                       last => failed});
     error:X:S ->
       io:format("Error ~p at ~p/~p~n",[X,hd(S),hd(tl(S))]),
       try_process(Rest,
-                  Acc#{failed=>[{TxID, fmterr(X)}|Failed]})
+                  Acc#{failed=>[{TxID, fmterr(X)}|Failed],
+                       last => failed})
   end.
 
 savegas({Cur, Amount1, Rate1}, all, Acc) ->
@@ -972,7 +989,7 @@ savegas({Cur, Amount1, _}, {Cur, Amount2, _}, #{fee:=FeeBal}=Acc) ->
               mkblock_acc()) -> mkblock_acc().
 
 savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
-  io:format("save fee  ~s ~w ~w~n",[Cur,Fee,Tip]),
+  %io:format("save fee  ~s ~w ~w~n",[Cur,Fee,Tip]),
   Acc#{
     fee=>mbal:put_cur(Cur, Fee+mbal:get_cur(Cur, FeeBal), FeeBal),
     tip=>mbal:put_cur(Cur, Tip+mbal:get_cur(Cur, TipBal), TipBal)
@@ -987,8 +1004,13 @@ gas_plus_int({Cur,Amount, Rate}, Int, true) ->
 is_gas_left({_,Amount,_Rate}) ->
   Amount>0.
 
-deposit(Address, Addresses0, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
-        #{height:=Hei,parent:=Parent,aalloc:=AAlloc,get_addr:=GetAddr}=Acc) ->
+deposit(Address, Addresses0, #{ver:=2}=Tx, GasLimit,
+        #{
+          aalloc:=AAlloc,
+          get_addr:=GetAddr,
+          get_settings:=GetFun,
+          new_settings:=SetState
+         }=Acc) ->
   TBal0=maps:get(Address,Addresses0),
   NewT=maps:remove(keep,
                    lists:foldl(
@@ -997,11 +1019,13 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
                          mbal:put_cur( Cur, NewTAmount, TBal)
                      end, TBal0, tx:get_payloads(Tx,transfer))),
   Addresses=maps:put(Address,NewT,Addresses0),
-  case mbal:get(vm, NewT) of
-    undefined ->
-      {Addresses, [], GasLimit, Acc};
-    VMType ->
-      FreeGas=case settings:get([<<"current">>, <<"freegas">>], Settings) of
+  case {maps:is_key(norun,Tx),mbal:get(vm, NewT)} of
+    {true,_} ->
+      {Addresses, [], GasLimit, Acc#{table=>Addresses}};
+    {_,undefined} ->
+      {Addresses, [], GasLimit, Acc#{table=>Addresses}};
+    {false,VMType} ->
+      FreeGas=case settings:get([<<"current">>, <<"freegas">>], SetState) of
                 N when is_integer(N), N>0 -> N;
                 _ -> 0
               end,
@@ -1020,12 +1044,12 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
                     created=>[],
                     changed=>[],
                     get_addr=>GetAddr1,
+                    global_acc=>Acc#{table=>Addresses},
                     entropy=>maps:get(entropy,Acc,<<>>),
                     mean_time=>maps:get(mean_time,Acc,0)
-},
+                   },
 
       GetFun1 = fun({addr,ReqAddr,code}) ->
-                    io:format("Request code for address ~p~n",[ReqAddr]),
                     case maps:is_key(ReqAddr,Addresses) of
                       true ->
                         mbal:get(code,maps:get(ReqAddr, Addresses));
@@ -1033,7 +1057,6 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
                         mbal:get(code,GetAddr(ReqAddr))
                     end;
                    ({addr,ReqAddr,storage,Key}=Request) ->
-                    io:format("Request storage key ~p address ~p~n",[Key,ReqAddr]),
                     case maps:is_key(ReqAddr,Addresses) of
                       true ->
                         AddrStor=mbal:get(state,maps:get(ReqAddr, Addresses)),
@@ -1051,10 +1074,7 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
            lager:info("Run with free gas ~p+~p=~p",
                       [GasLimit,FreeGas,GasWithFree]),
            {L1x,TXsx,GasLeftx,OpaqueState2a} =
-           smartcontract:run(VMType, Tx, NewT,
-                             GasWithFree,
-                             GetFun1,
-                             OpaqueState),
+           smartcontract:run(VMType, Tx, NewT, GasWithFree, GetFun1, OpaqueState),
 
            TakenFree=gas_plus_int(GasLeftx,-FreeGas,true),
            case is_gas_left(TakenFree) of
@@ -1069,43 +1089,28 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
          true ->
            smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun1, OpaqueState)
       end,
-      io:format("Gas1 ~p left ~p free ~p~n",[GasLimit,GasLeft,FreeGas]),
-      io:format("Opaque2 ~p~n",[OpaqueState2]),
+      %io:format("Gas1 ~p left ~p free ~p~n",[GasLimit,GasLeft,FreeGas]),
+      %io:format("<> Opaque2 ~p~n",[OpaqueState2]),
       true=is_list(LedgerPatches),
 
-      #{aalloc:=AAlloc2,created:=Created,changed:=Changes}=OpaqueState2,
+      #{aalloc:=AAlloc2,
+        created:=Created,
+        changed:=Changes,
+        global_acc:=Acc2
+       }=OpaqueState2,
+      #{table:=Addresses1}=Acc2,
       EmitTxs=lists:map(
                 fun(ETxBody) ->
-                    Template=#{
-                               "f"=>Address,
-                               "s"=>0,
-                               "t"=>0,
-                               "p"=>[],
-                               "ev"=>[]},
-                    #{from:=TxFrom,seq:=_Seq}=ETx=tx:complete_tx(ETxBody,Template),
-
-                    if(TxFrom=/=Address) ->
-                        throw('emit_wrong_from');
-                      true ->
-                        ok
-                    end,
-                    H=base64:encode(crypto:hash(sha, [Parent,ETxBody])),
-                    BinId=binary:encode_unsigned(Hei),
-                    BSeq=hex:encode(<<(size(BinId)):8,BinId/binary>>),
-                    EA=hex:encode(Address),
-                    TxID= <<EA/binary, BSeq/binary, H/binary>>,
-                    {TxID,
-                     tx:set_ext( <<"contract_issued">>, Address, ETx)
-                    }
+                   complete_tx(ETxBody, Address, Acc2)
                 end, TXs),
       Addresses2=lists:foldl(
                    fun(Addr1,AddrAcc) ->
-                       io:format("Put ~p into ~p~n",[maps:get(Addr1,OpaqueState2,undefined), Addr1]),
+                       %io:format("Put ~p into ~p~n",[maps:get(Addr1,OpaqueState2,undefined), Addr1]),
                        maps:put(Addr1,maps:get(Addr1,OpaqueState2,#{}),AddrAcc)
-                   end, Addresses, Created),
+                   end, Addresses1, Created),
       Addresses3=lists:foldl(
                    fun({{Addr1,mergestate},Data},AddrAcc) ->
-                       io:format("Merge state for ~p~n",[Addr1]),
+                       %io:format("Merge state for ~p~n",[Addr1]),
                        MBal0=case maps:is_key(Addr1,AddrAcc) of
                               true ->
                                 maps:get(Addr1,AddrAcc);
@@ -1116,12 +1121,12 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GetFun, Settings, GasLimit,
                        maps:put(Addr1,MBal1,AddrAcc);
                       (_Any,AddrAcc) ->
                         lager:notice("Ignore patch from VM ~p",[_Any]),
-                        io:format("ignore patch ~p~n",[_Any]),
+                        %io:format("ignore patch ~p~n",[_Any]),
                         AddrAcc
                    end, Addresses2, Changes),
       LToPatch=maps:get(Address, Addresses3),
       Addresses4=maps:put(Address, mbal:patch(LedgerPatches,LToPatch), Addresses3),
-      {Addresses4, EmitTxs, GasLeft, Acc#{aalloc=>AAlloc2}}
+      {Addresses4, EmitTxs, GasLeft, Acc2#{aalloc=>AAlloc2}}
   end.
 
 withdraw(FBal0,
@@ -1233,7 +1238,6 @@ withdraw(FBal0,
                            tx:get_payloads(Tx,gas)
                           )
                      end,
-    io:format("Fee ~p Gas ~p~n", [GotFee,GotGas]),
     lager:info("Fee ~p Gas ~p", [GotFee,GotGas]),
 
     TakeMoney=fun(#{amount:=Amount, cur:= Cur}, FBal) ->
@@ -1333,7 +1337,7 @@ return_gas({<<"NONE">>, _GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
   Bal0;
 
 return_gas({GCur, GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
-  io:format("return_gas ~p left ~b~n",[GCur, GAmount]),
+  %io:format("return_gas ~p left ~b~n",[GCur, GAmount]),
   if(GAmount > 0) ->
       B1=mbal:get_cur(GCur,Bal0),
       mbal:put_cur(GCur, B1+GAmount, Bal0);
@@ -1356,3 +1360,27 @@ addrcheck(Addr) ->
       bad_address
   end.
 
+complete_tx(ETxBody,
+            Address,
+            #{height:=Hei, parent:=Parent} = _Acc) ->
+  Template=#{
+             "f"=>Address,
+             "s"=>0,
+             "t"=>0,
+             "p"=>[],
+             "ev"=>[]},
+  #{from:=TxFrom,seq:=_Seq}=ETx=tx:complete_tx(ETxBody,Template),
+
+  if(TxFrom=/=Address) ->
+      throw('emit_wrong_from');
+    true ->
+      ok
+  end,
+  H=base64:encode(crypto:hash(sha, [Parent,ETxBody])),
+  BinId=binary:encode_unsigned(Hei),
+  BSeq=hex:encode(<<(size(BinId)):8,BinId/binary>>),
+  EA=hex:encode(Address),
+  TxID= <<EA/binary, BSeq/binary, H/binary>>,
+  {TxID,
+   tx:set_ext( <<"contract_issued">>, Address, ETx)
+  }.

@@ -92,7 +92,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            table => Addrs,
            new_settings=> XSettings,
            get_settings => GetSettings,
-
+           loadaddr=>Load,
            delayed=>Delayed,
            failed=>[],
            success=>[],

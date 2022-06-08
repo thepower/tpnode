@@ -245,6 +245,14 @@ extcontract_test() ->
                   StateKey=msgpack:pack("v"),
                   StateVal=msgpack:pack(20),
                   io:format("St ~p~n",[ maps:get(StateKey,ContractState) ]),
+                  NewLedgerSum=maps:fold(
+                    fun(_Addr,#{amount:=Bal},Acc) ->
+                       maps:fold(
+                        fun(K,V,A) ->
+                           maps:put(K,maps:get(K,A,0)+V,A)
+                        end, Acc, Bal)
+                    end, #{}, maps:get(bals, Block)),
+                  io:format("NewLedgerSum ~p~n",[NewLedgerSum]),
                   [
                    ?assertMatch([{<<"5willfail">>,insufficient_gas}],Failed),
                    ?assertMatch([<<"4testexec">>,<<"3testdeploy">>],Success),
@@ -264,6 +272,15 @@ extcontract_test() ->
                #{amount => #{ <<"FTT">> => 10, <<"SK">> => 2, <<"TST">> => 26 }}
               }
              ],
+      OldLedgerSum=lists:foldl(
+                    fun({_Addr,#{amount:=Bal}},Acc) ->
+                       maps:fold(
+                        fun(K,V,A) ->
+                           maps:put(K,maps:get(K,A,0)+V,A)
+                        end, Acc, Bal)
+                    end, #{}, Ledger),
+      io:format("OldLedgerSum ~p~n",[OldLedgerSum]),
+
       extcontract_template(OurChain, TxList, Ledger, TestFun).
 
 brom_test() ->
