@@ -71,7 +71,7 @@
   0},
  {<<"tpapi">>,
   {git,"https://github.com/thepower/tpapi",
-       {ref,"1abfb2f783d84f50ca52daf1a28798c2ba7f0a75"}},
+       {ref,"dd9d471ec63d68e3339aa622ec747ce64daa781e"}},
   0},
  {<<"tpecdsa">>,
   {git,"https://github.com/thepower/tpecdsa",
