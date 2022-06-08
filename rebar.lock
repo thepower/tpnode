@@ -35,7 +35,7 @@
   1},
  {<<"lager">>,{pkg,<<"lager">>,<<"3.8.0">>},0},
  {<<"meck">>,
-  {git,"git://github.com/eproxus/meck.git",
+  {git,"https://github.com/eproxus/meck.git",
        {ref,"febf4a8007e92015833ebda5a0373c81b192e7b1"}},
   0},
  {<<"mkmap">>,
