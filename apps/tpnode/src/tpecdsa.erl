@@ -2,10 +2,6 @@
 -export([generate_priv/0, minify/1, calc_pub/2, sign/2, verify/3]).
 -export([export/2, export/3, import/1, import/2 ]).
 
--ifndef(TEST).
--define(TEST,1).
--endif.
-
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.

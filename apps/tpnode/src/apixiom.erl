@@ -44,7 +44,11 @@ get_format(#{<<"content-type">> := <<"application/json">>} = Req) ->
 get_format(Req) ->
     Path = cowboy_req:path(Req),
     PathInfo = cowboy_req:path_info(Req),
-    PathInfoLast = lists:last(PathInfo),
+    PathInfoLast = try
+                     lists:last(PathInfo)
+                   catch _:_ ->
+                           <<>>
+                   end,
     PathSplit = binary:split(PathInfoLast, <<".">>, [global]),
     if
         length(PathSplit) > 1 ->

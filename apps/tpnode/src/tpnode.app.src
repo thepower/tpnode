@@ -14,6 +14,8 @@
       gb_merkle_trees,
       msgpack,
       cowdb,
+      wanode,
+      gun,
       mkmap,
       tables,
       tpic2,

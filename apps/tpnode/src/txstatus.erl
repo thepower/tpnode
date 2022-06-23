@@ -4,10 +4,6 @@
 -define(CLEANUP, 30000).
 -define(TIMEOUT, 600).
 
--ifndef(TEST).
--define(TEST, 1).
--endif.
-
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.

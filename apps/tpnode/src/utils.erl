@@ -1,7 +1,7 @@
 -module(utils).
 
 -export([alloc_tcp_port/0,make_binary/1, make_list/1, apply_macro/2,
-  print_error/4, log_stacktrace/1]).
+  print_error/4, log_stacktrace/1, check_tcp_port/1]).
 
 -export([logger/1, logger/2]).
 
@@ -10,6 +10,15 @@ alloc_tcp_port() ->
   {ok,{_,CPort}}=inet:sockname(S),
   gen_tcp:close(S),
   CPort.
+
+check_tcp_port(Port) ->
+  case gen_tcp:listen(Port,[]) of
+    {error, _} -> false;
+    {ok,S} ->
+      gen_tcp:close(S),
+      true
+  end.
+
 
 %% -------------------------------------------------------------------------------------
 
