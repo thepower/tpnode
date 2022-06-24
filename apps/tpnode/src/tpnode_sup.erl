@@ -51,9 +51,10 @@ init([]) ->
             _ ->
               []
           end,
-    ok=mledger:start_db(),
     DBPath=application:get_env(tpnode,dbpath,"db"),
-    filelib:ensure_dir(DBPath),
+    io:format("DB ~p~n",[DBPath]),
+    filelib:ensure_dir([DBPath,"/"]),
+    ok=mledger:start_db(),
 
     Discovery=#{name=>discovery, services=>MandatoryServices},
     %application:set_env(mnesia, dir,
