@@ -147,7 +147,11 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 
 peers_db() ->
-  "db/peers_" ++ atom_to_list(node()).
+  try
+    utils:dbpath(peers)
+  catch _:_ ->
+          "db/peers_" ++ atom_to_list(node())
+  end.
 
 get_conn(PubKey, #{peers:=P}=State) ->
   case maps:find(PubKey, P) of

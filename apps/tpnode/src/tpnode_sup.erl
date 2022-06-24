@@ -52,11 +52,13 @@ init([]) ->
               []
           end,
     ok=mledger:start_db(),
+    DBPath=application:get_env(tpnode,dbpath,"db"),
+    filelib:ensure_dir(DBPath),
 
     Discovery=#{name=>discovery, services=>MandatoryServices},
-    application:set_env(mnesia, dir,
-                        application:get_env(tpnode,db_path,"db/mnesia_"++atom_to_list(node()))
-                       ),
+    %application:set_env(mnesia, dir,
+    %                    application:get_env(tpnode,db_path,"db/mnesia_"++atom_to_list(node()))
+    %                   ),
     Childs=[
             { rdb_dispatcher, {rdb_dispatcher, start_link, []},
               permanent, 5000, worker, []},

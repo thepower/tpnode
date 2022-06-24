@@ -31,8 +31,7 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-  filelib:ensure_dir("db/"),
-  {ok, LDB}=ldb:open("db/db_" ++ atom_to_list(node())),
+  {ok, LDB}=ldb:open(utils:dbpath(db)),
   {ok, get_last(#{
          ldb=>LDB
         })}.

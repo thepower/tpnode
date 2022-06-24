@@ -1,6 +1,8 @@
 -module(scratchpad).
--compile(export_all).
 -compile(nowarn_export_all).
+-compile(export_all).
+
+-ignore_xref([{ledger, get, 1}]).
 
 sockstat() ->
   io:format("~s~n",[os:cmd("sockstat -l | grep "++os:getpid())]).

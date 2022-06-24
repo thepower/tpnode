@@ -75,7 +75,8 @@ deploy4test(LedgerData, TestFun) ->
   end.
 
 start_db() ->
-  Path="db/mledger_" ++ atom_to_list(node()) ++ ".db",
+  Path=utils:dbpath(mledger),
+  %Path="db/mledger_" ++ atom_to_list(node()) ++ ".db",
   ok=rockstable:open_db(mledger,Path,tables()),
   ok.
 

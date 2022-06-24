@@ -39,7 +39,7 @@ all() ->
         smartcontract_test,
         evm_test,
         check_blocks_test
-        ,crashme_test
+        %,crashme_test
         %instant_sync_test
     ].
 

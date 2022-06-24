@@ -5,6 +5,27 @@
 
 -export([logger/1, logger/2]).
 
+-export([dbpath/1]).
+
+dbpath(cert) ->
+  DBPath=application:get_env(tpnode,dbpath,"db"),
+  case application:get_env(tpnode,dbsuffix, undefined) of
+    undefined ->
+      filename:join([DBPath,erlang:node(),"cert"]);
+    Other ->
+      filename:join(DBPath,[cert,Other])
+  end;
+
+dbpath(mledger) ->
+  DBPath=application:get_env(tpnode,dbpath,"db"),
+  Suffix=application:get_env(tpnode,dbsuffix,"_" ++ atom_to_list(node()) ++ ".db"),
+  filename:join(DBPath,[mledger,Suffix]);
+
+dbpath(DB) ->
+  DBPath=application:get_env(tpnode,dbpath,"db"),
+  Suffix=application:get_env(tpnode,dbsuffix,"_" ++ atom_to_list(node())),
+  filename:join(DBPath,[DB,Suffix]).
+
 alloc_tcp_port() ->
   {ok,S}=gen_tcp:listen(0,[]),
   {ok,{_,CPort}}=inet:sockname(S),

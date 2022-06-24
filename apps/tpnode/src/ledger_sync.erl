@@ -103,7 +103,7 @@ synchronizer(TPIC, PeerID,
              {DBH, Snapshot},
              Settings) ->
     {ok, Itr} = rocksdb:iterator(DBH, [{snapshot, Snapshot}]),
-    Total=rocksdb:count(DBH),
+    Total=try rocksdb:count(DBH) catch _:_ -> unknown end,
     lager:info("TPIC ~p Peer ~p bh ~p, db ~p total ~p",
                [TPIC, PeerID, {Height, Hash}, {DBH, Snapshot}, Total]),
     Patches=settings:get_patches(Settings),
