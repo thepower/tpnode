@@ -1,7 +1,18 @@
 {tpic,#{peers => [{"::1",43211}],port => 43212}}.
+{discovery,#{addresses => [
+  #{address => "::1",port => 43312,proto => tpic},
+  #{address => local6,port => 43212, proto => tpic},
+  #{address => "2.8.34.20", port=>rpcport, proto=>api},
+  #{address => "5.3.12.69", port=>rpcport, proto=>api}
+]}}.
+
 {rpcport,43282}.
-{endless,[<<128,1,64,0,0,0,0,4>>]}.
 {privkey,"1E919CD3897241D78B420255F66426CC9A31163653AD7685DBBF0C34FFFFFFFF"}.
-{discovery,
-#{addresses => [#{address => local6,port => 43213, proto => tpic}] }
-}.
+
+{crosschain, #{ port => 43321, connect => [
+  {"127.0.0.1",43321}
+
+]}}.
+%{dbpath,"db1"}.
+%{dbsuffix,""}.
+
