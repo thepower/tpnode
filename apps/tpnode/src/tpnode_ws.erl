@@ -5,25 +5,39 @@
          websocket_info/2
         ]).
 
-init(Req, Opts) ->
-    {cowboy_websocket, Req, Opts, #{
-                              idle_timeout => 600000
-                             }}.
+init(Req, _Opts) ->
+  lager:debug("WS Upgrade req ~p",[Req]),
+  case Req of
+    #{headers:=#{<<"sec-websocket-protocol">> := <<"thepower-nodesync-v1">>}=H} ->
+      {cowboy_websocket, Req, #{headers=>H,p=>v1} #{ idle_timeout => 600000 }};
+    _ ->
+      {cowboy_websocket, Req, v0, #{ idle_timeout => 600000 }}
+  end.
 
-websocket_init(_State) ->
-    lager:debug("init websocket"),
-    {ok, 100}.
+websocket_init(v0) ->
+  lager:debug("init websocket v0",[]),
+  {ok, 100};
 
-websocket_handle({text, _Msg}, 0) ->
-    {reply, {text,
-             jsx:encode(#{
-               error=><<"subs limit reached">>
-              })}, 0};
+websocket_init(S0=#{p:=v1}) ->
+  lager:info("init websocket v1 ~p",[S0]),
+  Msg=msgpack:pack(
+        #{null=><<"banner">>,
+          protocol=><<"thepower-nodesync-v1">>,
+          <<"tpnode-name">> => nodekey:node_name(),
+          <<"tpnode-id">> => nodekey:node_id()
+         }
+       ),
+  {reply, {binary, Msg}, S0}.
+
 
 websocket_handle({text, <<"ping">>}, State) ->
-    {ok, State};
+  {reply, {text, <<"pong">>}, State};
 
-websocket_handle({text, Msg}, State) ->
+
+websocket_handle({text, _Msg}, 0) ->
+  {reply, {text, jsx:encode(#{ error=><<"subs limit reached">> })}, 0};
+
+websocket_handle({text, Msg}, State) when is_integer(State) ->
   try
     JS=jsx:decode(Msg, [return_maps]),
     lager:info("WS ~p", [JS]),
@@ -52,27 +66,54 @@ websocket_handle({text, Msg}, State) ->
         end,
     {reply, {text,
              jsx:encode(#{
-               ok=>true,
-               subscribe=>Ret,
-               moresubs=>State-1
-              })}, State-1 }
+                          ok=>true,
+                          subscribe=>Ret,
+                          moresubs=>State-1
+                         })}, State-1 }
   catch _:_ ->
           lager:error("WS error ~p", [Msg]),
           {ok, State}
   end;
 
-websocket_handle(_Any, State) ->
-    {reply, {text, << "whut?">>}, State}.
+websocket_handle(_Any, State) when is_integer(State) ->
+  {reply, {text, << "whut?">>}, State};
 
-websocket_info({message, Msg}, State) ->
-%    lager:info("websocket message ~p", [Msg]),
-    {reply, {text, Msg}, State};
+websocket_handle({text, _}, #{p:=v1}=State) ->
+  {reply, {text, << "no text expected by this protocol">>}, State};
+
+websocket_handle({binary, Bin}, #{p:=v1}=State) ->
+    case msgpack:unpack(Bin) of
+      {ok, #{}=M} ->
+        lager:info("Bin ~p",[M]),
+        handle_msg(M, State);
+      {error, _}=E ->
+        logger:debug("parse error1: ~p",[E]),
+        {reply, {text, <<"parsing error">>}, State};
+      E ->
+        logger:debug("parse error2: ~p",[E]),
+        {reply, {text, <<"unknown error">>}, State}
+    end.
+
+websocket_info({message, Msg}, #{p:=v1}=State) ->
+  Msg=msgpack:pack(Msg),
+  {reply, {binary, Msg}, State};
+
+websocket_info({message, Msg}, State) when is_integer(State) ->
+  {reply, {text, Msg}, State};
 
 websocket_info({timeout, _Ref, Msg}, State) ->
-    {reply, {text, Msg}, State};
+  {reply, {text, Msg}, State};
 
 websocket_info(_Info, State) ->
-    lager:info("websocket info ~p", [_Info]),
-    {ok, State}.
+  lager:info("websocket info ~p", [_Info]),
+  {ok, State}.
 
+
+handle_msg(#{null:= <<"subscribe">> }, State) ->
+  gen_server:cast(tpnode_ws_dispatcher, {subscribe, {block, term, stat}, self()}),
+  {reply, {binary, msgpack:pack(#{null=><<"ACK">>})}, State};
+
+handle_msg(Msg, State) ->
+  lager:info("unhandled WSv1 msg ~p",[Msg]),
+  {ok, State}.
 

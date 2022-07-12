@@ -23,8 +23,6 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-    application:ensure_all_started(cowboy),
-    application:ensure_all_started(tinymq),
     tpnode:reload(),
     MandatoryServices = [ api ],
     VMHost=case application:get_env(tpnode,vmaddr,undefined) of
@@ -45,21 +43,39 @@ init([]) ->
                application:set_env(tpnode,vmport,XPort),
                XPort
            end,
-    VM_CS=case application:get_env(tpnode,run_wanode,true) of
-            true ->
-              [{ wasm_vm, {vm_wasm, start_link, []}, permanent, 5000, worker, []}];
-            _ ->
-              []
-          end,
+
     DBPath=application:get_env(tpnode,dbpath,"db"),
-    io:format("DB ~p~n",[DBPath]),
     filelib:ensure_dir([DBPath,"/"]),
     ok=mledger:start_db(),
 
     Discovery=#{name=>discovery, services=>MandatoryServices},
-    %application:set_env(mnesia, dir,
-    %                    application:get_env(tpnode,db_path,"db/mnesia_"++atom_to_list(node()))
-    %                   ),
+
+    Services=case application:get_env(tpnode,replica,false) of
+               true -> %slave node
+                 [
+                  { tpnode_repl, {tpnode_repl, start_link, []}, permanent, 5000, worker, []}
+                 ];
+               false -> %consensus node
+                 VM_CS=case application:get_env(tpnode,run_wanode,true) of
+                         true ->
+                           [{ wasm_vm, {vm_wasm, start_link, []}, permanent, 5000, worker, []}];
+                         _ ->
+                           []
+                       end,
+                 [
+                  { blockchain_sync, {blockchain_sync, start_link, []}, permanent, 5000, worker, []},
+                  { synchronizer, {synchronizer, start_link, []}, permanent, 5000, worker, []},
+                  { mkblock, {mkblock, start_link, []}, permanent, 5000, worker, []},
+                  { topology, {topology, start_link, []}, permanent, 5000, worker, []},
+                  { xchain_client, {xchain_client, start_link, [#{}]}, permanent, 5000, worker, []},
+                  { xchain_dispatcher, {xchain_dispatcher, start_link, []}, permanent, 5000, worker, []},
+                  { chainkeeper, {chainkeeper, start_link, []}, permanent, 5000, worker, []}
+                  |VM_CS]
+                 ++ xchain:childspec()
+                 ++ tpic2:childspec()
+                 ++ tpnode_vmproto:childspec(VMHost, VMPort)
+             end,
+
     Childs=[
             { rdb_dispatcher, {rdb_dispatcher, start_link, []},
               permanent, 5000, worker, []},
@@ -70,19 +86,10 @@ init([]) ->
             { blockchain_reader, {blockchain_reader, start_link, []},
               permanent, 5000, worker, []},
 
-            { blockchain_sync, {blockchain_sync, start_link, []},
-              permanent, 5000, worker, []},
-
             { blockvote, {blockvote, start_link, []},
               permanent, 5000, worker, []},
 
             { ws_dispatcher, {tpnode_ws_dispatcher, start_link, []},
-              permanent, 5000, worker, []},
-
-            { synchronizer, {synchronizer, start_link, []},
-              permanent, 5000, worker, []},
-
-            { mkblock, {mkblock, start_link, []},
               permanent, 5000, worker, []},
 
             { txqueue, {txqueue, start_link, []},
@@ -98,37 +105,20 @@ init([]) ->
             { txstatus, {txstatus, start_link, [txstatus]},
               permanent, 5000, worker, []},
 
-            { topology, {topology, start_link, []},
-              permanent, 5000, worker, []},
-
-%            { ledger, {ledger, start_link, []},
-%              permanent, 5000, worker, []},
-%
             { discovery, {discovery, start_link, [Discovery]},
               permanent, 5000, worker, []},
 
             { tpnode_announcer, {tpnode_announcer, start_link, [#{}]},
               permanent, 5000, worker, []},
 
-            { xchain_client, {xchain_client, start_link, [#{}]},
-              permanent, 5000, worker, []},
-
-            { xchain_dispatcher, {xchain_dispatcher, start_link, []},
-              permanent, 5000, worker, []},
-
             { tpnode_cert, {tpnode_cert, start_link, []},
-              permanent, 5000, worker, []},
-
-            { chainkeeper, {chainkeeper, start_link, []},
               permanent, 5000, worker, []},
 
             { tpnode_vmsrv, {tpnode_vmsrv, start_link, []},
               permanent, 5000, worker, []}
 
-           ] ++ VM_CS
-            ++ xchain:childspec()
-            ++ tpic2:childspec()
-            ++ tpnode_vmproto:childspec(VMHost, VMPort)
+           ]
+            ++ Services
             ++ tpnode_http:childspec(),
     {ok, { {one_for_one, 5, 10}, Childs } }.
 
