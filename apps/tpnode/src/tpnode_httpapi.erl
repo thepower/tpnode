@@ -133,31 +133,38 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
               (_, V) when is_binary(V) -> BinPacker(V);
               (_, V) -> V
            end, Header1),
-  Peers =
-    try
-      lists:map(
-        fun(#{addr:=_Addr, auth:=Auth, state:=Sta, authdata:=AD}) ->
-          #{auth=>Auth,
-            state=>Sta,
-            node=>chainsettings:is_our_node(
-                    proplists:get_value(pubkey, AD, null)
-                   )
-          };
-          (#{addr:=_Addr}) ->
-            #{auth=>unknown,
-              state=>unknown
-            }
-        end, tpic2:peers())
-    catch
-      Ec:Ee ->
-        StackTrace = erlang:process_info(whereis(tpic), current_stacktrace),
-        ProcInfo = erlang:process_info(whereis(tpic)),
-        utils:print_error("TPIC peers collecting error", Ec, Ee, StackTrace),
-        lager:error("TPIC process info: ~p", [ProcInfo]),
-        
-        []
-    end,
-  SynPeers=gen_server:call(synchronizer, peers),
+  Peers = try
+            try
+              lists:map(
+                fun(#{addr:=_Addr, auth:=Auth, state:=Sta, authdata:=AD}) ->
+                    #{auth=>Auth,
+                      state=>Sta,
+                      node=>chainsettings:is_our_node(
+                              proplists:get_value(pubkey, AD, null)
+                             )
+                     };
+                   (#{addr:=_Addr}) ->
+                    #{auth=>unknown,
+                      state=>unknown
+                     }
+                end, tpic2:peers())
+            catch
+              Ec:Ee ->
+                StackTrace = erlang:process_info(whereis(tpic), current_stacktrace),
+                ProcInfo = erlang:process_info(whereis(tpic)),
+                utils:print_error("TPIC peers collecting error", Ec, Ee, StackTrace),
+                lager:error("TPIC process info: ~p", [ProcInfo]),
+
+                []
+            end
+          catch _:_ ->
+                  []
+          end,
+  SynPeers=try
+             gen_server:call(synchronizer, peers)
+           catch exit:{noproc,_} ->
+                   []
+           end,
   {Ver, _BuildTime}=tpnode:ver(),
   answer(
     #{ result => <<"ok">>,
@@ -612,8 +619,8 @@ h(<<"GET">>, [<<"address">>, TAddr], Req) ->
 h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
   BinPacker=packer(_Req,hex),
   BlockHash0=if(BlockId == <<"last">>) -> last;
-               true ->
-                 hex:parse(BlockId)
+               (BlockId == <<"genesis">>) -> genesis;
+               true -> hex:parse(BlockId)
              end,
   case blockchain:rel(BlockHash0, self) of
     undefined ->
@@ -623,10 +630,10 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
             #{result => <<"not_found">>},
             #{http_code => 404}
         );
-    #{txs:=Txl}=GoodBlock ->
+    #{header:=_,hash:=_Hash}=GoodBlock ->
       ReadyBlock=maps:put(
                    txs_count,
-                   length(Txl),
+                   length(maps:get(txs,GoodBlock,[])),
                    maps:without([txs,bals],GoodBlock)
                   ),
       Block=prettify_block(ReadyBlock, BinPacker),
@@ -638,6 +645,7 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
 
 h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
   BlockHash0=if(BlockId == <<"last">>) -> last;
+               (BlockId == <<"genesis">>) -> genesis;
                true -> hex:parse(BlockId)
              end,
   case blockchain:rel(BlockHash0, self) of
@@ -657,6 +665,7 @@ h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
 
 h(<<"GET">>, [<<"txtblock">>, BlockId], _Req) ->
   BlockHash0=if(BlockId == <<"last">>) -> last;
+               (BlockId == <<"genesis">>) -> genesis;
                true -> hex:parse(BlockId)
              end,
   case blockchain:rel(BlockHash0, self) of
@@ -685,6 +694,7 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
           end,
 
   BlockHash0=if(BlockId == <<"last">>) -> last;
+               (BlockId == <<"genesis">>) -> genesis;
                true ->
                  hex:parse(BlockId)
              end,

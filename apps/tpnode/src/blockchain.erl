@@ -37,6 +37,18 @@ chain() ->
   {ok, Chain} = chainsettings:get_setting(mychain),
   Chain.
 
+rel(genesis, prev) ->
+  throw(badarg);
+
+rel(<<0,0,0,0,0,0,0,0>>, child) ->
+  gen_server:call(blockchain_reader, {last_block, 0});
+
+rel(genesis, self) ->
+  gen_server:call(blockchain_reader, {last_block, 0});
+
+rel(genesis, child) ->
+  gen_server:call(blockchain_reader, {last_block, 1});
+
 rel(Hash, Rel) when Rel==prev orelse Rel==child ->
   gen_server:call(blockchain_reader, {get_block, Hash, Rel});
 

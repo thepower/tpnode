@@ -101,9 +101,20 @@ handle_cast({new_block, Block}, #{addrsub:=AS, blocksub:=BS}=State) ->
                            bals_cnt=>maps:size(maps:get(bals,Block,#{})),
                            timestamp => Now
                           }}),
+  MPStat=#{
+           hash=>maps:get(hash,Block,[]),
+           header=>maps:get(header,Block,[]),
+           txs_cnt=>length(maps:get(txs,Block,[])),
+           sign_cnt=>length(maps:get(sign,Block,[])),
+           settings_cnt=>length(maps:get(settings,Block,[])),
+           bals_cnt=>maps:size(maps:get(bals,Block,#{})),
+           now => Now
+          },
   lists:foreach(
     fun({Pid, _Format, full}) ->
         erlang:send(Pid, {message, BlockJS});
+       ({Pid, term, stat}) ->
+        erlang:send(Pid, {message, MPStat});
        ({Pid, _Format, stat}) ->
         erlang:send(Pid, {message, BlockStat});
        (Pid) when is_pid(Pid) ->
