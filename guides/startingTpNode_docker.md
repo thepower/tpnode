@@ -1,6 +1,12 @@
+**Table of Contents**
+
+- [How to start a TP-Node from a Docker image?](#how-to-start-a-tp-node-from-a-docker-image)
+  - [Setting up the environment](#setting-up-the-environment)
+  - [Starting the node](#starting-the-node)
+
 # How to start a TP-Node from a Docker image?
 
-You can start a TP-Node using the [Docker image](https://hub.docker.com/r/thepowerio/tpnode_evm).
+You can start a TP-Node using the [Docker image](https://hub.docker.com/r/thepowerio/tpnode).
 
 ## Setting up the environment
 
@@ -42,7 +48,7 @@ docker run -d \
 -p 43292:43292 \
 -p 43392:43392 \
 -p 43219:43219 \
-thepowerio/tpnode_evm:v0.10.2
+thepowerio/tpnode
 ```
 
 where:
@@ -55,6 +61,5 @@ where:
 | `--mount type=bind,source="$(pwd)"/log,target=/opt/thepower/log`                 | Path to log files. Bound to Docker. `/opt` here is mandatory, because it is the path inside the container.                                                  |
 | `--mount type=bind,source="$(pwd)"/node.config,target=/opt/thepower/node.config` | Path to your `node.config` file. Bound to Docker. `/opt` here is mandatory, because it is the path inside the container.                                                                                                          |
 | `--mount type=bind,source="$(pwd)"/genesis.txt,target=/opt/thepower/genesis.txt` | Path to your `genesis.txt`. Bound to Docker. `/opt` here is mandatory, because it is the path inside the container.                                                                                                                 |
-| `-p 43292:43292` <br> `-p 43392:43392` <br> `-p 43219:43219`                     | These commands specify all necessary local ports. In this examples ports `api`, `apis`, and `tpic` are used. You can specify any port in `node.config` file |
-| `thepowerio/tpnode_evm:v.0.10.2`                                                 | Path to Docker image. You need to specify the TP-Node version                                                                                               |
- 
+| `-p 43292:43292` <br /> `-p 43392:43392` <br /> `-p 43219:43219`                 | These commands specify all necessary local ports. In this examples ports `api`, `apis`, and `tpic` are used. You can specify any port in `node.config` file |
+| `thepowerio/tpnode`                                                              | Path to Docker image.                                                                                               |
