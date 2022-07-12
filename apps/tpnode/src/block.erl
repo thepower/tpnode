@@ -537,7 +537,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
   BTxs=binarizetx(Txsl),
   TxMT=gb_merkle_trees:from_list(BTxs),
   TxRoot=gb_merkle_trees:root_hash(TxMT),
-  
+
   BalsBin=bals2bin(Bals),
   BalsMT=gb_merkle_trees:from_list(BalsBin),
   BalsRoot=gb_merkle_trees:root_hash(BalsMT),
@@ -545,7 +545,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
   BSettings=binarize_settings(Settings),
   SettingsMT=gb_merkle_trees:from_list(BSettings),
   SettingsRoot=gb_merkle_trees:root_hash(SettingsMT),
-  
+
   ExtraRoots=case maps:is_key(extra_roots, Req) of
                true ->
                  maps:get(extra_roots, Req);
@@ -568,7 +568,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
                 FailMT=gb_merkle_trees:from_list(FTxs),
                 [{failed,gb_merkle_trees:root_hash(FailMT)}|TempRoot]
            end,
-  
+
   HeaderItems0=[{txroot, TxRoot},
                 {etxroot, ETxRoot},
                 {balroot, BalsRoot},

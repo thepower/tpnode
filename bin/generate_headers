@@ -67,7 +67,7 @@ main1(_) ->
 "% You will lose all custom changes in this file.\n",
  gen_purpose(TxPurpose),gen_kind(TxKind)],
     file:write_file(Root ++ "/apps/tpnode/include/tx_const.hrl",Consts),
-    [GH|_]=filelib:wildcard("**/stout_genhdr.erl"),
+    [GH|_]=filelib:wildcard("apps/**/stout_genhdr.erl"),
     os:cmd("escript " ++ GH).
 
 

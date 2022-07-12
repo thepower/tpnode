@@ -55,8 +55,8 @@ handle_tpic(From, _To, <<"kickme">>, Payload, State) ->
 
 
 handle_tpic(From, <<"blockchain">>, <<"ledger">>, Payload, _State) ->
-  lager:info("Ledger TPIC From ~p p ~p", [From, Payload]),
-  ledger:tpic(From, Payload),
+  lager:info("==IGNORE MSG== Ledger TPIC From ~p p ~p", [From, Payload]),
+  %ledger:tpic(From, Payload),
   ok;
 
 handle_tpic({NodeKey,_,_}=From, <<"blockchain">>, <<"chainkeeper">>, Payload, _State) ->

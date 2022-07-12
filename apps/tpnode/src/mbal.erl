@@ -14,15 +14,17 @@
          unpack/1,
          merge/2,
          changes/1,
+         uchanges/1,
          msgpack_state/1,
-         prepare/1
+         prepare/1,
+         patch/2
         ]).
 
 -define(FIELDS,
-        [t, seq, lastblk, pubkey, ld, usk, state, code, vm, view, lstore]
+        [t, seq, lastblk, pubkey, ld, usk, state, code, vm, view, lstore, vmopts]
        ).
 
--type balfield() :: 'amount'|'t'|'seq'|'lastblk'|'pubkey'|'ld'|'usk'|'state'|'code'|'vm'|'view'|'lstore'.
+-type balfield() :: 'amount'|'t'|'seq'|'lastblk'|'pubkey'|'ld'|'usk'|'state'|'code'|'vm'|'view'|'lstore'|'vmopts'.
 -type sparsebal () :: #{'amount'=>map(),
                   'changes'=>[balfield()],
                   'seq'=>integer(),
@@ -34,6 +36,7 @@
                   'state'=>map(),
                   'code'=>binary(),
                   'vm'=>binary(),
+                  'vmopts'=>map(),
                   'view'=>binary(),
                   'lstore'=>binary(),
                   'ublk'=>binary() %external attr
@@ -50,6 +53,7 @@
                   'state'=>map(),
                   'code'=>binary(),
                   'vm'=>binary(),
+                  'vmopts'=>map(),
                   'view'=>binary(),
                   'lstore'=>binary(),
                   'ublk'=>binary() %external attr
@@ -121,6 +125,13 @@ put_cur(Currency, Value, #{amount:=A}=Bal) ->
        }
   end.
 
+
+uchanges(#{changes:=Changes}=Bal) ->
+  Bal#{changes=>lists:usort(Changes)};
+
+uchanges(Bal) ->
+  Bal.
+
 -spec mput (Seq::non_neg_integer(), T::non_neg_integer(),
             Bal::bal(), UseSK::boolean()|'reset') -> bal().
 
@@ -185,6 +196,15 @@ put(state, <<>>, V, Bal) ->
                  }
      );
 
+put(state, P, <<>>, Bal) ->
+  case maps:find(state, Bal) of
+    error ->
+      Bal;
+    {ok, PV} ->
+      Bal#{state=>maps:remove(P,PV),
+           changes=>[state|maps:get(changes, Bal, [])]}
+  end;
+
 put(state, P, V, Bal) ->
   case maps:find(state, Bal) of
     error ->
@@ -230,6 +250,11 @@ put(vm, V, Bal) when is_binary(V) ->
   Bal#{ vm=>V,
         changes=>[vm|maps:get(changes, Bal, [])]
       };
+
+put(vmopts, V, Bal) ->
+  Bal#{ vmopts=>V,
+        changes=>[vmopts|maps:get(changes, Bal, [])]
+      };
 put(view, V, Bal) when is_list(V) ->
   case valid_latin1_str_list(V) of
     true ->
@@ -259,6 +284,16 @@ put(state, V, Bal) when is_map(V) ->
   Bal#{ state=>V,
         changes=>[state|maps:get(changes, Bal, [])]
       };
+
+put(mergestate, V, Bal) when is_map(V) ->
+  case maps:find(state, Bal) of
+    error ->
+      Bal#{state=>V,
+           changes=>[state|maps:get(changes, Bal, [])]};
+    {ok, PV} ->
+      Bal#{state=>maps:merge(PV,V),
+           changes=>[state|maps:get(changes, Bal, [])]}
+  end;
 
 put(code, V, Bal) when is_function(V); is_binary(V) ->
   case maps:get(code, Bal, undefined) of
@@ -294,6 +329,7 @@ get(pubkey, Bal) -> maps:get(pubkey, Bal, <<>>);
 get(ld, Bal) ->     maps:get(ld, Bal, 0);
 get(usk, Bal) ->    maps:get(usk, Bal, 0);
 get(vm, Bal) ->     maps:get(vm, Bal, undefined);
+get(vmopts, Bal) -> maps:get(vmopts, Bal, #{});
 get(view, Bal) ->   maps:get(view, Bal, undefined);
 get(state, Bal) ->  maps:get(state, Bal, undefined);
 get(code, #{code:=C}) when is_function(C) -> C();
@@ -358,6 +394,16 @@ merge(Old, New) ->
          maps:get(amount, New, #{})
         ),
   P1#{amount=>Bals}.
+
+-spec patch (list(), bal()) -> bal().
+patch([{state,S1}|Rest], Bal) ->
+  patch(Rest,mbal:put(state,S1,Bal));
+
+patch([{mergestate,S1}|Rest], Bal) ->
+  patch(Rest,mbal:put(mergestate,S1,Bal));
+
+patch([], Bal) ->
+  Bal.
 
 valid_latin1_str([C|Rest]) when C>=16#20, C<16#7F ->
   valid_latin1_str(Rest);

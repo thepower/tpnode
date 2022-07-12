@@ -157,7 +157,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% -------------------------------------------------------------------------------------
 get_cert_path() ->
 %%  "/tmp/4/cert".
-  "db/" ++ atom_to_list(erlang:node()) ++ "/cert".
+  %"db/" ++ atom_to_list(erlang:node()) ++ "/cert".
+  utils:dbpath(cert).
 
 get_cert_file(Hostname) ->
   utils:make_list(
@@ -286,6 +287,11 @@ check_or_request(Hostname) ->
   KeyExists = filelib:is_regular(get_cert_key_file(Hostname)),
   CertFile = get_cert_file(Hostname),
   CertExists = filelib:is_regular(CertFile),
+  lager:info("Certfile ~s ~s",[CertFile,if CertExists ->
+                                             "found";
+                                           true ->
+                                             "not found"
+                                        end]),
   Action = case Configured andalso KeyExists andalso CertExists of
     true ->
       % key and cert already exists for this hostname, check if it expired

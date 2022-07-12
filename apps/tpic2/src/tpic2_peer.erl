@@ -305,16 +305,21 @@ apply_ctl(State, _StreamID, _Dir, _PID) ->
   State.
 
 filter_rfc1918(IPP) ->
-  lists:filter(
-    fun({Addr,_}) ->
-        case inet:parse_address(Addr) of
-          {ok, {10,_,_,_}} -> false;
-          {ok, {0,0,0,0}} -> false;
-          {ok, {172,O,_,_}} when O>=16, O<24 -> false;
-          {ok, {192,168,_,_}} -> false;
-          {ok, _} -> true;
-          _ -> false
-        end
-    end,
-    IPP).
+  case maps:get(allow_rfc1918,application:get_env(tpnode,tpic,#{}),false) of
+    true ->
+      IPP;
+    false ->
+      lists:filter(
+        fun({Addr,_}) ->
+            case inet:parse_address(Addr) of
+              {ok, {10,_,_,_}} -> false;
+              {ok, {0,0,0,0}} -> false;
+              {ok, {172,O,_,_}} when O>=16, O<24 -> false;
+              {ok, {192,168,_,_}} -> false;
+              {ok, _} -> true;
+              _ -> false
+            end
+        end,
+        IPP)
+  end.
 

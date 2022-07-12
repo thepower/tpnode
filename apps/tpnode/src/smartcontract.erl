@@ -1,13 +1,14 @@
 -module(smartcontract).
--export([run/5,info/1,getters/1,get/4]).
+-export([run/6,info/1,getters/1,get/4]).
 
 -callback deploy(Address :: binary(),
          Ledger :: map(),
          Code :: binary(),
          State :: binary()|undefined,
          GasLimit :: integer(),
-         GetFun :: fun()) ->
-  {'ok', NewLedger :: map()}.
+         GetFun :: fun(),
+         Opaque :: map()) ->
+  {'ok', NewLedger :: map(), Opaque :: map()}.
 
 -callback handle_tx(Tx :: map(),
           Ledger :: map(),
@@ -86,7 +87,8 @@ getters(VMType) ->
           error
   end.
 
-run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
+run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
+  %io:format("smartcontract Opaque ~p~n",[Opaque]),
   GasLimit=trunc(GAmount*GRate),
   Left=fun(GL) ->
            lager:info("VM run gas ~p -> ~p",[GasLimit,GL]),
@@ -99,38 +101,88 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
      end,
   lager:info("run contract ~s for ~s gas limit ~p", [VM, naddress:encode(To),GasLimit]),
   try
-    case erlang:apply(VM,
-                      handle_tx,
-                      [Tx, mbal:msgpack_state(Ledger), GasLimit, GetFun]) of
-      {ok, NewState, GasLeft, EmitTxs} when
-          NewState==unchanged orelse is_binary(NewState) ->
-        if NewState == unchanged ->
-             {Ledger, EmitTxs, Left(GasLeft)};
-           true ->
-             {
-              bal:put(state, NewState, Ledger),
-              EmitTxs, Left(GasLeft)}
-        end;
-      {ok, NewState, GasLeft} when
-          NewState==unchanged orelse is_binary(NewState) ->
-        if NewState == unchanged ->
-             {Ledger, [], Left(GasLeft)};
-           true ->
-             {
-              bal:put(state, NewState, Ledger),
-              [], Left(GasLeft)}
-        end;
-      {ok,#{null := "exec",
+    CallRes=erlang:apply(VM,
+                         handle_tx,
+                         [Tx, mbal:msgpack_state(Ledger), GasLimit, GetFun, Opaque]),
+    case CallRes of
+%      {ok, unchanged, GasLeft, EmitTxs} ->
+%        {Ledger,
+%         EmitTxs,
+%         Left(GasLeft),
+%         Opaque
+%        };
+%      {ok, NewState, GasLeft, EmitTxs} when is_binary(NewState) ->
+%        {
+%         bal:put(state, NewState, Ledger),
+%         EmitTxs,
+%         Left(GasLeft),
+%         Opaque
+%        };
+%      {ok, unchanged, GasLeft} ->
+%        {Ledger,
+%         [],
+%         Left(GasLeft),
+%         Opaque
+%        };
+%      {ok, NewState, GasLeft} when is_binary(NewState) ->
+%        {
+%         bal:put(state, NewState, Ledger),
+%         [], Left(GasLeft),
+%         Opaque
+%        };
+      {ok,
+       #{null := "exec",
             "gas" := GasLeft,
             "state" := NewState,
-            "txs" := EmitTxs}} ->
-        if NewState == <<>> ->
-             {Ledger, EmitTxs, Left(GasLeft)};
-           true ->
-             {
-              bal:put(state, NewState, Ledger),
-              EmitTxs, Left(GasLeft)}
-        end;
+            "txs" := EmitTxs}, Opaque1} when NewState == <<>> orelse NewState == unchanged ->
+        {[], EmitTxs, Left(GasLeft), Opaque1};
+      {ok,
+       #{null := "exec",
+         "gas" := GasLeft,
+         "state" := NewState,
+         "txs" := EmitTxs}, Opaque1} ->
+        {
+         [{state, NewState}],
+         EmitTxs,
+         Left(GasLeft),
+         Opaque1};
+      {ok,
+       #{null := "exec",
+         "gas" := GasLeft,
+         "storage" := NewState,
+         "txs" := EmitTxs}, Opaque1} ->
+        {
+         [{mergestate, NewState}],
+         EmitTxs, Left(GasLeft),
+         Opaque1
+        };
+
+      {ok,
+       #{null := "exec",
+            "gas" := GasLeft,
+            "state" := NewState,
+            "txs" := EmitTxs}} when NewState == <<>> orelse NewState == unchanged ->
+        {[], EmitTxs, Left(GasLeft), Opaque};
+      {ok,
+       #{null := "exec",
+         "gas" := GasLeft,
+         "state" := NewState,
+         "txs" := EmitTxs}} ->
+        {
+         [{state, NewState}],
+         EmitTxs,
+         Left(GasLeft),
+         Opaque};
+      {ok,
+       #{null := "exec",
+         "gas" := GasLeft,
+         "storage" := NewState,
+         "txs" := EmitTxs}} ->
+        {
+         [{mergestate, NewState}],
+         EmitTxs, Left(GasLeft),
+         Opaque
+        };
       {ok,#{null := "exec",
             "gas" := _GasLeft,
             "err":=SReason}} ->
@@ -143,18 +195,20 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun) ->
       {error, Reason, GasLeft} ->
         %throw({'run_failed', Reason});
         lager:error("Contract error ~p", [Reason]),
-        {Ledger, [], Left(GasLeft)};
+        {[], [], Left(GasLeft), Opaque};
       {error, Reason} ->
         throw({'run_failed', Reason});
       Any ->
+        io:format("Contract return error ~p", [Any]),
         lager:error("Contract return error ~p", [Any]),
         throw({'run_failed', other})
     end
   catch 
     Ec:Ee:S when Ec=/=throw ->
-          %S=erlang:get_stacktrace(),
-          lager:error("Can't run contract ~p:~p @ ~p",
+          lager:info("Can't run contract ~p:~p @ ~p~n",
                       [Ec, Ee, hd(S)]),
+          io:format("Can't run contract ~p:~p @ ~p/~p~n",
+                      [Ec, Ee, hd(S),hd(tl(S))]),
           throw({'contract_error', [Ec, Ee]})
   end.
 

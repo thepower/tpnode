@@ -81,6 +81,7 @@ to_list(Arg) when is_list(Arg) ->
 to_list(Arg) when is_binary(Arg) ->
   binary_to_list(Arg).
 
+-spec to_binary(Arg :: binary() | list()) -> binary().
 to_binary(Arg) when is_binary(Arg) ->
   Arg;
 to_binary(Arg) when is_list(Arg) ->
@@ -290,14 +291,14 @@ construct_tx(#{
     sig=>[]
    }.
 
-prepare_extra_args(call, #{function:=Fun,args:=Args}, {CE,CTx}) when 
+prepare_extra_args(call, #{function:=Fun,args:=Args}, {CE,CTx}) when
     is_list(Fun), is_list(Args) ->
   {CE#{"c"=>[Fun,{array,Args}]},CTx};
 prepare_extra_args(call, _, {CE,CTx}) ->
   {CE, maps:remove(call, CTx)};
 prepare_extra_args(notify, CVal, {CE,CTx}) when is_list(CVal) ->
   Ntf=lists:map(
-        fun({URL,Payload}) when 
+        fun({URL,Payload}) when
               is_binary(Payload) andalso
               (is_list(URL) orelse is_integer(URL)) ->
             [URL,Payload];
@@ -401,7 +402,7 @@ unpack_body(#{ ver:=2,
                "t":=Timestamp,
                "s":=Seq,
                "p":=Payload
-             }=Unpacked) when GenericOrDeploy == generic ; 
+             }=Unpacked) when GenericOrDeploy == generic ;
                               GenericOrDeploy == deploy ->
   Amounts=unpack_payload(Payload),
   Decoded=Tx#{
@@ -548,7 +549,7 @@ sign(Any, PrivKey) ->
         ver:=non_neg_integer(),
         kind:=atom(),
         body:=binary(),
-        sig:=list(),
+        sig=>list(),
         sigverify=>#{valid:=integer(),
                      invalid:=integer()
                     }
@@ -583,7 +584,7 @@ verify(#{
         {true, _IAddr} when CI=={ok, From} ->
           %contract issued. Check nodes key.
           try
-            bsig:checksig(Body, LSigs, 
+            bsig:checksig(Body, LSigs,
                           fun(PubKey,_) ->
                               chainsettings:is_our_node(PubKey) =/= false
                           end)
@@ -752,7 +753,7 @@ pack(Any, _) ->
   tx1:pack(Any).
 
 
-complete_tx(BinTx,Comp) ->
+complete_tx(BinTx,Comp) when is_binary(BinTx) ->
   {ok, #{"k":=IKind}=Tx0} = msgpack:unpack(BinTx, [{unpack_str, as_list}] ),
   {Ver, Kind}=decode_kind(IKind),
   B=maps:merge(Comp, Tx0),
@@ -840,7 +841,7 @@ get_payload(#{ver:=2, kind:=Kind, payload:=Payload}=_Tx, Purpose)
 get_payload(#{ver:=2, kind:=Kind},_) ->
   throw({unknown_kind_for_get_payload,Kind}).
 
-get_payloads(#{ver:=2, kind:=Kind, payload:=Payload}=_Tx, Purpose) 
+get_payloads(#{ver:=2, kind:=Kind, payload:=Payload}=_Tx, Purpose)
   when Kind==deploy; Kind==generic; Kind==tstore; Kind==lstore ->
   lists:filter(
     fun(#{amount:=_,cur:=_,purpose:=P1}) ->
@@ -888,8 +889,8 @@ rate2(#{body:=Body}, Cur, TxAmount, GetRateFun) ->
 %            {true, #{ cost=>0, tip => 0, cur=><<"none">> }}
 %        end
 %    end
-%  catch Ec:Ee -> 
-%          file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n", 
+%  catch Ec:Ee ->
+%          file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n",
 %                                                         [
 %                                                          Tx,
 %                                                          erlang:term_to_binary(GetRateFun)
@@ -916,9 +917,9 @@ rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
             {true, #{ cost=>0, tip => 0, cur=><<"none">> }}
         end
     end
-  catch Ec:Ee:S -> 
+  catch Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
-          file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n~n~p.~n~n~p.~n~n~p.~n", 
+          file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n~n~p.~n~n~p.~n~n~p.~n",
                                                          [
                                                           Ec,
                                                           Ee,
@@ -998,7 +999,7 @@ upgrade(#{
   timestamp:=T
  }=Tx) ->
   DED=jsx:decode(maps:get(extradata, Tx, "{}"), [return_maps]),
-  Fee=case DED of 
+  Fee=case DED of
         #{ <<"fee">>:=FeeA, <<"feecur">>:=FeeC } ->
           [#{amount=>FeeA, cur=>FeeC, purpose=>srcfee}];
         _ ->

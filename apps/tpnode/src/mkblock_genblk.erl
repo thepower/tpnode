@@ -123,7 +123,12 @@ run_generate(
                  ({get_block, Back}) when 32>=Back ->
                  FindBlock(last, Back)
              end,
-    AddrFun=fun({Addr, _Cur}) ->
+    AddrFun=fun({storage,Addr,Key}) ->
+                case mledger:get(Addr) of
+                  #{state:=State} -> maps:get(Key,State,<<>>);
+                  undefined -> <<>>
+                end;
+               ({Addr, _Cur}) ->
                 case mledger:get(Addr) of
                   #{amount:=_}=Bal -> maps:without([changes],Bal);
                   undefined -> bal:new()

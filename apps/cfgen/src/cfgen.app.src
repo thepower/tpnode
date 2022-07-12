@@ -1,9 +1,0 @@
-{application, cfgen,
- [
-  {description, "ThePower Node config generator"},
-  {vsn, "0.1"},
-  {registered, []},
-  {applications, [
-	  tpnode
-  ]}
- ]}.

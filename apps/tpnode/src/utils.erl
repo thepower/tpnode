@@ -1,15 +1,45 @@
 -module(utils).
 
 -export([alloc_tcp_port/0,make_binary/1, make_list/1, apply_macro/2,
-  print_error/4, log_stacktrace/1]).
+  print_error/4, log_stacktrace/1, check_tcp_port/1]).
 
 -export([logger/1, logger/2]).
+
+-export([dbpath/1]).
+
+dbpath(cert) ->
+  DBPath=application:get_env(tpnode,dbpath,"db"),
+  case application:get_env(tpnode,dbsuffix, undefined) of
+    undefined ->
+      filename:join([DBPath,erlang:node(),"cert"]);
+    Other ->
+      filename:join(DBPath,[cert,Other])
+  end;
+
+dbpath(mledger) ->
+  DBPath=application:get_env(tpnode,dbpath,"db"),
+  Suffix=application:get_env(tpnode,dbsuffix,"_" ++ atom_to_list(node()) ++ ".db"),
+  filename:join(DBPath,[mledger,Suffix]);
+
+dbpath(DB) ->
+  DBPath=application:get_env(tpnode,dbpath,"db"),
+  Suffix=application:get_env(tpnode,dbsuffix,"_" ++ atom_to_list(node())),
+  filename:join(DBPath,[DB,Suffix]).
 
 alloc_tcp_port() ->
   {ok,S}=gen_tcp:listen(0,[]),
   {ok,{_,CPort}}=inet:sockname(S),
   gen_tcp:close(S),
   CPort.
+
+check_tcp_port(Port) ->
+  case gen_tcp:listen(Port,[]) of
+    {error, _} -> false;
+    {ok,S} ->
+      gen_tcp:close(S),
+      true
+  end.
+
 
 %% -------------------------------------------------------------------------------------
 

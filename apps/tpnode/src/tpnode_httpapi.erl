@@ -193,42 +193,6 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
        }
     });
 
-%h(<<"GET">>, [<<"contract">>, TAddr, <<"call">>, Method | Args], _Req) ->
-%  try
-%    Addr=case TAddr of
-%           <<"0x", Hex/binary>> ->
-%             hex:parse(Hex);
-%           _ ->
-%             naddress:decode(TAddr)
-%         end,
-%    Ledger=mledger:get(Addr),
-%    case Ledger =/= undefined of
-%      false ->
-%          err(
-%              10011,
-%              <<"Not found">>,
-%              #{ result => <<"not_found">> }
-%              #{ address => Addr, http_code => 404 }
-%          );
-%      true ->
-%        VMName=maps:get(vm, Ledger),
-%        {ok,List}=smartcontract:get(VMName,Method,Args,Info),
-%        answer(
-%           #{result => List},
-%           #{address => Addr}
-%        )
-%    end
-%  catch throw:{error, address_crc} ->
-%      err(
-%          10012,
-%          <<"Invalid address">>,
-%          #{
-%              result => <<"error">>,
-%              error => <<"invalid address">>
-%          }
-%      )
-%  end;
-
 h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
   try
     Addr=case TAddr of
@@ -330,6 +294,53 @@ h(<<"GET">>, [<<"nodes">>, Chain], _Req) ->
     answer(#{
         chain_nodes => get_nodes(binary_to_integer(Chain, 10))
     });
+
+h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], _Req) ->
+  try
+    Addr=case TAddr of
+           <<"0x", Hex/binary>> -> hex:parse(Hex);
+           _ -> naddress:decode(TAddr)
+         end,
+    Ledger=mledger:get(Addr),
+    case Ledger =/= undefined of
+      false ->
+          err(
+              10003,
+              <<"Not found">>,
+              #{result => <<"not_found">>},
+              #{http_code => 404}
+          );
+      true ->
+        State=maps:get(state, Ledger, #{}),
+        S1=maps:fold(
+             fun(K,_,Acc) ->
+                [<<"0x",(hex:encode(K))/binary>>|Acc]
+             end, [], State),
+        {200, [{"Content-Type","application/json"}], 
+         #{
+           notice => <<"Only for debugging. Do not use it in scripts!!!">>,
+           keys => S1
+          }
+        }
+
+    end
+  catch
+    throw:{error, address_crc} ->
+              err(
+                  10004,
+                  <<"Invalid address">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              );
+          throw:bad_addr ->
+              err(
+                  10005,
+                  <<"Invalid address (2)">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              )
+  end;
+
 
 h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
   try
@@ -437,7 +448,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
            _ -> naddress:decode(TAddr)
          end,
     Info=mledger:get_kv(Addr),
-    case Info == undefined of
+    case Info == [] of
       true ->
           err(
               10003,
@@ -453,7 +464,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
 %          v => BinPacker(sext:encode(V))
 %         } || {{K,P},V} <- Info, K=/=ublk ],
 
-        {MT0,UBlk}=lists:foldl(
+        {MT0,_UBlk}=lists:foldl(
                fun
                  ({{ublk,_},V},{Acc,_}) ->
                    {Acc,V};
@@ -466,7 +477,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
         JMT=mt2json(MRoot,BinPacker),
 
         {LRH,LMP}=mledger:addr_proof(Addr),
-        io:format("~p~n",[UBlk]),
+        %io:format("~p~n",[UBlk]),
         %io:format("~p~n",[MT]),
         %io:format("~p~n",[ JMT ]),
 
@@ -735,50 +746,8 @@ h(<<"GET">>, [<<"settings_all">>], _Req) ->
     #{jsx=>[ strict, {error_handler, EHF} ]}
    );
 
-h(<<"POST">>, [<<"register">>], Req) ->
-  {_RemoteIP, _Port}=cowboy_req:peer(Req),
-  Body=apixiom:bodyjs(Req),
-  PKey=case maps:get(<<"public_key">>, Body) of
-         <<"0x", BArr/binary>> ->
-           hex:parse(BArr);
-         Any ->
-           base64:decode(Any)
-       end,
-
-  BinTx=tx:pack( #{ type=>register,
-                    register=>PKey,
-                    pow=>maps:get(<<"pow">>,Body,<<>>),
-                    timestamp=>maps:get(<<"timestamp">>,Body,0)
-                  }),
-
-  case txpool:new_tx(BinTx) of
-    {ok, Tx} ->
-      answer(
-       #{ result => <<"ok">>,
-          notice => <<"method deprecated">>,
-          pkey=>bin2hex:dbin2hex(PKey),
-          txid => Tx
-        }
-      );
-    {error, Err} ->
-      lager:info("error ~p", [Err]),
-      ErrorMsg = iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
-      Data =
-       #{ result => <<"error">>,
-          notice => <<"method deprecated">>,
-          pkey=>bin2hex:dbin2hex(PKey),
-          tx=>base64:encode(BinTx),
-          error => ErrorMsg
-        },
-      err(
-          10007,
-          ErrorMsg,
-          Data,
-          #{http_code=>500}
-      )
-  end;
-
-h(<<"GET">>, [<<"tx">>, <<"status">>, TxID], _Req) ->
+h(<<"GET">>, [<<"tx">>, <<"status">>| TxID0], _Req) ->
+  TxID=list_to_binary(lists:join("/",TxID0)),
   R=txstatus:get_json(TxID),
   answer(#{res=>R});
 

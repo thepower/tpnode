@@ -43,8 +43,7 @@ init(_Args) ->
   BTable=ets:new(lastblock,[named_table,protected,set,{read_concurrency,true}]),
   lager:info("Table created: ~p",[BTable]),
   NodeID=nodekey:node_id(),
-  filelib:ensure_dir("db/"),
-  {ok, LDB}=ldb:open("db/db_" ++ atom_to_list(node())),
+  {ok, LDB}=ldb:open(utils:dbpath(db)),
   LastBlockHash=ldb:read_key(LDB, <<"lastblock">>, <<0, 0, 0, 0, 0, 0, 0, 0>>),
   Restore=case os:getenv("TPNODE_RESTORE") of
             false ->

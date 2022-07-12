@@ -97,7 +97,6 @@ test_wasm() ->
 
 run(Fun, VmType, VmVer, Opts) ->
   Timeout=proplists:get_value(run_timeout, Opts, 1000),
-  Timeout2=Timeout*2,
   case gen_server:call(tpnode_vmsrv,{pick, VmType, VmVer, self()}) of
     {ok, Pid} ->
       Fun(Pid),
@@ -116,7 +115,7 @@ run(Fun, VmType, VmVer, Opts) ->
                   after Timeout ->
                           no_result
                   end
-        after Timeout2 ->
+        after Timeout ->
                 no_request
         end,
       gen_server:cast(tpnode_vmsrv,{return,Pid}),
