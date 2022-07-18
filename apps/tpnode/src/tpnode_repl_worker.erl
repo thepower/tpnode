@@ -10,49 +10,67 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([start_link/1,run/2,ws_mode/1,genesis/1]).
--export([run/0]).
+-export([run4test/0,run_worker/1]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-run() ->
+run_worker(Params) ->
+  supervisor:start_child(
+    repl_sup,
+    [
+     [{parent,self()}|Params]
+    ]
+   ).
+
+run4test() ->
   tpnode_repl_worker:run(
     #{
       parent=>self(),
+      %protocol=>http,
+      %address=>"127.0.0.1",
+      %port=>49841
       protocol=>http,
-      address=>"127.0.0.1",
-      port=>49841
+      address=>"c104n1.thepower.io",
+      port=>49842
      },
-    fun(chain)->104;
-       (last_known_block) -> blockchain:last_meta();
-       (Any) -> io:format("requested ~p~n",[Any]),
-                ok 
+    fun({apply_block,#{hash:=_H}=Block}) ->
+        gen_server:call(blockchain_updater,{new_block, Block, self()});
+       (last_known_block) ->
+        blockchain:last_permanent_meta();
+        %blockchain:last_meta();
+       (Any) ->
+        io:format("requested ~p~n",[Any]),
+        ok 
     end).
 
-start_link(Sub0) ->
-  GetFun=fun(node_id) ->
-             nodekey:node_id();
-            (chain) ->
-             blockchain:chain();
-            ({apply_block,#{hash:=_H}=Block}) ->
-             txpool:inbound_block(Block);
-            ({last,ChainNo}) ->
-             Last=chainsettings:by_path([
-                                         <<"current">>,
-                                         <<"sync_status">>,
-                                         msgpack:pack(ChainNo),
-                                         <<"block">>]),
-             lager:info("Last known to ch ~b: ~p",[ChainNo,Last]),
-             Last
+start_link(Sub0) when is_list(Sub0) ->
+  start_link(maps:from_list(Sub0));
+
+start_link(Sub0) when is_map(Sub0) ->
+  GetFun=fun({apply_block,#{hash:=_H}=Block}) ->
+             gen_server:call(blockchain_updater,{new_block, Block, self()});
+            (last_known_block) ->
+             blockchain:last_permanent_meta()
+             %blockchain:last_meta()
          end,
   Sub=case Sub0 of
-        _ when is_list(Sub0) ->
-          #{ uri => Sub0 };
+        #{uri:=URL} ->
+          maps:fold(
+            fun(host,V,A)    -> A#{address => V};
+               (scheme,V,A)  -> A#{protocol => list_to_atom(V)};
+               (port,V,A)    -> A#{port => V};
+               (_,_,A)       -> A
+            end,
+            Sub0,
+            uri_string:parse(URL)
+           );
         #{protocol:=_,address:=_,port:=_} ->
           Sub0
       end,
-  Pid=spawn(?MODULE,run,[Sub#{parent=>self()}, GetFun]),
+  lager:info("Spawning sup ~p",[Sub]),
+  Pid=spawn(?MODULE,run,[maps:merge(#{parent=>self()},Sub), GetFun]),
   link(Pid),
   {ok, Pid}.
 
@@ -107,14 +125,14 @@ connect(#{protocol:=Proto, parent:=Parent}) ->
 
 
 run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) ->
-    lager:info("repl client connecting to ~p ~p", [Ip, Port]),
-    Pid=connect(Sub),
-        try
+  lager:info("repl client connecting to ~p ~p", [Ip, Port]),
+  Pid=connect(Sub),
+  try
     Genesis=case sync_get_decode(Pid, "/api/binblock/genesis") of
-            {200, _, V1} when is_map(V1) -> V1;
-            {404, _, _} -> throw('incompatible');
-            _ -> throw('incompatible')
-          end,
+              {200, _, V1} when is_map(V1) -> V1;
+              {404, _, _} -> throw('incompatible');
+              _ -> throw('incompatible')
+            end,
     case blockchain:rel(genesis,self) of
       #{hash:=Hash} ->
         case maps:get(hash, Genesis) == Hash of
@@ -130,42 +148,41 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
         throw('unexpected_genesis')
     end,
     LastBlock=case sync_get_decode(Pid, "/api/binblock/last") of
-            {200, _, V2} -> maps:with([hash,header],V2);
-            _ -> throw('cant_get_last')
-          end,
-    lager:info("Their lastblk: ~p",[LastBlock]),
+                {200, _, V2} -> maps:with([hash,header],V2);
+                _ -> throw('cant_get_last')
+              end,
+    lager:info("Their lastblk: ~s",[blkinfo(LastBlock)]),
 
     KnownBlock=GetFun(last_known_block),
-    lager:info("My lastblk: ~p",[KnownBlock]),
+    lager:info("My lastblk: ~s",[blkinfo(KnownBlock)]),
+    Parent ! {wrk_presync, self(), start},
     {ok,Sub1}=presync(Sub#{pid=>Pid,getfun=>GetFun,
                            last=>maps:with([hash,header],KnownBlock)},
                       hex:encode(maps:get(hash,KnownBlock))),
 
-    {ok,UpgradeHdrs}=upgrade(Pid,undefined),
+    {ok,UpgradeHdrs}=upgrade(Pid),
     lager:info("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
 
-    MyChain=GetFun(chain),
-    Cmd = msgpack:pack(#{ null=><<"subscribe">>, <<"channel">> => MyChain}),
+    Cmd = msgpack:pack(#{ null=><<"subscribe">>, <<"channel">> => default}),
     ok=gun:ws_send(Pid, {binary, Cmd}),
-
     Parent ! {wrk_up, self(), undefined},
+    self() ! alive,
     ws_mode(Sub1),
     gun:close(Pid),
     done
   catch
-      throw:R ->
-        Parent ! {wrk_down, self(), {error, R}},
-        gun:close(Pid),
-        {error, R};
-      Ec:Ee:S ->
-          Parent ! {wrk_down, self(), {error, other}},
-          gun:close(Pid),
-          %S=erlang:get_stacktrace(),
-          lager:error("repl client error ~p:~p",[Ec,Ee]),
-          lists:foreach(
-            fun(SE) ->
-                lager:error("@ ~p", [SE])
-            end, S)
+    throw:R ->
+      Parent ! {wrk_down, self(), {error, R}},
+      gun:close(Pid),
+      {error, R};
+    Ec:Ee:S ->
+      Parent ! {wrk_down, self(), {error, other}},
+      gun:close(Pid),
+      lager:error("repl client error ~p:~p@~p",[Ec,Ee,hd(S)]),
+      lists:foreach(
+        fun(SE) ->
+            lager:error("@ ~p", [SE])
+        end, S)
   end.
 
 ws_mode(#{pid:=Pid, parent:=Parent}=Sub) ->
@@ -181,6 +198,18 @@ ws_mode(#{pid:=Pid, parent:=Parent}=Sub) ->
       gun:ws_send(Pid, {binary, Cmd}),
       gun:close(Pid),
       exit;
+    {system,{From,Tag},get_state} ->
+      From ! {Tag, Sub},
+      ?MODULE:ws_mode(Sub);
+    {'$gen_call',{From,Tag},uri} ->
+      From ! {Tag, maps:get(uri,Sub,undefined)},
+      ?MODULE:ws_mode(Sub);
+    {'$gen_call',{From,Tag},state} ->
+      From ! {Tag, Sub},
+      ?MODULE:ws_mode(Sub);
+    {'$gen_call',{From,Tag},_Any} ->
+      From ! {Tag, unhandled},
+      ?MODULE:ws_mode(Sub);
     {state, CPid} ->
       CPid ! {Pid, Sub},
       ?MODULE:ws_mode(Sub);
@@ -196,7 +225,7 @@ ws_mode(#{pid:=Pid, parent:=Parent}=Sub) ->
       ?MODULE:ws_mode(Sub);
     {gun_ws, Pid, {binary, Bin}} ->
       {ok,Cmd} = msgpack:unpack(Bin),
-      lager:debug("XChain client got ~p",[Cmd]),
+      lager:debug("repl client got ~p",[Cmd]),
       Sub1=handle_msg(Cmd, Sub),
       ?MODULE:ws_mode(Sub1);
     {gun_down,Pid,ws,closed,[],[]} ->
@@ -213,21 +242,44 @@ ws_mode(#{pid:=Pid, parent:=Parent}=Sub) ->
     {gun_error, Pid, Reason} ->
       logger:error("Gun error ~p",[Reason]),
       Sub;
+    alive ->
+      ok=gun:ws_send(Pid, {binary, <<129,192,196,4,"ping">>}),
+      erlang:send_after(30000,self(), alive),
+      ?MODULE:ws_mode(Sub);
     Any ->
-      lager:notice("XChain client unknown msg ~p",[Any]),
+      lager:notice("repl client unknown msg ~p",[Any]),
       ?MODULE:ws_mode(Sub)
   after 5000 ->
-          ok=gun:ws_send(Pid, {binary, msgpack:pack(#{null=><<"ping">>})}),
-          %?MODULE:ws_mode(Sub)
-          Sub
+          lager:error("Sending PING"),
+          %ok=gun:ws_send(Pid, {binary, msgpack:pack(#{null=><<"ping">>})}),
+          ok=gun:ws_send(Pid, {binary, <<129,192,196,4,"ping">>}),
+          ?MODULE:ws_mode(Sub)
+          %Sub
   end.
 
-%dosync(Hash, _Height, #{pid:=Pid}=Sub) ->
-%  Hex=hex:encode(Hash),
-%  R=sync_get(Pid, <<"/api/binblock/",Hex/binary>>),
-%  io:format("R ~p~n",[R]),
-%  Sub.
+handle_msg(#{null := <<"new_block">>,
+             <<"block_meta">> := BinBlk,
+             <<"hash">> := _Hash,
+             <<"stat">> := #{
+                     <<"txs">>:=_,
+                     <<"settings">>:=_,
+                     <<"bals">>:=_
+                    },
+             <<"now">> := _Now
+            }, #{getfun:=F}=Sub) ->
+  #{header:=#{parent:=Parent,height:=Height},hash:=Hash}=Block=block:unpack(BinBlk),
+  lager:info("Got block: ~s",[blkinfo(Block)]),
+  %lager:info("Block ~p",[maps:with([header,temporary,hash],Block)]),
+  case maps:is_key(temporary, Block) of
+    true ->
+      F({apply_block, Block});
+    false ->
+      gen_server:cast(tpnode_repl,{new_block,{Height,Hash,Parent},maps:get(uri,Sub,undefined)})
+  end,
+  Sub;
 
+handle_msg(#{null := <<"subscribe_ack">>}, Sub) ->
+  Sub;
 
 handle_msg(#{null := <<"banner">>,
              <<"protocol">> := <<"thepower-nodesync-v1">>,
@@ -241,8 +293,7 @@ handle_msg(Msg, Sub) ->
   lager:error("Unhandled msg ~p",[Msg]),
   Sub.
 
-presync(#{pid:=Pid, parent:=Parent}=Sub, Ptr) ->
-      Parent ! {wrk_presync, self(), start},
+presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
       URL= <<"/api/binblock/",Ptr/binary>>,
       lager:info("Going to ~s",[URL]),
       case sync_get_decode(Pid,URL) of
@@ -253,12 +304,43 @@ presync(#{pid:=Pid, parent:=Parent}=Sub, Ptr) ->
                          }=Blk} ->
           lager:info("Has block h=~w 0x~s parent 0x~s",
                      [Hei, hex:encode(Hash), hex:encode(ParentHash)]),
+          LBH=maps:get(hash,maps:get(last,Sub,#{}),undefined),
           case Blk of
-            #{child:=Child} ->
-              HexPH=hex:encode(Child),
-              presync(Sub, HexPH);
-            #{} ->
-              {ok, Sub}
+            #{hash:=BH,header:=_,child:=Child} ->
+              T0=erlang:system_time(microsecond),
+              Res=if BH==LBH ->
+                       ok;
+                     true ->
+                       F({apply_block, Blk})
+                  end,
+              T1=erlang:system_time(microsecond),
+              lager:info("Blk install time ~.f sec~n",[(T1-T0)/1000000]),
+              case Res of
+                {ok, ignore} ->
+                  HexPH=hex:encode(Child),
+                  presync(maps:remove(last,Sub), HexPH);
+                ok ->
+                  HexPH=hex:encode(Child),
+                  presync(maps:remove(last,Sub), HexPH);
+                Other ->
+                  lager:error("presync stop, returned ~p",[Other]),
+                  {error, Other}
+              end;
+            #{hash:=BH,header:=_} ->
+              Res=if BH==LBH ->
+                       ok;
+                     true ->
+                       F({apply_block, Blk})
+                  end,
+              case Res of
+                ok ->
+                  {ok, maps:remove(last,Sub)};
+                {ok, ignore} ->
+                  {ok, maps:remove(last,Sub)};
+                Other ->
+                  lager:error("presync stop, returned ~p",[Other]),
+                  {error, Other}
+              end
           end;
 
           %lager:info("Child ~p",[maps:with([child,children],Blk)]),
@@ -303,7 +385,7 @@ presync(#{pid:=Pid, parent:=Parent}=Sub, Ptr) ->
 %          throw('ws_timeout')
 %  end.
 
-upgrade(Pid, _) ->
+upgrade(Pid) ->
   gun:ws_upgrade(Pid, "/api/ws",
                  [ {<<"sec-websocket-protocol">>, <<"thepower-nodesync-v1">>} ]),
   receive {gun_ws_upgrade,Pid,Status,Headers} ->
@@ -354,4 +436,8 @@ sync_get_continue(Pid, Ref, {PCode,PHdr,PBody}) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+blkinfo(#{hash:=H,header:=#{height:=Hei,chain:=Ch},temporary:=T}) ->
+  io_lib:format("~s h=~w ch=~w tmp=~w",[blockchain:blkid(H),Hei,Ch,T]);
+blkinfo(#{hash:=H,header:=#{height:=Hei,chain:=Ch}}) ->
+  io_lib:format("~s h=~w ch=~w",[blockchain:blkid(H),Hei,Ch]).
 

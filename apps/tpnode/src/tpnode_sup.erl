@@ -22,6 +22,14 @@ start_link() ->
 %% Supervisor callbacks
 %% ===================================================================
 
+init([repl_sup]) ->
+  Sup={_SupFlags = {simple_one_for_one, 5, 10},
+       [
+        #{start=>{tpnode_repl_worker,start_link,[]}, id=>simpleid}
+       ]
+      },
+  {ok, Sup};
+
 init([]) ->
     tpnode:reload(),
     MandatoryServices = [ api ],
@@ -53,7 +61,11 @@ init([]) ->
     Services=case application:get_env(tpnode,replica,false) of
                true -> %slave node
                  [
-                  { tpnode_repl, {tpnode_repl, start_link, []}, permanent, 5000, worker, []}
+                  { tpnode_repl, {tpnode_repl, start_link, []}, permanent, 5000, worker, []},
+                  { repl_sup,
+                    {supervisor, start_link, [ {local, repl_sup}, ?MODULE, [repl_sup]]},
+                    permanent, 20000, supervisor, []
+                  }
                  ];
                false -> %consensus node
                  VM_CS=case application:get_env(tpnode,run_wanode,true) of

@@ -19,7 +19,7 @@ websocket_init(v0) ->
   {ok, 100};
 
 websocket_init(S0=#{p:=v1}) ->
-  lager:info("init websocket v1 ~p",[S0]),
+  lager:info("init websocket v1 ~p at pid ~p",[S0,self()]),
   Msg=msgpack:pack(
         #{null=><<"banner">>,
           protocol=><<"thepower-nodesync-v1">>,
@@ -84,7 +84,7 @@ websocket_handle({text, _}, #{p:=v1}=State) ->
 websocket_handle({binary, Bin}, #{p:=v1}=State) ->
     case msgpack:unpack(Bin) of
       {ok, #{}=M} ->
-        lager:info("Bin ~p",[M]),
+        lager:debug("Bin ~p",[M]),
         handle_msg(M, State);
       {error, _}=E ->
         logger:debug("parse error1: ~p",[E]),
@@ -95,8 +95,8 @@ websocket_handle({binary, Bin}, #{p:=v1}=State) ->
     end.
 
 websocket_info({message, Msg}, #{p:=v1}=State) ->
-  Msg=msgpack:pack(Msg),
-  {reply, {binary, Msg}, State};
+  EMsg=msgpack:pack(Msg),
+  {reply, {binary, EMsg}, State};
 
 websocket_info({message, Msg}, State) when is_integer(State) ->
   {reply, {text, Msg}, State};
@@ -108,10 +108,16 @@ websocket_info(_Info, State) ->
   lager:info("websocket info ~p", [_Info]),
   {ok, State}.
 
+handle_msg(#{null:= <<"ping">>}, State) ->
+  {ok, State};
+
+handle_msg(#{null:= <<"subscribe">>, since:=BlockHash }, State) when is_binary(BlockHash) ->
+  gen_server:cast(tpnode_ws_dispatcher, {subscribe, {block, term, stat}, self()}),
+  {reply, {binary, msgpack:pack(#{null=><<"ACK">>})}, State};
 
 handle_msg(#{null:= <<"subscribe">> }, State) ->
   gen_server:cast(tpnode_ws_dispatcher, {subscribe, {block, term, stat}, self()}),
-  {reply, {binary, msgpack:pack(#{null=><<"ACK">>})}, State};
+  {reply, {binary, msgpack:pack(#{null=><<"subscribe_ack">>})}, State};
 
 handle_msg(Msg, State) ->
   lager:info("unhandled WSv1 msg ~p",[Msg]),

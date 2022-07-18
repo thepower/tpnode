@@ -17,6 +17,9 @@ alloc_id() ->
   <<N:16/big,PID:24/big,Req:24/big>>.
 
 broadcast(ReqID, Stream, Srv, Data, Opts) ->
+  case whereis(tpic2_cmgr) of
+    undefined -> tpic_not_started;
+    _ ->
   tpic2_cmgr:inc_usage(Stream, Srv),
   maps:fold(
     fun(PubKey,Pid,Acc) ->
@@ -45,34 +48,39 @@ broadcast(ReqID, Stream, Srv, Data, Opts) ->
         end
     end,
     [],
-    tpic2_cmgr:peers()).
+    tpic2_cmgr:peers())
+  end.
 
 unicast(ReqID, Peer, Stream, Srv, Data, Opts) ->
-  tpic2_cmgr:inc_usage(Stream, Srv),
-  Avail=lists:keysort(2,tpic2_cmgr:send(Peer,{get_stream, Stream})),
-  case Avail of
-    [{_,_,ConnPID}|_] when is_pid(ConnPID) ->
-      case lists:member(async, Opts) of
-        true ->
-          case erlang:is_process_alive(ConnPID)  of
-            true ->
-              gen_server:cast(ConnPID,{send, Srv, ReqID, Data}),
-              tpic2_cmgr:add_trans(ReqID, self()),
-              [Peer];
-            false ->
-              []
-          end;
-        false ->
-          case gen_server:call(ConnPID,{send, Srv, ReqID, Data}) of
-            ok ->
-              tpic2_cmgr:add_trans(ReqID, self()),
-              [Peer];
-            _ ->
-              []
-          end
-      end;
+  case whereis(tpic2_cmgr) of
+    undefined -> tpic_not_started;
     _ ->
-      []
+      tpic2_cmgr:inc_usage(Stream, Srv),
+      Avail=lists:keysort(2,tpic2_cmgr:send(Peer,{get_stream, Stream})),
+      case Avail of
+        [{_,_,ConnPID}|_] when is_pid(ConnPID) ->
+          case lists:member(async, Opts) of
+            true ->
+              case erlang:is_process_alive(ConnPID)  of
+                true ->
+                  gen_server:cast(ConnPID,{send, Srv, ReqID, Data}),
+                  tpic2_cmgr:add_trans(ReqID, self()),
+                  [Peer];
+                false ->
+                  []
+              end;
+            false ->
+              case gen_server:call(ConnPID,{send, Srv, ReqID, Data}) of
+                ok ->
+                  tpic2_cmgr:add_trans(ReqID, self()),
+                  [Peer];
+                _ ->
+                  []
+              end
+          end;
+        _ ->
+          []
+      end
   end.
 
 cast_prepare(Stream) ->
@@ -122,7 +130,11 @@ cast(Service, Data, Opts) when is_binary(Service); Service==0 ->
   if SentTo==[] ->
        SentTo;
      true ->
-       tpic2_cmgr:add_trans(ReqID, self()),
+       case whereis(tpic2_cmgr) of
+         undefined -> tpic_not_started;
+         _ ->
+           tpic2_cmgr:add_trans(ReqID, self())
+       end,
        SentTo
   end.
 

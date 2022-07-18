@@ -219,7 +219,7 @@ handle_call({new_block, #{hash:=BlockHash,
                        ),
         lager:info("Got bad block from ~p New block ~w arrived ~s, verify (~.3f ms)",
                    [FromNode, Hei, blkid(BlockHash), (T1-T0)/1000000]),
-        throw(ignore);
+        throw(bad_block);
       {true, {Success, _}} ->
         LenSucc=length(Success),
         stout:log(got_new_block,
@@ -231,15 +231,16 @@ handle_call({new_block, #{hash:=BlockHash,
                   ]),
         T1=erlang:system_time(),
         Txs=maps:get(txs, Blk, []),
+        Txsl=length(Txs),
         if LenSucc>0 ->
              lager:info("from ~p New block ~w arrived ~s, txs ~b, verify ~w sig (~.3f ms)",
                         [FromNode, maps:get(height, maps:get(header, Blk)),
-                         blkid(BlockHash), length(Txs), length(Success), (T1-T0)/1000000]),
+                         blkid(BlockHash), Txsl, length(Success), (T1-T0)/1000000]),
              ok;
            true ->
              lager:info("from ~p New block ~w arrived ~s, txs ~b, no sigs (~.3f ms)",
                         [FromNode, maps:get(height, maps:get(header, Blk)),
-                         blkid(BlockHash), length(Txs), (T1-T0)/1000000]),
+                         blkid(BlockHash), Txsl, (T1-T0)/1000000]),
              throw(ingore)
         end,
         MBlk=case maps:get(BlockHash, Candidates, undefined) of
@@ -266,7 +267,7 @@ handle_call({new_block, #{hash:=BlockHash,
                              [
                               blkid(LBlockHash)
                              ]),
-                  throw({error,ignore});
+                  throw(ignore);
                 true ->
                   ok
              end,
@@ -315,6 +316,7 @@ handle_call({new_block, #{hash:=BlockHash,
                               })
                             }),
                   gen_server:cast(blockchain_reader,update),
+                  gen_server:cast(tpnode_ws_dispatcher, {new_block, MBlk}),
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
@@ -710,8 +712,8 @@ apply_ledger(Action, #{bals:=S, hash:=BlockHash, header:=#{height:=Height}}) ->
                  )
                }|Acc]
           end, [], S),
-  lager:info("Apply bals ~p", [Patch]),
-  lager:info("Apply patches ~p", [mledger:bals2patch(Patch)]),
+  %lager:info("Apply bals ~p", [Patch]),
+  %lager:info("Apply patches ~p", [mledger:bals2patch(Patch)]),
   LR=case Action of
        {checkput, Hash} ->
          mledger:apply_patch(mledger:bals2patch(Patch), {commit, {Height, BlockHash}, Hash});

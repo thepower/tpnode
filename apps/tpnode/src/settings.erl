@@ -182,7 +182,6 @@ change(remove, [], Value, M, FPath) ->
           is_list(M) -> M;
           true -> throw({'non_list', FPath})
        end,
-    io:format("~p --~p~n",[M1,[Value]]),
     lists:usort(M1--[Value]);
 
 change({member, T}, [], Value, M, FPath) ->
@@ -222,7 +221,6 @@ change(compare, [Path], Value, M, FPath) ->
     end;
 
 change(delete, [Path], [], M, _FPath) -> %delete if list empty
-  io:format("Del from ~p~n",[M]),
   case M of
     #{Path:=[]} ->
       maps:remove(Path, M);

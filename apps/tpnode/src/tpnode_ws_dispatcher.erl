@@ -102,12 +102,17 @@ handle_cast({new_block, Block}, #{addrsub:=AS, blocksub:=BS}=State) ->
                            timestamp => Now
                           }}),
   MPStat=#{
+           null => new_block,
+           block_meta=>block:pack(
+             maps:with([header,hash,sign],Block)
+            ),
            hash=>maps:get(hash,Block,[]),
-           header=>maps:get(header,Block,[]),
-           txs_cnt=>length(maps:get(txs,Block,[])),
-           sign_cnt=>length(maps:get(sign,Block,[])),
-           settings_cnt=>length(maps:get(settings,Block,[])),
-           bals_cnt=>maps:size(maps:get(bals,Block,#{})),
+           stat=>#{
+                   txs=>length(maps:get(txs,Block,[])),
+                   sign=>length(maps:get(sign,Block,[])),
+                   settings=>length(maps:get(settings,Block,[])),
+                   bals=>maps:size(maps:get(bals,Block,#{}))
+                  },
            now => Now
           },
   lists:foreach(

@@ -274,7 +274,7 @@ blocksign(Blk, ED) when is_map(Blk) ->
               ED2=[ {timestamp, proplists:get_value(timestamp, ED)+
                      trunc(-100+rand:uniform()*200)},
                     {createduration, proplists:get_value(createduration, ED)+
-                     trunc(-250000000+rand:uniform()*500000000)}
+                     trunc(-250000+rand:uniform()*500000)}
                   ],
               block:sign(Acc, ED2, ExtraKey)
           end, Blk, Extra), ED, K0)

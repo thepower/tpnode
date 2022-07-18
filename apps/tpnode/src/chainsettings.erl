@@ -66,7 +66,7 @@ settings_to_ets(NewSettings) ->
   Patches=settings:get_patches(NewSettings,ets),
   Ver=erlang:system_time(),
   SetApply=lists:map(fun(#{<<"p">>:=Path,<<"t">>:=Action,<<"v">>:=Value}) ->
-                  lager:info("Path ~p:~p",[Path,Action]),
+                  %lager:info("Path ~p:~p",[Path,Action]),
                   {Path, Ver, Action, Value}
               end,  Patches),
   %ets:match(blockchain,{[<<"current">>,<<"fee">>|'$1'],'_','$2'})

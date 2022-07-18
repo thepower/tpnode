@@ -773,36 +773,46 @@ h(<<"POST">>, [<<"tx">>, <<"batch">>], Req) ->
    );
 
 h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
-  {RemoteIP, _Port}=cowboy_req:peer(Req),
-  Body=apixiom:bodyjs(Req),
-  lager:debug("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
-  BinTx=if Body == undefined ->
-             {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
-             ReqBody;
-           is_map(Body) ->
-             case maps:get(<<"tx">>, Body, undefined) of
-               <<"0x", BArr/binary>> ->
-                 hex:parse(BArr);
-               Any ->
-                 base64:decode(Any)
-             end
-        end,
-  %lager:info_unsafe("New tx ~p", [BinTx]),
-  case txpool:new_tx(BinTx) of
-    {ok, Tx} ->
-      answer(
-       #{ result => <<"ok">>,
-          txid => Tx
-        }
-      );
-    {error, Err} ->
-      lager:info("error ~p", [Err]),
+  case application:get_env(tpnode,replica,false) of
+    true -> %slave node
       err(
-          10008,
-          iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
-          #{},
-          #{http_code=>500}
-      )
+        11001,
+        <<"this node is read-only">>
+        #{},
+        #{http_code=>403}
+       );
+    false ->
+      {RemoteIP, _Port}=cowboy_req:peer(Req),
+      Body=apixiom:bodyjs(Req),
+      lager:debug("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
+      BinTx=if Body == undefined ->
+                 {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
+                 ReqBody;
+               is_map(Body) ->
+                 case maps:get(<<"tx">>, Body, undefined) of
+                   <<"0x", BArr/binary>> ->
+                     hex:parse(BArr);
+                   Any ->
+                     base64:decode(Any)
+                 end
+            end,
+      %lager:info_unsafe("New tx ~p", [BinTx]),
+      case txpool:new_tx(BinTx) of
+        {ok, Tx} ->
+          answer(
+            #{ result => <<"ok">>,
+               txid => Tx
+             }
+           );
+        {error, Err} ->
+          lager:info("error ~p", [Err]),
+          err(
+            10008,
+            iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
+            #{},
+            #{http_code=>500}
+           )
+      end
   end;
 
 h(<<"OPTIONS">>, _, _Req) ->
