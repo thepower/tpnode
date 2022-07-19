@@ -126,6 +126,8 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
          {ok,E}=ksha3:hash(256, list_to_binary(FunNameID)),
          <<X:4/binary,_/binary>> = E,
          lists:foldl(fun encode_arg/2, <<X:4/binary>>, CArgs);
+       #{call:=#{function:="0x0",args:=[Arg1]}} when is_binary(Arg1) ->
+         Arg1;
        _ ->
          <<>>
      end,
