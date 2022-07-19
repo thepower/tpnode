@@ -104,7 +104,7 @@ state_init(info, {gun_down,Pid,_,closed,_,_}, #{loaders:=PidList}=Data) ->
       {keep_state, Data#{loaders=>PidList -- [E]}}
   end;
 
-state_init(info, run_workers, Data) ->
+state_init(info, run_workers, _Data) ->
   Chld=supervisor:which_children(repl_sup),
   Config=config(),
   Active=lists:map(fun({_,PID,_,_}) ->
@@ -132,10 +132,10 @@ state_init(info, run_workers, Data) ->
   %tpnode_repl_worker:run_worker([{uri,"http://127.0.0.1:43381"}]).
   keep_state_and_data;
 
-state_init(info, {wrk_up,_Pid,_}, Data) ->
+state_init(info, {wrk_up,_Pid,_}, _Data) ->
   keep_state_and_data;
 
-state_init(Kind, Msg, Data) ->
+state_init(Kind, Msg, _Data) ->
   lager:info("Got unhandled ~p: ~p",[Kind,Msg]),
   keep_state_and_data.
 

@@ -777,7 +777,7 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
     true -> %slave node
       err(
         11001,
-        <<"this node is read-only">>
+        <<"this node is read-only">>,
         #{},
         #{http_code=>403}
        );
