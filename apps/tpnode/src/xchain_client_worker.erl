@@ -47,8 +47,10 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
     lager:info("xchain client connecting to ~p ~p", [Ip, Port]),
     {ok, Pid} = gun:open(Ip, Port),
     receive
-      {gun_up, Pid, http} ->
-        ok
+      {gun_up, Pid, _Http} ->
+        ok;
+      {gun_down, Pid, _Protocol, closed, _, _} ->
+        throw(up_error)
     after 20000 ->
             gun:close(Pid),
             throw('up_timeout')
@@ -58,7 +60,7 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
             {404, _, _} -> 0;
             _ -> 0
           end,
-    {ok,UpgradeHdrs}=upgrade(Pid,Proto),
+    {[<<"websocket">>],UpgradeHdrs}=upgrade(Pid,Proto),
     lager:debug("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
     #{null:=<<"iam">>,
       <<"chain">>:=HisChain,
@@ -233,13 +235,13 @@ block_list(Pid, Proto, Chain, Last, Known, Acc) ->
   end.
 
 make_ws_req(Pid, Proto, Request) ->
-  receive {gun_ws,Pid, {binary, _}} ->
+  receive {gun_ws,Pid, _, {binary, _}} ->
             throw('unexpected_data')
   after 0 -> ok
   end,
   Cmd = xchain:pack(Request, Proto),
   ok=gun:ws_send(Pid, {binary, Cmd}),
-  receive {gun_ws,Pid, {binary, Payload}}->
+  receive {gun_ws,Pid, _Ref, {binary, Payload}}->
             {ok, Res} = msgpack:unpack(Payload),
             Res
   after 5000 ->
@@ -249,9 +251,16 @@ make_ws_req(Pid, Proto, Request) ->
 upgrade(Pid, 2) ->
   gun:ws_upgrade(Pid, "/xchain/ws",
                  [ {<<"sec-websocket-protocol">>, <<"thepower-xchain-v2">>} ]),
-  receive {gun_ws_upgrade,Pid,Status,Headers} ->
-            {Status, Headers}
+  receive {gun_upgrade,Pid,_Ref,Status,Headers} ->
+            {Status, Headers};
+          {gun_down, Pid, _Protocol, closed, [], []} ->
+            gun:close(Pid),
+            throw(upgrade_error);
+          {gun_response, Pid, _Ref, _Fin, ErrorCode, _Headers} ->
+            gun:close(Pid),
+            throw({upgrade_error, ErrorCode})
   after 10000 ->
+          gun:close(Pid),
           throw(upgrade_timeout)
   end.
 

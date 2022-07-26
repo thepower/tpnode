@@ -34,9 +34,11 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun, Workers) ->
               {ok, Pid1} = tpnode_vmsrv:start_link(),
               {ok, Pid2} = ranch_listener_sup:start_link(
                              {vm_listener,Port},
-                             10,
                              ranch_tcp,
-                             [{port,Port},{max_connections,128}],
+                             #{
+                               connection_type => supervisor,
+                               socket_opts => [{port,Port}]
+                              },
                              tpnode_vmproto,[]),
               timer:sleep(300),
               [fun()->gen_server:stop(Pid1) end,

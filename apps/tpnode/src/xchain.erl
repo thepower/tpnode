@@ -71,19 +71,24 @@ childspec() ->
     if not is_integer(CrossChainPort) ->
          [];
        true ->
-         HTTPOpts=[{connection_type, supervisor}, {port, CrossChainPort}],
          HTTPConnType=#{connection_type => supervisor,
                         env => #{dispatch => HTTPDispatch}},
          [
           ranch:child_spec(crosschain_api,
                            ranch_tcp,
-                           HTTPOpts,
+                           #{
+                             connection_type => supervisor,
+                             socket_opts => [{port,CrossChainPort}]
+                            },
                            cowboy_clear,
                            HTTPConnType),
 
           ranch:child_spec(crosschain_api6,
                            ranch_tcp,
-                           [inet6, {ipv6_v6only, true}|HTTPOpts],
+                           #{
+                             connection_type => supervisor,
+                             socket_opts => [{port,CrossChainPort},inet6, {ipv6_v6only, true}]
+                            },
                            cowboy_clear,
                            HTTPConnType)
          ]

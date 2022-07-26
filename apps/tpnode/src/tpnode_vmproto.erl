@@ -17,25 +17,28 @@
         }).
 
 childspec(Host, Port) ->
+  PC=[{port,Port}], %, {max_connections, 128}
+  CC=#{
+       connection_type => supervisor,
+       socket_opts => %[inet6,{ipv6_v6only,true},{port,43381}]
+       case Host of
+         any ->
+           PC;
+         _ ->
+           [{ip,Host}|PC]
+       end
+      },
   [
-   ranch:child_spec(
-    {vm_listener,Port}, ranch_tcp,
-    [{port, Port}, {max_connections, 128}, {ip, Host}],
-    ?MODULE,
-    []
-   )
+   ranch:child_spec(vm_listener, %{vm_listener,Port},
+                    ranch_tcp,
+                    CC,
+                    ?MODULE,
+                    [])
   ].
 
 
 childspec(Port) ->
-  [
-   ranch:child_spec(
-    {vm_listener,Port}, ranch_tcp,
-    [{port, Port}, {max_connections, 128}],
-    ?MODULE,
-    []
-   )
-  ].
+  childspec(any, Port).
 
 start_link(Ref, Socket, Transport, Opts) ->
   Pid = spawn_link(?MODULE, init, [Ref, Socket, Transport, Opts]),
@@ -122,8 +125,8 @@ send(Seq, Payload, #{socket:=Socket, transport:=Transport}=State) when is_map(Pa
   lager:debug("Sending seq ~b : ~p",[Seq, Payload]),
   Data=msgpack:pack(Payload),
   if is_binary(Data) ->
-       F=lists:flatten(io_lib:format("log/vmproto_req_~w.bin",[Seq])),
-       file:write_file(F,Data),
+       %F=lists:flatten(io_lib:format("log/vmproto_req_~w.bin",[Seq])),
+       %file:write_file(F,Data),
        ok;
      true ->
        lager:error("Can't encode ~p",[Payload]),

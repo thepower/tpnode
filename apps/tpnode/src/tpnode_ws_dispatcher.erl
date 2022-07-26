@@ -90,7 +90,7 @@ handle_cast({new_block, Block}, #{addrsub:=AS, blocksub:=BS}=State) ->
              ok
         end,
         ok
-    end, undefined, maps:get(bals, PrettyBlock)),
+    end, undefined, maps:get(bals, PrettyBlock, #{})),
   BlockJS=jsx:encode(#{block=>PrettyBlock}),
   BlockStat=jsx:encode(#{blockstat=>#{
                            hash=>maps:get(hash,PrettyBlock,[]),

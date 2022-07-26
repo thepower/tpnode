@@ -212,11 +212,11 @@ certificate() ->
 childspec() ->
   Cfg=application:get_env(tpnode,tpic,#{}),
   Port=maps:get(port,Cfg,40000),
-  SSLOpts=certificate(),
-  HTTPOpts= [
-             {connection_type, supervisor},
-             {port, Port}
-             | SSLOpts ],
+  HTTPOpts = fun(E) -> #{
+                         connection_type => supervisor,
+                         socket_opts => [{port,Port}] ++ E ++ certificate()
+                        }
+             end,
   tpic2_client:childspec() ++
   [
    {tpic2_cmgr,
@@ -226,14 +226,14 @@ childspec() ->
    ranch:child_spec(
      tpic_tls6,
      ranch_ssl,
-     HTTPOpts,
+     HTTPOpts([]),
      tpic2_tls,
      #{}
     ),
    ranch:child_spec(
      tpic_tls,
      ranch_ssl,
-     [inet6, {ipv6_v6only, true} | HTTPOpts],
+     HTTPOpts([inet6, {ipv6_v6only, true}]),
      tpic2_tls,
      #{}
     )

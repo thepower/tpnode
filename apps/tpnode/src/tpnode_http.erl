@@ -26,29 +26,28 @@ get_http_conn_type() ->
   }.
 
 
-get_http_opts(Port) ->
-  [
-    {connection_type, supervisor},
-    {port, Port}
-  ].
+get_http_opts(Port,SockOpt) ->
+  #{
+    connection_type => supervisor,
+    socket_opts => [{port,Port}|SockOpt]
+  }.
 
 
 childspec() ->
   Port = application:get_env(tpnode, rpcport, 43280),
-  HTTPOpts = get_http_opts(Port),
   HTTPConnType = get_http_conn_type(),
   [
     ranch:child_spec(
       http,
       ranch_tcp,
-      HTTPOpts,
+      get_http_opts(Port,[]),
       cowboy_clear,
       HTTPConnType
     ),
     ranch:child_spec(
       http6,
       ranch_tcp,
-      [inet6, {ipv6_v6only, true} | HTTPOpts],
+      get_http_opts(Port,[inet6, {ipv6_v6only, true}]),
       cowboy_clear,
       HTTPConnType
     )
@@ -76,20 +75,19 @@ childspec_ssl(CertFile, KeyFile) ->
       []
   end,
 
-  HTTPOpts = get_http_opts(Port) ++ SslOpts,
   HTTPConnType = get_http_conn_type(),
   [
     ranch:child_spec(
       https,
       ranch_ssl,
-      HTTPOpts,
+      get_http_opts(Port,SslOpts),
       cowboy_clear,
       HTTPConnType
     ),
     ranch:child_spec(
       https6,
       ranch_ssl,
-      [inet6, {ipv6_v6only, true} | HTTPOpts],
+      get_http_opts(Port,[inet6, {ipv6_v6only, true}|SslOpts]),
       cowboy_clear,
       HTTPConnType
     )
