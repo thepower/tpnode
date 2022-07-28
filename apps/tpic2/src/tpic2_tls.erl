@@ -279,7 +279,7 @@ handle_msg(#{null:=<<"gen">>,
   tpic2_response:handle(PK, SID, ReqID, Proc, Data, State),
   State;
 
-handle_msg(#{null => <<"hello_ack">>}, State) ->
+handle_msg(#{null := <<"hello_ack">>}, State) ->
   State;
 
 handle_msg(Any,State) ->
