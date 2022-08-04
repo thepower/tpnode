@@ -134,7 +134,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
 
 
   SLoad=fun(Addr, IKey, _Ex0=#{get_addr:=GAFun}) ->
-            io:format("=== Load key ~p:~p ~p~n",[Addr,IKey,GAFun]),
+            io:format("=== sLoad key 0x~s:~p~n",[hex:encode(binary:encode_unsigned(Addr)),IKey]),
             BKey=binary:encode_unsigned(IKey),
             binary:decode_unsigned(
               if Addr == To ->

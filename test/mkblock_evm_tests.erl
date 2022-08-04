@@ -356,30 +356,29 @@ call_value_test() ->
               248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
       Addr1=naddress:construct_public(1, OurChain, 1),
       SkAddr1=naddress:construct_public(1, OurChain, 4),
-      Code1=eevm_asm:asm(
-              [{push,1,0},
- sload,
- {push,1,1},
- add,
- {dup,1},
- {push,1,0},
- sstore,
- {push,1,0},
- mstore,
- {push,1,32},
- {push,1,0},
- return]
-             ),
-
+      Code1=eevm_asm:assemble(<<"
+push1 0x0
+sload
+push1 0x1
+add
+dup1
+push1 0x0
+sstore
+push1 0x0
+mstore
+push1 0x20
+push1 0x0
+return
+">>),
+              
       SkAddr=naddress:construct_public(1, OurChain, 5),
-      Code=eevm_asm:assemble(
-<<"
+      Code=eevm_asm:assemble(<<"
 push1 0
 push1 0
 push1 0
 push1 0
 push1 1
-push8 9223407223743447044
+push8 to_addr
 push3 262144
 call
 
@@ -390,7 +389,8 @@ push1 0
 returndatacopy
 push1 0
 return
-">>),
+">>,
+#{"to_addr"=>binary:decode_unsigned(SkAddr1)}),
 
       TX2=tx:sign(
             tx:construct_tx(#{
@@ -444,8 +444,7 @@ return
       {ok,L1,_S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       io:format("State1 ~p~n",[L1]),
       [
-       ?assertMatch(#{amount:=#{<<"SK">>:=1}},
-                    maps:get(<<128,0,32,0,150,0,0,4>>,L1)),
+       ?assertMatch(#{amount:=#{<<"SK">>:=1}}, maps:get(SkAddr1,L1)),
        ?assertMatch(true,true)
       ].
 
