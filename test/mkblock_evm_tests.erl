@@ -448,6 +448,88 @@ return
        ?assertMatch(true,true)
       ].
 
+call_embed_deploy_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      SkAddr=naddress:construct_public(1, OurChain, 5),
+      Code=eevm_asm:assemble(<<"
+push1 0
+push1 0
+push1 0
+push1 0
+push1 1
+push8 0xAFFFFFFFFF000000
+push3 262144
+staticcall
+
+returndatasize
+dup1
+push1 0
+push1 0
+returndatacopy
+push1 0
+return
+">>),
+
+
+      TX2=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>deploy,
+              from=>SkAddr,
+              txext => #{ "code"=>Code, "vm" => "evm" },
+              payload=>[
+                        #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+      TxList1=[
+               {<<"deploy">>, maps:put(sigverify,#{valid=>1},TX2)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    emit:=_Emit,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  Bals=maps:get(bals, Block),
+                  Sets=maps:get(settings, Block),
+                  {ok,Bals,Sets}
+              end,
+      Ledger=[
+              {SkAddr,
+               #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+              }
+             ],
+      _=recv_return(),
+      register(eevm_tracer,self()),
+      {ok,L1,_S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      unregister(eevm_tracer),
+      [<<Timestamp:256/big,Entropy/binary>>]=recv_return(),
+      io:format("Timestamp ~p~n",[Timestamp]),
+      io:format("Entropy ~p~n",[Entropy]),
+
+
+      io:format("State1 ~p~n",[L1]),
+      [
+       ?assertMatch(true, (erlang:system_time(millisecond)-Timestamp  < 5000)),
+       ?assertMatch(true,true)
+      ].
+
+recv_return() ->
+  receive
+    {trace,{return,Ret}} ->
+      [Ret|recv_return()];
+    {trace,_Any} ->
+      recv_return()
+  after 0 ->
+          []
+  end.
+
+
 call_test() ->
       OurChain=150,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
@@ -884,10 +966,10 @@ CALLCODE
 recv_callret() ->
   receive
     {trace,{callret,_,_,Reason,Ret}=_Any} ->
-      %io:format("trace ~p~n",[_Any]),
+      io:format("trace ~p~n",[_Any]),
       [{Ret,Reason}|recv_callret()];
     {trace,_Any} ->
-      %io:format("trace ~p~n",[_Any]),
+      io:format("trace ~p~n",[_Any]),
       recv_callret()
   after 0 ->
           []

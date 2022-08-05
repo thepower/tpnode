@@ -16,7 +16,7 @@ convert_storage(Map) ->
     end,#{},Map).
 
 
-deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, _GetFun, Opaque) ->
+deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Opaque) ->
   %DefCur=maps:get("evmcur",TE,<<"SK">>),
   Value=case tx:get_payload(Tx, transfer) of
           undefined ->
@@ -35,12 +35,48 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, _GetFun, O
           Map when is_map(Map) -> Map;
           _ -> #{}
         end,
+  Functions=#{
+              16#AFFFFFFFFF000000 => fun(_) ->
+                                         MT=maps:get(mean_time,Opaque,0),
+                                         Ent=maps:get(entropy,Opaque,<<>>),
+                                         {1,<<MT:256/big,Ent/binary>>}
+                                     end,
+              16#AFFFFFFFFF000001 => fun(Bin) ->
+                                         {1,list_to_binary(
+                                              lists:reverse(
+                                                binary_to_list(Bin)
+                                               )
+                                             )}
+                                     end
+            },
+  GetCodeFun = fun(Addr,Ex0) ->
+                   io:format(".: Get code for  ~p~n",[Addr]),
+                   case maps:is_key({Addr,code},Ex0) of
+                     true ->
+                       maps:get({Addr,code},Ex0,<<>>);
+                     false ->
+                       GotCode=GetFun({addr,binary:encode_unsigned(Addr),code}),
+                       {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)}
+                   end
+               end,
+  GetBalFun = fun(Addr,Ex0) ->
+                  case maps:is_key({Addr,value},Ex0) of
+                    true ->
+                      maps:get({Addr,value},Ex0);
+                    false ->
+                      0
+                  end
+              end,
 
   EvalRes = eevm:eval(Code,
                       State,
                       #{
                         logger=>Logger,
                         gas=>GasLimit,
+                        get=>#{
+                               code => GetCodeFun,
+                               balance => GetBalFun
+                              },
                         data=>#{
                                 address=>binary:decode_unsigned(From),
                                 callvalue=>Value,
@@ -48,6 +84,7 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, _GetFun, O
                                 gasprice=>1,
                                 origin=>binary:decode_unsigned(From)
                                },
+                        embedded_code => Functions,
                         trace=>whereis(eevm_tracer)
                        }),
   io:format("EvalRes ~p~n",[EvalRes]),
@@ -187,7 +224,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                     true ->
                       maps:get({Addr,value},Ex0);
                     false ->
-                      131071
+                      0
                   end
               end,
   BeforeCall = fun(CallKind,CFrom,_Code,_Gas,
