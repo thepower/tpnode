@@ -90,12 +90,18 @@ run_generate(
   lager:info("MT0 ~p",[MT]),
   lager:info("MT1 ~p",[MT1]),
   lager:info("MT ~p",[MeanTime]),
-    AllowEntropy=chainsettings:by_path([<<"current">>,<<"gatherentropy">>])==true,
-    Entropy=if not(AllowEntropy) orelse Ent==[] ->
-                 undefined;
-               true ->
-                 crypto:hash(sha256,[PHash,<<MeanTime:64/big>>|lists:usort(Ent)])
-            end,
+  Entropy=if Ent == [] ->
+               <<>>;
+             true ->
+               case chainsettings:by_path([<<"current">>,<<"gatherentropy">>]) of
+                 true ->
+                   crypto:hash(sha256,[PHash,<<MeanTime:64/big>>|lists:usort(Ent)]);
+                 1 ->
+                   crypto:hash(sha256,[PHash,<<MeanTime:64/big>>|lists:usort(Ent)]);
+                 _ ->
+                   <<>>
+               end
+          end,
     case application:get_env(tpnode,mkblock_debug) of
       {ok, true} ->
         stout:log(mkblock_debug,

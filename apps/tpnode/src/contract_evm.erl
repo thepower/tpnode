@@ -38,7 +38,12 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
   Functions=#{
               16#AFFFFFFFFF000000 => fun(_) ->
                                          MT=maps:get(mean_time,Opaque,0),
-                                         Ent=maps:get(entropy,Opaque,<<>>),
+                                         Ent=case maps:get(entropy,Opaque,<<>>) of
+                                               Ent1 when is_binary(Ent1) ->
+                                                 Ent1;
+                                               _ ->
+                                                 <<>>
+                                             end,
                                          {1,<<MT:256/big,Ent/binary>>}
                                      end,
               16#AFFFFFFFFF000001 => fun(Bin) ->
@@ -189,7 +194,12 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
   Functions=#{
               16#AFFFFFFFFF000000 => fun(_) ->
                                          MT=maps:get(mean_time,Opaque,0),
-                                         Ent=maps:get(entropy,Opaque,<<>>),
+                                         Ent=case maps:get(entropy,Opaque,<<>>) of
+                                               Ent1 when is_binary(Ent1) ->
+                                                 Ent1;
+                                               _ ->
+                                                 <<>>
+                                             end,
                                          {1,<<MT:256/big,Ent/binary>>}
                                      end,
               16#AFFFFFFFFF000001 => fun(Bin) ->
