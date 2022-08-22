@@ -27,10 +27,6 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
             0
         end,
 
-  Logger=fun(Message,Args) ->
-             lager:info("EVM tx ~p log ~p ~p",[Tx,Message,Args])
-         end,
-
   State=case maps:get(state,Ledger,#{}) of
           Map when is_map(Map) -> Map;
           _ -> #{}
@@ -76,7 +72,8 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
   EvalRes = eevm:eval(Code,
                       State,
                       #{
-                        logger=>Logger,
+                        extra=>Opaque,
+                        logger=>fun logger/4,
                         gas=>GasLimit,
                         get=>#{
                                code => GetCodeFun,
@@ -92,7 +89,7 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
                         embedded_code => Functions,
                         trace=>whereis(eevm_tracer)
                        }),
-  io:format("EvalRes ~p~n",[EvalRes]),
+  %io:format("EvalRes ~p~n",[EvalRes]),
   case EvalRes of
     {done, {return,NewCode}, #{ gas:=GasLeft, storage:=NewStorage }} ->
       io:format("Deploy -> OK~n",[]),
@@ -157,9 +154,6 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
             0
         end,
 
-  Logger=fun(Message,Args) ->
-             lager:info("EVM tx ~p log ~p ~p",[Tx,Message,Args])
-         end,
   CD=case Tx of
        #{call:=#{function:="0x0",args:=[Arg1]}} when is_binary(Arg1) ->
          Arg1;
@@ -241,7 +235,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                    #{address:=CAddr, value:=V}=CallArgs,
                    #{global_acc:=GAcc}=Xtra) ->
                    io:format("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
-                   logger:info("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
+                   lager:info("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
                    if V > 0 ->
                         TX=msgpack:pack(#{
                                           "k"=>tx:encode_kind(2,generic),
@@ -291,7 +285,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                                                       },
                                                embedded_code => Functions,
                                                cb_beforecall => BeforeCall,
-                                               logger=>Logger,
+                                               logger=>fun logger/4,
                                                trace=>whereis(eevm_tracer)
                                               }),
                   {done,{return,RX},#{storage:=StRet,extra:=Ex2}}=Deploy,
@@ -335,7 +329,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                    embedded_code => Functions,
                    cb_beforecall => BeforeCall,
                    cd=>CD,
-                   logger=>Logger,
+                   logger=>fun logger/4,
                    trace=>whereis(eevm_tracer)
                   }),
 
@@ -368,6 +362,11 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
   end.
 
 
+logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}=_EEvmState) ->
+  LArgs=[binary:encode_unsigned(I) || I <- LArgs0],
+  lager:info("EVM log ~p ~p",[Message,LArgs]),
+  io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
+  maps:put(log,[([evm,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog],Xtra).
 
 call(#{state:=State,code:=Code}=_Ledger,Method,Args) ->
   SLoad=fun(IKey) ->
@@ -384,9 +383,6 @@ call(#{state:=State,code:=Code}=_Ledger,Method,Args) ->
          <<X:4/binary,_/binary>> = E,
          lists:foldl(fun encode_arg/2, <<X:4/binary>>, Args)
      end,
-  Logger=fun(Message,LArgs) ->
-             lager:info("EVM log ~p ~p",[Message,LArgs])
-         end,
 
   Result = eevm:eval(Code,
                      #{},
@@ -396,7 +392,7 @@ call(#{state:=State,code:=Code}=_Ledger,Method,Args) ->
                        value=>0,
                        cd=>CD,
                        caller=><<0>>,
-                       logger=>Logger,
+                       logger=>fun logger/4,
                        trace=>whereis(eevm_tracer)
                       }),
   case Result of
@@ -419,7 +415,7 @@ call(#{state:=State,code:=Code}=_Ledger,Method,Args) ->
 transform_extra_created(#{created:=C}=Extra) ->
   M1=lists:foldl(
        fun(Addr, ExtraAcc) ->
-           io:format("Created addr ~p~n",[Addr]),
+           %io:format("Created addr ~p~n",[Addr]),
            {Acc1, ToDel}=maps:fold(
            fun
              ({Addr1, state}=K,Value,{IAcc,IToDel}) when Addr==Addr1 ->

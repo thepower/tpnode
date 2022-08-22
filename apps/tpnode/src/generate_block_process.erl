@@ -672,7 +672,7 @@ try_process_inbound([{TxID,
         end,
 
     lager:info("Orig Block ~p", [OriginBlock]),
-    {Addresses2, NewEmit, GasLeft, Acc1}=deposit(To, Addresses, Tx, Gas, Acc),
+    {Addresses2, NewEmit, GasLeft, Acc1}=deposit(TxID, To, Addresses, Tx, Gas, Acc),
     %Addresses2=maps:put(To, NewT, Addresses),
 
     NewAddresses=case GasLeft of
@@ -899,7 +899,7 @@ try_process_local([{TxID,
     {NewF, GasF, GotFee, Gas}=withdraw(OrigF, Tx, GetFun, SetState, []),
     try
       Addresses1=maps:put(From, NewF, Addresses),
-      {Addresses2, NewEmit, GasLeft, Acc1}=deposit(To, Addresses1,
+      {Addresses2, NewEmit, GasLeft, Acc1}=deposit(TxID, To, Addresses1,
                                                    Tx, Gas, Acc),
       lager:info("Local gas ~p -> ~p f ~p t ~p",[Gas, GasLeft, From, To]),
 
@@ -1004,12 +1004,13 @@ gas_plus_int({Cur,Amount, Rate}, Int, true) ->
 is_gas_left({_,Amount,_Rate}) ->
   Amount>0.
 
-deposit(Address, Addresses0, #{ver:=2}=Tx, GasLimit,
+deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
         #{
           aalloc:=AAlloc,
           get_addr:=GetAddr,
           get_settings:=GetFun,
-          new_settings:=SetState
+          new_settings:=SetState,
+          log:=Logs
          }=Acc) ->
   TBal0=maps:get(Address,Addresses0),
   NewT=maps:remove(keep,
@@ -1046,7 +1047,8 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                     get_addr=>GetAddr1,
                     global_acc=>Acc#{table=>Addresses},
                     entropy=>maps:get(entropy,Acc,<<>>),
-                    mean_time=>maps:get(mean_time,Acc,0)
+                    mean_time=>maps:get(mean_time,Acc,0),
+                    log=>[]
                    },
 
       GetFun1 = fun({addr,ReqAddr,code}) ->
@@ -1096,8 +1098,10 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GasLimit,
       #{aalloc:=AAlloc2,
         created:=Created,
         changed:=Changes,
-        global_acc:=Acc2
+        global_acc:=Acc2,
+        log:=EmitLog0
        }=OpaqueState2,
+      EmitLog = [ msgpack:pack([TxID|LL]) || LL <- EmitLog0 ],
       #{table:=Addresses1}=Acc2,
       EmitTxs=lists:map(
                 fun(ETxBody) ->
@@ -1126,7 +1130,7 @@ deposit(Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                    end, Addresses2, Changes),
       LToPatch=maps:get(Address, Addresses3),
       Addresses4=maps:put(Address, mbal:patch(LedgerPatches,LToPatch), Addresses3),
-      {Addresses4, EmitTxs, GasLeft, Acc2#{aalloc=>AAlloc2}}
+      {Addresses4, EmitTxs, GasLeft, Acc2#{aalloc=>AAlloc2, log=>EmitLog++Logs}}
   end.
 
 withdraw(FBal0,

@@ -119,10 +119,14 @@ handle_cast({signature, BlockHash, Sigs},
     },
     {noreply, is_block_ready(BlockHash, State2)};
 
-handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID},
+handle_cast({new_block, Blk, PID}, State) ->
+  handle_cast({new_block, Blk, PID, #{}}, State);
+
+handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID, Extra},
             #{ candidates:=Candidates,
                candidatesig:=Candidatesig,
-               candidatets := CandidateTS
+               candidatets := CandidateTS,
+               extras := Extras
              }=State) ->
 
     #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
@@ -155,7 +159,8 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID},
       State#{
         candidatesig=>maps:put(BlockHash, CSig, Candidatesig),
         candidates => maps:put(BlockHash, Blk, Candidates),
-        candidatets => maps:put(os:system_time(microsecond), BlockHash, CandidateTS)
+        candidatets => maps:put(os:system_time(microsecond), BlockHash, CandidateTS),
+        extras => maps:put(BlockHash, Extra, Extras)
       },
     {noreply, is_block_ready(BlockHash, State2)};
 
@@ -171,6 +176,7 @@ handle_info(cleanup_timer,
   #{candidatets := CandTS,
     candidates := Candidates,
     candidatesig := CandidateSig,
+    extras := Extras,
     blocktime := BlockTime,
     cleanup_timer := Timer} = State) ->
 
@@ -178,8 +184,8 @@ handle_info(cleanup_timer,
 
   TimeoutSec = BlockTime + ?BV_CLEANUP_TIMER_FACTOR,
 
-  {NewCandTS, NewCandidates, NewCandidateSig} =
-    remove_expired_candidates(CandTS, Candidates, CandidateSig, TimeoutSec),
+  {NewCandTS, NewCandidates, NewCandidateSig, NewExtras} =
+    remove_expired_candidates(CandTS, Candidates, CandidateSig, Extras, TimeoutSec),
 
 %%  lager:info("BV cleaned ~p expired candidates", [
 %%    maps:size(CandidateSig) - maps:size(NewCandidateSig)
@@ -189,6 +195,7 @@ handle_info(cleanup_timer,
     candidatets => NewCandTS,
     candidates => NewCandidates,
     candidatesig => NewCandidateSig,
+    extras => NewExtras,
     cleanup_timer => setup_timer(cleanup_timer, BlockTime)
   }};
 
@@ -201,6 +208,7 @@ handle_info(init, undefined) ->
       candidatesig => #{},
       candidates=>#{},
       candidatets=>#{},
+      extras=>#{},
       cleanup_timer => setup_timer(cleanup_timer, 5),
       lastblock=>LastBlock
     },
@@ -247,7 +255,7 @@ checksig(BlockHash, Sigs, Acc0) ->
 
 %% ------------------------------------------------------------------
 
-is_block_ready(BlockHash, State) ->
+is_block_ready(BlockHash, #{extras:=Extras}=State) ->
   try
     MinSig=maps:get(minsig, State, 2),
     T0=erlang:system_time(),
@@ -311,6 +319,8 @@ is_block_ready(BlockHash, State) ->
                    ]),
 
         blockchain_updater:new_block(Blk),
+        Extra=maps:get(BlockHash, Extras, #{}),
+        lager:info("Extra ~p",[Extra]),
 
         self() ! cleanup,
 
@@ -318,7 +328,8 @@ is_block_ready(BlockHash, State) ->
           lastblock=> Blk,
           candidates=>#{},
           candidatesig=>#{},
-          candidatets => #{}
+          candidatets => #{},
+          extras => #{}
          }
     end
   catch throw:{notready, Where} ->
@@ -411,21 +422,22 @@ setup_timer(Name, Blocktime) ->
 
 %% ------------------------------------------------------------------
 
-remove_expired_candidates(CandTS, Candidates, CandidateSig, TimeoutSec) ->
+remove_expired_candidates(CandTS, Candidates, CandidateSig, Extras, TimeoutSec) ->
   Timeout = os:system_time(microsecond) - TimeoutSec * 1000000,
 
   maps:fold(
     fun
-      (SavedTS, Hash, {TS, Cand, Sigs} = _Acc) when SavedTS < Timeout ->
+      (SavedTS, Hash, {TS, Cand, Sigs, Ex} = _Acc) when SavedTS < Timeout ->
         {
           maps:remove(SavedTS, TS),
           maps:remove(Hash, Cand),
-          maps:remove(Hash, Sigs)
+          maps:remove(Hash, Sigs),
+          maps:remove(Hash, Ex)
         };
 
       (_K, _V, Acc) ->
         Acc
     end,
-    {CandTS, Candidates, CandidateSig},
+    {CandTS, Candidates, CandidateSig, Extras},
     CandTS
   ).

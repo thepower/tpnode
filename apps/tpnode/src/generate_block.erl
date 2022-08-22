@@ -107,6 +107,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            mean_time=>MeanTime,
            parent=>Parent_Hash,
            height=>Parent_Height+1,
+           log=>[],
            get_addr=>GetAddr
           },
   #{failed:=Failed,
@@ -118,9 +119,12 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     fee:=_FeeCollected,
     tip:=_TipCollected,
     emit:=EmitTXs0,
+    log:=Logs0,
     new_settings := NewSettings
    }=finish_processing(generate_block_process:try_process(TXL, GBInit)),
   lager:info("MB Collected fee ~p tip ~p", [_FeeCollected, _TipCollected]),
+  Logs=lists:reverse(Logs0),
+
   if length(Settings)>0 ->
        lager:info("MB Post Setting ~p", [Settings]);
      true -> ok
@@ -161,10 +165,19 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   LedgerHash = ledger_hash(NewBal, LedgerPid),
   SettingsHash = settings_hash(NewSettings),
   _T5=erlang:system_time(),
-  Roots=[
-         {entropy, Entropy},
-         {mean_time, <<MeanTime:64/big>>}
-        ],
+  Roots=if Logs==[] ->
+             [
+              {entropy, Entropy},
+              {mean_time, <<MeanTime:64/big>>}
+             ];
+           true ->
+             LogsHash=crypto:hash(sha256, Logs),
+             [
+              {entropy, Entropy},
+              {log_hash, LogsHash},
+              {mean_time, <<MeanTime:64/big>>}
+             ]
+        end,
   BlkData=#{
             txs=>Success,
             parent=>Parent_Hash,
@@ -247,7 +260,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   lager:debug("BENCHMARK total ~.6f ~n", [(_T6-_T1)/1000000]),
   #{block=>Blk#{outbound=>Outbound},
     failed=>Failed,
-    emit=>EmitTXs
+    emit=>EmitTXs,
+    log=>Logs
    }.
 
 

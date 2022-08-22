@@ -196,7 +196,7 @@ run_generate(
                                       {mean_time, MeanTime}
                                      ]
                                     ),
-    #{block:=Block, failed:=Failed}=GB,
+    #{block:=Block, failed:=Failed, log:=Log}=GB,
     lager:info("NewS block ~p",[maps:get(bals,Block)]),
     T2=erlang:system_time(),
 
@@ -232,7 +232,7 @@ run_generate(
                {block_hdr, maps:with([hash,header,sign,temporary], SignedBlock)}
               ]),
 
-    gen_server:cast(blockvote, {new_block, SignedBlock, self()}),
+    gen_server:cast(blockvote, {new_block, SignedBlock, self(), #{log=>Log}}),
 
     case application:get_env(tpnode, dumpblocks) of
       {ok, true} ->
