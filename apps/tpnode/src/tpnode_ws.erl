@@ -111,11 +111,16 @@ websocket_info(_Info, State) ->
 handle_msg(#{null:= <<"ping">>}, State) ->
   {ok, State};
 
-handle_msg(#{null:= <<"subscribe">>, since:=BlockHash }, State) when is_binary(BlockHash) ->
+handle_msg(#{null:= <<"subscribe">>, since:=BlockHash}, State) when is_binary(BlockHash) ->
   gen_server:cast(tpnode_ws_dispatcher, {subscribe, {block, term, stat}, self()}),
   {reply, {binary, msgpack:pack(#{null=><<"ACK">>})}, State};
 
-handle_msg(#{null:= <<"subscribe">> }, State) ->
+handle_msg(#{null:= <<"logs_subscribe">>}, State) ->
+  Filter=[],
+  gen_server:cast(tpnode_ws_dispatcher, {subscribe, logs, self(), Filter}),
+  {reply, {binary, msgpack:pack(#{null=><<"logs_subscribe_ack">>})}, State};
+
+handle_msg(#{null:= <<"subscribe">>}, State) ->
   gen_server:cast(tpnode_ws_dispatcher, {subscribe, {block, term, stat}, self()}),
   {reply, {binary, msgpack:pack(#{null=><<"subscribe_ack">>})}, State};
 

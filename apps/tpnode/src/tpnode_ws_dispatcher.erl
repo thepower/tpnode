@@ -31,6 +31,7 @@ init(_) ->
      blocksub=>[],
      addrsub=>#{},
      pidsub=>#{},
+     logssub=>[],
      txsub=>[]
     }
     }.
@@ -39,6 +40,21 @@ handle_call(state, _From, State) ->
     {reply, State, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
+
+handle_cast({new_logs, BlkID, Height, Logs}, #{logssub:=Sub}=State) ->
+  Now = os:system_time(millisecond),
+  MPStat=#{
+           null => block_logs,
+           hash => BlkID,
+           heigh => Height,
+           now => Now,
+           logs => Logs
+          },
+  lists:foreach(
+    fun({Pid, _}) ->
+        erlang:send(Pid, {message, MPStat})
+    end, Sub),
+  {noreply, State};
 
 handle_cast({new_block, Block}, #{addrsub:=AS, blocksub:=BS}=State) ->
   Now = os:system_time(millisecond),
@@ -148,6 +164,14 @@ handle_cast({done, Result, Txs}, State) ->
     end, Txs),
   {noreply, State};
 
+handle_cast({subscribe, logs, Pid, _Filter}, #{logssub:=LS, pidsub:=PS}=State) ->
+  monitor(process, Pid),
+  {noreply, State#{
+              logssub=>[{Pid,[]}|LS],
+              pidsub=>maps:put(Pid, [logs|maps:get(Pid, PS, [])], PS)
+             }
+  };
+
 handle_cast({subscribe, tx, Pid}, #{pidsub:=PS}=State) ->
   TS=maps:get(txsub, State, []),
   monitor(process, Pid),
@@ -178,32 +202,37 @@ handle_cast({subscribe, address, Address, Subs, Pid}, #{addrsub:=AS, pidsub:=PS}
     }.
 
 handle_info({'DOWN', _Ref, process, Pid, _Reason},
-            #{addrsub:=AS0, blocksub:=BS0, pidsub:=PS}=State) ->
+            #{addrsub:=AS0, blocksub:=BS0, pidsub:=PS, logssub:=LS0}=State) ->
   TS0=maps:get(txsub, State, []),
   Subs=maps:get(Pid, PS, []),
-  {BS1, TS1, AS1}=lists:foldl(
-                    fun(block, {BS, TS, AS}) ->
+  {BS1, TS1, AS1, LS1}=lists:foldl(
+                    fun(block, {BS, TS, AS, LS}) ->
                         {lists:filter(
                            fun({XPid,_,_}) ->
                                XPid=/=Pid;
                               (XPid) ->
                                XPid=/=Pid
-                           end, BS), TS, AS};
-                       (tx, {BS, TS, AS}) ->
-                        {BS, lists:delete(Pid, TS), AS};
-                       ({addr, A}, {BS, TS, AS}) ->
+                           end, BS), TS, AS, LS};
+                       (tx, {BS, TS, AS, LS}) ->
+                        {BS, lists:delete(Pid, TS), AS, LS};
+                       (logs, {BS, TS, AS, LS}) ->
+                        {BS, TS, AS,
+                         lists:keydelete(Pid,1,LS)
+                        };
+                       ({addr, A}, {BS, TS, AS, LS}) ->
                         AAS=lists:filter(
                               fun({PP, _}) -> PP=/=Pid
                               end, maps:get(A, AS, [])),
                         if AAS == [] ->
-                             {BS, TS, maps:remove(A, AS)};
+                             {BS, TS, maps:remove(A, AS), LS};
                            true ->
-                             {BS, TS, maps:put(A, AAS, AS)}
+                             {BS, TS, maps:put(A, AAS, AS), LS}
                         end
-                    end, {BS0, TS0, AS0}, Subs),
+                    end, {BS0, TS0, AS0, LS0}, Subs),
   {noreply, State#{
               blocksub=>BS1,
               addrsub=>AS1,
+              logssub=>LS1,
               txsub=>TS1,
               pidsub=>maps:remove(Pid, PS)
              }

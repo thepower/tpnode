@@ -320,7 +320,28 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
 
         blockchain_updater:new_block(Blk),
         Extra=maps:get(BlockHash, Extras, #{}),
-        lager:info("Extra ~p",[Extra]),
+        lager:info("Extra for blk ~w ~s: ~p",[Height, blkid(BlockHash), Extra]),
+        case maps:is_key(log, Extra) of
+          false -> ok;
+          true ->
+            case maps:is_key(temporary, Blk) of
+              true ->
+                ignore;
+              false ->
+                lager:info("Store log for block ~w:~s",[Height, hex:encode(BlockHash)]),
+                Logs=maps:get(log, Extra),
+                logs_db:put(BlockHash, Height, Logs),
+                if Logs==[] -> ok;
+                   true ->
+                     gen_server:cast(tpnode_ws_dispatcher,
+                                {new_logs,
+                                 BlockHash,
+                                 Height,
+                                 Logs
+                                })
+                end
+            end
+        end,
 
         self() ! cleanup,
 

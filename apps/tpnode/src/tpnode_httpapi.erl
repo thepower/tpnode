@@ -815,6 +815,56 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
       end
   end;
 
+h(<<"GET">>, [<<"logs">>, BlockId], _Req) ->
+  BinPacker=packer(_Req,hex),
+  BlockHash=hex:parse(BlockId),
+  case logs_db:get(BlockHash) of
+    undefined ->
+        err(
+            10006,
+            <<"Not found">>,
+            #{result => <<"not_found">>},
+            #{http_code => 404}
+        );
+    #{blkid:=_Hash, height:=_Hei, logs:=_Logs}=Res ->
+      EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+              Conf1=jsx_config:list_to_config(Conf),
+              jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                                State, Handler, Stack, Conf1)
+          end,
+      answer(
+        #{ result => <<"ok">>,
+           log => Res
+         },
+        #{jsx=>[ strict, {error_handler, EHF} ]}
+       )
+  end;
+
+h(<<"GET">>, [<<"logs_height">>, BHeight], _Req) ->
+  BinPacker=packer(_Req,hex),
+  Height=binary_to_integer(BHeight),
+  case logs_db:get(Height) of
+    undefined ->
+        err(
+            10006,
+            <<"Not found">>,
+            #{result => <<"not_found">>},
+            #{http_code => 404}
+        );
+    #{blkid:=_Hash, height:=_Hei, logs:=_Logs}=Res ->
+      EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+              Conf1=jsx_config:list_to_config(Conf),
+              jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                                State, Handler, Stack, Conf1)
+          end,
+      answer(
+        #{ result => <<"ok">>,
+           log => Res
+         },
+        #{jsx=>[ strict, {error_handler, EHF} ]}
+       )
+  end;
+
 h(<<"OPTIONS">>, _, _Req) ->
   {200, [], ""};
 

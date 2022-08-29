@@ -55,6 +55,7 @@ init([]) ->
     DBPath=application:get_env(tpnode,dbpath,"db"),
     filelib:ensure_dir([DBPath,"/"]),
     ok=mledger:start_db(),
+    ok=logs_db:start_db(),
 
     Discovery=#{name=>discovery, services=>MandatoryServices},
 
