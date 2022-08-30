@@ -108,7 +108,7 @@ init([]) ->
             { txqueue, {txqueue, start_link, []},
               permanent, 5000, worker, []},
 
-            { txstorage, {tpnode_txstorage, start_link, 
+            { txstorage, {tpnode_txstorage, start_link,
                           [#{name => txstorage}]},
               permanent, 5000, worker, []},
 
@@ -124,14 +124,15 @@ init([]) ->
             { tpnode_announcer, {tpnode_announcer, start_link, [#{}]},
               permanent, 5000, worker, []},
 
-            { tpnode_cert, {tpnode_cert, start_link, []},
-              permanent, 5000, worker, []},
+%            { tpnode_cert, {tpnode_cert, start_link, []},
+%              permanent, 5000, worker, []},
 
             { tpnode_vmsrv, {tpnode_vmsrv, start_link, []},
               permanent, 5000, worker, []}
 
            ]
             ++ Services
+            ++ tpnode_http:childspec_ssl()
             ++ tpnode_http:childspec(),
     {ok, { {one_for_one, 5, 10}, Childs } }.
 

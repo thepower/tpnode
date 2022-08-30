@@ -12,6 +12,7 @@
 
 -export([start_link/0]).
 -export([check_cert_expire/1, is_ssl_started/0]).
+-export([get_cert_file/0, get_cert_key_file/0]).
 
 
 %% ------------------------------------------------------------------
@@ -155,26 +156,27 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 
 %% -------------------------------------------------------------------------------------
-get_cert_path() ->
-%%  "/tmp/4/cert".
-  %"db/" ++ atom_to_list(erlang:node()) ++ "/cert".
-  utils:dbpath(cert).
+get_cert_file() ->
+  get_cert_file(get_hostname()).
+
+get_cert_key_file() ->
+  get_cert_key_file(get_hostname()).
 
 get_cert_file(Hostname) ->
   utils:make_list(
-      get_cert_path() ++
-      "/" ++
-      utils:make_list(Hostname) ++
-      ".crt"
-  ).
+    utils:dbpath(cert) ++
+    "/" ++
+    utils:make_list(Hostname) ++
+    ".crt"
+   ).
 
 get_cert_key_file(Hostname) ->
   utils:make_list(
-      get_cert_path() ++
-      "/" ++
-      utils:make_list(Hostname) ++
-      ".key"
-  ).
+    utils:dbpath(cert) ++
+    "/" ++
+    utils:make_list(Hostname) ++
+    ".key"
+   ).
 
 %% -------------------------------------------------------------------------------------
 
