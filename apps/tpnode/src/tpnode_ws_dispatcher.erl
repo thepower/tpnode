@@ -46,7 +46,7 @@ handle_cast({new_logs, BlkID, Height, Logs}, #{logssub:=Sub}=State) ->
   MPStat=#{
            null => block_logs,
            hash => BlkID,
-           heigh => Height,
+           height => Height,
            now => Now,
            logs => Logs
           },
