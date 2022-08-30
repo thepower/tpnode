@@ -13,6 +13,7 @@ get_http_conn_type() ->
       {'_', [
         {"/api/ws", tpnode_ws, []},
         {"/api/[...]", apixiom, {tpnode_httpapi, #{}}},
+        {"/", cowboy_static, {priv_file, tpnode, "index.html"}},
         {"/[...]", cowboy_static,
           {dir, "public",
             [
