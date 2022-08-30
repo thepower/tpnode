@@ -73,11 +73,10 @@ childspec_ssl() ->
   childspec_ssl(CertFile, KeyFile).
 
 childspec_ssl(CertFile, KeyFile) ->
-  Port = get_ssl_port(),
+  Port = get_ssl_port(false),
 
   case ensure_cert(CertFile, KeyFile) of
-    true ->
-
+    true when is_integer(Port) ->
       CaFile = utils:make_list(CertFile)++".ca.crt",
       SslOpts = [
                  {certfile, utils:make_list(CertFile)},
@@ -106,7 +105,7 @@ childspec_ssl(CertFile, KeyFile) ->
          HTTPConnType
         )
       ];
-    false ->
+    _ ->
       []
   end.
 
@@ -115,26 +114,30 @@ child_names_ssl() ->
   [https, https6].
 
 ensure_cert(CertFile, KeyFile) ->
-  case file:read_file(KeyFile) of
-    {ok, _} ->
-      ok;
-    _ ->
-      filelib:ensure_dir(KeyFile),
-      gen_priv(KeyFile)
-  end,
-  CertExists=case file:read_file(CertFile) of
-               {ok, _} -> true;
-               _ -> false
-             end,
-  if(not CertExists) ->
-      case application:get_env(tpnode, hostname, unknown) of
-        unknown -> false;
-        Hostname ->
-          selfsigned(CertFile, KeyFile, Hostname),
-          true
-      end;
-    (CertExists) ->
-      true
+  Hostname=application:get_env(tpnode, hostname, false),
+  if Hostname==false ->
+       false;
+     true ->
+       case file:read_file(KeyFile) of
+         {ok, _} ->
+           ok;
+         _ ->
+           filelib:ensure_dir(KeyFile),
+           gen_priv(KeyFile)
+       end,
+       CertExists=case file:read_file(CertFile) of
+                    {ok, _} -> true;
+                    _ -> false
+                  end,
+       if(not CertExists) ->
+           selfsigned(CertFile, KeyFile, Hostname),
+           case file:read_file(CertFile) of
+             {ok, _} -> true;
+             _ -> false
+           end;
+         (CertExists) ->
+           true
+       end
   end.
 
 gen_priv(KeyFile) ->
@@ -148,7 +151,6 @@ gen_priv(KeyFile) ->
      binary
     ]),
   Bin=cert_loop(H),
-  io:format("Pvt ~p~n",[Bin]),
   file:write_file(KeyFile, Bin).
 
 cert_loop(Handle) ->
