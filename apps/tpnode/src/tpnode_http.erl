@@ -74,38 +74,41 @@ childspec_ssl() ->
 
 childspec_ssl(CertFile, KeyFile) ->
   Port = get_ssl_port(false),
+  if(is_integer(Port)) ->
+      case ensure_cert(CertFile, KeyFile) of
+        true ->
+          CaFile = utils:make_list(CertFile)++".ca.crt",
+          SslOpts = [
+                     {certfile, utils:make_list(CertFile)},
+                     {keyfile, utils:make_list(KeyFile)}] ++
+          case file:read_file_info(CaFile) of
+            {ok,_} ->
+              [{cacertfile, CaFile}];
+            _ ->
+              []
+          end,
 
-  case ensure_cert(CertFile, KeyFile) of
-    true when is_integer(Port) ->
-      CaFile = utils:make_list(CertFile)++".ca.crt",
-      SslOpts = [
-                 {certfile, utils:make_list(CertFile)},
-                 {keyfile, utils:make_list(KeyFile)}] ++
-      case file:read_file_info(CaFile) of
-        {ok,_} ->
-          [{cacertfile, CaFile}];
+          HTTPConnType = get_http_conn_type(),
+          [
+           ranch:child_spec(
+             https,
+             ranch_ssl,
+             get_http_opts(Port,SslOpts),
+             cowboy_clear,
+             HTTPConnType
+            ),
+           ranch:child_spec(
+             https6,
+             ranch_ssl,
+             get_http_opts(Port,[inet6, {ipv6_v6only, true}|SslOpts]),
+             cowboy_clear,
+             HTTPConnType
+            )
+          ];
         _ ->
           []
-      end,
-
-      HTTPConnType = get_http_conn_type(),
-      [
-       ranch:child_spec(
-         https,
-         ranch_ssl,
-         get_http_opts(Port,SslOpts),
-         cowboy_clear,
-         HTTPConnType
-        ),
-       ranch:child_spec(
-         https6,
-         ranch_ssl,
-         get_http_opts(Port,[inet6, {ipv6_v6only, true}|SslOpts]),
-         cowboy_clear,
-         HTTPConnType
-        )
-      ];
-    _ ->
+      end;
+    true ->
       []
   end.
 
