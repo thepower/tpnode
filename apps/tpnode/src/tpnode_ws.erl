@@ -9,7 +9,7 @@ init(Req, _Opts) ->
   lager:debug("WS Upgrade req ~p",[Req]),
   case Req of
     #{headers:=#{<<"sec-websocket-protocol">> := <<"thepower-nodesync-v1">>}=H} ->
-      {cowboy_websocket, Req, #{headers=>H,p=>v1} #{ idle_timeout => 600000 }};
+      {cowboy_websocket, Req, #{headers=>H,p=>v1}, #{ idle_timeout => 600000 }};
     _ ->
       {cowboy_websocket, Req, v0, #{ idle_timeout => 600000 }}
   end.
@@ -29,10 +29,11 @@ websocket_init(S0=#{p:=v1}) ->
        ),
   {reply, {binary, Msg}, S0}.
 
+websocket_handle(ping, State) ->
+  {reply, pong, State};
 
 websocket_handle({text, <<"ping">>}, State) ->
   {reply, {text, <<"pong">>}, State};
-
 
 websocket_handle({text, _Msg}, 0) ->
   {reply, {text, jsx:encode(#{ error=><<"subs limit reached">> })}, 0};
@@ -114,6 +115,34 @@ handle_msg(#{null:= <<"ping">>}, State) ->
 handle_msg(#{null:= <<"subscribe">>, since:=BlockHash}, State) when is_binary(BlockHash) ->
   gen_server:cast(tpnode_ws_dispatcher, {subscribe, {block, term, stat}, self()}),
   {reply, {binary, msgpack:pack(#{null=><<"ACK">>})}, State};
+
+handle_msg(#{null:= <<"logs_request">>, <<"height">>:=H}, State) when is_integer(H) ->
+  case logs_db:get(H) of
+    undefined ->
+      {reply, {binary, msgpack:pack(#{null=><<"logs_request_nak">>})}, State};
+    #{blkid:=Hash, height:=Hei, logs:=Logs} ->
+      {reply, {binary, msgpack:pack(
+                         #{
+                           null=><<"logs_request_ack">>,
+                           <<"blkid">> => Hash,
+                           <<"height">> => Hei,
+                           <<"logs">> => Logs
+                          })}, State}
+  end;
+
+handle_msg(#{null:= <<"logs_request">>, <<"blkid">>:=H}, State) when is_binary(H) ->
+  case logs_db:get(H) of
+    undefined ->
+      {reply, {binary, msgpack:pack(#{null=><<"logs_request_nak">>})}, State};
+    #{blkid:=Hash, height:=Hei, logs:=Logs} ->
+      {reply, {binary, msgpack:pack(
+                         #{
+                           null=><<"logs_request_ack">>,
+                           <<"blkid">> => Hash,
+                           <<"height">> => Hei,
+                           <<"logs">> => Logs
+                          })}, State}
+  end;
 
 handle_msg(#{null:= <<"logs_subscribe">>}, State) ->
   Filter=[],
