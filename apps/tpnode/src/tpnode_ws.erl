@@ -123,22 +123,22 @@ handle_msg(#{null:= <<"logs_request">>, <<"height">>:=H}, State) when is_integer
     #{blkid:=Hash, height:=Hei, logs:=Logs} ->
       {reply, {binary, msgpack:pack(
                          #{
-                           null=><<"logs_request_ack">>,
-                           <<"blkid">> => Hash,
+                           null=><<"block_logs">>,
+                           <<"hash">> => Hash,
                            <<"height">> => Hei,
                            <<"logs">> => Logs
                           })}, State}
   end;
 
-handle_msg(#{null:= <<"logs_request">>, <<"blkid">>:=H}, State) when is_binary(H) ->
+handle_msg(#{null:= <<"logs_request">>, <<"hash">>:=H}, State) when is_binary(H) ->
   case logs_db:get(H) of
     undefined ->
       {reply, {binary, msgpack:pack(#{null=><<"logs_request_nak">>})}, State};
     #{blkid:=Hash, height:=Hei, logs:=Logs} ->
       {reply, {binary, msgpack:pack(
                          #{
-                           null=><<"logs_request_ack">>,
-                           <<"blkid">> => Hash,
+                           null=><<"block_logs">>,
+                           <<"hash">> => Hash,
                            <<"height">> => Hei,
                            <<"logs">> => Logs
                           })}, State}
@@ -146,8 +146,16 @@ handle_msg(#{null:= <<"logs_request">>, <<"blkid">>:=H}, State) when is_binary(H
 
 handle_msg(#{null:= <<"logs_subscribe">>}, State) ->
   Filter=[],
+  #{hash:=Hash, header:=#{height:=Hei}}=blockchain:last_permanent_meta(),
   gen_server:cast(tpnode_ws_dispatcher, {subscribe, logs, self(), Filter}),
-  {reply, {binary, msgpack:pack(#{null=><<"logs_subscribe_ack">>})}, State};
+  Bin=msgpack:pack(#{
+                     null=><<"logs_subscribe_ack">>,
+                     last=>#{
+                             hash => Hash,
+                             height => Hei
+                            }
+                    }),
+  {reply, {binary, Bin}, State};
 
 handle_msg(#{null:= <<"subscribe">>}, State) ->
   gen_server:cast(tpnode_ws_dispatcher, {subscribe, {block, term, stat}, self()}),

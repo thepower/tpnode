@@ -132,6 +132,7 @@ run_generate(
     AddrFun=fun({storage,Addr,Key}) ->
                 case mledger:get(Addr) of
                   #{state:=State} -> maps:get(Key,State,<<>>);
+                  #{} -> <<>>;
                   undefined -> <<>>
                 end;
                ({Addr, _Cur}) ->
