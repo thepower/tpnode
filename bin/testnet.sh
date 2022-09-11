@@ -35,7 +35,7 @@ start_node() {
         echo starting node $node
         export TPNODE_RESTORE=${dir}
 
-        erl -config "${dir}/${node}.config" -sname ${node} -detached -noshell -pa _build/test/lib/*/ebin +SDcpu 2:2: -s lager ${sync_str} -s tpnode
+        erl -config "${dir}/${node}.config" -sname ${node} -detached -noshell -pa _build/test/lib/*/ebin +SDcpu 2:2: ${sync_str} -s tpnode
     fi
 
 }
@@ -89,14 +89,14 @@ reset_node() {
     node_host="${node}@${HOST}"
     db_dir="db/db_${node_host}"
     ledger_dir="db/mledger_${node_host}.db"
-    mledger_dir="Mnesia.${node_host}"
+    logs_dir="db/logs_db_${node_host}"
 
     echo "removing ${db_dir}"
     rm -rf "${db_dir}"
     echo "removing ${ledger_dir}"
     rm -rf "${ledger_dir}"
-    echo "removing ${mledger_dir}"
-    rm -rf "${mledger_dir}"
+    echo "removing ${logs_dir}"
+    rm -rf "${logs_dir}"
 }
 
 reset_testnet() {

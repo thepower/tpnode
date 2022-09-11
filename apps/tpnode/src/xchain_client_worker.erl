@@ -14,7 +14,7 @@ start_link(Sub) ->
                                          <<"sync_status">>,
                                          xchain:pack_chid(ChainNo),
                                          <<"block">>]),
-             lager:info("Last known to ch ~b: ~p",[ChainNo,Last]),
+             logger:info("Last known to ch ~b: ~p",[ChainNo,Last]),
              Last
          end,
   Pid=spawn(xchain_client_worker,run,[Sub#{parent=>self()}, GetFun]),
@@ -44,7 +44,7 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
   {ok, _} = application:ensure_all_started(gun),
   process_flag(trap_exit, true),
   try
-    lager:info("xchain client connecting to ~p ~p", [Ip, Port]),
+    logger:info("xchain client connecting to ~p ~p", [Ip, Port]),
     {ok, Pid} = gun:open(Ip, Port),
     receive
       {gun_up, Pid, _Http} ->
@@ -61,7 +61,7 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
             _ -> 0
           end,
     {[<<"websocket">>],UpgradeHdrs}=upgrade(Pid,Proto),
-    lager:debug("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
+    logger:debug("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
     #{null:=<<"iam">>,
       <<"chain">>:=HisChain,
       <<"node_id">>:=NodeID}=reg(Pid, Proto, GetFun),
@@ -71,21 +71,21 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
     BlockList=block_list(Pid, Proto, GetFun(chain), last, Known, []),
     lists:foldl(
       fun({He,Ha},_) ->
-          lager:info("Blk ~b hash ~p~n",[He,Ha])
+          logger:info("Blk ~b hash ~p~n",[He,Ha])
       end, 0, BlockList),
     lists:foldl(
       fun(_,Acc) when is_atom(Acc) ->
           Acc;
          ({_Height, BlkID},0) when BlkID == Known ->
-          lager:info("Skip known block ~s",[hex:encode(BlkID)]),
+          logger:info("Skip known block ~s",[hex:encode(BlkID)]),
           0;
          ({_Height, BlkID},_) when BlkID == Known ->
-          lager:info("Skip known block ~s",[hex:encode(BlkID)]),
+          logger:info("Skip known block ~s",[hex:encode(BlkID)]),
           error;
          ({0, <<0,0,0,0,0,0,0,0>>}, Acc) ->
           Acc;
          ({_Height, BlkID},Acc) ->
-          lager:info("Pick block ~s",[hex:encode(BlkID)]),
+          logger:info("Pick block ~s",[hex:encode(BlkID)]),
           case pick_block(Pid, Proto, MyChain, BlkID) of
             #{null:=<<"owblock">>,
               <<"ok">>:=true,
@@ -94,7 +94,7 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
               ok=GetFun({apply_block, Block}),
               Acc+1;
             #{null := <<"owblock">>,<<"ok">> := false} ->
-              lager:info("Fail block ~s",[hex:encode(BlkID)]),
+              logger:info("Fail block ~s",[hex:encode(BlkID)]),
               fail
           end
       end, 0, BlockList),
@@ -110,15 +110,15 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
   catch
     throw:up_timeout ->
       Parent ! {wrk_down, self(), error},
-      lager:debug("connection to ~p was timed out", [Sub]),
+      logger:debug("connection to ~p was timed out", [Sub]),
       pass;
     Ec:Ee:S ->
           Parent ! {wrk_down, self(), error},
           %S=erlang:get_stacktrace(),
-          lager:error("xchain client error ~p:~p",[Ec,Ee]),
+          logger:error("xchain client error ~p:~p",[Ec,Ee]),
           lists:foreach(
             fun(SE) ->
-                lager:error("@ ~p", [SE])
+                logger:error("@ ~p", [SE])
             end, S)
   end.
 
@@ -130,7 +130,7 @@ ws_mode(Pid, #{parent:=Parent, proto:=Proto}=Sub, GetFun) ->
       gun:close(Pid),
       exit;
     {'EXIT',_,Reason} ->
-      lager:error("Linked process went down ~p. Giving up....",[Reason]),
+      logger:error("Linked process went down ~p. Giving up....",[Reason]),
       Cmd = xchain:pack(#{null=><<"goodbye">>, <<"r">>=><<"deadparent">>}, Proto),
       gun:ws_send(Pid, {binary, Cmd}),
       gun:close(Pid),
@@ -150,15 +150,15 @@ ws_mode(Pid, #{parent:=Parent, proto:=Proto}=Sub, GetFun) ->
       ?MODULE:ws_mode(Pid, Sub, GetFun);
     {gun_ws, Pid, {binary, Bin}} ->
       Cmd = xchain:unpack(Bin, Proto),
-      lager:debug("XChain client got ~p",[Cmd]),
+      logger:debug("XChain client got ~p",[Cmd]),
       Sub1=xchain_client_handler:handle_xchain(Cmd, Pid, Sub),
       ?MODULE:ws_mode(Pid, Sub1, GetFun);
     {gun_down,Pid,ws,closed,[],[]} ->
-      lager:error("Gun down. Giving up...."),
+      logger:error("Gun down. Giving up...."),
       Parent ! {wrk_down, self(), gundown},
       giveup;
     Any ->
-      lager:notice("XChain client unknown msg ~p",[Any]),
+      logger:notice("XChain client unknown msg ~p",[Any]),
       ?MODULE:ws_mode(Pid, Sub, GetFun)
   after 60000 ->
           ok=gun:ws_send(Pid, {binary, xchain:pack(#{null=><<"ping">>}, Proto)}),
@@ -185,14 +185,14 @@ block_list(_, _, _, Last, Known, Acc) when Last==Known ->
 
 block_list(Pid, Proto, Chain, Last, Known, Acc) ->
   Req=if Last==last ->
-           lager:debug("Blocklist last",[]),
+           logger:debug("Blocklist last",[]),
            #{null=><<"last_ptr">>, <<"chain">>=>Chain};
          true ->
-           lager:debug("Blocklist ~s",[hex:encode(Last)]),
+           logger:debug("Blocklist ~s",[hex:encode(Last)]),
            #{null=><<"pre_ptr">>,  <<"chain">>=>Chain, <<"block">>=>Last}
     end,
   R=make_ws_req(Pid, Proto, Req),
-  lager:debug("Got block_list resp ~p",[R]),
+  logger:debug("Got block_list resp ~p",[R]),
   case R of
     #{null := N,
       <<"ok">> := true,
@@ -229,8 +229,8 @@ block_list(Pid, Proto, Chain, Last, Known, Acc) ->
            (N==<<"last_ptr">> orelse N==<<"pre_ptr">>) ->
       [{H,P}|Acc];
     Any ->
-      lager:info("Err ~p",[Any]),
-      lager:info("Acc is  ~p",[Acc]),
+      logger:info("Err ~p",[Any]),
+      logger:info("Acc is  ~p",[Acc]),
       Acc
   end.
 

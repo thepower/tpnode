@@ -48,7 +48,7 @@
 
 start_link(Options) ->
     Name = maps:get(name, Options, discovery),
-    lager:notice("start_link for ~p", [Name]),
+    logger:notice("start_link for ~p", [Name]),
     gen_server:start_link({local, Name}, ?MODULE, Options, []).
 
 my_address_v6() ->
@@ -85,7 +85,7 @@ my_address_v4() ->
 %% ------------------------------------------------------------------
 
 init(Args) ->
-    lager:notice("start discovery"),
+    logger:notice("start discovery"),
     CheckExpireInterval = maps:get(check_expire_interval, Args, 10), % in seconds
     Hostname = application:get_env(tpnode, hostname, unknown),
     Settings0 = maps:put(hostname, Hostname, read_config()), % copy hostname from global tpnode config into our local configs inside state
@@ -110,7 +110,7 @@ init(Args) ->
 
 
 handle_call(state, _From, State) ->
-    lager:notice("state request", []),
+    logger:notice("state request", []),
     {reply, State, State};
 
 handle_call({get_config, Key}, _From, State) ->
@@ -142,7 +142,7 @@ handle_call({register, ServiceName, Pid, Options}, _From, #{local_services:=Dict
 %% remove registration for all local services with pid Pid
 handle_call({unregister, Pid}, _From, #{local_services:=LocalDict} = State) when is_pid(Pid) ->
     stout:log(discvry_unregister, [{pid, Pid}]),
-%%    lager:debug("Unregister local service with pid ~p", [Pid]),
+%%    logger:debug("Unregister local service with pid ~p", [Pid]),
     {reply, ok, State#{
         local_services => delete_service(Pid, LocalDict)
     }};
@@ -150,14 +150,14 @@ handle_call({unregister, Pid}, _From, #{local_services:=LocalDict} = State) when
 %% remove registration for local serivce with name Name
 handle_call({unregister, Name}, _From, #{local_services:=Dict} = State) when is_binary(Name) ->
     stout:log(discvry_unregister_name, [{name, Name}]),
-%%    lager:debug("Unregister local service with name ~p", [Name]),
+%%    logger:debug("Unregister local service with name ~p", [Name]),
     {reply, ok, State#{
         local_services => delete_service(Name, Dict)
     }};
 
 %% get pid for local service with name Name
 handle_call({get_pid, Name}, _From, #{local_services:=Dict} = State) when is_binary(Name) ->
-    lager:debug("Get pid for local service with name ~p", [Name]),
+    logger:debug("Get pid for local service with name ~p", [Name]),
     Reply = case find_service(Name, Dict) of
                 {ok, #{pid:=Pid}} -> {ok, Pid, Name};
                 error -> {error, not_found, Name}
@@ -182,17 +182,17 @@ handle_call({lookup_remote, Name, Chain}, _From, #{remote_services := RemoteDict
   {reply, query_remote(Name, RemoteDict, Chain), State};
 
 handle_call(_Request, _From, State) ->
-    lager:notice("Unknown call ~p", [_Request]),
+    logger:notice("Unknown call ~p", [_Request]),
     {reply, ok, State}.
 
 handle_cast(make_announce, #{local_services:=Dict} = State) ->
-    lager:debug("Make local services announce (cast)"),
+    logger:debug("Make local services announce (cast)"),
     make_announce(Dict, State),
     {noreply, State};
 
 
 handle_cast({got_announce, AnnounceBin}, State) ->
-    lager:debug("Got service announce ~p", [AnnounceBin]),
+    logger:debug("Got service announce ~p", [AnnounceBin]),
     try
         MaxTtl = get_config(intrachain_ttl, 300, State),
 
@@ -203,12 +203,12 @@ handle_cast({got_announce, AnnounceBin}, State) ->
         skip ->
             {noreply, State};
         Err:Reason ->
-            lager:info("can't process announce ~p ~p", [Err, Reason]),
+            logger:info("can't process announce ~p ~p", [Err, Reason]),
             {noreply, State}
     end;
 
 handle_cast({got_xchain_announce, AnnounceBin}, State) ->
-%%    lager:debug("Got service announce ~p", [AnnounceBin]),
+%%    logger:debug("Got service announce ~p", [AnnounceBin]),
     try
         MaxTtl = get_config(xchain_ttl, 1800, State),
 
@@ -219,13 +219,13 @@ handle_cast({got_xchain_announce, AnnounceBin}, State) ->
         skip ->
             {noreply, State};
         Err:Reason ->
-            lager:info("can't process announce ~p ~p", [Err, Reason]),
+            logger:info("can't process announce ~p ~p", [Err, Reason]),
             {noreply, State}
     end;
 
 
 handle_cast(_Msg, State) ->
-    lager:notice("Unknown cast ~p", [_Msg]),
+    logger:notice("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 
@@ -254,9 +254,9 @@ handle_info(make_announce, #{announcetimer:=Timer} = State) ->
     OurChain = blockchain:chain(),
     if
         OurChain =:= 0 ->
-            lager:debug("Skip local services announce because of our chain is 0");
+            logger:debug("Skip local services announce because of our chain is 0");
         true ->
-            lager:debug("Make local services announce (timer)"),
+            logger:debug("Make local services announce (timer)"),
             make_announce(Dict, State)
     end,
 
@@ -265,7 +265,7 @@ handle_info(make_announce, #{announcetimer:=Timer} = State) ->
     }};
 
 handle_info(_Info, State) ->
-    lager:notice("Unknown info  ~p", [_Info]),
+  logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -319,7 +319,7 @@ get_local_addresses(State) ->
           [TranslatedAddress | Translated]
         catch
           pass ->
-            lager:debug("skip address (pass): ~p", [Address]),
+            logger:debug("skip address (pass): ~p", [Address]),
             Translated
         end
     end,
@@ -334,7 +334,7 @@ announce_one_service(Name, TranslatedAddress, Ttl, Scopes) ->
     try
 %%        TranslatedAddress = add_hostname(translate_address(Address), Hostname),
         
-        lager:debug(
+        logger:debug(
             "make announce for service ~p, address: ~p, scopes: ~p",
             [Name, TranslatedAddress, Scopes]
         ),
@@ -353,7 +353,7 @@ announce_one_service(Name, TranslatedAddress, Ttl, Scopes) ->
         send_service_announce(local, AnnounceBin)
     catch
         Err:Reason ->
-            lager:error(
+            logger:error(
                 "Announce with name ~p and address ~p and scopes ~p hasn't made because ~p ~p",
                 [Name, TranslatedAddress, Scopes, Err, Reason]
             )
@@ -391,7 +391,7 @@ get_default_addresses() ->
     TpicPort = maps:get(port, TpicConfig, unknown),
     if
         TpicPort =:= unknown ->
-            lager:info("Default tpic config isn't found");
+            logger:info("Default tpic config isn't found");
         true ->
             [
                 #{address => local4, port => TpicPort, proto => tpic},
@@ -418,7 +418,7 @@ get_local_names(Names) ->
 
 % make announce of our local services with tpic scope
 make_announce(#{names:=Names} = _Dict, State) ->
-  lager:debug("Announcing our local services"),
+  logger:debug("Announcing our local services"),
   Ttl = max(get_config(intrachain_ttl, 300, State), 30),
   Hostname = application:get_env(tpnode, hostname, unknown),
 %%    ValidUntil = os:system_time(seconds) + get_config(intrachain_ttl, 120, State),
@@ -435,7 +435,7 @@ make_announce(#{names:=Names} = _Dict, State) ->
         Scopes = get_scopes(Proto, AllScopesCfg),
         IsAdvertisable = in_scope(Proto, tpic, AllScopesCfg),
         IsRightProto = is_right_proto(Name, Proto),
-%%        lager:debug("ann dbg ~p ~p ~p ~p", [Name, IsAdvertisable, IsRightProto, Address]),
+%%        logger:debug("ann dbg ~p ~p ~p ~p", [Name, IsAdvertisable, IsRightProto, Address]),
         
         if
           IsRightProto == true andalso IsAdvertisable == true ->
@@ -446,23 +446,23 @@ make_announce(#{names:=Names} = _Dict, State) ->
               AddrCounter + 1
             catch
               pass ->
-                lager:debug("skip address (can't substitute macro?): ~p", [Address]),
+                logger:debug("skip address (can't substitute macro?): ~p", [Address]),
                 AddrCounter
             end;
           
           true ->
-%%            lager:debug("skip announce for address ~p ~p", [Name, Address]),
+%%            logger:debug("skip announce for address ~p ~p", [Name, Address]),
             AddrCounter
         end;
         (Address, AddrCounter) ->
-          lager:debug("skip announce for invalid address ~p ~p", [Name, Address]),
+          logger:debug("skip announce for invalid address ~p ~p", [Name, Address]),
           AddrCounter
       end,
       0,
       Addresses)
               end,
   ServicesCount = lists:foldl(Announcer, 0, LocalNames),
-  lager:debug("Announced ~p of our services", [ServicesCount]),
+  logger:debug("Announced ~p of our services", [ServicesCount]),
   ok.
 
 % --------------------------------------------------------
@@ -470,11 +470,11 @@ make_announce(#{names:=Names} = _Dict, State) ->
     'error' | {ok, _}.
 
 %%find_service(Pid, #{pids:=PidsDict}) when is_pid(Pid) ->
-%%    lager:debug("find service by pid ~p", [Pid]),
+%%    logger:debug("find service by pid ~p", [Pid]),
 %%    maps:find(Pid, PidsDict);
 
 find_service(Name, #{names:=NamesDict}) when is_binary(Name) ->
-    lager:debug("find service by name ~p", [Name]),
+    logger:debug("find service by name ~p", [Name]),
     maps:find(Name, NamesDict).
 
 % --------------------------------------------------------
@@ -484,7 +484,7 @@ register_service(Name, Pid, Dict) ->
 
 register_service(Name0, Pid, #{names:=NameDict, pids:=PidDict} = _Dict, Options) ->
     Name = convert_to_binary(Name0),
-    lager:debug("Register local service ~p with pid ~p", [Name, Pid]),
+    logger:debug("Register local service ~p with pid ~p", [Name, Pid]),
 
     Record0 = #{
         pid => Pid,
@@ -527,16 +527,16 @@ delete_service(nopid, Dict) ->
     Dict;
 
 delete_service(Pid, #{pids:=PidsDict, names:=NamesDict} = Dict) when is_pid(Pid) ->
-%%    lager:debug("deleting service by pid ~p", [Pid]),
+%%    logger:debug("deleting service by pid ~p", [Pid]),
     NewNames = maps:filter(
         fun(_Name, #{pid := Pid1}=Record) when Pid==Pid1 ->
-%%            lager:debug("found service ~p with pid ~p", [_Name, Pid]),
+%%            logger:debug("found service ~p with pid ~p", [_Name, Pid]),
             case maps:get(monitor, Record, not_found) of
                 not_found ->
-%%                    lager:debug("no monitor ref for pid ~p", [Pid]),
+%%                    logger:debug("no monitor ref for pid ~p", [Pid]),
                     skip;
                 MonitorRef ->
-                    lager:debug("demonitor for pid ~p (service ~p)", [Pid, _Name]),
+                    logger:debug("demonitor for pid ~p (service ~p)", [Pid, _Name]),
                     demonitor(MonitorRef)
             end,
             false;
@@ -553,10 +553,10 @@ delete_service(Pid, #{pids:=PidsDict, names:=NamesDict} = Dict) when is_pid(Pid)
 
 %%    case find_service(Pid, Dict) of
 %%        {ok, Name} ->
-%%            lager:debug("we found name ~p for pid ~p", [Name, Pid]),
+%%            logger:debug("we found name ~p for pid ~p", [Name, Pid]),
 %%            delete_service(Name, Dict);
 %%        error ->
-%%            lager:debug("try to delete service with unexisting pid ~p", [Pid]),
+%%            logger:debug("try to delete service with unexisting pid ~p", [Pid]),
 %%            Dict
 %%    end;
 
@@ -573,12 +573,12 @@ delete_service(Name, #{pids:=PidsDict, names:=NamesDict} = Dict) when is_binary(
                 names => maps:without([Name], NamesDict)
             };
         Invalid ->
-            lager:debug("try to delete service with unexisting name ~p, result ~p", [Name, Invalid]),
+            logger:debug("try to delete service with unexisting name ~p, result ~p", [Name, Invalid]),
             Dict
     end;
 
 delete_service(InvalidName, Dict) ->
-    lager:debug("try to delete service with invalid name ~p", [InvalidName]),
+    logger:debug("try to delete service with invalid name ~p", [InvalidName]),
     Dict.
 
 % --------------------------------------------------------
@@ -612,14 +612,14 @@ substitute_macro(Address, Dict) when is_map(Address), is_map(Dict) ->
       (address, local6) ->
         case my_address_v6() of
           [] ->
-            lager:error("can't find ipv6 address for local6 macro"),
+            logger:error("can't find ipv6 address for local6 macro"),
             throw(pass); % skip this address announce because host don't support ipv6
           IPv6Addresses ->
             hd(IPv6Addresses)
         end;
         
       (proto, apis) when IsSslRan =/= true ->
-        lager:error("skip apis proto because ssl is down right now"),
+        logger:error("skip apis proto because ssl is down right now"),
         throw(pass);  % we can't announce this proto because ssl is down
       
       (_K, V) ->
@@ -644,7 +644,7 @@ build_macro_dict() ->
         TpicPort =
           case maps:get(port, TpicConfig, unknown) of
             unknown ->
-              lager:error("Undefined tpic port. Can't read tpic configuration"),
+              logger:error("Undefined tpic port. Can't read tpic configuration"),
               throw(unknown_tpic);
             ValidPort ->
               ValidPort
@@ -680,10 +680,10 @@ lookup(Name, Chain) ->
             StackTrace = erlang:process_info(Discovery, current_stacktrace),
             ProcInfo = erlang:process_info(Discovery),
             QLen = proplists:get_value(message_queue_len, ProcInfo),
-            lager:error("got lookup timeout: ~p", [Details]),
-            lager:error("message_queue_len: ~p", [QLen]),
-            lager:error("process info: ~p", [ProcInfo]),
-            lager:error("stack trace: ~p", [StackTrace]),
+            logger:error("got lookup timeout: ~p", [Details]),
+            logger:error("message_queue_len: ~p", [QLen]),
+            logger:error("process info: ~p", [ProcInfo]),
+            logger:error("stack trace: ~p", [StackTrace]),
             %S=erlang:get_stacktrace(),
             erlang:raise(exit, Reason, S)
     end.
@@ -721,11 +721,11 @@ query_local(Name, #{names:=Names} = _Dict, State) ->
               end
             catch
               pass ->
-                lager:debug("skip address ~p", [Addr])
+                logger:debug("skip address ~p", [Addr])
             end;
           
           (_Invalid, Result) ->
-            lager:error("Invalid address: ~p", [_Invalid]),
+            logger:error("Invalid address: ~p", [_Invalid]),
             Result
         end,
       lists:foldl(Worker, [], LocalAddresses)
@@ -752,7 +752,7 @@ query_remote(Name0, Dict, Chain) when is_integer(Chain)->
     );
 
 query_remote(Name, _Dict, Chain) ->
-    lager:info("unmached clouse ~p ~p", [Name, Chain]),
+    logger:info("unmached clouse ~p ~p", [Name, Chain]),
     [].
 
 % --------------------------------------------------------
@@ -768,15 +768,15 @@ query(Name0, Chain, State) ->
             []
     end,
     Remote = query_remote(Name, RemoteDict, Chain),
-%%    lager:debug("query ~p local: ~p", [Name, Local]),
-%%    lager:debug("query ~p remote: ~p", [Name, Remote]),
+%%    logger:debug("query ~p local: ~p", [Name, Local]),
+%%    logger:debug("query ~p remote: ~p", [Name, Remote]),
     lists:merge(Local, Remote).
 
 
 % --------------------------------------------------------
 
 query(Pred, _State) when is_function(Pred) ->
-    lager:error("Not inmplemented"),
+    logger:error("Not inmplemented"),
     not_implemented;
 
 % find service by name
@@ -794,7 +794,7 @@ address2key(#{hostname:=Host, port:=Port, proto:=Proto})
     {Host, Port, Proto};
 
 address2key(Invalid) ->
-    lager:info("invalid address: ~p", [Invalid]),
+    logger:info("invalid address: ~p", [Invalid]),
     throw("can't parse address").
 
 
@@ -821,7 +821,7 @@ validate_announce(
         ValidUntil > MaxExpireTime ->
             throw("too big ttl");
         ValidUntil < Now ->
-            lager:debug(
+            logger:debug(
                 "got expired announce. now: ~p, valid until: ~p, ttl: ~p, announce: ~p",
                 [ Now, ValidUntil, TtlToCheck, _Announce ]
             ),
@@ -831,7 +831,7 @@ validate_announce(
     end;
 
 validate_announce(Announce, _State) ->
-    lager:debug("invalid announce ~p", [Announce]),
+    logger:debug("invalid announce ~p", [Announce]),
     throw("can't validate announce").
 
 
@@ -841,7 +841,7 @@ add_chain_to_name(Name, Chain) when is_integer(Chain) andalso is_binary(Name) ->
     <<Name/binary, ":", (integer_to_binary(Chain))/binary>>;
 
 add_chain_to_name(Name, Chain) ->
-    lager:info("Can't add chain to announce name: ~p ~p", [Name, Chain]),
+    logger:info("Can't add chain to announce name: ~p ~p", [Name, Chain]),
     throw("Can't add chain to announce name").
 
 
@@ -849,11 +849,11 @@ add_chain_to_name(Name, Chain) ->
 
 parse_and_process_announce(MaxTtl, AnnounceBin, #{remote_services:=Dict} = State) ->
     {ok, Announce} = unpack(AnnounceBin),
-    lager:debug("Announce details: ~p", [Announce]),
+    logger:debug("Announce details: ~p", [Announce]),
     validate_announce(Announce, State),
     case is_local_service(Announce) of
         true ->
-            lager:debug("skip copy of local service: ~p", [Announce]),
+            logger:debug("skip copy of local service: ~p", [Announce]),
             throw(skip);
         _ -> ok
     end,
@@ -881,13 +881,13 @@ process_announce(
         maps:put(Name, UpdatedNodes, Dict)
     catch
         Err:Reason ->
-            lager:error("skip announce because of error: ~p ~p ~p", [Err, Reason, Announce0]),
+            logger:error("skip announce because of error: ~p ~p ~p", [Err, Reason, Announce0]),
             Dict
     end;
 
 process_announce(Announce, Settings) ->
     {Dict, _MaxTtl, _XChainThrottle, _AnnounceBin} = Settings,
-    lager:error("invalid announce: ~p", [Announce]),
+    logger:error("invalid announce: ~p", [Announce]),
     Dict.
 
 % --------------------------------------------------------
@@ -921,25 +921,25 @@ relay_announce(
     MyNodeId = nodekey:node_id(),
     if
         NodeId =:= MyNodeId ->
-            lager:debug("skip relaying of self announce: ~p", [NewAnnounce]),
+            logger:debug("skip relaying of self announce: ~p", [NewAnnounce]),
             SentXChainPrev;
         CreatedPrev < CreatedNew ->
-            lager:debug(
+            logger:debug(
               "relay new announce. old: ~p, new: ~p, new announce body: ~p",
               [CreatedPrev, CreatedNew, NewAnnounce]
             ),
             send_service_announce(NewAnnounce, AnnounceBin),
             xchain_relay_announce(SentXChainPrev, XChainThrottle, NewAnnounce, AnnounceBin);
         CreatedPrev =:= CreatedNew ->
-%%            lager:debug("skip relaying of announce (equal created): ~p", [NewAnnounce]),
+%%            logger:debug("skip relaying of announce (equal created): ~p", [NewAnnounce]),
             SentXChainPrev;
         true ->
-            lager:debug("skip relaying of announce: new ~p, prev ~p", [NewAnnounce, PrevAnnounce]),
+            logger:debug("skip relaying of announce: new ~p, prev ~p", [NewAnnounce, PrevAnnounce]),
             SentXChainPrev
     end;
 
 relay_announce(_PrevAnnounce, NewAnnounce, _AnnounceBin, _XChainThrottle) ->
-    lager:debug("skip relaying of invalid announce ~p", [NewAnnounce]),
+    logger:debug("skip relaying of invalid announce ~p", [NewAnnounce]),
     0.
 
 % --------------------------------------------------------
@@ -959,22 +959,22 @@ xchain_relay_announce(SentXchain, Throttle, #{chain:=Chain}=Announce, AnnounceBi
             gen_server:cast(xchain_client, {discovery, Announce, AnnounceBin}),
             Now;
         true ->
-            lager:debug("skipping xchain relay"),
+            logger:debug("skipping xchain relay"),
             SentXchain
     end;
 
 xchain_relay_announce(SentXchain, _Throttle, Announce, _AnnounceBin) ->
-    lager:error("invalid announce can't be xchain relayed: ~p", [Announce]),
+    logger:error("invalid announce can't be xchain relayed: ~p", [Announce]),
     SentXchain.
 
 
 % --------------------------------------------------------
 send_service_announce(local, AnnounceBin) ->
-%%    lager:debug("send tpic announce ~p", [AnnounceBin]),
+%%    logger:debug("send tpic announce ~p", [AnnounceBin]),
     tpic2:cast(0, {<<"discovery">>, AnnounceBin});
 
 send_service_announce(Announce, AnnounceBin) ->
-%%    lager:debug("send tpic announce ~p", [AnnounceBin]),
+%%    logger:debug("send tpic announce ~p", [AnnounceBin]),
     gen_server:cast(xchain_client, {discovery, Announce, AnnounceBin}),
     tpic2:cast(0, {<<"discovery">>, AnnounceBin}).
 
@@ -992,7 +992,7 @@ split_bin_to_sign_and_data(<<254, SignLen:8/integer, Rest/binary>>) ->
     {Sign, Data};
 
 split_bin_to_sign_and_data(Bin) ->
-    lager:info("invalid sign format: ~p", [Bin]),
+    logger:info("invalid sign format: ~p", [Bin]),
     {<<>>, <<>>}.
 
 % --------------------------------------------------------
@@ -1018,9 +1018,9 @@ unpack(<<254, _Rest/binary>> = Packed) ->
     Hash = crypto:hash(sha256, Bin),
     case bsig:checksig(Hash, [Sign]) of
         { [ #{ signature:= _FirstSign } | _] , _InvalidSings} ->
-            lager:debug("Check signature here");
+            logger:debug("Check signature here");
         _X ->
-            lager:debug("checksig result ~p", [_X]),
+            logger:debug("checksig result ~p", [_X]),
             throw("invalid signature")
     end,
     case msgpack:unpack(Bin, [{known_atoms, ?KNOWN_ATOMS}]) of
@@ -1030,7 +1030,7 @@ unpack(<<254, _Rest/binary>> = Packed) ->
     end;
 
 unpack(Packed) ->
-    lager:info("Invalid packed data ~p", [Packed]),
+    logger:info("Invalid packed data ~p", [Packed]),
     throw("invalid packed data").
 
 % --------------------------------------------------------

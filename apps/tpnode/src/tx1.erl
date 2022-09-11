@@ -59,7 +59,7 @@ mkmsg(#{ from:=From, amount:=Amount,
 
   case maps:is_key(outbound, Tx) of
     true ->
-      lager:notice("MKMSG FIXME: save outbound flag in tx");
+      logger:notice("MKMSG FIXME: save outbound flag in tx");
     false -> ok
   end,
   Append=maps:get(extradata, Tx, <<"">>),
@@ -354,7 +354,7 @@ unpack_mp(Tx0) ->
                                end, #{}, Val)
                          end;
                        Val==<<>> ->
-                         lager:notice("Temporary workaround. Fix me"),
+                         logger:notice("Temporary workaround. Fix me"),
                          []
                     end,
                     Acc);
@@ -365,7 +365,7 @@ unpack_mp(Tx0) ->
       R=case Type of
           <<"deploy">> ->
             #{sig:=Sig}=Tx,
-            lager:debug("tx ~p", [Tx]),
+            logger:debug("tx ~p", [Tx]),
             [From, Timestamp, Seq, VMType, NewCode| State] = maps:get(tx, Tx),
             if is_integer(Timestamp) -> ok;
                true -> throw({bad_timestamp, Timestamp})
@@ -397,7 +397,7 @@ unpack_mp(Tx0) ->
             end;
           tx -> %generic finance tx
             #{sig:=Sig}=Tx,
-            lager:debug("tx ~p", [Tx]),
+            logger:debug("tx ~p", [Tx]),
             [From, To, Amount, Cur, Timestamp, Seq, ExtraJSON] = maps:get(tx, Tx),
             if is_integer(Timestamp) ->
                  ok;
@@ -466,7 +466,7 @@ unpack_mp(Tx0) ->
             end;
 
           _ ->
-            lager:error("Bad tx ~p", [Tx]),
+            logger:error("Bad tx ~p", [Tx]),
             throw({"bad tx type", Type})
         end,
       case maps:is_key(<<"extdata">>, Tx) of

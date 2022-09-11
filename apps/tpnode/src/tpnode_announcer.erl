@@ -44,11 +44,11 @@ handle_call(get_peers, _From, State) ->
     {reply, get_peers(), State};
 
 handle_call(_Request, _From, State) ->
-    lager:notice("Unknown call ~p", [_Request]),
+    logger:notice("Unknown call ~p", [_Request]),
     {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
-    lager:notice("Unknown cast ~p", [_Msg]),
+    logger:notice("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(renew_peers, #{peers_check_timer:=PeersCheckTimer} = State) ->
@@ -60,7 +60,7 @@ handle_info(renew_peers, #{peers_check_timer:=PeersCheckTimer} = State) ->
     }};
 
 handle_info(_Info, State) ->
-    lager:notice("Unknown info ~p", [_Info]),
+    logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -79,7 +79,7 @@ parse_address(#{address:=Ip, port:=Port, proto:=Proto} = _Address)
     {Ip, Port, Proto};
 
 parse_address(_Address) ->
-    lager:error("invalid address: ~p", [_Address]),
+    logger:error("invalid address: ~p", [_Address]),
     error.
 
 
@@ -104,7 +104,7 @@ renew_peers([]) ->
     ok;
 
 renew_peers(Peers) when is_list(Peers) ->
-    lager:debug("add peers to tpic ~p", [Peers]),
+    logger:debug("add peers to tpic ~p", [Peers]),
     tpic2_cmgr:add_peers(Peers).
 
 register_node() ->

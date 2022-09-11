@@ -24,7 +24,7 @@ test_erl() ->
             })
         ),
     run(fun(Pid) ->
-            lager:info("Got worker ~p",[Pid]),
+            logger:info("Got worker ~p",[Pid]),
             Pid ! {run,
                    Tx,
                    msgpack:pack(#{}),
@@ -106,10 +106,10 @@ run(Fun, VmType, VmVer, Opts) ->
                               pong ->
                                 {ok, pong};
                               {ok, Payload, Ext} ->
-                                lager:info("Contract ext ~p",[Ext]),
+                                logger:info("Contract ext ~p",[Ext]),
                                 {ok,Payload};
                               {error, Err} ->
-                                lager:error("Error ~p",[Err]),
+                                logger:error("Error ~p",[Err]),
                                 {error, Err}
                             end
                   after Timeout ->

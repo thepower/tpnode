@@ -93,7 +93,7 @@ handle_xchain(#{null:=<<"node_id">>,
                 <<"node_id">>:=RemoteNodeId,
                 <<"chain">>:=RemoteChain}) ->
   try
-    lager:info("Got nodeid ~p",[RemoteNodeId]),
+    logger:info("Got nodeid ~p",[RemoteNodeId]),
     gen_server:cast(xchain_dispatcher,
                     {register_peer, self(), RemoteNodeId, RemoteChain}),
     #{null=><<"iam">>, 
@@ -108,7 +108,7 @@ handle_xchain(#{null:=<<"node_id">>,
                 <<"node_id">>:=RemoteNodeId,
                 <<"channels">>:=RemoteChannels}) ->
   try
-    lager:info("Got nodeid ~p",[RemoteNodeId]),
+    logger:info("Got nodeid ~p",[RemoteNodeId]),
     gen_server:cast(xchain_dispatcher,
                     {register_peer, self(), RemoteNodeId, RemoteChannels}),
     #{null=><<"iam">>, 
@@ -132,12 +132,12 @@ handle_xchain(#{null:=<<"xdiscovery">>, <<"bin">>:=AnnounceBin}) ->
   ok;
 
 handle_xchain(ping) ->
-  %%    lager:notice("got ping"),
+  %%    logger:notice("got ping"),
   ok;
 
 handle_xchain({node_id, RemoteNodeId, RemoteChannels}) ->
   try
-    lager:info("Got old nodeid ~p",[RemoteNodeId]),
+    logger:info("Got old nodeid ~p",[RemoteNodeId]),
     gen_server:cast(xchain_dispatcher, {register_peer, self(), RemoteNodeId, RemoteChannels}),
     {<<"iam">>, nodekey:node_id()}
   catch _:_ ->
@@ -168,6 +168,6 @@ handle_xchain({xdiscovery, AnnounceBin}) ->
   ok;
 
 handle_xchain(Cmd) ->
-  lager:info("xchain server got unhandled message from client: ~p", [Cmd]),
+  logger:info("xchain server got unhandled message from client: ~p", [Cmd]),
   {unhandled, Cmd}.
 

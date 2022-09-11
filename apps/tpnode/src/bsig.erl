@@ -58,7 +58,7 @@ signhash1(MsgHash, ExtraData, PrivKey) ->
     <<255, (size(Signature)):8/integer, Signature/binary, BinExtra/binary>>.
 
 signhash(MsgHash, ExtraData, PrivKey) ->
-  PubKey=tpecdsa:calc_pub(PrivKey, true),
+  PubKey=tpecdsa:calc_pub(PrivKey),
   signhash1(MsgHash, [{pubkey, PubKey}|ExtraData], PrivKey).
 
 unpack_sign_ed(Bin) -> unpack_sign_ed(Bin, []).

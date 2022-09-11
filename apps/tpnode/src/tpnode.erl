@@ -30,13 +30,14 @@ reload() ->
             lists:foreach(
               fun({K, V}) ->
                       application:set_env(tpnode, K, V)
-              end, Config);
+              end, Config),
+            application:unset_env(tpnode, pubkey);
         {error, Any} ->
             {error, Any}
     end.
 
 die(Reason) ->
-  lager:error("Node dead: ~p",[Reason]),
+  logger:error("Node dead: ~p",[Reason]),
   application:set_env(tpnode,dead,Reason),
   Shutdown = [ discovery, synchronizer, chainkeeper, blockchain_updater,
                blockchain_sync, blockvote, mkblock, txstorage, txqueue,

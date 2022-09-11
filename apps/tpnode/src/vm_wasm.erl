@@ -17,7 +17,7 @@ client(Host, Port) ->
   Executable="wanode",
   case os:find_executable(Executable,code:priv_dir(wanode)) of
     false ->
-      lager:error("Can't find ~s",[Executable]);
+      logger:error("Can't find ~s",[Executable]);
     Path when is_list(Path) ->
       Handle=erlang:open_port(
              {spawn_executable, Path},
@@ -33,9 +33,9 @@ client(Host, Port) ->
 loop(#{port:=Handle}=State) ->
   receive
     {Handle, {data, Msg}} ->
-      lager:info("Log ~ts",[Msg]),
+      logger:info("Log ~ts",[Msg]),
       loop(State);
     {Handle, eof} ->
-      lager:error("Port went down ~p",[Handle])
+      logger:error("Port went down ~p",[Handle])
   end.
 

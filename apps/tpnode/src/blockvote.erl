@@ -64,7 +64,7 @@ handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
         {ok, Struct} ->
             handle_cast({tpic, From, Struct}, State);
         _Any ->
-            lager:info("Can't decode TPIC ~p", [_Any]),
+            logger:info("Can't decode TPIC ~p", [_Any]),
             {noreply, State}
     end;
 
@@ -86,13 +86,13 @@ handle_cast({tpic, _From, #{
                      <<"sign">> := _Sigs
                     }},
             #{mychain:=MyChain}=State) when MyChain=/=MsgChain ->
-    lager:info("BV sig from other chain"),
+    logger:info("BV sig from other chain"),
     {noreply, State};
 
 handle_cast({signature, BlockHash, Sigs}=WholeSig,
             #{lastblock:=#{hash:=LBH}}=State) when LBH==BlockHash->
-    lager:debug("BV Got extra sig for ~s ~p", [blkid(BlockHash), WholeSig]),
-    lager:info("BV Got extra sig for ~s", [blkid(BlockHash)]),
+    logger:debug("BV Got extra sig for ~s ~p", [blkid(BlockHash), WholeSig]),
+    logger:info("BV Got extra sig for ~s", [blkid(BlockHash)]),
 
     stout:log(
       bv_gotsig,
@@ -105,10 +105,10 @@ handle_cast({signature, BlockHash, Sigs}=WholeSig,
 
 handle_cast({signature, BlockHash, Sigs},
     #{candidatesig:=Candidatesig, candidatets:=CandidateTS}=State) ->
-    lager:info("BV Got sig for ~s", [blkid(BlockHash)]),
+    logger:info("BV Got sig for ~s", [blkid(BlockHash)]),
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
-    %lager:debug("BV S CS2 ~p", [maps:keys(CSig)]),
+    %logger:debug("BV S CS2 ~p", [maps:keys(CSig)]),
 
     stout:log(bv_gotsig,
       [{hash, BlockHash}, {sig, Sigs}, {candsig, Candidatesig}, {extra, false}, {node_name, nodekey:node_name()}]),
@@ -131,7 +131,7 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID, Extr
 
     #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
     Height=maps:get(height, maps:get(header, Blk)),
-    lager:info("BV New block (~p/~p) arrived (~s/~s)",
+    logger:info("BV New block (~p/~p) arrived (~s/~s)",
                [
                 Height,
                 maps:get(height, maps:get(header, LastBlock)),
@@ -140,7 +140,7 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID, Extr
                ]),
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
-    %lager:debug("BV N CS2 ~p", [maps:keys(CSig)]),
+    %logger:debug("BV N CS2 ~p", [maps:keys(CSig)]),
 
     stout:log(
       bv_gotblock,
@@ -165,7 +165,7 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID, Extr
     {noreply, is_block_ready(BlockHash, State2)};
 
 handle_cast(_Msg, State) ->
-    lager:info("BV Unknown cast ~p", [_Msg]),
+    logger:info("BV Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(cleanup, State) ->
@@ -187,7 +187,7 @@ handle_info(cleanup_timer,
   {NewCandTS, NewCandidates, NewCandidateSig, NewExtras} =
     remove_expired_candidates(CandTS, Candidates, CandidateSig, Extras, TimeoutSec),
 
-%%  lager:info("BV cleaned ~p expired candidates", [
+%%  logger:info("BV cleaned ~p expired candidates", [
 %%    maps:size(CandidateSig) - maps:size(NewCandidateSig)
 %%  ]),
 
@@ -202,7 +202,7 @@ handle_info(cleanup_timer,
 
 handle_info(init, undefined) ->
     #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
-    lager:info("BV My last block hash ~s",
+    logger:info("BV My last block hash ~s",
                [bin2hex:dbin2hex(LBlockHash)]),
     Res = #{
       candidatesig => #{},
@@ -218,7 +218,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    lager:error("Terminate blockvote ~p", [_Reason]),
+    logger:error("Terminate blockvote ~p", [_Reason]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -239,7 +239,7 @@ checksig(BlockHash, Sigs, Acc0) ->
               case bsig:checksig1(BlockHash, Signature) of
                   {true, #{extra:=Xtra}=US} ->
                       Pub=proplists:get_value(pubkey, Xtra),
-                      lager:debug("BV ~s Check sig ~s", [
+                      logger:debug("BV ~s Check sig ~s", [
                                       blkid(BlockHash),
                                       bin2hex:dbin2hex(Pub)
                                      ]),
@@ -269,7 +269,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
         case maps:size(Sigs) >= MinSig of
           true ->
             %throw({notready, nocand1}),
-            lager:info("Probably they went ahead"),
+            logger:info("Probably they went ahead"),
             blockchain_sync ! checksync,
             State;
           false ->
@@ -281,10 +281,9 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
         {true, {Success, _}}=block:verify(Blk1),
         T1=erlang:system_time(),
         Txs=maps:get(txs, Blk0, []),
-        lager:notice("TODO: Check keys ~p of ~p",
-               [length(Success), MinSig]),
+        logger:info("TODO: Check keys ~p of ~p", [length(Success), MinSig]),
         if length(Success)<MinSig ->
-             lager:info("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
+             logger:info("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
                   [maps:get(height, maps:get(header, Blk0)),
                    blkid(BlockHash),
                    length(Txs),
@@ -292,7 +291,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
                    (T1-T0)/1000000]),
              throw({notready, minsig});
            true ->
-             lager:info("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
+             logger:info("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
                   [maps:get(height, maps:get(header, Blk0)),
                    blkid(BlockHash),
                    length(Txs),
@@ -312,7 +311,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
             {header, maps:get(header, Blk)}
           ]),
 
-        lager:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
+        logger:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
                    [blkid(BlockHash),
                     Height,
                     (T3-T0)/1000000
@@ -320,7 +319,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
 
         blockchain_updater:new_block(Blk),
         Extra=maps:get(BlockHash, Extras, #{}),
-        lager:info("Extra for blk ~w ~s: ~p",[Height, blkid(BlockHash), Extra]),
+        logger:info("Extra for blk ~w ~s: ~p",[Height, blkid(BlockHash), Extra]),
         case maps:is_key(log, Extra) of
           false -> ok;
           true ->
@@ -328,7 +327,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
               true ->
                 ignore;
               false ->
-                lager:info("Store log for block ~w:~s",[Height, hex:encode(BlockHash)]),
+                logger:info("Store log for block ~w:~s",[Height, hex:encode(BlockHash)]),
                 Logs=maps:get(log, Extra),
                 logs_db:put(BlockHash, Height, Logs),
                 if Logs==[] -> ok;
@@ -354,13 +353,13 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
          }
     end
   catch throw:{notready, Where} ->
-        lager:info("Not ready ~s ~p", [blkid(BlockHash), Where]),
+        logger:info("Not ready ~s ~p", [blkid(BlockHash), Where]),
         State;
       Ec:Ee:S ->
-        lager:error("BV New_block error ~p:~p", [Ec, Ee]),
+        logger:error("BV New_block error ~p:~p", [Ec, Ee]),
         lists:foreach(
         fun(Se) ->
-            lager:error("at ~p", [Se])
+            logger:error("at ~p", [Se])
         end, S),
         State
   end.
@@ -371,7 +370,7 @@ load_settings(State) ->
   {ok, MyChain} = chainsettings:get_setting(mychain),
   MinSig=chainsettings:get_val(minsig,1000),
   LastBlock=blockchain:last_meta(),
-  lager:info("BV My last block hash ~s",
+  logger:info("BV My last block hash ~s",
     [bin2hex:dbin2hex(maps:get(hash, LastBlock))]),
 
   State#{
@@ -394,7 +393,7 @@ ets_init() ->
 
 ets_init(EtsTableName) ->
   Table = ets:new(EtsTableName, [named_table, protected, set, {read_concurrency, true}]),
-  lager:info("created ets table ~p", [Table]).
+  logger:info("created ets table ~p", [Table]).
 
 %% ------------------------------------------------------------------
 

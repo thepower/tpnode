@@ -34,7 +34,7 @@ init_table(EtsTableName) ->
       EtsTableName,
       [named_table, protected, set, {read_concurrency, true}]
     ),
-  lager:info("Table created: ~p", [Table]).
+  logger:info("Table created: ~p", [Table]).
 
 init(Args) ->
   EtsTableName = maps:get(ets_name, Args, txstorage),
@@ -58,16 +58,16 @@ handle_call({new_tx, TxID, TxBin}, _From, State) ->
     {ok, S1} ->
       {reply, ok, S1};
     Any ->
-      lager:error("Can't add tx: ~p",[Any]),
+      logger:error("Can't add tx: ~p",[Any]),
       {reply, {error, Any}, State}
   end;
 
 handle_call(_Request, _From, State) ->
-  lager:notice("Unknown call ~p", [_Request]),
+  logger:notice("Unknown call ~p", [_Request]),
   {reply, ok, State}.
 
 handle_cast({tpic, FromPubKey, Peer, PayloadBin}, State) ->
-  lager:debug( "txstorage got txbatch from ~p payload ~p", [ FromPubKey, PayloadBin]),
+  logger:debug( "txstorage got txbatch from ~p payload ~p", [ FromPubKey, PayloadBin]),
   case msgpack:unpack(PayloadBin, [ {unpack_str, as_binary} ]) of
     {ok, MAP} ->
       case handle_tpic(MAP, FromPubKey, Peer, State) of
@@ -78,7 +78,7 @@ handle_cast({tpic, FromPubKey, Peer, PayloadBin}, State) ->
           {noreply, State1}
       end;
     _ ->
-      lager:error("txstorage can't unpack msgpack: ~p", [ PayloadBin ]),
+      logger:error("txstorage can't unpack msgpack: ~p", [ PayloadBin ]),
       {noreply, State}
   end;
 
@@ -87,24 +87,24 @@ handle_cast({store_etxs, Txs}, State) ->
     fun({TxID, TxBin},A) ->
         case new_tx(TxID, TxBin, nosync, A) of
           {ok, S1} ->
-            lager:info("Store Injected tx ~p",[TxID]),
+            logger:info("Store Injected tx ~p",[TxID]),
             S1;
           Any ->
-            lager:error("Can't add tx: ~p",[Any]),
+            logger:error("Can't add tx: ~p",[Any]),
             State
         end
     end, State, Txs),
   {noreply, S1};
 
 handle_cast(_Msg, State) ->
-  lager:notice("Unknown cast ~p", [_Msg]),
+  logger:notice("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
 handle_info(timer_expire,
   #{ets_name:=EtsName, timer_expire:=Tmr, expire_tick_ms:=Delay} = State) ->
 
   catch erlang:cancel_timer(Tmr),
-  lager:debug("remove expired records"),
+  logger:debug("remove expired records"),
   Now = os:system_time(second),
   ets:select_delete(
     EtsName,
@@ -119,21 +119,21 @@ handle_info(timer_expire,
 handle_info({txsync_done, true, TxID, Peers}, State) ->
   case update_tx_peers(TxID, Peers, State) of
     {ok, S1} ->
-      lager:info("Tx ~p ready",[TxID]),
+      logger:info("Tx ~p ready",[TxID]),
       gen_server:cast(txqueue, {push_tx, TxID}),
       {noreply, S1};
     Any ->
-      lager:error("Can't update peers for tx ~p: ~p",[TxID,Any]),
+      logger:error("Can't update peers for tx ~p: ~p",[TxID,Any]),
       {noreply, State}
   end;
 
 handle_info({txsync_done, false, TxID, _Peers}, State) ->
-  lager:notice("Tx ~s sync failed, insufficient peers ~p",[TxID,_Peers]),
+  logger:notice("Tx ~s sync failed, insufficient peers ~p",[TxID,_Peers]),
   gen_server:cast(txstatus, {done, false, [{TxID, insufficient_nodes_confirmed}]}),
   {noreply, State};
 
 handle_info(_Info, State) ->
-  lager:notice("Unknown info  ~p", [_Info]),
+  logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
   {noreply, State}.
 
 handle_tpic(#{ null := <<"txsync_refresh">>, <<"txid">> := TxID}, _, _From, State) ->

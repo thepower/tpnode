@@ -26,9 +26,11 @@ get_priv() ->
   {ok, K1}=application:get_env(tpnode, privkey),
   case K1 of
     <<_:32/binary>> -> K1;
+    <<_:48/binary>> -> K1;
+    <<_:64/binary>> -> K1;
     _ -> 
       Res=hex:parse(K1),
-      32=size(Res),
+      %32=size(Res),
       application:set_env(tpnode, privkey, Res),
       Res
   end.
@@ -38,7 +40,7 @@ get_pub() ->
     {ok, Bin} when is_binary(Bin) ->
       Bin;
     _ -> 
-      Pub=tpecdsa:calc_pub(get_priv(), true),
+      Pub=tpecdsa:calc_pub(get_priv()),
       application:set_env(tpnode, pubkey, Pub),
       Pub
   end.

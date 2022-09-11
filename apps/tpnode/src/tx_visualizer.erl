@@ -241,7 +241,7 @@ show(Tx) ->
                   true -> {error, "top level element must be map"}
                end;
               (E0,Path)->
-               lager:notice("Body unknown element ~p: ~p~n",[Path,E0]),
+               logger:notice("Body unknown element ~p: ~p~n",[Path,E0]),
                {warning, "unknown element"}
            end);
     #{<<"ver">>:=_,<<"body">>:=_} ->
@@ -272,7 +272,7 @@ show(Tx) ->
                   true -> {error, "top level element must be map"}
                end;
               (E0,Path)->
-               lager:notice("Container unknown element ~p: ~p",[Path,E0]),
+               logger:notice("Container unknown element ~p: ~p",[Path,E0]),
                {warning, "unknown element"}
            end);
     _ ->

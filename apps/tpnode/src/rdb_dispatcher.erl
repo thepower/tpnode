@@ -77,15 +77,15 @@ handle_call({close, DBPath}, _Form, #{dbs:=DBS}=State) ->
     end;
 
 handle_call(_Request, _From, State) ->
-    lager:notice("Unknown call ~p", [_Request]),
+    logger:notice("Unknown call ~p", [_Request]),
     {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
-    lager:notice("Unknown cast ~p", [_Msg]),
+    logger:notice("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(_Info, State) ->
-    lager:notice("Unknown info  ~p", [_Info]),
+    logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
     {noreply, State}.
 
 terminate(_Reason, #{dbs:=DBS}=_State) ->
@@ -93,7 +93,7 @@ terminate(_Reason, #{dbs:=DBS}=_State) ->
       fun(_Path, {ok, DBH}, _) ->
               rocksdb:close(DBH)
       end, undefined, DBS),
-    lager:error("Terminate me ~p", [_State]),
+    logger:error("Terminate me ~p", [_State]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

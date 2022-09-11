@@ -331,7 +331,7 @@ apply_patch(Patches, check) ->
 apply_patch(Patches, {commit, HeiHash, ExpectedHash}) ->
   F=fun() ->
         {ok,LH}=do_apply(Patches, HeiHash),
-        lager:info("check and commit expected ~p actual ~p",[ExpectedHash, LH]),
+        logger:info("check and commit expected ~p actual ~p",[ExpectedHash, LH]),
         case LH == ExpectedHash of
           true ->
             LH;
@@ -348,7 +348,7 @@ apply_patch(Patches, {commit, HeiHash, ExpectedHash}) ->
 
 apply_patch(Patches, {commit, HeiHash}) ->
   %Filename="ledger_"++integer_to_list(os:system_time(millisecond))++atom_to_list(node()),
-  %lager:info("Ledger dump ~s",[Filename]),
+  %logger:info("Ledger dump ~s",[Filename]),
   %wrfile(Filename, Patches),
   %dump_ledger("pre",Filename),
   F=fun() ->
@@ -413,7 +413,7 @@ del_mt(ChAddrs) ->
 
 apply_mt(ChAddrs) ->
   NewLedger=[ {Address, hash(Address)} || Address <- ChAddrs ],
-  lager:debug("Apply ledger ~p",[NewLedger]),
+  logger:debug("Apply ledger ~p",[NewLedger]),
   lists:foldl(
     fun({Addr,Hash},Acc) ->
         db_merkle_trees:enter(Addr, Hash, {fun dbmtfun/3,Acc})

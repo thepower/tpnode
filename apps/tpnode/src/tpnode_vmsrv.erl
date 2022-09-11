@@ -62,7 +62,7 @@ handle_call({pick, Lang, Ver, CPid}, _From,
         undefined ->
           {reply, {error, nofree}, State};
         {Pid, Params} ->
-          lager:debug("Picked worker ~p",[Worker]),
+          logger:debug("Picked worker ~p",[Worker]),
           MR=erlang:monitor(process, CPid),
           Monitor2=maps:put(MR, {user, Pid}, Monitor),
           VmByType2=maps:put(Type, [{Pid,Params#{usedby=>CPid, mref=>MR}}|NA], VmByType),
@@ -87,7 +87,7 @@ handle_call({register, Pid, #{
   link(Pid),
   Monitor2=maps:put(MR, {worker, Type}, Monitor),
   VmByType2=maps:put(Type,[{Pid,#{}}|maps:get(Type,VmByType,[])],VmByType),
-  lager:debug("Reg ~p ~p",[Pid,Type]),
+  logger:debug("Reg ~p ~p",[Pid,Type]),
   {reply, ok, State#{
                 vmbytype=>VmByType2,
                 vmtype=>maps:put(Pid,Type,VmType),
@@ -95,14 +95,14 @@ handle_call({register, Pid, #{
                }};
 
 handle_call(_Request, _From, State) ->
-    lager:notice("Unknown call ~p",[_Request]),
+    logger:notice("Unknown call ~p",[_Request]),
     {reply, ok, State}.
 
 handle_cast({return, Pid}, State) ->
   {noreply, return_worker(Pid, State)};
 
 handle_cast(_Msg, State) ->
-    lager:notice("Unknown cast ~p",[_Msg]),
+    logger:notice("Unknown cast ~p",[_Msg]),
     {noreply, State}.
 
 handle_info({'DOWN',Ref,process,Pid,_Reason}, 
@@ -111,10 +111,10 @@ handle_info({'DOWN',Ref,process,Pid,_Reason},
              vmbytype:=VmByType}=State) ->
   case maps:find(Ref, Monitor) of 
     error ->
-      lager:notice("Down for unknown ref ~p",[Ref]),
+      logger:notice("Down for unknown ref ~p",[Ref]),
       {noreply, State};
     {ok, {user, WPid}} ->
-      lager:debug("Down user",[Pid]),
+      logger:debug("Down user",[Pid]),
       %Monitor2=maps:remove(Ref, Monitor),
       S1=return_worker(WPid, State),
       {noreply, S1};
@@ -127,7 +127,7 @@ handle_info({'DOWN',Ref,process,Pid,_Reason},
                    true ->
                      maps:put(Type,Workers,VmByType)
                 end,
-      lager:debug("UnReg ~p ~p",[Pid,Type]),
+      logger:debug("UnReg ~p ~p",[Pid,Type]),
       {noreply, State#{
                   vmbytype=>VmByType2,
                   vmtype=>maps:remove(Pid,VmType),
@@ -136,7 +136,7 @@ handle_info({'DOWN',Ref,process,Pid,_Reason},
   end;
 
 handle_info(_Info, State) ->
-    lager:notice("Unknown info  ~p",[_Info]),
+    logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

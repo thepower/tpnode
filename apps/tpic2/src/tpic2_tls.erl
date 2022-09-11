@@ -12,9 +12,12 @@ start_link(Ref, Socket, Transport, Opts) ->
 
 -spec connection_process(pid(), ranch:ref(), ssl:sslsocket(), module(), cowboy:opts()) -> ok.
 connection_process(Parent, Ref, Socket, Transport, Opts) ->
+  logger:notice("CON ~p~n",[Ref]),
   ok = ranch:accept_ack(Ref),
-  %Proto=ssl:negotiated_protocol(Socket),
-  %lager:info("Transport ~p NegProto ~p",[Transport, Proto]),
+  logger:notice("Ack ~p~n",[Ref]),
+
+  Proto=ssl:negotiated_protocol(Socket),
+  logger:info("Transport ~p NegProto ~p",[Transport, Proto]),
   {ok,PeerInfo}=ssl:connection_information(Socket),
   Transport:setopts(Socket, [{active, once},{packet,4}]),
   State=#{parent=>Parent,
@@ -37,23 +40,24 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
   {ok,PC}=ssl:peercert(Socket),
   DCert=tpic2:extract_cert_info(public_key:pkix_decode_cert(PC,otp)),
   Pubkey=case DCert of
-           #{pubkey:={'ECPoint', Point}} ->
-             tpecdsa:minify(Point);
+           #{pubkey:=Der} ->
+             Der;
            _ ->
+             logger:notice("Unknown cert ~p",[DCert]),
              undefined
          end,
   IsItMe=Pubkey==nodekey:get_pub(),
-  lager:info("Peer PubKey ~p ~p",[Pubkey,
+  logger:info("Peer PubKey ~p ~p",[Pubkey,
                                   try
                                     chainsettings:is_our_node(Pubkey)
                                   catch _:_ -> unkn0wn
                                   end]),
   case {IsItMe,Role} of
     {true, server} ->
-      lager:notice("Looks like I received connection from myself, dropping session"),
+      logger:notice("Looks like I received connection from myself, dropping session"),
       done;
     {true, _} ->
-      lager:notice("Looks like I received connected to myself, dropping session"),
+      logger:notice("Looks like I received connected to myself, dropping session"),
       done;
     {false, server} ->
       {ok,PPID}=gen_server:call(tpic2_cmgr, {peer,Pubkey, {register, undefined, in, self()}}),
@@ -69,7 +73,7 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
                ok;
              Pid when is_pid(Pid) ->
                gen_server:call(tpic2_cmgr,{peer, Pubkey, {add, IP, Port}}),
-               lager:info("Add address ~p:~p to peer and shutdown",[IP,Port]),
+               logger:info("Add address ~p:~p to peer and shutdown",[IP,Port]),
                tpic2_tls:send_msg(dup, State),
                timer:sleep(6000),
                Transport:close(Socket),
@@ -162,9 +166,9 @@ system_continue(_PID,_,{State}) ->
 send_gen_msg(Process, ReqID, Payload, State) ->
   try
     {ok, Unpacked} = msgpack:unpack(Payload),
-    lager:debug("Send gen msg ~p: ~p",[ReqID, Unpacked])
+    logger:debug("Send gen msg ~p: ~p",[ReqID, Unpacked])
   catch _:_ ->
-          lager:debug("Send gen msg ~p: ~p",[ReqID, Payload])
+          logger:debug("Send gen msg ~p: ~p",[ReqID, Payload])
   end,
   Res=send_msg(#{
       null=><<"gen">>,
@@ -174,12 +178,12 @@ send_gen_msg(Process, ReqID, Payload, State) ->
   {Res,State}.
 
 send_msg(dup, #{socket:=Socket, opts:=Opts}) ->
-  lager:debug("dup opts ~p",[Opts]),
+  logger:debug("dup opts ~p",[Opts]),
   Dup=#{null=><<"duplicate">>},
   ssl:send(Socket,msgpack:pack(Dup));
 
 send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
-  lager:debug("Hello opts ~p",[Opts]),
+  logger:debug("Hello opts ~p",[Opts]),
   Stream=maps:get(stream, Opts, 0),
   Announce=my_streams(),
   Cfg=application:get_env(tpnode,tpic,#{}),
@@ -190,7 +194,7 @@ send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
           sid=>Stream,
           services=>Announce
          },
-  lager:debug("Hello ~p",[Hello]),
+  logger:debug("Hello ~p",[Hello]),
   ssl:send(Socket,msgpack:pack(Hello));
 
 send_msg(Msg, #{socket:=Socket}) when is_map(Msg) ->
@@ -241,7 +245,7 @@ handle_msg(#{null:=<<"hello">>,
   end,
 
   send_msg(#{null=><<"hello_ack">>}, State),
-  lager:debug("This is hello ack, new sid ~p",[SID]),
+  logger:debug("This is hello ack, new sid ~p",[SID]),
   State#{ sid=>SID };
 
 handle_msg(#{null:=<<"gen">>,
@@ -271,9 +275,9 @@ handle_msg(#{null:=<<"gen">>,
 %
   try
     {ok, Unpacked} = msgpack:unpack(Data),
-    lager:debug("Inbound msg sid ~p ReqID ~p proc  ~p: ~p",[SID, ReqID, Proc, Unpacked])
+    logger:debug("Inbound msg sid ~p ReqID ~p proc  ~p: ~p",[SID, ReqID, Proc, Unpacked])
   catch _:_ ->
-          lager:debug("Inbound msg sid ~p ReqID ~p proc ~p: ~p",[SID, ReqID, Proc, Data])
+          logger:debug("Inbound msg sid ~p ReqID ~p proc ~p: ~p",[SID, ReqID, Proc, Data])
   end,
 
   tpic2_response:handle(PK, SID, ReqID, Proc, Data, State),
@@ -283,22 +287,22 @@ handle_msg(#{null := <<"hello_ack">>}, State) ->
   State;
 
 handle_msg(Any,State) ->
-  lager:error("Unknown message ~p",[Any]),
+  logger:error("Unknown message ~p",[Any]),
   State.
 
 handle_data(Bin, State=#{socket:=Socket, transport:=Transport}) ->
   {ok,D}=msgpack:unpack(Bin),
-%  lager:info("Got mp ~p",[D]),
+%  logger:info("Got mp ~p",[D]),
   State2=handle_msg(D, State),
   Transport:setopts(Socket, [{active, once}]),
   ?MODULE:loop(State2).
 
 -spec terminate(_, _) -> no_return().
 terminate(undefined, Reason) ->
-  lager:info("Term undef"),
+  logger:info("Term undef"),
   exit({shutdown, Reason});
 terminate(#{socket:=Socket}, Reason) ->
-  lager:info("Term ~p",[Socket]),
+  logger:info("Term ~p",[Socket]),
   ssl:close(Socket),
   exit({shutdown, Reason}).
 

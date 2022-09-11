@@ -59,7 +59,7 @@ init(_Args) ->
   }.
 
 handle_call(_Request, _From, State) ->
-  lager:notice("Unknown call ~p", [_Request]),
+  logger:notice("Unknown call ~p", [_Request]),
   {reply, ok, State}.
 
 
@@ -95,7 +95,7 @@ handle_cast(are_we_synced, #{sync_lock := LockPid} = State) when is_pid(LockPid)
     {mynode, nodekey:node_name()}
   ]),
 
-  lager:debug("skip 'are we synced' message because we are syncing"),
+  logger:debug("skip 'are we synced' message because we are syncing"),
 
   {noreply, State};
 
@@ -122,14 +122,14 @@ handle_cast({tpic, _NodeName, _From, _Payload}, #{lookaround_timer := _Timer} = 
 %%        {ok, Decode} when is_map(Decode) ->
 %%          case Decode of
 %%            #{null := <<"block_installed">>,<<"blk">> := ReceivedBlk} ->
-%%              lager:info("got ck_beacon from ~s, block: ~p", [NodeName, Payload]),
+%%              logger:info("got ck_beacon from ~s, block: ~p", [NodeName, Payload]),
 %%              block:unpack(ReceivedBlk);
 %%            _ ->
-%%              lager:info("got ck_beacon from ~s, unpacked payload: ~p", [NodeName, Decode]),
+%%              logger:info("got ck_beacon from ~s, unpacked payload: ~p", [NodeName, Decode]),
 %%              #{}
 %%          end;
 %%        _ ->
-%%          lager:error("can't decode msgpack: ~p", [Payload]),
+%%          logger:error("can't decode msgpack: ~p", [Payload]),
 %%          #{}
 %%      end
 %%    catch
@@ -139,7 +139,7 @@ handle_cast({tpic, _NodeName, _From, _Payload}, #{lookaround_timer := _Timer} = 
 %%        #{}
 %%    end,
 %%
-%%  lager:info("Blk: ~p", [Blk]),
+%%  logger:info("Blk: ~p", [Blk]),
 %%
 %%  stout:log(ck_beacon,
 %%    [
@@ -170,14 +170,14 @@ handle_cast(accept_block, #{lookaround_timer := Timer} = State) ->
 
 
 handle_cast(_Msg, State) ->
-  lager:notice("Unknown cast ~p", [_Msg]),
+  logger:notice("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
 
 handle_info(
   {'DOWN', _Ref, process, Pid, Reason},
   #{sync_lock := Pid, lookaround_timer := Timer} = State) when is_pid(Pid) ->
-%%  lager:debug("chainkeeper check'n'sync ~p finished with reason: ~p", [_Pid, Reason]),
+%%  logger:debug("chainkeeper check'n'sync ~p finished with reason: ~p", [_Pid, Reason]),
 
   catch erlang:cancel_timer(Timer),
 
@@ -210,7 +210,7 @@ handle_info(lookaround_timer, #{lookaround_timer := Timer, sync_lock := Pid} = S
 
 handle_info(lookaround_timer, #{lookaround_timer := Timer} = State) ->
   catch erlang:cancel_timer(Timer),
-%%  lager:debug("lookaround_timer"),
+%%  logger:debug("lookaround_timer"),
 
   Options = #{
     theirnode => nodekey:node_name(),
@@ -222,8 +222,11 @@ handle_info(lookaround_timer, #{lookaround_timer := Timer} = State) ->
     lookaround_timer => setup_timer(lookaround_timer)
   }};
 
+handle_info({'DOWN',_Ref,process,_Pid,normal}, State) ->
+  {noreply, State};
+
 handle_info(_Info, State) ->
-  lager:notice("Unknown info  ~p", [_Info]),
+  logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
   {noreply, State}.
 
 
@@ -261,7 +264,7 @@ setup_timer(Name) ->
 %%            % hash not found
 %%            % todo: detect forks here
 %%            % if we can't find _MyHash in the net, fork happened :(
-%%            lager:info("Need sync, hash ~p not found in blockvote", [blockchain:blkid(TheirHash)]),
+%%            logger:info("Need sync, hash ~p not found in blockvote", [blockchain:blkid(TheirHash)]),
 %%            stout:log(ck_sync,
 %%              [
 %%                {options, Options},
@@ -311,7 +314,7 @@ setup_timer(Name) ->
 %%    ok;
 %%
 %%check_block(Blk, Options) ->
-%%  lager:error("invalid block: ~p, extra data: ~p", [Blk, Options]).
+%%  logger:error("invalid block: ~p, extra data: ~p", [Blk, Options]).
 
 %% ------------------------------------------------------------------
 
@@ -359,7 +362,7 @@ rollback_block(LoggerOptions, RollbackOptions) ->
           {action, ok},
           {newhash, NewHash}
         ]),
-      lager:notice("rollback new hash ~p", [NewHash]),
+      logger:notice("rollback new hash ~p", [NewHash]),
 
       case proplists:get_value(no_runsync, RollbackOptions, false) of
         false ->
@@ -381,7 +384,7 @@ rollback_block(LoggerOptions, RollbackOptions) ->
           {options, LoggerOptions},
           {action, {error, Err}}
         ]),
-      lager:error("rollback error ~p", [Err]),
+      logger:error("rollback error ~p", [Err]),
 
       {error, Err}
   end.
@@ -598,21 +601,21 @@ assoc_mapper(Answers, MinSig, Options) ->
 
               case maps:get(temporary, Blk, false) of
                 TmpWei when is_number(TmpWei) -> % tmp block
-                  lager:info("push tmp assoc wei ~p, node ~p", [TmpWei, resolve_assoc(Assoc)]),
+                  logger:info("push tmp assoc wei ~p, node ~p", [TmpWei, resolve_assoc(Assoc)]),
                   {PermHashes, push_assoc(TmpWei, Assoc, TmpWeis)};
                 _ -> % permanent block
-                  lager:info("push perm assoc hash ~p, node ~p", [blockchain:blkid(Hash), resolve_assoc(Assoc)]),
+                  logger:info("push perm assoc hash ~p, node ~p", [blockchain:blkid(Hash), resolve_assoc(Assoc)]),
                   {push_assoc(Hash, Assoc, PermHashes), TmpWeis}
               end;
 
             _ -> % skip invalid block
-              lager:info("skip invalid block"),
+              logger:info("skip invalid block"),
 
               Acc
           end
         catch
           throw:broken ->
-            lager:notice("chainkeeper broken block 1"),
+            logger:notice("chainkeeper broken block 1"),
             stout:log(ck_fork, [
               {action, broken_block_1},
               {node, maps:get(mynode, Options, nodekey:node_name())},
@@ -621,7 +624,7 @@ assoc_mapper(Answers, MinSig, Options) ->
             Acc;
 
           throw:broken_sync ->
-            lager:notice("chainkeeper broken sync 1"),
+            logger:notice("chainkeeper broken sync 1"),
             stout:log(ck_fork, [
               {action, broken_sync_1},
               {node, maps:get(mynode, Options, nodekey:node_name())},
@@ -638,7 +641,7 @@ assoc_mapper(Answers, MinSig, Options) ->
           {answer, Answer}
         ]),
 
-        lager:info("error from ~p : ~p", [resolve_assoc(Assoc), Error]),
+        logger:info("error from ~p : ~p", [resolve_assoc(Assoc), Error]),
         Acc;
 
       ({Assoc, Answer}, Acc) ->
@@ -649,7 +652,7 @@ assoc_mapper(Answers, MinSig, Options) ->
           {answer, Answer}
         ]),
 
-        lager:info(
+        logger:info(
           "unexpected answer from ~p : ~p",
           [resolve_assoc(Assoc), Answer]),
 
@@ -663,7 +666,7 @@ choose_peers_to_sync(TPIC, {PermAssoc, TmpAssoc}, MinSig, Options) ->
   PermAssocResolved = resolve_assoc_map(PermAssoc),
   TmpAssocResolved = resolve_assoc_map(TmpAssoc),
 
-  lager:info("perm assoc [~p]: ~p, tmp assoc [~p]: ~p",
+  logger:info("perm assoc [~p]: ~p, tmp assoc [~p]: ~p",
     [PermSize, PermAssocResolved, TmpSize, TmpAssocResolved]
   ),
 
@@ -672,7 +675,7 @@ choose_peers_to_sync(TPIC, {PermAssoc, TmpAssoc}, MinSig, Options) ->
       PermSize > 0 -> % choose sync peers from permanent hashes
         HashToSync = choose_hash_to_sync(TPIC, maps:keys(PermAssoc), MinSig),
 
-        lager:info("permanent chosen, hash to sync: ~p", [blockchain:blkid(HashToSync)]),
+        logger:info("permanent chosen, hash to sync: ~p", [blockchain:blkid(HashToSync)]),
 
         stout:log(ck_fork, [
           {action, permanent_chosen},
@@ -687,7 +690,7 @@ choose_peers_to_sync(TPIC, {PermAssoc, TmpAssoc}, MinSig, Options) ->
       TmpSize > 0 -> % choose node with highest temporary
         WidestTmp = lists:max(maps:keys(TmpAssoc)),
 
-        lager:info("tmp chosen, wei to sync: ~p", [WidestTmp]),
+        logger:info("tmp chosen, wei to sync: ~p", [WidestTmp]),
 
         stout:log(ck_fork, [
           {action, tmp_chosen},
@@ -700,7 +703,7 @@ choose_peers_to_sync(TPIC, {PermAssoc, TmpAssoc}, MinSig, Options) ->
         {WidestTmp, maps:get(WidestTmp, TmpAssoc, [])};
 
       true ->
-        lager:info("can't choose associations to sync"),
+        logger:info("can't choose associations to sync"),
 
         stout:log(ck_fork, [
           {action, cant_find_nodes},
@@ -750,7 +753,7 @@ check_and_sync(TPIC, Options) ->
 
     case SyncPeers of
       {_, []} -> % can't find associations to sync, give up
-        lager:info("can't find associations we need sync to"),
+        logger:info("can't find associations we need sync to"),
         stout:log(ck_fork, [
           {action, empty_list_of_assoc},
           {node, maps:get(mynode, Options, nodekey:node_name())},
@@ -760,7 +763,7 @@ check_and_sync(TPIC, Options) ->
         false;
 
       {PermHash, AssocToSync} when is_binary(PermHash) -> % sync to permanent block
-        lager:info("runsync to permanent, assoc count ~p", [length(AssocToSync)]),
+        logger:info("runsync to permanent, assoc count ~p", [length(AssocToSync)]),
 
         maybe_need_rollback(MyPermHash, PermHash),
 
@@ -775,7 +778,7 @@ check_and_sync(TPIC, Options) ->
         runsync(AssocToSync);
 
       {TmpWei, AssocToSync} when is_number(TmpWei) -> % sync to higest(widest) tmp block
-        lager:info("runsync to tmp, assoc count ~p", [length(AssocToSync)]),
+        logger:info("runsync to tmp, assoc count ~p", [length(AssocToSync)]),
 
         stout:log(ck_fork, [
           {action, sync_to_tmp},
@@ -802,13 +805,13 @@ check_and_sync(TPIC, Options) ->
 maybe_need_rollback(MyPermHash, TheirPermHash) ->
   if
     TheirPermHash =/= MyPermHash -> % do rollback because of switching to another branch
-      lager:info("rollback, choosen hash ~p, my perm hash ~p", [TheirPermHash, MyPermHash]),
+      logger:info("rollback, choosen hash ~p, my perm hash ~p", [TheirPermHash, MyPermHash]),
       case rollback_block(#{}, [no_runsync]) of
         {error, Err} ->
-          lager:error("FIXME: can't rollback block: ~p", [Err]),
+          logger:error("FIXME: can't rollback block: ~p", [Err]),
           throw(finish);
         {ok, NewHash} ->
-          lager:info("rollback done successfully to hash ~p", [NewHash]),
+          logger:info("rollback done successfully to hash ~p", [NewHash]),
           ok
       end;
     true ->
@@ -857,7 +860,7 @@ choose_hash_to_sync(TPIC, Hashes, MinSig) when is_list(Hashes) ->
 
                 catch
                   throw:broken ->
-                    lager:notice("chainkeeper broken block 1"),
+                    logger:notice("chainkeeper broken block 1"),
                     stout:log(ck_fork, [
                       {action, broken_block_2},
                       {node, nodekey:node_name()},
@@ -1099,7 +1102,7 @@ resolve_assoc(TPIC, {_, _, _} = Assoc) ->
   resolve_assoc(TPIC, [Assoc]);
 
 resolve_assoc(_TPIC, AssocList) when is_list(AssocList) ->
-%  lager:info("Resolve assocs ~p",[AssocList]),
+%  logger:info("Resolve assocs ~p",[AssocList]),
 %  Peers = tpic2:peers(AssocList),
   Nodes = case chainsettings:get_setting(chainnodes) of
             {ok, Nodes0} -> Nodes0;

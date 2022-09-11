@@ -896,9 +896,9 @@ rate2(#{body:=Body}, Cur, TxAmount, GetRateFun) ->
 %                                                          erlang:term_to_binary(GetRateFun)
 %                                                         ])]),
 %          S=erlang:get_stacktrace(),
-%          lager:error("Calc fee error ~p tx ~p",[{Ec,Ee},Tx]),
+%          logger:error("Calc fee error ~p tx ~p",[{Ec,Ee},Tx]),
 %          lists:foreach(fun(SE) ->
-%                            lager:error("@ ~p", [SE])
+%                            logger:error("@ ~p", [SE])
 %                        end, S),
 %          throw('cant_calculate_fee')
 %  end;
@@ -927,9 +927,9 @@ rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
                                                           Tx,
                                                           element(2,erlang:fun_info(GetRateFun,env))
                                                          ])]),
-          lager:error("Calc fee error ~p tx ~p",[{Ec,Ee},Tx]),
+          logger:error("Calc fee error ~p tx ~p",[{Ec,Ee},Tx]),
           lists:foreach(fun(SE) ->
-                            lager:error("@ ~p", [SE])
+                            logger:error("@ ~p", [SE])
                         end, S),
           throw('cant_calculate_fee')
   end;

@@ -178,7 +178,7 @@ h(<<"POST">>, [<<"run">>,TAddr], Req) ->
 %        }
 %      );
 %    {error, Err} ->
-%      lager:info("error ~p", [Err]),
+%      logger:info("error ~p", [Err]),
 %      err(
 %          10008,
 %          iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
@@ -192,6 +192,6 @@ h(<<"OPTIONS">>, _, _Req) ->
 
 h(_Method, [<<"status">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
-  lager:info("Join from ~p", [inet:ntoa(RemoteIP)]),
+  %logger:info("Join from ~p", [inet:ntoa(RemoteIP)]),
   answer( #{ client => list_to_binary(inet:ntoa(RemoteIP)) }).
 

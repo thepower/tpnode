@@ -78,7 +78,7 @@ prepack(Block) ->
             end, Blocks)
          );
        (outbound, Txp) ->
-        lager:notice("FIXME: save outbound flag in tx"),
+        logger:notice("FIXME: save outbound flag in tx"),
         lists:map(
           fun({TxID, Cid}) ->
               [TxID, Cid]
@@ -99,7 +99,7 @@ prepack(Block) ->
           end, ED
          );
        (extdata, ED) ->
-        lager:notice("TODO: there is maps here sometimes. Find out problem in unpacker ~p",[ED]),
+        logger:notice("TODO: there is maps here sometimes. Find out problem in unpacker ~p",[ED]),
         lists:map(
           fun({Key, Val}) ->
               [Key, Val]
@@ -306,7 +306,7 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         NewHash=gb_merkle_trees:root_hash(BalsMT),
         if (NewHash =/= Hash) ->
              io:format("bal root mismatch~n"),
-             lager:notice("bal root mismatch");
+             logger:notice("bal root mismatch");
           true -> ok
         end,
         %io:format("BR1 ~p~n",[Hash]),
@@ -319,7 +319,7 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         NewHash=gb_merkle_trees:root_hash(SettingsMT),
         if (NewHash =/= Hash) ->
              io:format("set root mismatch~n"),
-             lager:notice("set root mismatch");
+             logger:notice("set root mismatch");
            true -> ok
         end,
         {setroot, NewHash};
@@ -330,7 +330,7 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         NewHash=gb_merkle_trees:root_hash(TxMT),
         if (NewHash =/= Hash) ->
              io:format("etxs root mismatch~n"),
-             lager:notice("etxs root mismatch");
+             logger:notice("etxs root mismatch");
           true -> ok
         end,
         {etxroot, NewHash};
@@ -341,7 +341,7 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         NewHash=gb_merkle_trees:root_hash(TxMT),
         if (NewHash =/= Hash) ->
              io:format("txs root mismatch~n"),
-             lager:notice("txs root mismatch");
+             logger:notice("txs root mismatch");
           true -> ok
         end,
         {txroot, NewHash};
@@ -355,7 +355,7 @@ verify(#{ header:=#{parent:=Parent, %blkv2
                  end,
         if (NewHash =/= Hash) ->
              io:format("failed root mismatch~n"),
-             lager:notice("failed root mismatch");
+             logger:notice("failed root mismatch");
            true -> ok
         end,
         {failed, NewHash};
@@ -368,7 +368,7 @@ verify(#{ header:=#{parent:=Parent, %blkv2
       ({entropy, IsTmp}) ->
         {entropy, IsTmp};
       ({Key, Value}) ->
-        lager:notice("Unknown root ~p",[Key]),
+        logger:info("Unknown root ~p",[Key]),
         {Key, Value}
     end, Roots0),
 
@@ -380,7 +380,7 @@ verify(#{ header:=#{parent:=Parent, %blkv2
   %io:format("H1 ~s ~nH2 ~s~n~n", [bin2hex:dbin2hex(Hash),
   %                             bin2hex:dbin2hex(HdrHash)]),
   if Hash =/= HdrHash ->
-       lager:notice("Block hash mismatch"),
+       logger:notice("Block hash mismatch"),
        false;
      true ->
        case lists:keyfind(checksig,1,Opts) of
@@ -455,25 +455,25 @@ verify(#{ header:=#{parent:=Parent, %blkv1
        HBalsRoot=maps:get(balroot, Header, undefined),
 
        if TxRoot =/= HTxRoot ->
-            lager:notice("TX root mismatch ~s vs ~s",
+            logger:notice("TX root mismatch ~s vs ~s",
                          [
                           bin2hex:dbin2hex(TxRoot),
                           bin2hex:dbin2hex(HTxRoot)
                          ]);
           SetRoot =/= HSetRoot ->
-            lager:notice("Set root mismatch ~s vs ~s",
+            logger:notice("Set root mismatch ~s vs ~s",
                          [
                           bin2hex:dbin2hex(SetRoot),
                           bin2hex:dbin2hex(HSetRoot)
                          ]);
           BalsRoot =/= HBalsRoot ->
-            lager:notice("Bals root mismatch ~s vs ~s",
+            logger:notice("Bals root mismatch ~s vs ~s",
                          [
                           bin2hex:dbin2hex(BalsRoot),
                           bin2hex:dbin2hex(HBalsRoot)
                          ]);
           true ->
-            lager:notice("Something mismatch ~p ~p",[Header,HeaderItems])
+            logger:notice("Something mismatch ~p ~p",[Header,HeaderItems])
        end,
        false;
      true ->
@@ -553,7 +553,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
                  []
              end,
 
-  lager:info("ER ~p",[ExtraRoots]),
+  logger:info("ER ~p",[ExtraRoots]),
   TempRoot=if TempID == false -> ExtraRoots;
               true -> [{tmp, <<TempID:64/big>>}|ExtraRoots]
            end,
@@ -649,7 +649,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
 %                   [{chain, maps:get(mychain, Req)}]
 %               end],
 %  {BHeader, Hdr}=build_header(HeaderItems, Parent, H),
-%  %lager:info("HI ~p", [Hdr]),
+%  %logger:info("HI ~p", [Hdr]),
 %
 %  Block=#{header=>Hdr,
 %          hash=>crypto:hash(sha256, BHeader),

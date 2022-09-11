@@ -69,7 +69,7 @@ start_link(Sub0) when is_map(Sub0) ->
         #{protocol:=_,address:=_,port:=_} ->
           Sub0
       end,
-  lager:info("Spawning sup ~p",[Sub]),
+  logger:info("Spawning sup ~p",[Sub]),
   Pid=spawn(?MODULE,run,[maps:merge(#{parent=>self()},Sub), GetFun]),
   link(Pid),
   {ok, Pid}.
@@ -119,13 +119,13 @@ connect(#{protocol:=https, address:=Ip, port:=Port, parent:=Parent}) ->
   end;
 
 connect(#{protocol:=Proto, parent:=Parent}) ->
-  lager:error("replica protocol ~p does not supported",[Proto]),
+  logger:error("replica protocol ~p does not supported",[Proto]),
   Parent ! {wrk_down, self(), {error,badproto}},
   throw(badproto).
 
 
 run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) ->
-  lager:info("repl client connecting to ~p ~p", [Ip, Port]),
+  logger:info("repl client connecting to ~p ~p", [Ip, Port]),
   Pid=connect(Sub),
   try
     Genesis=case sync_get_decode(Pid, "/api/binblock/genesis") of
@@ -139,10 +139,10 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
           false ->
             file:write_file("genesis_repl.txt",
                             io_lib:format("~p.~n",[Genesis])),
-            lager:notice("Genesis mismatch for replication. Their genesis saved in genesis_repl.txt"),
+            logger:notice("Genesis mismatch for replication. Their genesis saved in genesis_repl.txt"),
             throw('genesis_mismatch');
           true ->
-            lager:info("Genesis ok")
+            logger:info("Genesis ok")
         end;
       _ ->
         throw('unexpected_genesis')
@@ -151,17 +151,17 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
                 {200, _, V2} -> maps:with([hash,header],V2);
                 _ -> throw('cant_get_last')
               end,
-    lager:info("Their lastblk: ~s",[blkinfo(LastBlock)]),
+    logger:info("Their lastblk: ~s",[blkinfo(LastBlock)]),
 
     KnownBlock=GetFun(last_known_block),
-    lager:info("My lastblk: ~s",[blkinfo(KnownBlock)]),
+    logger:info("My lastblk: ~s",[blkinfo(KnownBlock)]),
     Parent ! {wrk_presync, self(), start},
     {ok,Sub1}=presync(Sub#{pid=>Pid,getfun=>GetFun,
                            last=>maps:with([hash,header],KnownBlock)},
                       hex:encode(maps:get(hash,KnownBlock))),
 
     {ok,UpgradeHdrs}=upgrade(Pid),
-    lager:info("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
+    logger:info("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
 
     Cmd = msgpack:pack(#{ null=><<"subscribe">>, <<"channel">> => default}),
     ok=gun:ws_send(Pid, {binary, Cmd}),
@@ -178,10 +178,10 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
     Ec:Ee:S ->
       Parent ! {wrk_down, self(), {error, other}},
       gun:close(Pid),
-      lager:error("repl client error ~p:~p@~p",[Ec,Ee,hd(S)]),
+      logger:error("repl client error ~p:~p@~p",[Ec,Ee,hd(S)]),
       lists:foreach(
         fun(SE) ->
-            lager:error("@ ~p", [SE])
+            logger:error("@ ~p", [SE])
         end, S)
   end.
 
@@ -193,7 +193,7 @@ ws_mode(#{pid:=Pid, parent:=Parent}=Sub) ->
       gun:close(Pid),
       exit;
     {'EXIT',_,Reason} ->
-      lager:error("Linked process went down ~p. Giving up....",[Reason]),
+      logger:error("Linked process went down ~p. Giving up....",[Reason]),
       Cmd = msgpack:pack(#{null=><<"goodbye">>, <<"r">>=><<"deadparent">>}),
       gun:ws_send(Pid, {binary, Cmd}),
       gun:close(Pid),
@@ -225,18 +225,18 @@ ws_mode(#{pid:=Pid, parent:=Parent}=Sub) ->
       ?MODULE:ws_mode(Sub);
     {gun_ws, Pid, {binary, Bin}} ->
       {ok,Cmd} = msgpack:unpack(Bin),
-      lager:debug("repl client got ~p",[Cmd]),
+      logger:debug("repl client got ~p",[Cmd]),
       Sub1=handle_msg(Cmd, Sub),
       ?MODULE:ws_mode(Sub1);
     {gun_down,Pid,ws,closed,[],[]} ->
-      lager:error("Gun down. Giving up...."),
+      logger:error("Gun down. Giving up...."),
       Parent ! {wrk_down, self(), gundown},
       giveup;
     %{sync_since, Hash, Hei} ->
     %  dosync(Hash,Hei,Sub);
     %runsync ->
     %  #{hash:=BlkHa,header:=#{height:=BlkHe}}=maps:get(last,Sub),
-    %  lager:notice("Have to run sync since ~s",[hex:encode(BlkHa)]),
+    %  logger:notice("Have to run sync since ~s",[hex:encode(BlkHa)]),
     %  self() ! { sync_since, BlkHa, BlkHe},
     %  ?MODULE:ws_mode(Sub);
     {gun_error, Pid, Reason} ->
@@ -247,10 +247,10 @@ ws_mode(#{pid:=Pid, parent:=Parent}=Sub) ->
       erlang:send_after(30000,self(), alive),
       ?MODULE:ws_mode(Sub);
     Any ->
-      lager:notice("repl client unknown msg ~p",[Any]),
+      logger:notice("repl client unknown msg ~p",[Any]),
       ?MODULE:ws_mode(Sub)
   after 5000 ->
-          lager:error("Sending PING"),
+          logger:error("Sending PING"),
           %ok=gun:ws_send(Pid, {binary, msgpack:pack(#{null=><<"ping">>})}),
           ok=gun:ws_send(Pid, {binary, <<129,192,196,4,"ping">>}),
           ?MODULE:ws_mode(Sub)
@@ -268,8 +268,8 @@ handle_msg(#{null := <<"new_block">>,
              <<"now">> := _Now
             }, #{getfun:=F}=Sub) ->
   #{header:=#{parent:=Parent,height:=Height},hash:=Hash}=Block=block:unpack(BinBlk),
-  lager:info("Got block: ~s",[blkinfo(Block)]),
-  %lager:info("Block ~p",[maps:with([header,temporary,hash],Block)]),
+  logger:info("Got block: ~s",[blkinfo(Block)]),
+  %logger:info("Block ~p",[maps:with([header,temporary,hash],Block)]),
   case maps:is_key(temporary, Block) of
     true ->
       F({apply_block, Block});
@@ -290,19 +290,19 @@ handle_msg(#{null := <<"banner">>,
   Sub#{protocol=>v1};
 
 handle_msg(Msg, Sub) ->
-  lager:error("Unhandled msg ~p",[Msg]),
+  logger:error("Unhandled msg ~p",[Msg]),
   Sub.
 
 presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
       URL= <<"/api/binblock/",Ptr/binary>>,
-      lager:info("Going to ~s",[URL]),
+      logger:info("Going to ~s",[URL]),
       case sync_get_decode(Pid,URL) of
         {200, _Headers, #{
                           hash:=Hash,
                           header:=#{parent:=ParentHash,
                                     height:=Hei}
                          }=Blk} ->
-          lager:info("Has block h=~w 0x~s parent 0x~s",
+          logger:info("Has block h=~w 0x~s parent 0x~s",
                      [Hei, hex:encode(Hash), hex:encode(ParentHash)]),
           LBH=maps:get(hash,maps:get(last,Sub,#{}),undefined),
           case Blk of
@@ -314,7 +314,7 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
                        F({apply_block, Blk})
                   end,
               T1=erlang:system_time(microsecond),
-              lager:info("Blk install time ~.f sec~n",[(T1-T0)/1000000]),
+              logger:info("Blk install time ~.f sec~n",[(T1-T0)/1000000]),
               case Res of
                 {ok, ignore} ->
                   HexPH=hex:encode(Child),
@@ -323,7 +323,7 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
                   HexPH=hex:encode(Child),
                   presync(maps:remove(last,Sub), HexPH);
                 Other ->
-                  lager:error("presync stop, returned ~p",[Other]),
+                  logger:error("presync stop, returned ~p",[Other]),
                   {error, Other}
               end;
             #{hash:=BH,header:=_} ->
@@ -338,12 +338,12 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
                 {ok, ignore} ->
                   {ok, maps:remove(last,Sub)};
                 Other ->
-                  lager:error("presync stop, returned ~p",[Other]),
+                  logger:error("presync stop, returned ~p",[Other]),
                   {error, Other}
               end
           end;
 
-          %lager:info("Child ~p",[maps:with([child,children],Blk)]),
+          %logger:info("Child ~p",[maps:with([child,children],Blk)]),
           %Stop=if(Hei==0) -> true;
           %       (ParentHash==LastHas) ->
           %         true;
@@ -354,7 +354,7 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
           %       true ->
           %         false
           %     end,
-          %lager:info("Stop ~p",[Stop]),
+          %logger:info("Stop ~p",[Stop]),
           %if(Stop) ->
           %    {ok, Sub};
           %  true ->
@@ -363,11 +363,11 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
           %end;
         {500, _Headers, #{<<"ecee">>:=ErrorBody}} ->
           io:format("~s~n",[ErrorBody]),
-          lager:error("repl error 500 at ~s: ~s",[URL, ErrorBody]),
+          logger:error("repl error 500 at ~s: ~s",[URL, ErrorBody]),
           error;
         _Other ->
-          lager:info("Res ~p",[_Other]),
-          lager:error("Giving up",[]),
+          logger:info("Res ~p",[_Other]),
+          logger:error("Giving up",[]),
           error
       end.
 

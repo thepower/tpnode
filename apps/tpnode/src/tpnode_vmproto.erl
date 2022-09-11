@@ -53,7 +53,7 @@ init(Ref, Socket, Transport, _Opts) ->
 loop(#{socket:=Socket, transport:=Transport, reqs:=Reqs}=State) ->
   receive
     {tcp, Socket, <<Seq:32/big,Data/binary>>} ->
-      %lager:info("Got seq ~b payload ~p",[Seq,Data]),
+      %logger:info("Got seq ~b payload ~p",[Seq,Data]),
       {ok,Payload}=msgpack:unpack(Data),
       S1=case Seq rem 2 of
         0 ->
@@ -64,7 +64,7 @@ loop(#{socket:=Socket, transport:=Transport, reqs:=Reqs}=State) ->
       inet:setopts(Socket, [{active, once}]),
       ?MODULE:loop(S1);
     {tcp_closed, Socket} ->
-      lager:info("Client gone"),
+      logger:info("Client gone"),
       maps:fold(
         fun(ReqID,#req{owner=Owner},_Acc) ->
             Owner ! {result, ReqID, {error, vm_gone}}
@@ -85,31 +85,31 @@ loop(#{socket:=Socket, transport:=Transport, reqs:=Reqs}=State) ->
                "gas"=>Gas}
             ), State),
       From ! {run_req, Seq},
-      lager:debug("run tx ~p",[Seq]),
+      logger:debug("run tx ~p",[Seq]),
       R=#req{owner=From,t1=erlang:system_time()},
       ?MODULE:loop(S1#{reqs=>maps:put(Seq,R,Reqs)});
     Any ->
-      lager:info("unknown message ~p",[Any]),
+      logger:info("unknown message ~p",[Any]),
       ?MODULE:loop(State)
   end.
 
 handle_req(Seq, #{null:="hello"}=Request, State) ->
-  lager:debug("Got seq ~b hello ~p",[Seq, Request]),
+  logger:debug("Got seq ~b hello ~p",[Seq, Request]),
   reply(Seq, Request, State),
   ok=gen_server:call(tpnode_vmsrv,{register, self(), Request}),
   State;
 
 handle_req(Seq, Request, State) ->
-  lager:info("Got req seq ~b payload ~p",[Seq, Request]),
+  logger:info("Got req seq ~b payload ~p",[Seq, Request]),
   State.
 
 handle_res(Seq, Result, #{reqs:=Reqs}=State) ->
   case maps:find(Seq, Reqs) of
     error ->
-      lager:info("Got res seq ~b payload ~p",[Seq, Result]),
+      logger:info("Got res seq ~b payload ~p",[Seq, Result]),
       State;
     {ok, #req{owner=Pid, t1=T1}} ->
-      lager:debug("Got res seq ~b payload ~p",[Seq, Result]),
+      logger:debug("Got res seq ~b payload ~p",[Seq, Result]),
       Pid ! {result, Seq, {ok, Result, #{t=>erlang:system_time()-T1}}},
       State#{reqs=>maps:remove(Seq, Reqs)}
   end. 
@@ -122,14 +122,14 @@ reply(Seq, Payload, State) ->
   send(Seq bor 1, Payload, State).
 
 send(Seq, Payload, #{socket:=Socket, transport:=Transport}=State) when is_map(Payload) ->
-  lager:debug("Sending seq ~b : ~p",[Seq, Payload]),
+  logger:debug("Sending seq ~b : ~p",[Seq, Payload]),
   Data=msgpack:pack(Payload),
   if is_binary(Data) ->
        %F=lists:flatten(io_lib:format("log/vmproto_req_~w.bin",[Seq])),
        %file:write_file(F,Data),
        ok;
      true ->
-       lager:error("Can't encode ~p",[Payload]),
+       logger:error("Can't encode ~p",[Payload]),
        throw('badarg')
   end,
   Transport:send(Socket, <<Seq:32/big,Data/binary>>),

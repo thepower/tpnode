@@ -27,7 +27,7 @@ start_link(Args) ->
 %% ------------------------------------------------------------------
 
 init(Args) ->
-  lager:info("args ~p",[Args]),
+  logger:info("args ~p",[Args]),
   {ok, #{
      tmr=>erlang:send_after(100,self(),tmr),
      peer_ipport=>init_ipport(Args),
@@ -50,7 +50,7 @@ init_ipport(_) ->
   [].
 
 handle_call(active_out, _From, #{outctl:=OC}=State) ->
-  lager:info("Pid ~p asked me about active out ~p",
+  logger:info("Pid ~p asked me about active out ~p",
              [_From,OC]),
   {reply,
    case is_pid(OC) andalso is_process_alive(OC) of
@@ -116,7 +116,7 @@ handle_call({streams, AddStr}, _From, #{streams:=Str, pubkey:=TheirPub}=State) -
 handle_call({register, StreamID, Dir, PID},
             _From,
             #{mpid:=MPID, streams:=Str}=State) ->
-  lager:debug("Register pid ~p sid ~p dir ~p",[PID,StreamID,Dir]),
+  logger:debug("Register pid ~p sid ~p dir ~p",[PID,StreamID,Dir]),
   case maps:find(PID,MPID) of
     {ok, {undefined,_Dir1}} -> %replace with new stream id
       {reply, {ok, self()},
@@ -150,7 +150,7 @@ handle_call({register, StreamID, Dir, PID},
   end;
 
 handle_call(_Request, _From, State) ->
-  lager:info("Unhandled call ~p",[_Request]),
+  logger:info("Unhandled call ~p",[_Request]),
   {reply, unhandled, State}.
 
 handle_cast(_Msg, State) ->
@@ -163,7 +163,7 @@ handle_info(try_connect, #{streams:=Str,peer_ipport:=[{Host,Port}|RestIPP]}=Stat
     _ ->
       ok
   end,
-  lager:notice("Try connect payload streams ~p",[Str]),
+  logger:notice("Try connect payload streams ~p",[Str]),
   lists:foreach(
     fun({SID, Dir, undefined}) when Dir==undefined orelse Dir==out ->
         tpic2_client:start(Host,Port, #{stream=>SID});
@@ -178,10 +178,10 @@ handle_info(try_connect, #{streams:=Str,peer_ipport:=[{Host,Port}|RestIPP]}=Stat
 
 handle_info(tmr, #{tmr:=Tmr, pubkey:=PubKey, streams:=Str}=State) ->
   erlang:cancel_timer(Tmr),
-  lager:debug("tmr"),
+  logger:debug("tmr"),
   MyKey=nodekey:get_pub(),
   if(MyKey == PubKey ) ->
-      lager:notice("Found peer for myself, terminating"),
+      logger:notice("Found peer for myself, terminating"),
       lists:foreach(
         fun({_,_,PID}) when is_pid(PID) ->
             exit(PID,stop);
@@ -215,7 +215,7 @@ handle_info({'DOWN',_Ref,process,PID,_Reason}, #{mpid:=MPID,
           ok
       end,
 
-      lager:info("Down str ~p ~p ~p",[StrID, Dir, PID]),
+      logger:info("Down str ~p ~p ~p",[StrID, Dir, PID]),
       {noreply, apply_ctl(
                   State#{
                     ct=>erlang:send_after(100,self(),try_connect),
@@ -235,7 +235,7 @@ handle_info({'DOWN',_Ref,process,PID,_Reason}, #{mpid:=MPID,
  
 
 handle_info(_Info, State) ->
-  lager:info("Unhandled info ~p",[_Info]),
+  logger:info("Unhandled info ~p",[_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->

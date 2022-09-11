@@ -93,14 +93,14 @@ apply_macro(MapWithMacro, Dict) when is_map(MapWithMacro) andalso is_map(Dict) -
 
 log_stacktrace(StackTrace) ->
   lists:foreach(
-    fun(Where) -> lager:error("@ ~p", [Where]) end,
+    fun(Where) -> logger:error("@ ~p", [Where]) end,
     StackTrace
   ).
 
 %% -------------------------------------------------------------------------------------
 
 print_error(Message, Ec, Ee, StackTrace) ->
-  lager:error(make_list(Message) ++ " [~p:~p]", [Ec, Ee]),
+  logger:error(make_list(Message) ++ " [~p:~p]", [Ec, Ee]),
   log_stacktrace(StackTrace).
 
 %% -------------------------------------------------------------------------------------
@@ -116,7 +116,7 @@ logger(Format, Args) when is_list(Format), is_list(Args) ->
 
 
 % -----------------------------------------------------------------------------
-%% pretty print timestamp from lager/src/lager_utils.erl
+%% pretty print timestamp from logger/src/logger_utils.erl
 now_str() ->
   {_, _, Micro} = Now = os:timestamp(),
   {Date, {Hours, Minutes, Seconds}} = calendar:now_to_local_time(Now),

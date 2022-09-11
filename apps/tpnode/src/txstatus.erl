@@ -84,7 +84,7 @@ handle_cast({done, Result, Txs}, #{q:=Q} = State) when is_list(Txs) ->
 
 
 handle_cast(_Msg, State) ->
-  lager:notice("Unhandler cast ~p",[_Msg]),
+  logger:notice("Unhandler cast ~p",[_Msg]),
   {noreply, State}.
 
 handle_info(timer, #{timer:=Tmr} = State) ->

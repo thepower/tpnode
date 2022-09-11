@@ -43,7 +43,6 @@ lookup_trans(Token) ->
 add_peers(List) ->
   KnownPeers=lists:flatten([ maps:get(addr,Peer) || Peer <- tpic2:peers() ]),
   New=List--KnownPeers,
-  lager:debug("New peers ~p",[New]),
   [ tpic2_client:start(Host,Port,#{}) || {Host, Port} <- New ].
 
 add_trans(Token, Pid) ->

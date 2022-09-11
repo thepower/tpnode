@@ -6,7 +6,7 @@
         ]).
 
 init(Req, _Opts) ->
-  lager:debug("WS Upgrade req ~p",[Req]),
+  logger:debug("WS Upgrade req ~p",[Req]),
   case Req of
     #{headers:=#{<<"sec-websocket-protocol">> := <<"thepower-nodesync-v1">>}=H} ->
       {cowboy_websocket, Req, #{headers=>H,p=>v1}, #{ idle_timeout => 600000 }};
@@ -15,11 +15,11 @@ init(Req, _Opts) ->
   end.
 
 websocket_init(v0) ->
-  lager:debug("init websocket v0",[]),
+  logger:debug("init websocket v0",[]),
   {ok, 100};
 
 websocket_init(S0=#{p:=v1}) ->
-  lager:info("init websocket v1 ~p at pid ~p",[S0,self()]),
+  logger:info("init websocket v1 ~p at pid ~p",[S0,self()]),
   Msg=msgpack:pack(
         #{null=><<"banner">>,
           protocol=><<"thepower-nodesync-v1">>,
@@ -41,7 +41,7 @@ websocket_handle({text, _Msg}, 0) ->
 websocket_handle({text, Msg}, State) when is_integer(State) ->
   try
     JS=jsx:decode(Msg, [return_maps]),
-    lager:info("WS ~p", [JS]),
+    logger:info("WS ~p", [JS]),
     Ret=case JS of
           #{<<"sub">>:= <<"block">>} ->
             gen_server:cast(tpnode_ws_dispatcher, {subscribe, {block, json, full}, self()}),
@@ -72,7 +72,7 @@ websocket_handle({text, Msg}, State) when is_integer(State) ->
                           moresubs=>State-1
                          })}, State-1 }
   catch _:_ ->
-          lager:error("WS error ~p", [Msg]),
+          logger:error("WS error ~p", [Msg]),
           {ok, State}
   end;
 
@@ -85,7 +85,7 @@ websocket_handle({text, _}, #{p:=v1}=State) ->
 websocket_handle({binary, Bin}, #{p:=v1}=State) ->
     case msgpack:unpack(Bin) of
       {ok, #{}=M} ->
-        lager:debug("Bin ~p",[M]),
+        logger:debug("Bin ~p",[M]),
         handle_msg(M, State);
       {error, _}=E ->
         logger:debug("parse error1: ~p",[E]),
@@ -106,7 +106,7 @@ websocket_info({timeout, _Ref, Msg}, State) ->
   {reply, {text, Msg}, State};
 
 websocket_info(_Info, State) ->
-  lager:info("websocket info ~p", [_Info]),
+  logger:info("websocket info ~p", [_Info]),
   {ok, State}.
 
 handle_msg(#{null:= <<"ping">>}, State) ->
@@ -162,6 +162,6 @@ handle_msg(#{null:= <<"subscribe">>}, State) ->
   {reply, {binary, msgpack:pack(#{null=><<"subscribe_ack">>})}, State};
 
 handle_msg(Msg, State) ->
-  lager:info("unhandled WSv1 msg ~p",[Msg]),
+  logger:info("unhandled WSv1 msg ~p",[Msg]),
   {ok, State}.
 

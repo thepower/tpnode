@@ -49,12 +49,12 @@ handle_call(state, _From, State) ->
   {reply, State, State};
 
 handle_call(_Request, _From, State) ->
-  lager:notice("Unknown call ~p", [_Request]),
+  logger:notice("Unknown call ~p", [_Request]),
   {reply, ok, State}.
 
 handle_cast({push_tx, TxId, TxBody},
             #{queue:=Queue} = State) when is_binary(TxId), is_binary(TxBody) ->
-  lager:info("Pushed TX ~s",[TxId]),
+  logger:info("Pushed TX ~s",[TxId]),
   {noreply, State#{
               queue => queue:in({TxId, TxBody},Queue)
              }
@@ -62,14 +62,14 @@ handle_cast({push_tx, TxId, TxBody},
 
 handle_cast({push_tx, TxId},
             #{queue:=Queue} = State) when is_binary(TxId) ->
-  lager:info("Pushed TX ~s without body",[TxId]),
+  logger:info("Pushed TX ~s without body",[TxId]),
   {noreply, State#{
               queue => queue:in({TxId,null},Queue)
              }
   };
 
 handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
-  lager:info("push head ~p", [TxIds]),
+  logger:info("push head ~p", [TxIds]),
   stout:log(txqueue_pushhead, [ {ids, TxIds} ]),
 
   RevIds = lists:reverse(TxIds),
@@ -88,10 +88,10 @@ handle_cast({done, Txs}, #{inprocess:=InProc0,
     lists:foldl(
       fun
         ({Tx, _}, Acc) ->
-          lager:info("TX queue ext tx done ~p", [Tx]),
+          logger:info("TX queue ext tx done ~p", [Tx]),
           hashqueue:remove(Tx, Acc);
         (Tx, Acc) ->
-          lager:debug("TX queue tx done ~p", [Tx]),
+          logger:debug("TX queue tx done ~p", [Tx]),
           hashqueue:remove(Tx, Acc)
       end,
       InProc0,
@@ -121,10 +121,10 @@ handle_cast({failed, Txs}, #{inprocess:=InProc0,
   InProc1 = lists:foldl(
     fun
       ({_, {overdue, Parent}}, Acc) ->
-        lager:info("TX queue inbound block overdue ~p", [Parent]),
+        logger:info("TX queue inbound block overdue ~p", [Parent]),
         hashqueue:remove(Parent, Acc);
       ({TxID, Reason}, Acc) ->
-        lager:info("TX queue tx failed ~s ~p", [TxID, Reason]),
+        logger:info("TX queue tx failed ~s ~p", [TxID, Reason]),
         hashqueue:remove(TxID, Acc)
     end,
     InProc0,
@@ -156,14 +156,14 @@ handle_cast(settings, State) ->
 handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue, lost_cnt:=LCnt} = State) ->
 
   Time = erlang:system_time(seconds),
-  lager:info("Q ~p",[Queue]),
+  logger:info("Q ~p",[Queue]),
   {InProc1, {Queue1,LCnt1}} = recovery_lost(InProc0, Queue, Time, LCnt),
-  lager:info("Q1 ~p",[Queue1]),
+  logger:info("Q1 ~p",[Queue1]),
   ETime = Time + 20,
 
   {Queue2, TxIds} =
   txpool:pullx({txpool:get_max_pop_tx(), txpool:get_max_tx_size()}, Queue1, []),
-  lager:info("Q2 ~p",[Queue2]),
+  logger:info("Q2 ~p",[Queue2]),
 
   txlog:log(TxIds, #{where => txqueue_prepare}),
 
@@ -189,7 +189,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue, lost_
       #{},
       TxIds
      ),
-    lager:debug("txs for mkblock: ~p", [TxMap]),
+    logger:debug("txs for mkblock: ~p", [TxMap]),
     Entropy=crypto:strong_rand_bytes(32),
     MRes = msgpack:pack(
              #{
@@ -225,12 +225,12 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue, lost_
     }};
 
 handle_cast(prepare, State) ->
-  lager:notice("TXQUEUE Blocktime, but I am not ready"),
+  logger:notice("TXQUEUE Blocktime, but I am not ready"),
   {noreply, load_settings(State)};
 
 
 handle_cast(_Msg, State) ->
-  lager:notice("Unknown cast ~p", [_Msg]),
+  logger:notice("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
 handle_info(prepare, State) ->
@@ -243,7 +243,7 @@ handle_info({push_head, TxIds}, State) when is_list(TxIds) ->
   handle_cast({push_head, TxIds}, State);
 
 handle_info(_Info, State) ->
-  lager:notice("Unknown info ~p", [_Info]),
+  logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -264,7 +264,7 @@ push_queue_head(Txs, Queue, LCnt) ->
                     fun({TxID, TxBody}, {Q0,LC0}) ->
                         Recovered=maps:get(TxID,LC0,0),
                         if(Recovered>5) ->
-                            lager:error("Giving up tx ~p",[TxID]),
+                            logger:error("Giving up tx ~p",[TxID]),
                             {Q0,maps:remove(TxID, LC0)};
                           true ->
                             {[{TxID, TxBody}|Q0],maps:put(TxID, Recovered+1, LC0)}

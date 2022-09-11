@@ -84,8 +84,8 @@ h(<<"POST">>, [<<"tx">>,<<"validate">>], Req) ->
       end,
   maps:fold(
     fun(K,V,_) ->
-        lager:info("~s Res ~p",[K,V]),
-        lager:info("~s Res ~s",[K,jsx:encode(V)])
+        logger:info("~s Res ~p",[K,V]),
+        logger:info("~s Res ~s",[K,jsx:encode(V)])
     end, [], Res),
   tpnode_httpapi:answer(Res,
          #{jsx=>[ strict, {error_handler, EHF} ]}

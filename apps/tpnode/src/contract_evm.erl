@@ -235,7 +235,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                    #{address:=CAddr, value:=V}=CallArgs,
                    #{global_acc:=GAcc}=Xtra) ->
                    io:format("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
-                   lager:info("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
+                   logger:info("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
                    if V > 0 ->
                         TX=msgpack:pack(#{
                                           "k"=>tx:encode_kind(2,generic),
@@ -364,7 +364,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
 
 logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}=_EEvmState) ->
   LArgs=[binary:encode_unsigned(I) || I <- LArgs0],
-  lager:info("EVM log ~p ~p",[Message,LArgs]),
+  logger:info("EVM log ~p ~p",[Message,LArgs]),
   io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
   maps:put(log,[([evm,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog],Xtra).
 

@@ -155,14 +155,14 @@ wait_response(_Until,[],Acc) ->
     Acc;
 
 wait_response(Until,[NodeID|RR],Acc) ->
-    lager:debug("Waiting for reply"),
+    logger:debug("Waiting for reply",[]),
     T1=Until-erlang:system_time(millisecond),
     T=if(T1>0) -> T1;
         true -> 0
       end,
     receive 
         {'$gen_cast',{tpic,{NodeID,_,_}=R1,A}} ->
-            lager:debug("Got reply from ~p",[R1]),
+            logger:debug("Got reply from ~p",[R1]),
             wait_response(Until,RR,[{R1,A}|Acc])
     after T ->
               wait_response(Until,RR,Acc)
@@ -200,13 +200,13 @@ certificate() ->
            ),
   [{'Certificate',DerCert,not_encrypted}]=public_key:pem_decode(Cert),
   [
-   {key, {'ECPrivateKey', DERKey}},
+   {verify, verify_peer},
    {cert, DerCert},
+   {cacerts, [DerCert]},
    {verify_fun, {fun tpic2:verfun/3, []}},
    {fail_if_no_peer_cert, true},
-   {alpn_preferred_protocols, [<<"tpctl">>,<<"tpstream">>]},
-   {verify, verify_peer},
-   {cacerts, [DerCert]}
+  % {key, {'ECPrivateKey', DERKey}}
+   {key, {'PrivateKeyInfo', DERKey}}
   ].
 
 childspec() ->
@@ -214,7 +214,9 @@ childspec() ->
   Port=maps:get(port,Cfg,40000),
   HTTPOpts = fun(E) -> #{
                          connection_type => supervisor,
-                         socket_opts => [{port,Port}] ++ E ++ certificate()
+                         socket_opts => [{port,Port},
+                                         {alpn_preferred_protocols, [<<"tpctl">>,<<"tpstream">>]}
+                                        ] ++ E ++ certificate()
                         }
              end,
   tpic2_client:childspec() ++
@@ -224,14 +226,14 @@ childspec() ->
     permanent,20000,worker,[]
    },
    ranch:child_spec(
-     tpic_tls6,
+     tpic_tls,
      ranch_ssl,
      HTTPOpts([]),
      tpic2_tls,
      #{}
     ),
    ranch:child_spec(
-     tpic_tls,
+     tpic_tls6,
      ranch_ssl,
      HTTPOpts([inet6, {ipv6_v6only, true}]),
      tpic2_tls,
@@ -281,7 +283,7 @@ cert(Key, Subject) ->
       [{args, [
                "req", "-new", "-x509",
                "-key", "/dev/stdin",
-               "-days", "100",
+               "-days", "366",
                "-nodes", "-subj", "/CN="++binary_to_list(Subject)
               ]},
        eof,
@@ -313,7 +315,7 @@ extract_cert_info(
                        subject={rdnSequence,[Subj|_]},
                        subjectPublicKeyInfo=#'OTPSubjectPublicKeyInfo'{
                                                algorithm=PubKeyAlgo,
-                                               subjectPublicKey=PubKey
+                                               subjectPublicKey={'ECPoint',RawPK}=_PubKey
                                               }
                        % issuerUniqueID = asn1_NOVALUE,
                        % subjectUniqueID = asn1_NOVALUE,
@@ -322,16 +324,18 @@ extract_cert_info(
      %    signatureAlgorithm=SigAlgo,
      %    signature=Signature
     }) ->
+  #'PublicKeyAlgorithm'{algorithm = Algo} = PubKeyAlgo,
   #{ subj=>lists:keyfind(?'id-at-commonName',2,Subj),
-     pubkey=>PubKey,
-     keyalgo=>PubKeyAlgo }.
+     pubkey=>tpecdsa:wrap_pubkey(RawPK, Algo),
+     keyalgo=>PubKeyAlgo
+   }.
 
 verfun(PCert,{bad_cert, _} = Reason, _) ->
-  lager:debug("Peer Cert ~p~n",[extract_cert_info(PCert)]),
-  lager:info("Peer cert ~p~n",[Reason]),
+  logger:debug("Peer Cert ~p~n",[extract_cert_info(PCert)]),
+  logger:info("Peer cert ~p~n",[Reason]),
   {valid, Reason};
 verfun(_, Reason, _) ->
-  lager:notice("Bad cert. Reason ~p~n",[Reason]),
+  logger:notice("Bad cert. Reason ~p~n",[Reason]),
   {fail, unknown}.
 
 

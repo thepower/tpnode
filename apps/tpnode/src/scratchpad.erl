@@ -163,11 +163,11 @@ calc_pub(Priv) ->
     {XPub, Priv} ->
       tpecdsa:minify(XPub);
     {_XPub, XPriv} ->
-      lager:error_unsafe("Priv mismatch ~n~s~n~s",
-                         [
-                          bin2hex:dbin2hex(Priv),
-                          bin2hex:dbin2hex(XPriv)
-                         ]),
+      logger:error("Priv mismatch ~n~s~n~s",
+                   [
+                    bin2hex:dbin2hex(Priv),
+                    bin2hex:dbin2hex(XPriv)
+                   ]),
       error
   end.
 
@@ -480,12 +480,12 @@ r(Module) ->
   code:delete(Module),
   M1=Module:module_info(),
   Changed=proplists:get_value(md5,M0) =/= proplists:get_value(md5,M1),
-  error_logger:info_msg("Recompile ~s md5 ~p / ~p",
+  logger:info("Recompile ~s md5 ~p / ~p",
                         [Module,
                          proplists:get_value(md5,M0),
                          proplists:get_value(md5,M1)
                         ]),
-  error_logger:info_msg("Recompile ~s from ~s changed ~s",[Module,SRC,Changed]),
+  logger:info("Recompile ~s from ~s changed ~s",[Module,SRC,Changed]),
   {RC,
    Changed
   }.

@@ -41,20 +41,10 @@ childspec() ->
   ].
 
 connection_process(Parent, Host, Port, Opts) ->
-  Key=nodekey:get_priv(),
-  DerKey=tpecdsa:export(Key,der),
-  NodeName=nodekey:node_name(iolist_to_binary(net_adm:localhost())),
-  Cert=tpic2:cert(Key,NodeName),
-  [{'Certificate',DerCert,not_encrypted}]=public_key:pem_decode(Cert),
   SSLOpts=[
-           {verify, verify_peer},
-           %{fail_if_no_peer_cert, true},
-           {verify_fun, {fun tpic2:verfun/3, []}},
-           {fail_if_no_peer_cert, true},
            %{alpn_preferred_protocols, [<<"tpctl">>,<<"tpstream">>]},
-           {active, true},
-           {key, {'ECPrivateKey', DerKey}},
-           {cert, DerCert}
+           {active, true}
+           | tpic2:certificate()
           ],
   {Opts1,NAddr}=case inet:parse_address(Host) of
                  {ok, {_,_,_,_}=Addr} ->
@@ -66,18 +56,19 @@ connection_process(Parent, Host, Port, Opts) ->
                       {ok,{hostent,_,_,inet,_, [IPv4Addr|_]}} ->
                         {[],IPv4Addr};
                       {ok, Any} ->
-                        lager:error("Address ~p resolver unexpected result : ~p",[Host, Any]),
+                        %logger:error("Address ~p resolver unexpected result : ~p",[Host, Any]),
                         throw({unexpected_gethostbyname_answer,Any});
                       {error,nxdomain} ->
-                        lager:error("Address ~p can't resolve",[Host]),
+                        %logger:error("Address ~p can't resolve",[Host]),
                         throw({bad_hostname,Host})
                     end;
                  {error, Err} ->
-                   lager:error("Address ~p error: ~p",[Host, Err]),
+                   %logger:error("Address ~p error: ~p",[Host, Err]),
                    throw({parse_addr,Err})
                end,
   try
     {ok, TCPSocket} = gen_tcp:connect(NAddr, Port, [binary, {packet,4}]++Opts1),
+    logger:notice("Opts ~p~n",[SSLOpts]),
     {ok, Socket} = ssl:connect(TCPSocket, SSLOpts),
     ssl:setopts(Socket, [{active, once}]),
     {ok,PeerInfo}=ssl:connection_information(Socket),
@@ -95,6 +86,6 @@ connection_process(Parent, Host, Port, Opts) ->
     tpic2_tls:send_msg(hello, State),
     tpic2_tls:loop1(State)
   catch error:{badmatch,{error,econnrefused}} ->
-          lager:info("Peer ~s:~w conn refused",[inet:ntoa(NAddr),Port])
+          logger:info("Peer ~s:~w conn refused",[inet:ntoa(NAddr),Port])
   end.
 

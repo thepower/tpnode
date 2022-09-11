@@ -26,7 +26,7 @@ is_our_node(PubKey, Settings) ->
 
 is_our_node(PubKey) ->
   {ok, NMap} = chainsettings:get_setting(chainnodes),
-  maps:get(PubKey, NMap, false).
+  maps:get(tpecdsa:upgrade_pubkey(PubKey), NMap, false).
 
 get_setting(Named) ->
   case ets:lookup(blockchain,Named) of
@@ -62,11 +62,11 @@ by_path(GetPath) ->
   end.
 
 settings_to_ets(NewSettings) ->
-  lager:debug("Settings2ets ~p",[maps:with([<<"current">>],settings:clean_meta(NewSettings))]),
+  logger:debug("Settings2ets ~p",[maps:with([<<"current">>],settings:clean_meta(NewSettings))]),
   Patches=settings:get_patches(NewSettings,ets),
   Ver=erlang:system_time(),
   SetApply=lists:map(fun(#{<<"p">>:=Path,<<"t">>:=Action,<<"v">>:=Value}) ->
-                  %lager:info("Path ~p:~p",[Path,Action]),
+                  %logger:info("Path ~p:~p",[Path,Action]),
                   {Path, Ver, Action, Value}
               end,  Patches),
   %ets:match(blockchain,{[<<"current">>,<<"fee">>|'$1'],'_','$2'})
@@ -89,7 +89,7 @@ settings_to_ets(NewSettings) ->
                fun(_PubKey, Name) ->
                    maps:get(Name, NodeChain, 0) == MyChain
                end, ChainNodes0),
-  lager:info("My name ~s chain ~p our chain nodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
+  logger:notice("My name ~s chain ~p our chain nodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
   ets:insert(blockchain,[{myname,MyName},{chainnodes,ChainNodes},{mychain,MyChain}]),
   NewSettings.
 
@@ -108,7 +108,7 @@ get_val(Name, Default) when Name==minsig; Name==patchsig ->
      true ->
        case ets:lookup(blockchain,chainnodes) of
          [{chainnodes,Map}] ->
-           lager:error("No ~s specified!!!!!",[Name]),
+           logger:error("No ~s specified!!!!!",[Name]),
            (maps:size(Map) div 2)+1;
          _ ->
            Default
@@ -159,7 +159,7 @@ get(Name, Sets, GetChain) ->
      true ->
        MinSig_old=settings:get([chain,GetChain(),Name], Sets),
        if is_integer(MinSig_old) ->
-            lager:info("Got setting ~p from deprecated place",[Name]),
+            logger:info("Got setting ~p from deprecated place",[Name]),
             MinSig_old;
           true -> undefined
        end

@@ -133,7 +133,7 @@ h(<<"GET">>, [<<"owblock">>,BChain,SBlock], _Req) ->
 
 h(_Method, [<<"status">>], Req) ->
   {RemoteIP, _Port} = cowboy_req:peer(Req),
-  lager:info("api call from ~p", [inet:ntoa(RemoteIP)]),
+  logger:info("api call from ~p", [inet:ntoa(RemoteIP)]),
   Body = apixiom:body_data(Req),
 
   reply(200, #{

@@ -55,7 +55,7 @@ handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
         {ok, Struct} ->
             handle_cast({tpic, From, Struct}, State);
         _Any ->
-            lager:info("Can't decode TPIC ~p", [_Any]),
+            logger:info("Can't decode TPIC ~p", [_Any]),
             {noreply, State}
     end;
 
@@ -64,7 +64,7 @@ handle_cast({tpic, FromKey, #{
                      <<"lbh">>:=LBH
                     }}, State)  ->
   Origin=chainsettings:is_our_node(FromKey),
-  lager:debug("MB Node ~s tells I lagging, his h=~w", [Origin, LBH]),
+  logger:debug("MB Node ~s tells I lagging, his h=~w", [Origin, LBH]),
   {noreply, State};
 
 
@@ -74,7 +74,7 @@ handle_cast({tpic, FromKey, #{
                      <<"signed">> := SignedBy
                     }}, State)  ->
   Origin=chainsettings:is_our_node(FromKey),
-  lager:debug("MB presig got ~s ~p", [Origin, SignedBy]),
+  logger:debug("MB presig got ~s ~p", [Origin, SignedBy]),
   if Origin==false ->
        {noreply, State};
      true ->
@@ -93,7 +93,7 @@ handle_cast({tpic, FromKey, #{
   TXs=decode_tpic_txs(maps:to_list(TPICTXs)),
   if TXs==[] -> ok;
      true ->
-       lager:info("Got txs from ~s: ~p",
+       logger:info("Got txs from ~s: ~p",
             [
              chainsettings:is_our_node(FromKey),
              TXs
@@ -115,7 +115,7 @@ handle_cast({tpic, FromKey, #{
       case block:verify(PreBlk, [hdronly, {checksig, CheckFun}]) of
         {true, {Sigs,_}} when length(Sigs) >= MS ->
           % valid block, enough sigs
-          lager:debug("Got blk from peer ~p",[PreBlk]),
+          logger:debug("Got blk from peer ~p",[PreBlk]),
           handle_cast({prepare, FromKey, TXs, HeiHas, Entropy, Timestamp}, State);
         {true, _ } ->
           % valid block, not enough sigs
@@ -132,13 +132,13 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
               preptxm:=PreTXM}=State) ->
   Origin=chainsettings:is_our_node(Node),
   if Origin==false ->
-       lager:error("Got txs from bad node ~s",
+       logger:error("Got txs from bad node ~s",
              [bin2hex:dbin2hex(Node)]),
        {noreply, State};
      true ->
        if Txs==[] -> ok;
         true ->
-          lager:info("HI TXs from node ~s: ~p time ~p",
+          logger:info("HI TXs from node ~s: ~p time ~p",
                [ Origin, length(Txs), Timestamp ])
        end,
        MarkTx =
@@ -166,19 +166,19 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
                      bad_sig ->
                        throw('bad_sig');
                      {ok, Tx1} ->
-                       lager:info("TX ok ~p",[TxID]),
+                       logger:info("TX ok ~p",[TxID]),
                        tx:set_ext(origin, Origin, Tx1)
                    end
                end
              catch
                throw:no_transaction ->
-                 lager:info("TX absend ~p",[TxID]),
+                 logger:info("TX absend ~p",[TxID]),
                  null;
                throw:bad_sig ->
-                 lager:info("TX bad_sig ~p",[TxID]),
+                 logger:info("TX bad_sig ~p",[TxID]),
                  null;
                _Ec:_Ee:S ->
-                 lager:info("TX error ~p",[TxID]),
+                 logger:info("TX error ~p",[TxID]),
                  %S=erlang:get_stacktrace(),
                  utils:print_error("Error", _Ec, _Ee, S),
                  file:write_file(
@@ -222,13 +222,13 @@ handle_cast(settings, State) ->
     {noreply, load_settings(State)};
 
 handle_cast(_Msg, State) ->
-    lager:info("MB unknown cast ~p", [_Msg]),
+    logger:info("MB unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(process, #{preptxm := PreTxMap, presig := PreSig, gbpid:=PID}=State) ->
   case is_process_alive(PID) of
     true ->
-      lager:info("skip PreSig ~p, PreTxMap ~p", [PreSig, PreTxMap]),
+      logger:info("skip PreSig ~p, PreTxMap ~p", [PreSig, PreTxMap]),
       {noreply, State#{preptxm=>#{},
                        presig=>#{}
                       }};
@@ -251,7 +251,7 @@ handle_info(process,
   }};
 
 handle_info(process, State) ->
-    lager:notice("MKBLOCK Blocktime, but I not ready"),
+    logger:notice("MKBLOCK Blocktime, but I not ready"),
     {noreply, load_settings(State)};
 
 handle_info(_Info, State) ->
@@ -296,10 +296,10 @@ decode_tpic_txs(TXs) ->
             {TxID, Tx} when is_map(Tx) ->
               Tx;
             error ->
-              lager:error("can't get body for tx ~p", [TxID]),
+              logger:error("can't get body for tx ~p", [TxID]),
               null;
             _Any ->
-              lager:error("can't get body for tx ~p unknown response ~p", [TxID, _Any]),
+              logger:error("can't get body for tx ~p unknown response ~p", [TxID, _Any]),
               null
           end,
         {TxID, TxBody};
@@ -308,10 +308,10 @@ decode_tpic_txs(TXs) ->
       ({TxID, Tx}) when is_binary(Tx) ->
         try
         Unpacked = tx:unpack(Tx),
-%%      lager:info("debug tx unpack: ~p", [Unpacked]),
+%%      logger:info("debug tx unpack: ~p", [Unpacked]),
         {TxID, Unpacked}
         catch Ec:Ee ->
-                lager:error("TX ~p decode error ~p:~p",[TxID,Ec,Ee]),
+                logger:error("TX ~p decode error ~p:~p",[TxID,Ec,Ee]),
                 {TxID, null}
         end;
       ({TxID, Tx}) when is_map(Tx) ->
@@ -324,13 +324,13 @@ hei_and_has(B) ->
   PTmp=maps:get(temporary,B,false),
 
   case PTmp of false ->
-                 lager:info("Prev block is permanent, make child"),
+                 logger:info("Prev block is permanent, make child"),
                  #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=B,
                  {Last_Height1,
                   Last_Hash1,
                   <<(bnot Last_Height1):64/big,Last_Hash1/binary>>};
                X when is_integer(X) ->
-                 lager:info("Prev block is temporary, make replacement"),
+                 logger:info("Prev block is temporary, make replacement"),
                  #{header:=#{height:=Last_Height1, parent:=Last_Hash1}}=B,
                  {Last_Height1-1,
                   Last_Hash1,

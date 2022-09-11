@@ -38,10 +38,10 @@ new_sig(BlockHash, Sigs) ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-  Table=ets:new(blockchain,[named_table,protected,bag,{read_concurrency,true}]),
-  lager:info("Table created: ~p",[Table]),
+  Table=ets:new(blockchain,[named_table,protected,set,{read_concurrency,true}]),
+  logger:info("Table created: ~p",[Table]),
   BTable=ets:new(lastblock,[named_table,protected,set,{read_concurrency,true}]),
-  lager:info("Table created: ~p",[BTable]),
+  logger:info("Table created: ~p",[BTable]),
   NodeID=nodekey:node_id(),
   {ok, LDB}=ldb:open(utils:dbpath(db)),
   LastBlockHash=ldb:read_key(LDB, <<"lastblock">>, <<0, 0, 0, 0, 0, 0, 0, 0>>),
@@ -64,12 +64,12 @@ init(_Args) ->
                 LBLK=case Restore of
                   default -> genesis:genesis();
                   {genesis, Path} ->
-                    lager:notice("Genesis from ~s",[Path]),
+                    logger:notice("Genesis from ~s",[Path]),
                     {ok, [Genesis]}=file:consult(Path),
                     Genesis;
                   {backup, Path} ->
                     P=Path++"/0.txt",
-                    lager:notice("Restoring from ~s",[P]),
+                    logger:notice("Restoring from ~s",[P]),
                     {ok, [Genesis]}=file:consult(P),
                     Genesis
                 end,
@@ -79,7 +79,7 @@ init(_Args) ->
                 Block
             end,
   Conf=load_sets(LDB, LastBlock),
-  lager:info("My last block hash ~s",
+  logger:info("My last block hash ~s",
              [bin2hex:dbin2hex(LastBlockHash)]),
   lastblock2ets(BTable, LastBlock),
   Res=mychain(#{
@@ -186,10 +186,10 @@ handle_call({new_block, #{hash:=BlockHash,
               is_tuple(PID) -> PID;
               true -> emulator
            end,
-  lager:info("Arrived block from ~p Verify block with ~p",
+  logger:info("Arrived block from ~p Verify block with ~p",
              [FromNode, maps:keys(Blk)]),
 
-  lager:info("New block (~p/~p) hash ~s (~s/~s)",
+  logger:info("New block (~p/~p) hash ~s (~s/~s)",
              [
               Hei,
               maps:get(height, maps:get(header, LastBlock)),
@@ -217,7 +217,7 @@ handle_call({new_block, #{hash:=BlockHash,
                         integer_to_list(maps:get(height, Header)) ++ ".txt",
                         io_lib:format("~p.~n", [Blk])
                        ),
-        lager:info("Got bad block from ~p New block ~w arrived ~s, verify (~.3f ms)",
+        logger:info("Got bad block from ~p New block ~w arrived ~s, verify (~.3f ms)",
                    [FromNode, Hei, blkid(BlockHash), (T1-T0)/1000000]),
         throw(bad_block);
       {true, {Success, _}} ->
@@ -233,12 +233,12 @@ handle_call({new_block, #{hash:=BlockHash,
         Txs=maps:get(txs, Blk, []),
         Txsl=length(Txs),
         if LenSucc>0 ->
-             lager:info("from ~p New block ~w arrived ~s, txs ~b, verify ~w sig (~.3f ms)",
+             logger:info("from ~p New block ~w arrived ~s, txs ~b, verify ~w sig (~.3f ms)",
                         [FromNode, maps:get(height, maps:get(header, Blk)),
                          blkid(BlockHash), Txsl, length(Success), (T1-T0)/1000000]),
              ok;
            true ->
-             lager:info("from ~p New block ~w arrived ~s, txs ~b, no sigs (~.3f ms)",
+             logger:info("from ~p New block ~w arrived ~s, txs ~b, no sigs (~.3f ms)",
                         [FromNode, maps:get(height, maps:get(header, Blk)),
                          blkid(BlockHash), Txsl, (T1-T0)/1000000]),
              throw(ingore)
@@ -253,9 +253,9 @@ handle_call({new_block, #{hash:=BlockHash,
                   }
              end,
         SigLen=length(maps:get(sign, MBlk)),
-        lager:debug("Signs ~p", [Success]),
+        logger:debug("Signs ~p", [Success]),
         MinSig=getset(minsig,State),
-        lager:info("Sig ~p ~p", [SigLen, MinSig]),
+        logger:info("Sig ~p ~p", [SigLen, MinSig]),
         if SigLen>=MinSig ->
              IsTemp=maps:get(temporary,Blk,false) =/= false,
              Header=maps:get(header, Blk),
@@ -263,7 +263,7 @@ handle_call({new_block, #{hash:=BlockHash,
              NewPHash=maps:get(parent, Header),
 
              if LBlockHash==BlockHash ->
-                 lager:info("Ignore repeated block ~s",
+                 logger:info("Ignore repeated block ~s",
                              [
                               blkid(LBlockHash)
                              ]),
@@ -281,7 +281,7 @@ handle_call({new_block, #{hash:=BlockHash,
                                           {node, nodekey:node_name()},
                                           {height,maps:get(height, maps:get(header, Blk))}
                                          ]),
-                  lager:info("Probably I need to resynchronize, height ~p/~p new block parent ~s, but my ~s",
+                  logger:info("Probably I need to resynchronize, height ~p/~p new block parent ~s, but my ~s",
                              [
                               maps:get(height, maps:get(header, Blk)),
                               maps:get(height, maps:get(header, LastBlock)),
@@ -324,7 +324,7 @@ handle_call({new_block, #{hash:=BlockHash,
                   Roots=maps:get(roots,Header,[]),
                   %normal block installation
                   %Filename="ledger_"++integer_to_list(os:system_time(millisecond))++atom_to_list(node())++"_bcupd",
-                  %lager:info("Dumping to file ~s",[Filename]),
+                  %logger:info("Dumping to file ~s",[Filename]),
                   %mledger:dump_ledger({block_roots,Roots},Filename),
                   %
                   %
@@ -333,7 +333,7 @@ handle_call({new_block, #{hash:=BlockHash,
                   %NewTable=apply_bals(MBlk, Tbl),
                   Sets1_pre=apply_block_conf(MBlk, Sets),
                   Sets1=apply_block_conf_meta(MBlk, Sets1_pre),
-                  lager:debug("Txs ~p", [ Txs ]),
+                  logger:debug("Txs ~p", [ Txs ]),
 
                   NewLastBlock=LastBlock#{
                                  child=>BlockHash
@@ -347,16 +347,16 @@ handle_call({new_block, #{hash:=BlockHash,
                              _ ->
                                {checkput, BlockLedgerHash}
                            end, MBlk),
-                  lager:info("LApply ~p",[LApply]),
+                  logger:info("LApply ~p",[LApply]),
 
                   LHash=case LApply of
                           {ok, LH11} ->
                             LH11;
                           {error, LH11} ->
                             %mledger:dump_ledger(MBlk,Filename++"FUCK"),
-                            lager:error("Ledger error, hash mismatch on check and put ~p =/= ~p",
+                            logger:error("Ledger error, hash mismatch on check and put ~p =/= ~p",
                                         [LH11, BlockLedgerHash]),
-                            lager:error("Database corrupted"),
+                            logger:error("Database corrupted"),
                             tpnode:die("Ledger hash mismatch")
                         end,
 
@@ -390,7 +390,7 @@ handle_call({new_block, #{hash:=BlockHash,
                                              extdata:=#{<<"addr">>:=Addr}}}) ->
                                     {TxID, #{address=>Addr, block=>BlockHash}};
                                    ({TxID, _Any}) ->
-                                    lager:info("TX ~p",[_Any]),
+                                    logger:info("TX ~p",[_Any]),
                                     {TxID, #{block=>BlockHash}}
                                 end, Txs),
 
@@ -409,7 +409,7 @@ handle_call({new_block, #{hash:=BlockHash,
                   gen_server:cast(txqueue, {done, proplists:get_keys(Settings)}),
 
                   T3=erlang:system_time(),
-                  lager:info("enough confirmations ~w/~w. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",
+                  logger:info("enough confirmations ~w/~w. Installing new block ~s h= ~b (~.3f ms)/(~.3f ms)",
                              [
                               SigLen, MinSig,
                               blkid(BlockHash),
@@ -451,9 +451,9 @@ handle_call({new_block, #{hash:=BlockHash,
                                               [withext])
                                            }}
                                  end, EmitTXs),
-                      lager:info("Inject TXs ~p", [EmitTXs]),
+                      logger:info("Inject TXs ~p", [EmitTXs]),
                       Push=gen_server:cast(txstorage, {store_etxs, EmitBTXs}),
-                      lager:info("Inject TXs res ~p", [EmitBTXs]),
+                      logger:info("Inject TXs res ~p", [EmitBTXs]),
                       IDs=[ TxID || {TxID, _} <- EmitBTXs ],
                       gen_server:cast(txqueue,{push_head, [ {TxID, null} || TxID <- IDs]}),
                       stout:log(push_etx,
@@ -467,7 +467,7 @@ handle_call({new_block, #{hash:=BlockHash,
                   maps:fold(
                     fun(ChainID, OutBlock, _) ->
                         try
-                          lager:info("Out to ~b ~p",
+                          logger:info("Out to ~b ~p",
                                      [ChainID, OutBlock]),
                           Chid=xchain:pack_chid(ChainID),
                           xchain_dispatcher:pub(
@@ -479,11 +479,11 @@ handle_call({new_block, #{hash:=BlockHash,
                             })
                         catch XEc:XEe:S ->
                                 %S=erlang:get_stacktrace(),
-                                lager:error("Can't publish outward block: ~p:~p",
+                                logger:error("Can't publish outward block: ~p:~p",
                                             [XEc, XEe]),
                                 lists:foreach(
                                   fun(Se) ->
-                                      lager:error("at ~p", [Se])
+                                      logger:error("at ~p", [Se])
                                   end, S)
                         end
                     end, 0, block:outward_mk(MBlk)),
@@ -536,16 +536,16 @@ handle_call({new_block, #{hash:=BlockHash,
           {reply, {error, Descr}, State};
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
-          lager:error("BC new_block error ~p:~p", [Ec, Ee]),
+          logger:error("BC new_block error ~p:~p", [Ec, Ee]),
           lists:foreach(
             fun(Se) ->
-                lager:error("at ~p", [Se])
+                logger:error("at ~p", [Se])
             end, S),
           {reply, {error, unknown}, State}
   end;
 
 handle_call(_Request, _From, State) ->
-  lager:info("Unhandled ~p",[_Request]),
+  logger:info("Unhandled ~p",[_Request]),
   {reply, unhandled_call, State}.
 
 handle_cast({new_block, #{hash:=BlockHash}=Blk,  PID},
@@ -557,7 +557,7 @@ handle_cast({new_block, #{hash:=BlockHash}=Blk,  PID},
              {node, nodekey:node_name()},
              {height,maps:get(height, maps:get(header, Blk))}
             ]),
-  lager:info("Ignore block from ~p during sync with ~p", [PID, SyncPid]),
+  logger:info("Ignore block from ~p during sync with ~p", [PID, SyncPid]),
   {noreply, State};
 
 handle_cast({new_block, #{hash:=_}, _PID}=Message, State) ->
@@ -575,7 +575,7 @@ handle_cast({signature, BlockHash, Sigs},
   %NewSigs=lists:usort(OldSigs ++ Success),
   NewSigs=bsig:add_sig(OldSigs, Success),
   if(OldSigs=/=NewSigs) ->
-      lager:info("Extra confirmation of prev. block ~s +~w=~w",
+      logger:info("Extra confirmation of prev. block ~s +~w=~w",
                  [blkid(BlockHash),
                   length(Success),
                   length(NewSigs)
@@ -584,7 +584,7 @@ handle_cast({signature, BlockHash, Sigs},
       save_block(LDB, NewLastBlk, false),
       {noreply, State#{tmpblock=>NewLastBlk}};
     true ->
-      lager:info("Extra confirm not changed ~w/~w",
+      logger:info("Extra confirm not changed ~w/~w",
                  [length(OldSigs), length(NewSigs)]),
       {noreply, State}
   end;
@@ -600,7 +600,7 @@ handle_cast({signature, BlockHash, Sigs},
   %NewSigs=lists:usort(OldSigs ++ Success),
   NewSigs=bsig:add_sig(OldSigs, Success),
   if(OldSigs=/=NewSigs) ->
-      lager:info("Extra confirmation of prev. block ~s +~w=~w",
+      logger:info("Extra confirmation of prev. block ~s +~w=~w",
                  [blkid(BlockHash),
                   length(Success),
                   length(NewSigs)
@@ -609,13 +609,13 @@ handle_cast({signature, BlockHash, Sigs},
       save_block(LDB, NewLastBlk, false),
       {noreply, State#{lastblock=>NewLastBlk}};
     true ->
-      lager:info("Extra confirm not changed ~w/~w",
+      logger:info("Extra confirm not changed ~w/~w",
                  [length(OldSigs), length(NewSigs)]),
       {noreply, State}
   end;
 
 handle_cast({signature, BlockHash, _Sigs}, State) ->
-  lager:info("Got sig for block ~s, but it's not my last block",
+  logger:info("Got sig for block ~s, but it's not my last block",
              [blkid(BlockHash) ]),
   T=maps:get(unksig,State,0),
   if(T>=2) ->
@@ -626,7 +626,7 @@ handle_cast({signature, BlockHash, _Sigs}, State) ->
   end;
 
 handle_cast(_Msg, State) ->
-  lager:info("Unknown cast ~p", [_Msg]),
+  logger:info("Unknown cast ~p", [_Msg]),
   file:write_file("tmp/unknown_cast_msg.txt", io_lib:format("~p.~n", [_Msg])),
   file:write_file("tmp/unknown_cast_state.txt", io_lib:format("~p.~n", [State])),
   {noreply, State}.
@@ -639,7 +639,7 @@ handle_info({backup, Path, From, LH, Cnt}, #{ldb:=LDB}=State) ->
     undefined ->
       gen_server:reply(From,{noblock, LH, Cnt});
     #{header:=#{parent:=Parent,height:=Hei}} ->
-      lager:info("B ~p",[Hei]),
+      logger:info("B ~p",[Hei]),
       if(Cnt rem 10 == 0) ->
           erlang:send(self(), {backup, Path, From, Parent, Cnt+1});
         true ->
@@ -651,11 +651,11 @@ handle_info({backup, Path, From, LH, Cnt}, #{ldb:=LDB}=State) ->
   {noreply, State};
 
 handle_info(_Info, State) ->
-  lager:info("BC unhandled info ~p", [_Info]),
+  logger:info("BC unhandled info ~p", [_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
-  lager:error("Terminate blockchain ~p", [_Reason]),
+  logger:error("Terminate blockchain ~p", [_Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -712,8 +712,8 @@ apply_ledger(Action, #{bals:=S, hash:=BlockHash, header:=#{height:=Height}}) ->
                  )
                }|Acc]
           end, [], S),
-  %lager:info("Apply bals ~p", [Patch]),
-  %lager:info("Apply patches ~p", [mledger:bals2patch(Patch)]),
+  %logger:info("Apply bals ~p", [Patch]),
+  %logger:info("Apply patches ~p", [mledger:bals2patch(Patch)]),
   LR=case Action of
        {checkput, Hash} ->
          mledger:apply_patch(mledger:bals2patch(Patch), {commit, {Height, BlockHash}, Hash});
@@ -722,7 +722,7 @@ apply_ledger(Action, #{bals:=S, hash:=BlockHash, header:=#{height:=Height}}) ->
        put ->
          {ok,mledger:apply_patch(mledger:bals2patch(Patch), {commit, {Height, BlockHash}})}
      end,
-  lager:info("Apply ~p ~p", [Action, LR]),
+  logger:info("Apply ~p ~p", [Action, LR]),
   LR.
 
 apply_block_conf_meta(#{hash:=Hash}=Block, Conf0) ->
@@ -746,11 +746,11 @@ apply_block_conf(Block, Conf0) ->
   end,
   lists:foldl(
     fun({_TxID, #{patch:=Body}}, Acc) -> %old patch
-        lager:notice("TODO: Must check sigs"),
+        logger:notice("TODO: Must check sigs"),
         %Hash=crypto:hash(sha256, Body),
         settings:patch(Body, Acc);
        ({_TxID, #{patches:=Body,kind:=patch}}, Acc) -> %new patch
-        lager:notice("TODO: Must check sigs"),
+        logger:notice("TODO: Must check sigs"),
         %Hash=crypto:hash(sha256, Body),
         settings:patch(Body, Acc)
     end, Conf0, S).
@@ -771,7 +771,7 @@ notify_settings() ->
 
 mychain(State) ->
   {MyChain, MyName, ChainNodes}=blockchain_reader:mychain(),
-  lager:info("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
+  logger:info("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
   ets:insert(blockchain,[{myname,MyName},{chainnodes,ChainNodes},{mychain,MyChain}]),
   maps:merge(State,
              #{myname=>MyName,
@@ -801,7 +801,7 @@ backup(DBH, Path, LH, Cnt) ->
       ok=file:write_file(Path++"/"++integer_to_list(Hei)++".txt",
                          [io_lib_pretty:print(Blk,[{strings,true}]),".\n"],
                          [{encoding, utf8}]),
-      lager:info("B ~p",[Hei]),
+      logger:info("B ~p",[Hei]),
       backup(DBH, Path, Parent, Cnt+1);
     #{header:=#{}} ->
       {done, Cnt}
@@ -822,7 +822,7 @@ restore(Dir, N, Prev, C) ->
       ok=gen_server:call(blockchain_updater,{new_block, Blk, self()}),
       restore(Dir, N+1, Hash, C+1);
     {ok, [#{header:=Header}]} ->
-      lager:error("Block in ~s (~p) is invalid for parent ~p",
+      logger:error("Block in ~s (~p) is invalid for parent ~p",
                   [P,Header,Prev]),
       {done, N-1, C}
   end.

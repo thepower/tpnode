@@ -13,7 +13,7 @@
 %%      EtsTableName,
 %%      [named_table, protected, set, {read_concurrency, true}]
 %%    ),
-%%  lager:info("table ~p was created", [Table]).
+%%  logger:info("table ~p was created", [Table]).
 %%
 
 

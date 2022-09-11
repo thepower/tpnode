@@ -33,7 +33,7 @@ loop(#{socket:=Socket, transport:=Transport}=State) ->
   end.
 
 handle_res(Seq, Payload, State) ->
-  lager:info("Res ~b ~p",[Seq,Payload]),
+  logger:info("Res ~b ~p",[Seq,Payload]),
   State.
 
 handle_req(Seq, #{null:="exec",
@@ -49,7 +49,7 @@ handle_req(Seq, #{null:="exec",
          generic ->
            maps:get(<<"code">>,Ledger)
        end,
-  %lager:info("Req ~b ~p",[Seq,maps:remove(body,Tx)]),
+  %logger:info("Req ~b ~p",[Seq,maps:remove(body,Tx)]),
   MapBind0=#{
              'Gas'=>Gas,
              'Ledger'=>Ledger,
@@ -77,7 +77,7 @@ handle_req(Seq, #{null:="exec",
   T2=erlang:system_time(),
   Ret=eval(Code, Bindings),
   T3=erlang:system_time(),
-  lager:debug("Ret ~p",[Ret]),
+  logger:debug("Ret ~p",[Ret]),
   case Ret of
     {ok, RetVal, NewState, NewGas, NewTxs} ->
       T4=erlang:system_time(),
@@ -118,7 +118,7 @@ handle_req(Seq, #{null:="exec",
   end;
 
 handle_req(Seq, Payload, State) ->
-  lager:info("Req ~b ~p",[Seq,Payload]),
+  logger:info("Req ~b ~p",[Seq,Payload]),
   State.
 
 
@@ -130,7 +130,7 @@ eval(Source, Bindings) ->
   case erl_eval:exprs(Parsed, Bindings) of
     {value, Result, _} -> Result;
     Any ->
-      lager:error("Error ~p",[Any]),
+      logger:error("Error ~p",[Any]),
       throw('eval_error')
   end.
 

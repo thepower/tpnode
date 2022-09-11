@@ -74,16 +74,16 @@ format_status(_Opt, [_PDict, State, Data]) ->
 %% @end
 %%--------------------------------------------------------------------
 state_init({call, Caller}, _Msg, Data) ->
-  lager:info("Got unhandled call: ~p",[_Msg]),
+  logger:info("Got unhandled call: ~p",[_Msg]),
   {keep_state, Data, [{reply, Caller, unhandled}]};
 
 state_init(cast, {new_block,{Height, Hash, _Parent}, Origin}, #{loaders:=PIDs}=Data) ->
   Ptr=hex:encode(Hash),
   Query= <<"/api/binblock/",Ptr/binary>>,
 
-  lager:info("Got new block, should sync ~p: ~p",[Height,blockchain:blkid(Hash)]),
+  logger:info("Got new block, should sync ~p: ~p",[Height,blockchain:blkid(Hash)]),
   R=httpget(Origin, Query, PIDs),
-  lager:debug("httpget ~p",[R]),
+  logger:debug("httpget ~p",[R]),
   case R of
     {ok, {200, _Headers, Body}, PidList1} ->
       Block=block:unpack(Body),
@@ -113,8 +113,8 @@ state_init(info, run_workers, _Data) ->
   Al=[ URI || {_,URI} <- Active ],
   ToStop = Al -- Config,
   ToRun = Config -- Al,
-  lager:debug("Run workers ~p",[ToRun]),
-  lager:debug("Stop workers ~p",[ToStop]),
+  logger:debug("Run workers ~p",[ToRun]),
+  logger:debug("Stop workers ~p",[ToStop]),
   lists:foreach(
     fun(URI) ->
         supervisor:start_child(
@@ -136,7 +136,7 @@ state_init(info, {wrk_up,_Pid,_}, _Data) ->
   keep_state_and_data;
 
 state_init(Kind, Msg, _Data) ->
-  lager:info("Got unhandled ~p: ~p",[Kind,Msg]),
+  logger:info("Got unhandled ~p: ~p",[Kind,Msg]),
   keep_state_and_data.
 
 terminate(_Reason, _State, _Data) ->
@@ -174,12 +174,12 @@ do_connect(URL) ->
         {ok, _} ->
           {ok, ConnPid};
         Reason ->
-          lager:notice("Can't connect to ~s: ~p",[URL,Reason]),
+          logger:notice("Can't connect to ~s: ~p",[URL,Reason]),
           gun:close(ConnPid),
           {error, Reason}
       end;
     {error, Err} ->
-      lager:error("Error connecting to ~s: ~p",[URL,Err]),
+      logger:error("Error connecting to ~s: ~p",[URL,Err]),
       {error, Err}
   end.
 
@@ -210,7 +210,7 @@ do_httpget(Pid, URL) ->
   Ref=gun:get(Pid,URL),
   case gun:await(Pid, Ref, 20000) of
     {response, _, HttpCode, Headers} ->
-      lager:info("Getting ~s code ~p",[URL, HttpCode]),
+      logger:info("Getting ~s code ~p",[URL, HttpCode]),
       {ok, Body} = gun:await_body(Pid, Ref, 20000),
       {HttpCode, Headers, Body};
     {error, timeout} ->
@@ -227,7 +227,7 @@ httpget(Server, Query, PidList) ->
         {_C, _H, _B}=CHB  ->
           {ok, CHB, PidList1};
         {error, Any} ->
-          lager:notice("httpget error ~p",[Any]),
+          logger:notice("httpget error ~p",[Any]),
           {error, PidList1}
       end
   end.

@@ -79,7 +79,7 @@ handle_cast({new_block, Block}, #{addrsub:=AS, blocksub:=BS}=State) ->
                         }
                     end, {[], []}, maps:get(Address, AS, [])),
         if Tx=/=[] ->
-             lager:info("Notify TX ~p", [Tx]),
+             logger:info("Notify TX ~p", [Tx]),
              BTxs=lists:filter(
                     fun({_TxID, #{from:=Fa}}) when Fa==Address -> true;
                        ({_TxID, #{to:=Ta}}) when Ta==Address -> true;
@@ -96,7 +96,7 @@ handle_cast({new_block, Block}, #{addrsub:=AS, blocksub:=BS}=State) ->
         end,
 
         if Bal=/=[] ->
-             lager:info("Notify Bal ~p", [Bal]),
+             logger:info("Notify Bal ~p", [Bal]),
              BalJS=jsx:encode(#{balance=>BalSnap,
                                 address=>Address}),
              lists:foreach(fun(Pid) ->
@@ -240,7 +240,7 @@ handle_info({'DOWN', _Ref, process, Pid, _Reason},
 
 
 handle_info(_Info, State) ->
-  lager:info("Unknown INFO ~p", [_Info]),
+  logger:info("Unknown INFO ~p", [_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->

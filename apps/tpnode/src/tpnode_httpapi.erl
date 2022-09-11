@@ -153,7 +153,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
                 StackTrace = erlang:process_info(whereis(tpic), current_stacktrace),
                 ProcInfo = erlang:process_info(whereis(tpic)),
                 utils:print_error("TPIC peers collecting error", Ec, Ee, StackTrace),
-                lager:error("TPIC process info: ~p", [ProcInfo]),
+                logger:error("TPIC process info: ~p", [ProcInfo]),
 
                 []
             end
@@ -368,7 +368,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
         State=maps:get(state, Ledger, #{}),
         case Path of
           [] ->
-            lager:info("F ~p",[F]),
+            logger:info("F ~p",[F]),
             case F of <<>> ->
                         S1=msgpack:pack(State),
                         {200, [{"Content-Type","binary/octet-stream"}], S1};
@@ -584,9 +584,9 @@ h(<<"GET">>, [<<"address">>, TAddr], Req) ->
                 end, Info1),
         Info3=try
                 Contract=maps:get(vm, Info2),
-                lager:error("C1 ~p",[Contract]),
+                logger:error("C1 ~p",[Contract]),
                 CV=smartcontract:info(Contract),
-                lager:error("C2 ~p",[CV]),
+                logger:error("C2 ~p",[CV]),
                 {ok, VN, VD} = CV,
                 maps:put(contract, [VN,VD], Info2)
               catch _:_ ->
@@ -763,7 +763,7 @@ h(<<"GET">>, [<<"tx">>, <<"status">>| TxID0], _Req) ->
 
 h(<<"POST">>, [<<"tx">>, <<"batch">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
-  lager:debug("New batch from ~s", [inet:ntoa(RemoteIP)]),
+  logger:debug("New batch from ~s", [inet:ntoa(RemoteIP)]),
   {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
   R=postbatch(ReqBody),
   answer(
@@ -784,7 +784,7 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
     false ->
       {RemoteIP, _Port}=cowboy_req:peer(Req),
       Body=apixiom:bodyjs(Req),
-      lager:debug("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
+      logger:debug("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
       BinTx=if Body == undefined ->
                  {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
                  ReqBody;
@@ -796,7 +796,7 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
                      base64:decode(Any)
                  end
             end,
-      %lager:info_unsafe("New tx ~p", [BinTx]),
+      %logger:info_unsafe("New tx ~p", [BinTx]),
       case txpool:new_tx(BinTx) of
         {ok, Tx} ->
           answer(
@@ -805,7 +805,7 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
              }
            );
         {error, Err} ->
-          lager:info("error ~p", [Err]),
+          logger:info("error ~p", [Err]),
           err(
             10008,
             iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
@@ -870,7 +870,7 @@ h(<<"OPTIONS">>, _, _Req) ->
 
 h(_Method, [<<"status">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
-  lager:info("Join from ~p", [inet:ntoa(RemoteIP)]),
+  logger:info("Join from ~p", [inet:ntoa(RemoteIP)]),
   %Body=apixiom:bodyjs(Req),
 
   answer( #{ client => list_to_binary(inet:ntoa(RemoteIP)) }).
@@ -1224,7 +1224,7 @@ get_nodes(Chain) when is_integer(Chain) ->
                     maps:put(NodeId, NodeRecord2, NodeMap)
             end;
             (Invalid, NodeMap) ->
-                lager:error("invalid address: ~p", Invalid),
+                logger:error("invalid address: ~p", Invalid),
                 NodeMap
         end,
         #{},
@@ -1271,7 +1271,7 @@ add_port(Ip, Port)
         end;
 
 add_port(Ip, Port) ->
-    lager:error("Invalid ip address (~p) or port (~p)", [Ip, Port]),
+    logger:error("Invalid ip address (~p) or port (~p)", [Ip, Port]),
     unknown.
 
 % ----------------------------------------------------------------------
@@ -1286,7 +1286,7 @@ add_proto(Ip, Proto) when is_binary(Ip) ->
   <<Proto/binary, "://", Ip/binary>>;
 
 add_proto(Ip, Proto) ->
-  lager:error("Invalid ip address (~p) or proto (~p)", [Ip, Proto]),
+  logger:error("Invalid ip address (~p) or proto (~p)", [Ip, Proto]),
   unknown.
 
 % ----------------------------------------------------------------------
@@ -1332,7 +1332,7 @@ postbatch(<<Size:32/big,Body:Size/binary,Rest/binary>>) ->
     {ok, Tx} ->
       [Tx | postbatch(Rest) ];
     {error, Err} ->
-      lager:info("error ~p", [Err]),
+      logger:info("error ~p", [Err]),
       [iolist_to_binary(io_lib:format("bad_tx:~p", [Err])) | postbatch(Rest)]
   end.
 
