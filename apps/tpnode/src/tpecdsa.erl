@@ -3,6 +3,7 @@
 -export([export/2, export/3, import/1, import/2 ]).
 -export([generate_priv/1,import_der/2, calc_pub/1, upgrade_pubkey/1]).
 -export([keytype/1, rawkey/1, wrap_pubkey/2]).
+-export([cmp_pubkey/1]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -27,16 +28,16 @@ generate_priv(ed25519) ->
                            parameters = {
                              namedCurve,
                              pubkey_cert_records:namedCurves(ed25519)
-                            },
-                           publicKey = asn1_NOVALUE,
-                           attributes = asn1_NOVALUE
+                            }
                           }
                        );
 
 generate_priv(secp256k1) ->
   Priv=generate_priv_secp256k1(10),
-  %<<16#30,16#2e,16#02,16#01,16#01,16#04,16#20,Priv/binary,
-  %  16#a0,16#07,16#06,16#05,16#2b,16#81,16#04,16#00,16#0a>>.
+  %<<16#30,16#2e,16#02,16#01,16#01,
+  %  16#04,16#20,Priv/binary,
+  %  16#a0,16#07,
+  %  16#06,16#05,16#2b,16#81,16#04,16#00,16#0a>>.
   public_key:der_encode('PrivateKeyInfo',
                         #'ECPrivateKey'{
                            version = 1,
@@ -165,7 +166,6 @@ upgrade_pubkey(<<4,_:64/binary>> =PubKey) ->
 upgrade_pubkey(DerEncoded) when is_binary(DerEncoded) ->
   DerEncoded.
 
-
 sign(Message, <<PrivKey:32/binary>>) ->
   crypto:sign(ecdsa, sha256, Message, [PrivKey, crypto:ec_curve(secp256k1)]);
 
@@ -187,29 +187,57 @@ verify(Message, <<Public:33/binary>>, Sig) ->
      true -> incorrect
   end;
 
+verify(Message, <<4,_:64/binary>> = Public, Sig) ->
+  R=crypto:verify(ecdsa, sha256, Message, Sig, [Public, crypto:ec_curve(secp256k1)]),
+  if R -> correct;
+     true -> incorrect
+  end;
+
 verify(Message, Public, Sig) ->
-  case public_key:der_decode('SubjectPublicKeyInfo', Public) of
-    #'SubjectPublicKeyInfo'{
-       algorithm = #'AlgorithmIdentifier'{
-                      algorithm={1,2,840,10045,2,1} %secp256k1
-                     },
-       subjectPublicKey = PubKey
-      } ->
-      R=crypto:verify(ecdsa, sha256, Message, Sig, [PubKey, crypto:ec_curve(secp256k1)]),
-      if R -> correct;
-         true -> incorrect
-      end;
-    #'SubjectPublicKeyInfo'{
-       algorithm = #'AlgorithmIdentifier'{
-                      algorithm={1,3,101,112} %ed25519
-                     },
-       subjectPublicKey = PubKey
-      } ->
-      R=crypto:verify(eddsa, none, Message, Sig, [PubKey, ed25519]),
-      if R -> correct;
-         true -> incorrect
-      end
+  R=case public_key:der_decode('SubjectPublicKeyInfo', Public) of
+      #'SubjectPublicKeyInfo'{
+         algorithm = #'AlgorithmIdentifier'{
+                        algorithm={1,2,840,10045,2,1} %secp256k1
+                       },
+         subjectPublicKey = PubKey
+        } ->
+        crypto:verify(ecdsa, sha256, Message, Sig, [PubKey, crypto:ec_curve(secp256k1)]);
+      #'SubjectPublicKeyInfo'{
+         algorithm = #'AlgorithmIdentifier'{
+                        algorithm={1,3,101,112} %ed25519
+                       },
+         subjectPublicKey = PubKey
+        } ->
+        crypto:verify(eddsa, none, Message, Sig, [PubKey, ed25519])
+    end,
+  if R -> correct;
+     true -> incorrect
   end.
+
+cmp_pubkey(<<_:33/binary>>=Public) ->
+  {secp256k1, Public};
+cmp_pubkey(<<4,_:64/binary>>=Public) ->
+  {secp256k1, Public};
+cmp_pubkey(DerPublic) ->
+  case public_key:der_decode('SubjectPublicKeyInfo', DerPublic) of
+    #'SubjectPublicKeyInfo'{
+       algorithm = #'AlgorithmIdentifier'{
+                      algorithm=Algo
+                     },
+       subjectPublicKey = PubKey
+      } ->
+      {pkalgo(Algo), PubKey}
+  end.
+
+pkalgo({1,2,840,10045,2,1}) ->
+  secp256k1;
+pkalgo(Algo) ->
+  try
+    pubkey_cert_records:namedCurves(Algo)
+  catch _:_ ->
+          Algo 
+  end.
+
 
 export(<<PrivKey:32/binary>>,pem,Password) ->
   Der=export(PrivKey,der),
@@ -246,7 +274,7 @@ export(<<PrivKey:32/binary>>,der) ->
 %    16#a0,16#07,16#06,16#05,16#2b,16#81,16#04,16#00,16#0a>>;
 %  303E0201  00301006072A8648CE3D020106052B8104000A 042730250201 010420
 %  FF00FF00000000000000000000000000000000000000000000000000000000FF
-  public_key:der_encode('PrivateKeyInfo',
+  public_key:der_encode('ECPrivateKey',
                         #'ECPrivateKey'{
                            version = 1,
                            privateKey = PrivKey,
@@ -340,12 +368,7 @@ rawkey(Key) ->
                       algorithm=A %{1,2,840,10045,2,1}
                      },
        subjectPublicKey = PubKey } = public_key:der_decode('SubjectPublicKeyInfo', Key),
-    case A of
-      {1,2,840,10045,2,1} ->
-        {pub, secp256k1};
-      _ ->
-        {pub, pubkey_cert_records:namedCurves(A), PubKey}
-    end
+    {pkalgo(A), PubKey}
   end.
 
 
@@ -367,10 +390,14 @@ import(PEM, Password) ->
 import_der(priv, DerKey) ->
   import_der('PrivateKeyInfo', DerKey);
 
+%import_der('ECPrivateKey', DerKey) ->
+%  import_der('PrivateKeyInfo', DerKey);
+
 import_der(pub, DerKey) ->
   import_der('SubjectPublicKeyInfo', DerKey);
 
 import_der(KeyType, DerKey) ->
+  io:format("Decode key ~p~n",[KeyType]),
   case public_key:der_decode(KeyType, DerKey) of
     #'ECPrivateKey'{
        version = 1,
@@ -465,7 +492,7 @@ xAT5FoZDcvQTcDnoW8LLpJNbYGSyt5FQ2Z7cEMo8KRQqprfx4pSxWQ==
   ExportedE=export(RawPriv, pem, <<"test123">>),
   Pub=tpecdsa:calc_pub(RawPriv, false), %non compact key
   [
-   ?assertEqual({pub,Pub}, import(PubPEM)),
+   ?assertMatch({{pub,_},Pub}, import(PubPEM)),
    ?assertEqual({{priv,secp256k1},RawPriv}, import(Unencrypted_PEM)),
    ?assertEqual({{priv,secp256k1},RawPriv}, import(Encrypted_PEM, <<"123qwe">>)),
    ?assertEqual({{priv,secp256k1},RawPriv}, import(ExportedU)),
@@ -487,10 +514,12 @@ sign_test() ->
               ),
   ?assertEqual(incorrect,
                verify(<<1, Msg32/binary>>,
-                      Sig,
-                      calc_pub(SecKey, false)
+                      calc_pub(SecKey, false),
+                      Sig
                      )
               ).
+
+
 
 -endif.
 

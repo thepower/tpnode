@@ -94,7 +94,7 @@
 %           {ok, CheckTx2r}=tx:verify(BinTx2r,[{ledger, LedgerPID}]),
 %           CheckTx2=CheckTx2r
 %       end,
-%  Ledger=[ {From, bal:put(pubkey, PubKey, bal:new()) } ],
+%  Ledger=[ {From, mbal:put(pubkey, PubKey, mbal:new()) } ],
 %  mledger:deploy4test(Ledger, Test).
 %
 %old_patch_test() ->
@@ -141,7 +141,7 @@ deploy_test() ->
             ?assertEqual(maps:without([sigverify], CheckTx2r), tx:unpack(BinTx2))
            ]
        end,
-  Ledger=[ {From, bal:put(pubkey, PubKey, bal:new()) } ],
+  Ledger=[ {From, mbal:put(pubkey, PubKey, mbal:new()) } ],
   mledger:deploy4test(Ledger, Test).
 
 %old_txs_sig_test() ->
@@ -178,13 +178,40 @@ deploy_test() ->
 %   ?assertNotEqual(H1, H3)
 %  ].
 
-tx2_reg_test() ->
+tx2_reg_naked_test() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Pvt2= <<194, 222, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Pub1=tpecdsa:calc_pub(Pvt1,true),
   Pub2=tpecdsa:calc_pub(Pvt2,true),
+  T1=#{
+    kind => register,
+    t => 1530106238744,
+    ver => 2,
+    inv => <<"preved">>,
+    keys => [Pub1,Pub2]
+   },
+  TXConstructed=tx:sign(tx:sign(tx:construct_tx(T1,[{pow_diff,16}]),Pvt1),Pvt2),
+  Packed=tx:pack(TXConstructed),
+  [
+  ?assertMatch(<<0,0,_/binary>>, crypto:hash(sha512,maps:get(body,tx:unpack(Packed)))),
+  ?assertMatch(#{ ver:=2, kind:=register, keysh:=_}, TXConstructed),
+  ?assertMatch(#{ ver:=2, kind:=register, keysh:=_}, tx:unpack(Packed)),
+  ?assertMatch({ok,_}, tx:verify(Packed, [])),
+  ?assertMatch({ok,#{sigverify:=#{pow_diff:=PD,valid:=2,invalid:=0}}}
+                 when PD>=16, tx:verify(Packed, [])),
+  ?assertMatch({ok,#{sigverify:=#{valid:=2}} }, tx:verify(Packed))
+  ].
+
+
+tx2_reg_test() ->
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Pvt2= <<194, 222, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
+          240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Pub1=tpecdsa:calc_pub(Pvt1),
+  Pub2=tpecdsa:calc_pub(Pvt2),
   T1=#{
     kind => register,
     t => 1530106238744,
@@ -241,7 +268,7 @@ tx2_notify_test() ->
                            }}, tx:verify(Packed, [{ledger, LedgerPID}]))
            ]
        end,
-  Ledger=[ {<<128,0,32,0,2,0,0,3>>, bal:put(pubkey, PubKey, bal:new()) } ],
+  Ledger=[ {<<128,0,32,0,2,0,0,3>>, mbal:put(pubkey, PubKey, mbal:new()) } ],
   mledger:deploy4test(Ledger, Test).
 
 
@@ -275,7 +302,7 @@ tx2_generic_test() ->
                            }}, tx:verify(Packed, [{ledger, LedgerPID}]))
            ]
        end,
-  Ledger=[ {<<128,0,32,0,2,0,0,3>>, bal:put(pubkey, PubKey, bal:new()) } ],
+  Ledger=[ {<<128,0,32,0,2,0,0,3>>, mbal:put(pubkey, PubKey, mbal:new()) } ],
   mledger:deploy4test(Ledger, Test).
 
 tx2_rate_test() ->
@@ -405,6 +432,6 @@ lstore_test() ->
            {ok, Checked}=tx:verify(BinTx1,[{ledger, LedgerPID}]),
            Checked
        end,
-  Ledger=[ {From, bal:put(pubkey, PubKey, bal:new()) } ],
+  Ledger=[ {From, mbal:put(pubkey, PubKey, mbal:new()) } ],
   mledger:deploy4test(Ledger, Test).
 

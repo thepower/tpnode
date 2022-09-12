@@ -442,7 +442,7 @@ api_register_wallet() ->
 % get current sequence for wallet
 get_sequence(Node, Wallet) ->
     Ledger = rpc:call(Node, mledger, get, [naddress:decode(Wallet)]),
-    case bal:get(seq, Ledger) of
+    case mbal:get(seq, Ledger) of
         Seq when is_integer(Seq) ->
           logger(
             "node ledger seq for wallet ~p (via rpc:call): ~p~n",
@@ -673,115 +673,115 @@ evm_test(_Config) ->
 %  ?assertMatch(#{<<"res">> := <<"ok">>}, StatusDJ),
   ok.
 
-smartcontract_test(_Config) ->
-  {ok,Addr}=application:get_env(tptest,endless_addr),
-  {ok,Priv}=application:get_env(tptest,endless_addr_pk),
-  ?assertMatch(true, is_binary(Addr)),
-  ?assertMatch(true, is_binary(Priv)),
-
-  %spawn erltest VMs
-  _Pids=[ vm_erltest:run("127.0.0.1",P) || P<- [29841,29842,29843] ],
-  timer:sleep(1000),
-
-  %{ok, Code}=file:read_file("../examples/testcontract_emit.ec"),
-  Code=zlib:uncompress(base64:decode("eJzlVn+PozYQ/Z9PYRGtDu6cDZCQZCkgnSqlqq49nS5RVWmFIgecLF1ic2A2iaLsZ78xPwKXbbfttqee1FW8Nvb4zfObAc/VFeq/7qP8wATZO4hmCWEbOaUoMXfWPNsSoakfMvpAI7TO+Bbl4SNTddxd/pkShkS8pSjO0WMK6/hWzi1gKgDTI7/Hc0EEPSEPbfNNSsJ7p2Cy07YkzZ0NFZrrqrm0UX0fo59otKEZdl3Tmvq+DhjKx4J564IpCGkRTRN+wGrMYgGufoTuF5IEGC0Xex3t7igDIsuYCQogWr2so74PmxGSbJCa0bxIYDfqHV3X8H3k+ch1a1tnPBqs4o3vnzD6geQY3Qan7556XtYe/wKwcQHZN5+C0n1KWR4/0H+IbMDfE/TlJaa4y/hOe0WzjGev9NJ0QxnN4lAeLwRdn9G0q6frzlsOXieeQLEKO4RPGs5Nb268ga34Tw81N5/R60wzol+NZv+lNLvSn4l2IvvN0W0Jt3wZF/H6cCbbO8o33/Fmp+c5v6e7xd7rHR9o5vkWvo9Z5PkVFpYInj+rSEL2eb7RjHP6qfOUkkPCCWy8DZqpCgJmjuqdEKkzGJjGtWXXbWQMBM3FgLIo5UBLhc+GmpZfLIy2NIJexfKlHlr12YMS91TBv1/82sq74tEBi70TcpaLrAjFUuy18lh6I7fxXDD+WP25cf6WgMcLvVckeqnkwB4iaw4NbI5NbBoTbA1haMEQHs0pNkc2tDG2zAkewpIxgulx3SxsT/FoIn/2EI9uMBjCfxjbEzmWA7scgMFIGtsmHk2b3wTghrUnCSf7G2hGPQeubmDewpOajzGtGlgOrdq4NiyXDKAIkn49pem2vDL+hbxuIL9IbMHb4Tmnu/ndZnfvmBZZynMKUJIs2fKCwSa7eiXDAnxBIs8WC1WmbLU9JEni+cC7YKGIOfP887tKsk0OsLZpBadvLb8jmpDDb3z1XyoPOi1XFEoWKulqTX2CovgByc+gjt6g8f8wSm2YnpQIf/NmN19+ryvw8YYa752M79mPjDZGwAcrvaMUDjkeeosbVeXT7NSaS9WluXRZWoNHuEPO5vAIibgmktZJVpRXnRK2Kjib4rXE3MXijhdCu4X4hjwqC9NOkRrgao8efFkML/a/j1IGNY83AYYTXez5Hqijx1x7TPVy5wy/vbAAqRpYGMrFLvsPcdSs5jRZayW+cnURCSDP6G7ZVtndguVa+UhzD4ps7V0p+wyD1JX4XR5hwxRSqGyp7tWe5SUMGSsyEgpcgsAxMKBKMtBdK8pnhrKVtQ==")),
-
-  DeployTx=tx:pack(
-             tx:sign(
-             tx:construct_tx(
-               #{ver=>2,
-                 kind=>deploy,
-                 from=>Addr,
-                 seq=>os:system_time(millisecond),
-                 t=>os:system_time(millisecond),
-                 payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
-                 call=>#{function=>"init",args=>[1024]},
-                 txext=>#{ "code"=> Code,"vm" => "erltest"}}
-              ),Priv)),
-
-  #{<<"txid">>:=TxID1} = api_post_transaction(DeployTx),
-  {ok, Status1, _} = api_get_tx_status(TxID1),
-  ?assertMatch(#{<<"res">> := <<"ok">>}, Status1),
-
-  GenTx=tx:pack(
-          tx:sign(
-          tx:construct_tx(
-            #{ver=>2,
-              kind=>generic,
-              to=>Addr,
-              from=>Addr,
-              seq=>os:system_time(millisecond),
-              t=>os:system_time(millisecond),
-              payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
-              call=>#{function=>"notify",args=>[1024]}
-             }
-           ),Priv)),
-
-  #{<<"txid">>:=TxID2} = api_post_transaction(GenTx),
-  {ok, Status2, _} = api_get_tx_status(TxID2),
-  ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
-
-  DJTx=tx:pack(
-         tx:sign(
-         tx:construct_tx(
-           #{ver=>2,
-             kind=>generic,
-             to=>Addr,
-             from=>Addr,
-             seq=>os:system_time(millisecond),
-             t=>os:system_time(millisecond),
-             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
-             call=>#{function=>"delayjob",args=>[1024]}
-            }),Priv)),
-
-  #{<<"txid">>:=TxID3} = api_post_transaction(DJTx),
-  {ok, #{<<"block">>:=Blkid3}=Status3, _} = api_get_tx_status(TxID3),
-  ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
-
-  Emit=tx:pack(
-         tx:sign(
-         tx:construct_tx(
-           #{ver=>2,
-             kind=>generic,
-             to=>Addr,
-             from=>Addr,
-             seq=>os:system_time(millisecond),
-             t=>os:system_time(millisecond),
-             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
-             call=>#{function=>"emit",args=>[1024]}
-            }),Priv)),
-
-  #{<<"txid">>:=TxID4} = api_post_transaction(Emit),
-  {ok, Status4, _} = api_get_tx_status(TxID4),
-  ?assertMatch(#{<<"res">> := <<"ok">>}, Status4),
-
-  BadResp=tx:pack(
-         tx:sign(
-         tx:construct_tx(
-           #{ver=>2,
-             kind=>generic,
-             to=>Addr,
-             from=>Addr,
-             seq=>os:system_time(millisecond),
-             t=>os:system_time(millisecond),
-             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
-             call=>#{function=>"badnotify",args=>[1024]}
-            }),Priv)),
-
-  #{<<"txid">>:=TxID5} = api_post_transaction(BadResp),
-  {ok, Status5, _} = api_get_tx_status(TxID5),
-  ?assertMatch(#{<<"res">> := <<"ok">>}, Status5),
-
-  #{etxs:=[{DJTxID,_}|_]}=Block3=tpapi:get_fullblock(Blkid3,get_base_url()),
-
-  io:format("Block3 ~p~n",[Block3]),
-  io:format("Have to wait for DJ tx ~p~n",[DJTxID]),
-  ?assertMatch(#{etxs:=[{<<"8001400004",_/binary>>,#{not_before:=_}}]},Block3),
-
-  {ok, StatusDJ, _} = api_get_tx_status(DJTxID, 65),
-  io:format("DJ tx status ~p~n",[StatusDJ]),
-  ?assertMatch(#{<<"res">> := <<"ok">>}, StatusDJ),
-  ok.
+%smartcontract_test(_Config) ->
+%  {ok,Addr}=application:get_env(tptest,endless_addr),
+%  {ok,Priv}=application:get_env(tptest,endless_addr_pk),
+%  ?assertMatch(true, is_binary(Addr)),
+%  ?assertMatch(true, is_binary(Priv)),
+%
+%  %spawn erltest VMs
+%  _Pids=[ vm_erltest:run("127.0.0.1",P) || P<- [29841,29842,29843] ],
+%  timer:sleep(1000),
+%
+%  %{ok, Code}=file:read_file("../examples/testcontract_emit.ec"),
+%  Code=zlib:uncompress(base64:decode("eJzlVn+PozYQ/Z9PYRGtDu6cDZCQZCkgnSqlqq49nS5RVWmFIgecLF1ic2A2iaLsZ78xPwKXbbfttqee1FW8Nvb4zfObAc/VFeq/7qP8wATZO4hmCWEbOaUoMXfWPNsSoakfMvpAI7TO+Bbl4SNTddxd/pkShkS8pSjO0WMK6/hWzi1gKgDTI7/Hc0EEPSEPbfNNSsJ7p2Cy07YkzZ0NFZrrqrm0UX0fo59otKEZdl3Tmvq+DhjKx4J564IpCGkRTRN+wGrMYgGufoTuF5IEGC0Xex3t7igDIsuYCQogWr2so74PmxGSbJCa0bxIYDfqHV3X8H3k+ch1a1tnPBqs4o3vnzD6geQY3Qan7556XtYe/wKwcQHZN5+C0n1KWR4/0H+IbMDfE/TlJaa4y/hOe0WzjGev9NJ0QxnN4lAeLwRdn9G0q6frzlsOXieeQLEKO4RPGs5Nb268ga34Tw81N5/R60wzol+NZv+lNLvSn4l2IvvN0W0Jt3wZF/H6cCbbO8o33/Fmp+c5v6e7xd7rHR9o5vkWvo9Z5PkVFpYInj+rSEL2eb7RjHP6qfOUkkPCCWy8DZqpCgJmjuqdEKkzGJjGtWXXbWQMBM3FgLIo5UBLhc+GmpZfLIy2NIJexfKlHlr12YMS91TBv1/82sq74tEBi70TcpaLrAjFUuy18lh6I7fxXDD+WP25cf6WgMcLvVckeqnkwB4iaw4NbI5NbBoTbA1haMEQHs0pNkc2tDG2zAkewpIxgulx3SxsT/FoIn/2EI9uMBjCfxjbEzmWA7scgMFIGtsmHk2b3wTghrUnCSf7G2hGPQeubmDewpOajzGtGlgOrdq4NiyXDKAIkn49pem2vDL+hbxuIL9IbMHb4Tmnu/ndZnfvmBZZynMKUJIs2fKCwSa7eiXDAnxBIs8WC1WmbLU9JEni+cC7YKGIOfP887tKsk0OsLZpBadvLb8jmpDDb3z1XyoPOi1XFEoWKulqTX2CovgByc+gjt6g8f8wSm2YnpQIf/NmN19+ryvw8YYa752M79mPjDZGwAcrvaMUDjkeeosbVeXT7NSaS9WluXRZWoNHuEPO5vAIibgmktZJVpRXnRK2Kjib4rXE3MXijhdCu4X4hjwqC9NOkRrgao8efFkML/a/j1IGNY83AYYTXez5Hqijx1x7TPVy5wy/vbAAqRpYGMrFLvsPcdSs5jRZayW+cnURCSDP6G7ZVtndguVa+UhzD4ps7V0p+wyD1JX4XR5hwxRSqGyp7tWe5SUMGSsyEgpcgsAxMKBKMtBdK8pnhrKVtQ==")),
+%
+%  DeployTx=tx:pack(
+%             tx:sign(
+%             tx:construct_tx(
+%               #{ver=>2,
+%                 kind=>deploy,
+%                 from=>Addr,
+%                 seq=>os:system_time(millisecond),
+%                 t=>os:system_time(millisecond),
+%                 payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+%                 call=>#{function=>"init",args=>[1024]},
+%                 txext=>#{ "code"=> Code,"vm" => "erltest"}}
+%              ),Priv)),
+%
+%  #{<<"txid">>:=TxID1} = api_post_transaction(DeployTx),
+%  {ok, Status1, _} = api_get_tx_status(TxID1),
+%  ?assertMatch(#{<<"res">> := <<"ok">>}, Status1),
+%
+%  GenTx=tx:pack(
+%          tx:sign(
+%          tx:construct_tx(
+%            #{ver=>2,
+%              kind=>generic,
+%              to=>Addr,
+%              from=>Addr,
+%              seq=>os:system_time(millisecond),
+%              t=>os:system_time(millisecond),
+%              payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+%              call=>#{function=>"notify",args=>[1024]}
+%             }
+%           ),Priv)),
+%
+%  #{<<"txid">>:=TxID2} = api_post_transaction(GenTx),
+%  {ok, Status2, _} = api_get_tx_status(TxID2),
+%  ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
+%
+%  DJTx=tx:pack(
+%         tx:sign(
+%         tx:construct_tx(
+%           #{ver=>2,
+%             kind=>generic,
+%             to=>Addr,
+%             from=>Addr,
+%             seq=>os:system_time(millisecond),
+%             t=>os:system_time(millisecond),
+%             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+%             call=>#{function=>"delayjob",args=>[1024]}
+%            }),Priv)),
+%
+%  #{<<"txid">>:=TxID3} = api_post_transaction(DJTx),
+%  {ok, #{<<"block">>:=Blkid3}=Status3, _} = api_get_tx_status(TxID3),
+%  ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
+%
+%  Emit=tx:pack(
+%         tx:sign(
+%         tx:construct_tx(
+%           #{ver=>2,
+%             kind=>generic,
+%             to=>Addr,
+%             from=>Addr,
+%             seq=>os:system_time(millisecond),
+%             t=>os:system_time(millisecond),
+%             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+%             call=>#{function=>"emit",args=>[1024]}
+%            }),Priv)),
+%
+%  #{<<"txid">>:=TxID4} = api_post_transaction(Emit),
+%  {ok, Status4, _} = api_get_tx_status(TxID4),
+%  ?assertMatch(#{<<"res">> := <<"ok">>}, Status4),
+%
+%  BadResp=tx:pack(
+%         tx:sign(
+%         tx:construct_tx(
+%           #{ver=>2,
+%             kind=>generic,
+%             to=>Addr,
+%             from=>Addr,
+%             seq=>os:system_time(millisecond),
+%             t=>os:system_time(millisecond),
+%             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+%             call=>#{function=>"badnotify",args=>[1024]}
+%            }),Priv)),
+%
+%  #{<<"txid">>:=TxID5} = api_post_transaction(BadResp),
+%  {ok, Status5, _} = api_get_tx_status(TxID5),
+%  ?assertMatch(#{<<"res">> := <<"ok">>}, Status5),
+%
+%  #{etxs:=[{DJTxID,_}|_]}=Block3=tpapi:get_fullblock(Blkid3,get_base_url()),
+%
+%  io:format("Block3 ~p~n",[Block3]),
+%  io:format("Have to wait for DJ tx ~p~n",[DJTxID]),
+%  ?assertMatch(#{etxs:=[{<<"8001400004",_/binary>>,#{not_before:=_}}]},Block3),
+%
+%  {ok, StatusDJ, _} = api_get_tx_status(DJTxID, 65),
+%  io:format("DJ tx status ~p~n",[StatusDJ]),
+%  ?assertMatch(#{<<"res">> := <<"ok">>}, StatusDJ),
+%  ok.
 
 check_blocks_test(_Config) ->
   lists:map(

@@ -19,7 +19,7 @@ handle_tx(Tx, Ledger, GasLimit, GetFun, _Opaque) ->
   vm:run(fun(VMPid) ->
              VMPid ! {run, 
                       tx:pack(Tx),
-                      bal:pack(Ledger),
+                      mbal:pack(Ledger),
                       GasLimit,
                       self(),
                       XtraFields

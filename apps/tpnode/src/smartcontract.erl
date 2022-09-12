@@ -113,7 +113,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
 %        };
 %      {ok, NewState, GasLeft, EmitTxs} when is_binary(NewState) ->
 %        {
-%         bal:put(state, NewState, Ledger),
+%         mbal:put(state, NewState, Ledger),
 %         EmitTxs,
 %         Left(GasLeft),
 %         Opaque
@@ -126,7 +126,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
 %        };
 %      {ok, NewState, GasLeft} when is_binary(NewState) ->
 %        {
-%         bal:put(state, NewState, Ledger),
+%         mbal:put(state, NewState, Ledger),
 %         [], Left(GasLeft),
 %         Opaque
 %        };

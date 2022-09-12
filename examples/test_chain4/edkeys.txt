@@ -1,0 +1,12 @@
+[
+<<"302E020100300506032B657004220420DE88EBB5ACE713A45B4ADFA6856239DF798E573A8D84543A6DE2F5312C447072">>,
+<<"302E020100300506032B657004220420440521F8B059A5D64AB83DC2AF5C955D73A81D29BFBA1278861053449213F5F7">>,
+<<"302E020100300506032B657004220420E317848D05354A227200800CF932219840080C832D0D6F57F40B95DA5B5ABCED">>
+].
+%PrivKeys = [ tpecdsa:generate_priv(ed25519) || _ <- lists:seq(1,3) ]
+%Pubs=[ tpecdsa:calc_pub(K) || K<- PrivKeys ].
+%TX=tx:construct_tx(#{ver=>2,kind=>patch,patches=>[ maps:put(<<"v">>,K,E) || {K,E} <- lists:zip(Pubs,element(1,lists:split(3,settings:dmp(maps:get(patch,element(2,hd(maps:get(settings,B0)))))))) ]}).
+%Blk=block:mkblock2(#{txs=>[],parent=><<186,137,125,124,66,180,214,212,204,176,116,181,230,76,255,27,2,144,201,27,173,220,28,246,48,56,95,88,157,138,212,137>>, height=>2,mychain=>4,bals=>#{},settings=>[{<<"edkeys">>,TX}]}).
+%lists:foldl(fun(Priv,A) -> block:sign(A, Priv) end, Blk, OldPriv).
+
+

@@ -1817,6 +1817,6 @@ tstore_test() ->
                         )
            ]
        end,
-  Ledger=[ {From, bal:put(pubkey, PubKey, bal:new()) } ],
+  Ledger=[ {From, mbal:put(pubkey, PubKey, mbal:new()) } ],
   mledger:deploy4test(Ledger, Test).
 

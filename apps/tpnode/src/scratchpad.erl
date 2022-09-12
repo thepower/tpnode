@@ -291,7 +291,7 @@ test_tx2b() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr=naddress:decode(<<"AA100000006710887143">>),
-  Seq=bal:get(seq,ledger:get(Addr)),
+  Seq=mbal:get(seq,ledger:get(Addr)),
   T1=#{
     kind => generic,
     t => os:system_time(millisecond),
@@ -318,7 +318,7 @@ test_tx2_xc() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr=naddress:decode(<<"AA100000006710887143">>),
-  Seq=bal:get(seq,ledger:get(Addr)),
+  Seq=mbal:get(seq,ledger:get(Addr)),
   T1=#{
     kind => generic,
     t => os:system_time(millisecond),
@@ -515,7 +515,7 @@ give_money() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr=naddress:decode(<<"AA100000006710887143">>),
-  Seq=bal:get(seq,ledger:get(Addr)),
+  Seq=mbal:get(seq,ledger:get(Addr)),
   Dst=naddress:decode(<<"AA100000006710887985">>),
 
   TX=tx:sign(
@@ -542,7 +542,7 @@ contract_deploy_info() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr=naddress:decode(<<"AA100000006710887143">>),
-  Seq=bal:get(seq,ledger:get(Addr)),
+  Seq=mbal:get(seq,ledger:get(Addr)),
 
   TX=tx:sign(
        tx:construct_tx(#{
@@ -569,7 +569,7 @@ contract_deploy() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr=naddress:decode(<<"AA100000006710887143">>),
-  Seq=bal:get(seq,ledger:get(Addr)),
+  Seq=mbal:get(seq,ledger:get(Addr)),
 
   {ok, Code}=file:read_file("./examples/testcontract.wasm"),
   TX=tx:sign(
@@ -597,7 +597,7 @@ contract_run() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr=naddress:decode(<<"AA100000006710887143">>),
-  Seq=bal:get(seq,ledger:get(Addr)),
+  Seq=mbal:get(seq,ledger:get(Addr)),
   TX=tx:sign(
        tx:construct_tx(#{
          ver=>2,
@@ -640,7 +640,7 @@ fee_tx2() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
           240, 248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
   Addr=naddress:decode(<<"AA100000006710887143">>),
-  Seq=bal:get(seq,ledger:get(Addr)),
+  Seq=mbal:get(seq,ledger:get(Addr)),
   T1=#{
     kind => generic,
     t => os:system_time(millisecond),

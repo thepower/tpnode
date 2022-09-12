@@ -138,12 +138,12 @@ run_generate(
                ({Addr, _Cur}) ->
                 case mledger:get(Addr) of
                   #{amount:=_}=Bal -> maps:without([changes],Bal);
-                  undefined -> bal:new()
+                  undefined -> mbal:new()
                 end;
                (Addr) ->
                 case mledger:get(Addr) of
                   #{amount:=_}=Bal -> maps:without([changes],Bal);
-                  undefined -> bal:new()
+                  undefined -> mbal:new()
                 end
             end,
 

@@ -354,7 +354,7 @@ unpack_mp(Tx0) ->
                                end, #{}, Val)
                          end;
                        Val==<<>> ->
-                         logger:notice("Temporary workaround. Fix me"),
+                         logger:notice("Temporary workaround in tx1.erl. Fix me"),
                          []
                     end,
                     Acc);

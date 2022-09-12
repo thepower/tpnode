@@ -119,7 +119,12 @@ construct_tx(#{
   keys:=PubKeys
  }=Tx0,Params) ->
   Tx=maps:with([ver,t,txext],Tx0),
-  Keys1=iolist_to_binary(lists:sort(PubKeys)),
+  Keys1=iolist_to_binary(
+          lists:sort(
+            [ begin {_KeyType,RawPubKey} = tpecdsa:cmp_pubkey(PK), RawPubKey end || PK <- PubKeys ]
+           )
+         ),
+  %Keys1=iolist_to_binary(lists:sort(PubKeys)),
   KeysH=crypto:hash(sha256,Keys1),
   E0=#{
     "k"=>encode_kind(2,register),
@@ -600,7 +605,7 @@ verify(#{
                      case LedgerInfo of
                        #{pubkey:=PK} when is_binary(PK) ->
                          fun(PubKey, _) ->
-                             PK==PubKey
+                             tpecdsa:cmp_pubkey(PK)==tpecdsa:cmp_pubkey(PubKey)
                          end;
                        _ ->
                          throw({ledger_err, From})
@@ -640,7 +645,12 @@ verify(#{
     {Valid, Invalid} when length(Valid)>0 ->
       BodyHash=hashdiff(crypto:hash(sha512,Body)),
       ValidPK=bsig:extract_pubkeys(Valid),
-      Pubs=crypto:hash(sha256,iolist_to_binary(lists:sort(ValidPK))),
+      Keys1=iolist_to_binary(
+          lists:sort(
+            [ begin {_KeyType,RawPubKey} = tpecdsa:cmp_pubkey(PK), RawPubKey end || PK <- ValidPK ]
+           )
+         ),
+      Pubs=crypto:hash(sha256,Keys1),
       #{keysh:=H}=unpack_body(Tx),
       if Pubs==H ->
            {ok, Tx#{
@@ -863,45 +873,22 @@ rate1(#{extradata:=ED}, Cur, TxAmount, GetRateFun) ->
       tip => max(0, TxAmount - Cost)
     }}.
 
-rate2(#{body:=Body}, Cur, TxAmount, GetRateFun) ->
-  #{<<"base">>:=Base,
-    <<"kb">>:=KB}=Rates=GetRateFun(Cur),
-  BaseEx=maps:get(<<"baseextra">>, Rates, 0),
-  BodySize=size(Body)-32, %correcton rate
-  ExtCur=max(0, BodySize-BaseEx),
-  Cost=Base+trunc(ExtCur*KB/1024),
-  {TxAmount >= Cost,
-   #{ cur=>Cur,
-      cost=>Cost,
-      tip => max(0, TxAmount - Cost)
-    }}.
-
-%rate(#{ver:=2, kind:=deploy}=Tx, GetRateFun) ->
-%  try
-%    case get_payload(Tx, srcfee) of
-%      #{cur:=Cur, amount:=TxAmount} ->
-%        rate2(Tx, Cur, TxAmount, GetRateFun);
-%      _ ->
-%        case GetRateFun({params, <<"feeaddr">>}) of
-%          X when is_binary(X) ->
-%            {false, #{ cost=>null } };
-%          _ ->
-%            {true, #{ cost=>0, tip => 0, cur=><<"none">> }}
-%        end
-%    end
-%  catch Ec:Ee ->
-%          file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n",
-%                                                         [
-%                                                          Tx,
-%                                                          erlang:term_to_binary(GetRateFun)
-%                                                         ])]),
-%          S=erlang:get_stacktrace(),
-%          logger:error("Calc fee error ~p tx ~p",[{Ec,Ee},Tx]),
-%          lists:foreach(fun(SE) ->
-%                            logger:error("@ ~p", [SE])
-%                        end, S),
-%          throw('cant_calculate_fee')
-%  end;
+rate2(#{body:=Body}=_Tx, Cur, TxAmount, GetRateFun) ->
+  case GetRateFun(Cur) of
+    #{<<"base">>:=Base,
+      <<"kb">>:=KB}=Rates ->
+      BaseEx=maps:get(<<"baseextra">>, Rates, 0),
+      BodySize=size(Body)-32, %correcton rate
+      ExtCur=max(0, BodySize-BaseEx),
+      Cost=Base+trunc(ExtCur*KB/1024),
+      {TxAmount >= Cost,
+       #{ cur=>Cur,
+          cost=>Cost,
+          tip => max(0, TxAmount - Cost)
+        }};
+    _Any ->
+      throw('unsupported_fee_cur')
+  end.
 
 rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
   try
@@ -917,17 +904,36 @@ rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
             {true, #{ cost=>0, tip => 0, cur=><<"none">> }}
         end
     end
-  catch Ec:Ee:S ->
+  catch throw:Ee:S when is_atom(Ee) ->
           %S=erlang:get_stacktrace(),
-          file:write_file("tmp/rate.txt", [io_lib:format("~p.~n~p.~n~n~p.~n~n~p.~n~n~p.~n",
-                                                         [
-                                                          Ec,
-                                                          Ee,
-                                                          S,
-                                                          Tx,
-                                                          element(2,erlang:fun_info(GetRateFun,env))
-                                                         ])]),
-          logger:error("Calc fee error ~p tx ~p",[{Ec,Ee},Tx]),
+          file:write_file("tmp/rate.txt", 
+                          [
+                           io_lib:format("~p.~n~p.~n~n~p.~n~n~p.~n~n~p.~n",
+                                         [
+                                          throw,
+                                          Ee,
+                                          S,
+                                          Tx,
+                                          element(2,erlang:fun_info(GetRateFun,env))
+                                         ])]),
+          logger:error("Calc fee error ~p~ntx ~p",[{throw,Ee},Tx]),
+          lists:foreach(fun(SE) ->
+                            logger:error("@ ~p", [SE])
+                        end, S),
+          throw(Ee);
+        Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
+          file:write_file("tmp/rate.txt", 
+                          [
+                           io_lib:format("~p.~n~p.~n~n~p.~n~n~p.~n~n~p.~n",
+                                         [
+                                          Ec,
+                                          Ee,
+                                          S,
+                                          Tx,
+                                          element(2,erlang:fun_info(GetRateFun,env))
+                                         ])]),
+          logger:error("Calc fee error ~p~ntx ~p",[{Ec,Ee},Tx]),
           lists:foreach(fun(SE) ->
                             logger:error("@ ~p", [SE])
                         end, S),

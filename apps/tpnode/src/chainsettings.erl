@@ -14,15 +14,15 @@ is_our_node(PubKey, Settings) ->
   NodeChain=maps:get(nodechain, Settings, #{}),
   ChainNodes0=maps:fold(
                 fun(Name, XPubKey, Acc) ->
-                    maps:put(XPubKey, Name, Acc)
+                    maps:put(tpecdsa:cmp_pubkey(XPubKey), Name, Acc)
                 end, #{}, KeyDB),
-  MyName=maps:get(nodekey:get_pub(), ChainNodes0, undefined),
+  MyName=maps:get(tpecdsa:cmp_pubkey(nodekey:get_pub()), ChainNodes0, undefined),
   MyChain=maps:get(MyName, NodeChain, 0),
   ChainNodes=maps:filter(
                fun(_PubKey, Name) ->
                    maps:get(Name, NodeChain, 0) == MyChain
                end, ChainNodes0),
-  maps:get(PubKey, ChainNodes, false).
+  maps:get(tpecdsa:cmp_pubkey(PubKey), ChainNodes, false).
 
 is_our_node(PubKey) ->
   {ok, NMap} = chainsettings:get_setting(chainnodes),

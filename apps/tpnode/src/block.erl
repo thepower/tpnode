@@ -51,7 +51,7 @@ prepack(Block) ->
        (bals, BalsSnap) ->
         maps:fold(
           fun(Address, Snap, Acc) ->
-              maps:put(Address, bal:pack(Snap), Acc)
+              maps:put(Address, mbal:pack(Snap), Acc)
           end, #{}, BalsSnap);
        (sync, SyncState) ->
         maps:fold(
@@ -158,7 +158,7 @@ unpack(Block) when is_binary(Block) ->
                      (bals, BalsSnap) ->
                      maps:fold(
                        fun(Address, BinSnap, Acc) ->
-                           maps:put(Address, bal:unpack(BinSnap), Acc)
+                           maps:put(Address, mbal:unpack(BinSnap), Acc)
                        end, #{}, BalsSnap);
                      (sync, SyncState) ->
                      maps:fold(

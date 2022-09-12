@@ -70,7 +70,7 @@ continue(TPIC, LedgerPID, [{Handler, Res}], Parent, Acc, BlockAcc) ->
             gen_server:call(LedgerPID,
                             {put, maps:fold(
                                     fun(K, V, A) ->
-                                        CL=bal:unpack(V),
+                                        CL=mbal:unpack(V),
                                             [{K, CL}|A]
                                     end, [], L), ublk}),
             logger:info("L ~w~n", [maps:size(L)]),
@@ -244,7 +244,7 @@ pickx({DBH, Snapshot}=DB, Act, Itr, N, A) ->
              logger:notice("LB none"),
              V0
          end,
-      pickx(DB, next, Itr, N-1, [{K, bal:pack(V1,true)}|A]);
+      pickx(DB, next, Itr, N-1, [{K, mbal:pack(V1,true)}|A]);
     {error, _} ->
       {error, A}
   end.

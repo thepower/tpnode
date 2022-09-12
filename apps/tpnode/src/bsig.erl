@@ -10,12 +10,13 @@
 checksig1(BlockHash, SrcSig) ->
   checksig1(BlockHash, SrcSig, undefined).
 
- checksig1(BlockHash, SrcSig, CheckFun) ->
+checksig1(BlockHash, SrcSig, CheckFun) ->
     HSig=unpacksig(SrcSig),
     #{binextra:=BExt, extra:=Xtra, signature:=Sig}=US=unpacksig(HSig),
     PubKey=proplists:get_value(pubkey, Xtra),
     Msg= <<BExt/binary, BlockHash/binary>>,
-    case tpecdsa:verify(Msg, PubKey, Sig) of
+    Vrf=tpecdsa:verify(Msg, PubKey, Sig),
+    case Vrf of
         correct ->
             C2=if is_function(CheckFun) ->
                     CheckFun(PubKey,US);
@@ -125,15 +126,16 @@ packsig(#{signature:=Signature, binextra:=BinExtra}) ->
 
 add_sig(OldSigs, NewSigs) ->
   Apply=fun(#{extra:=EPL}=Sig, Acc) ->
-           PK=proplists:get_value(pubkey, EPL),
-           if PK == undefined -> Acc;
-            is_binary(PK) ->
-              case maps:is_key(PK, Acc) of
-                true -> Acc;
-                false -> maps:put(PK, Sig, Acc)
-              end
-           end
-      end,
+            case proplists:get_value(pubkey, EPL) of
+              undefined -> Acc;
+              Bin -> 
+                PK=tpecdsa:cmp_pubkey(Bin),
+                case maps:is_key(PK, Acc) of
+                  true -> Acc;
+                  false -> maps:put(PK, Sig, Acc)
+                end
+            end
+        end,
   Map1=lists:foldl(Apply, #{}, OldSigs),
   Map2=lists:foldl(Apply, Map1, NewSigs),
   maps:values(Map2).
