@@ -1022,7 +1022,7 @@ unpack(<<254, _Rest/binary>> = Packed) ->
     Hash = crypto:hash(sha256, Bin),
     case bsig:checksig(Hash, [Sign]) of
         { [ #{ signature:= _FirstSign } | _] , _InvalidSings} ->
-            ?LOG_DEBUG("Check signature here");
+            ?LOG_NOTICE("TODO: Check signature here");
         _X ->
             ?LOG_DEBUG("checksig result ~p", [_X]),
             throw("invalid signature")
