@@ -36,7 +36,7 @@ all() ->
         transaction_test,
         register_wallet_test,
         patch_gasprice_test,
-        smartcontract_test,
+        %smartcontract_test,
         evm_test,
         check_blocks_test
         %,crashme_test
@@ -297,7 +297,7 @@ discovery_ssl_test(_Config) ->
 discovery_got_announce_test(_Config) ->
     DiscoveryC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
     DiscoveryC4N2 = rpc:call(get_node(<<"test_c4n2">>), erlang, whereis, [discovery]),
-    DiscoveryC4N3 = rpc:call(get_node(<<"test_c4n3">>), erlang, whereis, [discovery]),
+    %DiscoveryC4N3 = rpc:call(get_node(<<"test_c4n3">>), erlang, whereis, [discovery]),
     DiscoveryC5N2 = rpc:call(get_node(<<"test_c5n2">>), erlang, whereis, [discovery]),
     Rnd = integer_to_binary(rand:uniform(100000)),
     ServiceName = <<"looking_glass_", Rnd/binary>>,
@@ -317,8 +317,8 @@ discovery_got_announce_test(_Config) ->
     Result2 = gen_server:call(DiscoveryC4N2, {lookup, ServiceName, 5}),
     ?assertEqual([], Result2),
     % c4n3 should discard self announce
-    Result3 = gen_server:call(DiscoveryC4N3, {lookup, ServiceName, 4}),
-    ?assertEqual([], Result3),
+    %Result3 = gen_server:call(DiscoveryC4N3, {lookup, ServiceName, 4}),
+    %?assertEqual([], Result3),
     % c5n2 should get info from xchain announce
     Result4 = gen_server:call(DiscoveryC5N2, {lookup, ServiceName, 4}),
     ?assertEqual(Experted, Result4),
@@ -570,10 +570,15 @@ wait_for_dumpers(Pids, StatesAcc) ->
   end.
 % -----------------------------------------------------------------------------
 patch_gasprice_test(_Config) ->
+%  Privs=[
+%         "CF2BD71347FA5D645FD6586CD4FE426AF5DCC2A604C5CC2529AB6861DC948D54",
+%         "15A48B170FBDAC808BA80D1692305A8EFC758CBC11252A4338131FC68AFAED6B",
+%         "2ACC7ACDBFFA92C252ADC21D8469CC08013EBE74924AB9FEA8627AE512B0A1E0"
+%        ],
   Privs=[
-         "CF2BD71347FA5D645FD6586CD4FE426AF5DCC2A604C5CC2529AB6861DC948D54",
-         "15A48B170FBDAC808BA80D1692305A8EFC758CBC11252A4338131FC68AFAED6B",
-         "2ACC7ACDBFFA92C252ADC21D8469CC08013EBE74924AB9FEA8627AE512B0A1E0"
+         "302E020100300506032B657004220420DE88EBB5ACE713A45B4ADFA6856239DF798E573A8D84543A6DE2F5312C447072",
+         "302E020100300506032B657004220420440521F8B059A5D64AB83DC2AF5C955D73A81D29BFBA1278861053449213F5F7",
+         "302E020100300506032B657004220420E317848D05354A227200800CF932219840080C832D0D6F57F40B95DA5B5ABCED"
         ],
 
   PatchTx=tx:construct_tx(
