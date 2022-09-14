@@ -1,4 +1,5 @@
 -module(topology).
+-include("include/tplog.hrl").
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -46,7 +47,7 @@ start_link() ->
 
 init_common(EtsTableName) ->
   Table = ets:new(EtsTableName, [named_table, protected, bag, {read_concurrency, true}]),
-  logger:info("Table created: ~p", [Table]).
+  ?LOG_INFO("Table created: ~p", [Table]).
 
 %%init(_Args, tests) ->
 %%  init_common(),
@@ -110,18 +111,18 @@ handle_cast(
   #{collection_cache:=Cache} = State) ->
   
   try
-    logger:debug("TOPO got beacon relay from ~p : ~p", [_PeerID, PayloadBin]),
+    ?LOG_DEBUG("TOPO got beacon relay from ~p : ~p", [_PeerID, PayloadBin]),
     {Me, BeaconTtl, Now} = get_beacon_settings(State, round2),
 
     BeaconValidator =
       fun
         (#{timestamp := TimeStamp} = _Beacon) when TimeStamp < (Now - BeaconTtl) ->
-          logger:error("TOPO: collection validator: too old beacon with timestamp: ~p ~p ~p", [TimeStamp, (Now - BeaconTtl), _Beacon]),
+          ?LOG_ERROR("TOPO: collection validator: too old beacon with timestamp: ~p ~p ~p", [TimeStamp, (Now - BeaconTtl), _Beacon]),
           error;
         (Beacon) when is_map(Beacon) ->
           Beacon;
         (_Invalid) ->
-          logger:error("invalid beacon: ~p", [_Invalid]),
+          ?LOG_ERROR("invalid beacon: ~p", [_Invalid]),
           error
       end,
     
@@ -141,17 +142,17 @@ handle_cast(
           );
         
         (_InvalidCollection) ->
-          logger:error("Invalid beacon collection: ~p", [_InvalidCollection]),
+          ?LOG_ERROR("Invalid beacon collection: ~p", [_InvalidCollection]),
           #{}
       end,
       
     Collection =
       case beacon:parse_relayed(PayloadBin) of
         #{collection:=Packed, from:=From, to:=Me} ->
-%%          logger:info("TOPO packed beacon relay: ~p", [Packed]),
+%%          ?LOG_INFO("TOPO packed beacon relay: ~p", [Packed]),
           case chainsettings:is_our_node(From) of
             false ->
-              logger:error("TOPO got beacon collection from wrong node: ~p, ~p", [From, Packed]),
+              ?LOG_ERROR("TOPO got beacon collection from wrong node: ~p, ~p", [From, Packed]),
               error;
             _ ->
               case unpack_collection_bin(Packed, BeaconValidator, CollectionValidator) of
@@ -164,10 +165,10 @@ handle_cast(
               end
           end;
         _Err1 ->
-          logger:error("TOPO unmatched parse_relayed: ~p", [_Err1]),
+          ?LOG_ERROR("TOPO unmatched parse_relayed: ~p", [_Err1]),
           error
       end,
-    logger:debug("TOPO parsed beacon collection: ~p", [Collection]),
+    ?LOG_DEBUG("TOPO parsed beacon collection: ~p", [Collection]),
     {noreply, State#{
       collection_cache => add_collection_to_cache(Collection, Cache)
     }}
@@ -177,7 +178,7 @@ handle_cast(
     Ec:Ee:S ->
       %S=erlang:get_stacktrace(),
       utils:print_error("TOPO", Ec, Ee, S),
-      logger:error("TOPO ~p beacon2 parse problem for payload ~p", [_PeerID, hex:encode(PayloadBin)]),
+      ?LOG_ERROR("TOPO ~p beacon2 parse problem for payload ~p", [_PeerID, hex:encode(PayloadBin)]),
       {noreply, State}
   end;
 
@@ -192,21 +193,21 @@ handle_cast(
     Validator =
       fun
         (#{timestamp := TimeStamp} = _Beacon) when TimeStamp < (Now - BeaconTtl) ->
-          logger:error("too old beacon with timestamp: ~p ~p ~p", [TimeStamp, (Now - BeaconTtl), _Beacon]),
+          ?LOG_ERROR("too old beacon with timestamp: ~p ~p ~p", [TimeStamp, (Now - BeaconTtl), _Beacon]),
           error;
         (#{to := DestNodeId} = _Beacon) when DestNodeId =/= Me ->
-          logger:error("wrong destination node: ~p ~p", [DestNodeId, _Beacon]),
+          ?LOG_ERROR("wrong destination node: ~p ~p", [DestNodeId, _Beacon]),
           error;
         (Beacon) when is_map(Beacon) ->
           Beacon;
         (_Invalid) ->
-          logger:error("invalid beacon: ~p", [_Invalid]),
+          ?LOG_ERROR("invalid beacon: ~p", [_Invalid]),
           error
       end,
     
     case beacon:check(Payload, Validator) of
       #{from := BeaconOrigin, to := Me, timestamp := BeaconTimestamp} = Beacon ->
-        logger:debug("TOPO beacon from ~p: ~p", [_PeerID, Beacon]),
+        ?LOG_DEBUG("TOPO beacon from ~p: ~p", [_PeerID, Beacon]),
         
         {noreply, State#{
           beacon_cache => add_beacon_to_cache(Beacon, Collection),
@@ -218,29 +219,29 @@ handle_cast(
             add_collection_to_cache({Me, #{BeaconOrigin => BeaconTimestamp}}, Collection2)
         }};
       _ ->
-        logger:error("TOPO can't verify beacon from ~p", [_PeerID]),
+        ?LOG_ERROR("TOPO can't verify beacon from ~p", [_PeerID]),
         {noreply, State}
     end
   catch
     Ec:Ee:S ->
       %S=erlang:get_stacktrace(),
       utils:print_error("TOPO", Ec, Ee, S),
-      logger:error("TOPO ~p beacon check problem for payload ~p", [_PeerID, Payload])
+      ?LOG_ERROR("TOPO ~p beacon check problem for payload ~p", [_PeerID, Payload])
   end;
 
 
 handle_cast({got_beacon, _PeerID, _Payload}, State) ->
-  logger:error("Bad TPIC beacon received from peer ~p", [_PeerID]),
+  ?LOG_ERROR("Bad TPIC beacon received from peer ~p", [_PeerID]),
   {noreply, State};
 
 
 handle_cast({got_beacon2, _PeerID, _Payload}, State) ->
-  logger:error("Bad TPIC beacon relay received from peer ~p ~p", [_PeerID, _Payload]),
+  ?LOG_ERROR("Bad TPIC beacon relay received from peer ~p ~p", [_PeerID, _Payload]),
   {noreply, State};
 
 
 handle_cast(_Msg, State) ->
-  logger:error("Unknown cast ~p", [_Msg]),
+  ?LOG_ERROR("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
 
@@ -270,12 +271,12 @@ handle_info(timer_decide,
           maps:put({Origin, Dest}, Timestamp, CacheAcc)
         };
       (_K, _V, Acc) ->
-        logger:debug("TOPO: skip collection member: ~p, ~p", [_K, _V]),
+        ?LOG_DEBUG("TOPO: skip collection member: ~p, ~p", [_K, _V]),
         Acc
     end,
   {Matrix, NewCache} = maps:fold(Worker, {#{}, #{}}, Cache),
   
-  logger:debug("TOPO: decision matrix ~p", [
+  ?LOG_DEBUG("TOPO: decision matrix ~p", [
     maps:fold(
       fun(N1, Nodes2, Acc) ->
         maps:put(chainsettings:is_our_node(N1), [chainsettings:is_our_node(N2) || N2 <- Nodes2], Acc)
@@ -283,10 +284,10 @@ handle_info(timer_decide,
       #{},
       Matrix)
   ]),
-%%  logger:info("TOPO: decision matrix list ~p", [maps:to_list(Matrix)]),
+%%  ?LOG_INFO("TOPO: decision matrix list ~p", [maps:to_list(Matrix)]),
   
   NetworkState = bron_kerbosch:max_clique(maps:to_list(Matrix)),
-  logger:info("TOPO: network state ~p", [[chainsettings:is_our_node(N3) || N3 <- NetworkState] ]),
+  ?LOG_INFO("TOPO: network state ~p", [[chainsettings:is_our_node(N3) || N3 <- NetworkState] ]),
 
   nodes_to_ets(NetworkState, EtsTableName),
   
@@ -307,7 +308,7 @@ handle_info(timer_announce, #{timer_announce:=Tmr, tickms:=Delay} = State) ->
   lists:foreach(
     fun
       ({DstNodePubKey, _, _}=Peer) ->
-        logger:debug("TOPO sent ~p: ~p", [Peer, DstNodePubKey]),
+        ?LOG_DEBUG("TOPO sent ~p: ~p", [Peer, DstNodePubKey]),
         tpic2:cast(
           Peer,
           {<<"beacon">>, beacon:create(DstNodePubKey)}
@@ -348,7 +349,7 @@ handle_info(timer_relay, #{timer_relay:=Tmr, tickms:=Delay, beacon_cache:=Cache}
 
 
 handle_info(_Info, State) ->
-  logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
+  ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -383,7 +384,7 @@ add_beacon_to_cache(#{timestamp:=Timestamp, from:=Origin, bin:=Bin} = _Beacon, C
 
 
 add_beacon_to_cache(_Beacon, _Collection) ->
-  logger:error("invalid beacon: ~p", [_Beacon]).
+  ?LOG_ERROR("invalid beacon: ~p", [_Beacon]).
 
 
 %% ------------------------------------------------------------------
@@ -404,7 +405,7 @@ add_collection_to_cache({Origin, Collection}, Cache) when is_map(Collection) and
   maps:fold(Updater, Cache, Collection);
 
 add_collection_to_cache(_Invalid, Cache) ->
-  logger:error("TOPO: invalid collection: ~p", [_Invalid]),
+  ?LOG_ERROR("TOPO: invalid collection: ~p", [_Invalid]),
   Cache.
   
 %% ------------------------------------------------------------------
@@ -419,7 +420,7 @@ relay_beacons(Collection) when is_list(Collection) ->
   lists:foreach(
     fun
       ({Peer, #{authdata:=AD}}) ->
-        logger:debug("TOPO sending beacon collection to peer ~p", [Peer]),
+        ?LOG_DEBUG("TOPO sending beacon collection to peer ~p", [Peer]),
         DstNodePubKey = proplists:get_value(pubkey, AD, <<>>),
         tpic2:cast(
           Peer,
@@ -474,7 +475,7 @@ add_or_update_item(Key, Timestamp, Collection) when is_map(Collection) ->
 unpack_collection_bin(Packed, BeaconValidator, CollectionValidator) when is_binary(Packed) ->
   case msgpack:unpack(Packed, [{spec, new}]) of
     {ok, BinBeacons} ->
-      logger:debug("TOPO: bin beacons: ~p", [BinBeacons]),
+      ?LOG_DEBUG("TOPO: bin beacons: ~p", [BinBeacons]),
       
       Worker =
         fun
@@ -492,7 +493,7 @@ unpack_collection_bin(Packed, BeaconValidator, CollectionValidator) when is_bina
       Collection = lists:foldl(Worker, #{}, BinBeacons),
       CollectionValidator(Collection);
     Err ->
-      logger:error("can't unpack msgpack: ~p", [Err]),
+      ?LOG_ERROR("can't unpack msgpack: ~p", [Err]),
       error
   end.
 

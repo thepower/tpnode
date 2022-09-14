@@ -1,4 +1,5 @@
 -module(ldb).
+-include("include/tplog.hrl").
 -export([put_key/3, read_key/3, del_key/2, open/1]).
 
 open(Path) ->
@@ -12,13 +13,13 @@ read_key(DB, Key, Default) when is_binary(Key) ->
             binary_to_term(Bin)
     end;
 read_key(_DB, Key, _Default) ->
-    logger:error("LDB read_key: key must be binary ~p", [Key]),
+    ?LOG_ERROR("LDB read_key: key must be binary ~p", [Key]),
     throw({non_binary_key, Key}).
 
 put_key(DB, Key, Value) when is_binary(Key) ->
     rocksdb:put(DB, Key, term_to_binary(Value), []);
 put_key(_DB, Key, _Value) ->
-    logger:error("LDB put_key: key must be binary ~p", [Key]),
+    ?LOG_ERROR("LDB put_key: key must be binary ~p", [Key]),
     throw({non_binary_key, Key}).
 
 del_key(DB, Key) ->

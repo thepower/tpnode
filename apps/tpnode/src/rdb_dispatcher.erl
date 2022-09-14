@@ -6,6 +6,8 @@
 -author("cleverfox <devel@viruzzz.org>").
 -create_date("2018-02-13").
 
+-include("include/tplog.hrl").
+
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -77,15 +79,15 @@ handle_call({close, DBPath}, _Form, #{dbs:=DBS}=State) ->
     end;
 
 handle_call(_Request, _From, State) ->
-    logger:notice("Unknown call ~p", [_Request]),
+    ?LOG_NOTICE("Unknown call ~p", [_Request]),
     {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
-    logger:notice("Unknown cast ~p", [_Msg]),
+    ?LOG_NOTICE("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(_Info, State) ->
-    logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
+    ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
     {noreply, State}.
 
 terminate(_Reason, #{dbs:=DBS}=_State) ->
@@ -93,7 +95,7 @@ terminate(_Reason, #{dbs:=DBS}=_State) ->
       fun(_Path, {ok, DBH}, _) ->
               rocksdb:close(DBH)
       end, undefined, DBS),
-    logger:error("Terminate me ~p", [_State]),
+    ?LOG_ERROR("Terminate me ~p", [_State]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

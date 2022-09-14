@@ -1,4 +1,5 @@
 -module(tx_visualizer).
+-include("include/tplog.hrl").
 
 -export([show/1]).
 
@@ -241,7 +242,7 @@ show(Tx) ->
                   true -> {error, "top level element must be map"}
                end;
               (E0,Path)->
-               logger:notice("Body unknown element ~p: ~p~n",[Path,E0]),
+               ?LOG_NOTICE("Body unknown element ~p: ~p~n",[Path,E0]),
                {warning, "unknown element"}
            end);
     #{<<"ver">>:=_,<<"body">>:=_} ->
@@ -272,7 +273,7 @@ show(Tx) ->
                   true -> {error, "top level element must be map"}
                end;
               (E0,Path)->
-               logger:notice("Container unknown element ~p: ~p",[Path,E0]),
+               ?LOG_NOTICE("Container unknown element ~p: ~p",[Path,E0]),
                {warning, "unknown element"}
            end);
     _ ->

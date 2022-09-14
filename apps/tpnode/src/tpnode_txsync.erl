@@ -1,4 +1,5 @@
 -module(tpnode_txsync).
+-include("include/tplog.hrl").
 
 -export([synchronize/2, run_sync/3]).
 
@@ -28,7 +29,7 @@ synchronize(TxID, #{min_peers:=_}=Opts0) ->
 run_sync(TxID, TxBin, #{retry:=Retry}=Opts) ->
   Peers2Sync=tpic2:cast_prepare(<<"txpool">>),
   PList=[ {Peer, Retry} || Peer <- Peers2Sync ],
-  logger:debug("Tx sync ~p Prepared ~p~n",[TxID, PList]),
+  ?LOG_DEBUG("Tx sync ~p Prepared ~p~n",[TxID, PList]),
   PushBin=msgpack:pack(
             #{ null => <<"txsync_push">>,
                <<"txid">> => TxID,
@@ -42,7 +43,7 @@ sync_loop(TxID, _PushBin, [], Done, #{min_peers:=MP, notify:=Notify} = _Opts) ->
      is_function(Notify) ->
        Notify(length(Done)>=MP, TxID, Done);
      true ->
-       logger:notice("Bad notifier ~p",[Notify])
+       ?LOG_NOTICE("Bad notifier ~p",[Notify])
   end;
 
 sync_loop(TxID, PushBin, PList, Done, #{min_peers:=MP}=Opts) ->
@@ -53,7 +54,7 @@ sync_loop(TxID, PushBin, PList, Done, #{min_peers:=MP}=Opts) ->
             end,
   receive
     {'$gen_cast',{tpic,{Peer, <<"txpool">>, _ReqID}, _Response}} ->
-      logger:debug("Tx ~p Peer ~p done!~n",[TxID, Peer]),
+      ?LOG_DEBUG("Tx ~p Peer ~p done!~n",[TxID, Peer]),
       PList1=lists:filter(fun({{MPeer,_,_},_}) ->
                               MPeer=/=Peer
                           end, PList),
@@ -67,7 +68,7 @@ cast_peers(TxID, PushBin, PL) ->
   lists:filtermap(
     fun({Peer, Retry}) ->
         if Retry==0 ->
-             logger:notice("tx ~p peer ~p sync try count exceeded, abandon peer",
+             ?LOG_NOTICE("tx ~p peer ~p sync try count exceeded, abandon peer",
                          [TxID, Peer]),
              false;
            Retry>0 ->

@@ -6,6 +6,7 @@
 -export([start/2, stop/1, start/0, stop/0, reload/0, die/1]).
 
 -include("include/version.hrl").
+-include("include/tplog.hrl").
 %% ===================================================================
 %% Application callbacks
 %% ===================================================================
@@ -37,7 +38,7 @@ reload() ->
     end.
 
 die(Reason) ->
-  logger:error("Node dead: ~p",[Reason]),
+  ?LOG_ERROR("Node dead: ~p",[Reason]),
   application:set_env(tpnode,dead,Reason),
   Shutdown = [ discovery, synchronizer, chainkeeper, blockchain_updater,
                blockchain_sync, blockvote, mkblock, txstorage, txqueue,

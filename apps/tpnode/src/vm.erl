@@ -1,4 +1,5 @@
 -module(vm).
+-include("include/tplog.hrl").
 -export([run/4, test_erl/0, test_wasm/0]).
 
 test_erl() ->
@@ -24,7 +25,7 @@ test_erl() ->
             })
         ),
     run(fun(Pid) ->
-            logger:info("Got worker ~p",[Pid]),
+            ?LOG_INFO("Got worker ~p",[Pid]),
             Pid ! {run,
                    Tx,
                    msgpack:pack(#{}),
@@ -106,10 +107,10 @@ run(Fun, VmType, VmVer, Opts) ->
                               pong ->
                                 {ok, pong};
                               {ok, Payload, Ext} ->
-                                logger:info("Contract ext ~p",[Ext]),
+                                ?LOG_INFO("Contract ext ~p",[Ext]),
                                 {ok,Payload};
                               {error, Err} ->
-                                logger:error("Error ~p",[Err]),
+                                ?LOG_ERROR("Error ~p",[Err]),
                                 {error, Err}
                             end
                   after Timeout ->

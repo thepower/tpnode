@@ -1,4 +1,5 @@
 -module(tpic2_client).
+-include("include/tplog.hrl").
 
 -export([start/3,start_link/3,childspec/0,init/1]).
 -export([connection_process/4]).
@@ -57,19 +58,19 @@ connection_process(Parent, Host, Port, Opts) ->
                       {ok,{hostent,_,_,inet,_, [IPv4Addr|_]}} ->
                         {[],IPv4Addr};
                       {ok, Any} ->
-                        %logger:error("Address ~p resolver unexpected result : ~p",[Host, Any]),
+                        %?LOG_ERROR("Address ~p resolver unexpected result : ~p",[Host, Any]),
                         throw({unexpected_gethostbyname_answer,Any});
                       {error,nxdomain} ->
-                        %logger:error("Address ~p can't resolve",[Host]),
+                        %?LOG_ERROR("Address ~p can't resolve",[Host]),
                         throw({bad_hostname,Host})
                     end;
                  {error, Err} ->
-                   %logger:error("Address ~p error: ~p",[Host, Err]),
+                   %?LOG_ERROR("Address ~p error: ~p",[Host, Err]),
                    throw({parse_addr,Err})
                end,
   try
     {ok, TCPSocket} = gen_tcp:connect(NAddr, Port, [binary, {packet,4}]++Opts1),
-    logger:notice("Opts ~p~n",[SSLOpts]),
+    ?LOG_DEBUG("Opts ~p~n",[SSLOpts]),
     {ok, Socket} = ssl:connect(TCPSocket, SSLOpts),
     ssl:setopts(Socket, [{active, once}]),
     {ok,PeerInfo}=ssl:connection_information(Socket),
@@ -87,6 +88,6 @@ connection_process(Parent, Host, Port, Opts) ->
     tpic2_tls:send_msg(hello, State),
     tpic2_tls:loop1(State)
   catch error:{badmatch,{error,econnrefused}} ->
-          logger:info("Peer ~s:~w conn refused",[inet:ntoa(NAddr),Port])
+          ?LOG_INFO("Peer ~s:~w conn refused",[inet:ntoa(NAddr),Port])
   end.
 

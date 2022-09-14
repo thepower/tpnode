@@ -1,4 +1,5 @@
 -module(txqueue).
+-include_lib("include/tplog.hrl").
 
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
@@ -49,12 +50,12 @@ handle_call(state, _From, State) ->
   {reply, State, State};
 
 handle_call(_Request, _From, State) ->
-  logger:notice("Unknown call ~p", [_Request]),
+  ?LOG_NOTICE("Unknown call ~p", [_Request]),
   {reply, ok, State}.
 
 handle_cast({push_tx, TxId, TxBody},
             #{queue:=Queue} = State) when is_binary(TxId), is_binary(TxBody) ->
-  logger:info("Pushed TX ~s",[TxId]),
+  ?LOG_INFO("Pushed TX ~s",[TxId]),
   {noreply, State#{
               queue => queue:in({TxId, TxBody},Queue)
              }
@@ -62,14 +63,14 @@ handle_cast({push_tx, TxId, TxBody},
 
 handle_cast({push_tx, TxId},
             #{queue:=Queue} = State) when is_binary(TxId) ->
-  logger:info("Pushed TX ~s without body",[TxId]),
+  ?LOG_INFO("Pushed TX ~s without body",[TxId]),
   {noreply, State#{
               queue => queue:in({TxId,null},Queue)
              }
   };
 
 handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
-  logger:info("push head ~p", [TxIds]),
+  ?LOG_INFO("push head ~p", [TxIds]),
   stout:log(txqueue_pushhead, [ {ids, TxIds} ]),
 
   RevIds = lists:reverse(TxIds),
@@ -88,10 +89,10 @@ handle_cast({done, Txs}, #{inprocess:=InProc0,
     lists:foldl(
       fun
         ({Tx, _}, Acc) ->
-          logger:info("TX queue ext tx done ~p", [Tx]),
+          ?LOG_INFO("TX queue ext tx done ~p", [Tx]),
           hashqueue:remove(Tx, Acc);
         (Tx, Acc) ->
-          logger:debug("TX queue tx done ~p", [Tx]),
+          ?LOG_DEBUG("TX queue tx done ~p", [Tx]),
           hashqueue:remove(Tx, Acc)
       end,
       InProc0,
@@ -121,10 +122,10 @@ handle_cast({failed, Txs}, #{inprocess:=InProc0,
   InProc1 = lists:foldl(
     fun
       ({_, {overdue, Parent}}, Acc) ->
-        logger:info("TX queue inbound block overdue ~p", [Parent]),
+        ?LOG_INFO("TX queue inbound block overdue ~p", [Parent]),
         hashqueue:remove(Parent, Acc);
       ({TxID, Reason}, Acc) ->
-        logger:info("TX queue tx failed ~s ~p", [TxID, Reason]),
+        ?LOG_INFO("TX queue tx failed ~s ~p", [TxID, Reason]),
         hashqueue:remove(TxID, Acc)
     end,
     InProc0,
@@ -186,7 +187,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue, lost_
       #{},
       TxIds
      ),
-    logger:debug("txs for mkblock: ~p", [TxMap]),
+    ?LOG_DEBUG("txs for mkblock: ~p", [TxMap]),
     Entropy=crypto:strong_rand_bytes(32),
     MRes = msgpack:pack(
              #{
@@ -222,12 +223,12 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue, lost_
     }};
 
 handle_cast(prepare, State) ->
-  logger:notice("TXQUEUE Blocktime, but I am not ready"),
+  ?LOG_NOTICE("TXQUEUE Blocktime, but I am not ready"),
   {noreply, load_settings(State)};
 
 
 handle_cast(_Msg, State) ->
-  logger:notice("Unknown cast ~p", [_Msg]),
+  ?LOG_NOTICE("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
 handle_info(prepare, State) ->
@@ -240,7 +241,7 @@ handle_info({push_head, TxIds}, State) when is_list(TxIds) ->
   handle_cast({push_head, TxIds}, State);
 
 handle_info(_Info, State) ->
-  logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
+  ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -261,7 +262,7 @@ push_queue_head(Txs, Queue, LCnt) ->
                     fun({TxID, TxBody}, {Q0,LC0}) ->
                         Recovered=maps:get(TxID,LC0,0),
                         if(Recovered>5) ->
-                            logger:error("Giving up tx ~p",[TxID]),
+                            ?LOG_ERROR("Giving up tx ~p",[TxID]),
                             {Q0,maps:remove(TxID, LC0)};
                           true ->
                             {[{TxID, TxBody}|Q0],maps:put(TxID, Recovered+1, LC0)}

@@ -1,4 +1,5 @@
 -module(tpnode_txstorage).
+-include("include/tplog.hrl").
 
 -behaviour(gen_server).
 
@@ -34,7 +35,7 @@ init_table(EtsTableName) ->
       EtsTableName,
       [named_table, protected, set, {read_concurrency, true}]
     ),
-  logger:info("Table created: ~p", [Table]).
+  ?LOG_INFO("Table created: ~p", [Table]).
 
 init(Args) ->
   EtsTableName = maps:get(ets_name, Args, txstorage),
@@ -58,16 +59,16 @@ handle_call({new_tx, TxID, TxBin}, _From, State) ->
     {ok, S1} ->
       {reply, ok, S1};
     Any ->
-      logger:error("Can't add tx: ~p",[Any]),
+      ?LOG_ERROR("Can't add tx: ~p",[Any]),
       {reply, {error, Any}, State}
   end;
 
 handle_call(_Request, _From, State) ->
-  logger:notice("Unknown call ~p", [_Request]),
+  ?LOG_NOTICE("Unknown call ~p", [_Request]),
   {reply, ok, State}.
 
 handle_cast({tpic, FromPubKey, Peer, PayloadBin}, State) ->
-  logger:debug( "txstorage got txbatch from ~p payload ~p", [ FromPubKey, PayloadBin]),
+  ?LOG_DEBUG( "txstorage got txbatch from ~p payload ~p", [ FromPubKey, PayloadBin]),
   case msgpack:unpack(PayloadBin, [ {unpack_str, as_binary} ]) of
     {ok, MAP} ->
       case handle_tpic(MAP, FromPubKey, Peer, State) of
@@ -78,7 +79,7 @@ handle_cast({tpic, FromPubKey, Peer, PayloadBin}, State) ->
           {noreply, State1}
       end;
     _ ->
-      logger:error("txstorage can't unpack msgpack: ~p", [ PayloadBin ]),
+      ?LOG_ERROR("txstorage can't unpack msgpack: ~p", [ PayloadBin ]),
       {noreply, State}
   end;
 
@@ -87,24 +88,24 @@ handle_cast({store_etxs, Txs}, State) ->
     fun({TxID, TxBin},A) ->
         case new_tx(TxID, TxBin, nosync, A) of
           {ok, S1} ->
-            logger:info("Store Injected tx ~p",[TxID]),
+            ?LOG_INFO("Store Injected tx ~p",[TxID]),
             S1;
           Any ->
-            logger:error("Can't add tx: ~p",[Any]),
+            ?LOG_ERROR("Can't add tx: ~p",[Any]),
             State
         end
     end, State, Txs),
   {noreply, S1};
 
 handle_cast(_Msg, State) ->
-  logger:notice("Unknown cast ~p", [_Msg]),
+  ?LOG_NOTICE("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
 handle_info(timer_expire,
   #{ets_name:=EtsName, timer_expire:=Tmr, expire_tick_ms:=Delay} = State) ->
 
   catch erlang:cancel_timer(Tmr),
-  logger:debug("remove expired records"),
+  ?LOG_DEBUG("remove expired records"),
   Now = os:system_time(second),
   ets:select_delete(
     EtsName,
@@ -119,21 +120,21 @@ handle_info(timer_expire,
 handle_info({txsync_done, true, TxID, Peers}, State) ->
   case update_tx_peers(TxID, Peers, State) of
     {ok, S1} ->
-      logger:info("Tx ~p ready",[TxID]),
+      ?LOG_INFO("Tx ~p ready",[TxID]),
       gen_server:cast(txqueue, {push_tx, TxID}),
       {noreply, S1};
     Any ->
-      logger:error("Can't update peers for tx ~p: ~p",[TxID,Any]),
+      ?LOG_ERROR("Can't update peers for tx ~p: ~p",[TxID,Any]),
       {noreply, State}
   end;
 
 handle_info({txsync_done, false, TxID, _Peers}, State) ->
-  logger:notice("Tx ~s sync failed, insufficient peers ~p",[TxID,_Peers]),
+  ?LOG_NOTICE("Tx ~s sync failed, insufficient peers ~p",[TxID,_Peers]),
   gen_server:cast(txstatus, {done, false, [{TxID, insufficient_nodes_confirmed}]}),
   {noreply, State};
 
 handle_info(_Info, State) ->
-  logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
+  ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
   {noreply, State}.
 
 handle_tpic(#{ null := <<"txsync_refresh">>, <<"txid">> := TxID}, _, _From, State) ->

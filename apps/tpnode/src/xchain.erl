@@ -2,6 +2,7 @@
 % vi: set ft=erlang :
 
 -module(xchain).
+-include("include/tplog.hrl").
 
 %% API
 -export([pack/2, unpack/2, pack_chid/1, childspec/0]).
@@ -47,7 +48,7 @@ unpack(Bin,2) when is_binary(Bin) ->
   end;
 
 unpack(Invalid, _) ->
-    logger:info("xchain got invalid data for unpack ~p", [Invalid]),
+    ?LOG_INFO("xchain got invalid data for unpack ~p", [Invalid]),
     {}.
 
 % -----------

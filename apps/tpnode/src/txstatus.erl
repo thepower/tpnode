@@ -1,4 +1,5 @@
 -module(txstatus).
+-include("include/tplog.hrl").
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 -define(CLEANUP, 30000).
@@ -84,7 +85,7 @@ handle_cast({done, Result, Txs}, #{q:=Q} = State) when is_list(Txs) ->
 
 
 handle_cast(_Msg, State) ->
-  logger:notice("Unhandler cast ~p",[_Msg]),
+  ?LOG_NOTICE("Unhandler cast ~p",[_Msg]),
   {noreply, State}.
 
 handle_info(timer, #{timer:=Tmr} = State) ->

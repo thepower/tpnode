@@ -1,4 +1,5 @@
 -module(ledger_sync).
+-include("include/tplog.hrl").
 
 -export([run_source/4,
          run_target/4,
@@ -26,10 +27,10 @@ target(TPIC, PeerID, LedgerPID, _RDB, Parent) ->
            #{null=><<"instant_sync_run">>},
            []
           ),
-    logger:debug("Sync tgt ~p", [R]),
+    ?LOG_DEBUG("Sync tgt ~p", [R]),
 
     gen_server:call(LedgerPID, '_flush'),
-    logger:debug("TgtSync start", []),
+    ?LOG_DEBUG("TgtSync start", []),
     Result0 = continue(TPIC, LedgerPID, R, Parent, [], []),
     {Result, Settings0}=lists:foldl(
                         fun({settings, List}, {RAcc, SAcc}) ->
@@ -38,27 +39,27 @@ target(TPIC, PeerID, LedgerPID, _RDB, Parent) ->
                                 {[Res|RAcc], SAcc}
                         end, {[], []}, Result0),
     Settings=lists:flatten(Settings0),
-    logger:debug("TgtSync done ~p", [Result]),
+    ?LOG_DEBUG("TgtSync done ~p", [Result]),
     Parent ! {inst_sync, settings, Settings},
     Parent ! {inst_sync, done, Result}.
 
 
 continue(TPIC, LedgerPID, [{Handler, Res}], Parent, Acc, BlockAcc) ->
-    logger:debug("sync continue ~p", [Res]),
+    ?LOG_DEBUG("sync continue ~p", [Res]),
     case Res of
         #{<<"done">> := _Done, <<"block">> := BlockPart} ->
             %#{hash:=Hash, header:=#{ledger_hash:=LH, height:=Height}}=Block=block:unpack(BinBlock),
-            %logger:info("Got block ~p ~s~n", [Height, bin2hex:dbin2hex(Hash)]),
-            %logger:info("Block's Ledger ~s~n", [bin2hex:dbin2hex(LH)]),
+            %?LOG_INFO("Got block ~p ~s~n", [Height, bin2hex:dbin2hex(Hash)]),
+            %?LOG_INFO("Block's Ledger ~s~n", [bin2hex:dbin2hex(LH)]),
             <<Number:32, Length:32, _/binary>> = BlockPart,
             NewBlockAcc = [BlockPart|BlockAcc],
             if (length(NewBlockAcc) == Length) ->
                     BinBlock = block:glue_packet(NewBlockAcc),
-                    %logger:debug("The block is ~p", [BinBlock]),
-                    %logger:debug("unpacked block is ~p", [block:unpack(BinBlock)]),
+                    %?LOG_DEBUG("The block is ~p", [BinBlock]),
+                    %?LOG_DEBUG("unpacked block is ~p", [block:unpack(BinBlock)]),
                     Parent ! {inst_sync, block, BinBlock};
                 true ->
-                    logger:debug("Received part number ~p out of ~p", [Number, Length])
+                    ?LOG_DEBUG("Received part number ~p out of ~p", [Number, Length])
             end,
             R = call(TPIC, Handler, #{null => <<"continue">>}, []),
             continue(TPIC, LedgerPID, R, Parent, Acc, NewBlockAcc);
@@ -73,7 +74,7 @@ continue(TPIC, LedgerPID, [{Handler, Res}], Parent, Acc, BlockAcc) ->
                                         CL=mbal:unpack(V),
                                             [{K, CL}|A]
                                     end, [], L), ublk}),
-            logger:info("L ~w~n", [maps:size(L)]),
+            ?LOG_INFO("L ~w~n", [maps:size(L)]),
             Parent ! {inst_sync, ledger},
             case Done of
                 false  ->
@@ -81,11 +82,11 @@ continue(TPIC, LedgerPID, [{Handler, Res}], Parent, Acc, BlockAcc) ->
                     continue(TPIC, LedgerPID, R, Parent, Acc, BlockAcc);
                 true ->
                     %{ok, C}=gen_server:call(LedgerPID, {check, []}),
-                    %logger:info("My Ledger hash ~s", [bin2hex:dbin2hex(C)]),
+                    %?LOG_INFO("My Ledger hash ~s", [bin2hex:dbin2hex(C)]),
                     [done|Acc]
             end;
         _Any ->
-            logger:info("Unknown res ~p", [_Any]),
+            ?LOG_INFO("Unknown res ~p", [_Any]),
             [{error, unknown}|[Acc|BlockAcc]]
     end.
 
@@ -104,10 +105,10 @@ synchronizer(TPIC, PeerID,
              Settings) ->
     {ok, Itr} = rocksdb:iterator(DBH, [{snapshot, Snapshot}]),
     Total=try rocksdb:count(DBH) catch _:_ -> unknown end,
-    logger:info("TPIC ~p Peer ~p bh ~p, db ~p total ~p",
+    ?LOG_INFO("TPIC ~p Peer ~p bh ~p, db ~p total ~p",
                [TPIC, PeerID, {Height, Hash}, {DBH, Snapshot}, Total]),
     Patches=settings:get_patches(Settings),
-    logger:info("Patches ~p", [Patches]),
+    ?LOG_INFO("Patches ~p", [Patches]),
     %file:write_file("tmp/syncblock.txt",
     %                io_lib:format("~p.~n", [Block])),
     BlockParts = block:split_packet(block:pack(Block)),
@@ -118,12 +119,12 @@ synchronizer(TPIC, PeerID,
         SP1 = send_settings(TPIC, PeerID, Patches),
         if SP1 == done ->
                 SP2 = send_ledger({DBH, Snapshot}, TPIC, PeerID, first, Itr),
-                logger:info("Sync finished: ~p / ~p", [SP1, SP2]);
+                ?LOG_INFO("Sync finished: ~p / ~p", [SP1, SP2]);
             true ->
-                logger:info("Sync interrupted while sending settings ~p", [SP1])
+                ?LOG_INFO("Sync interrupted while sending settings ~p", [SP1])
         end;
         true ->
-            logger:info("Sync interrupted while sending block ~p", [BlockSent])
+            ?LOG_INFO("Sync interrupted while sending block ~p", [BlockSent])
     end,
     rocksdb:release_snapshot(Snapshot).
 
@@ -138,7 +139,7 @@ pick_settings(Settings, N) ->
 send_block(_, _, []) ->
     done;
 send_block(TPIC, PeerID, Block) ->
-    logger:info("send_block"),
+    ?LOG_INFO("send_block"),
     receive
         {'$gen_cast', {tpic, PeerID, Bin}} ->
             case msgpack:unpack(Bin) of
@@ -147,7 +148,7 @@ send_block(TPIC, PeerID, Block) ->
                     interrupted;
                 {ok, #{null := <<"continue">>}} ->
                     [ToSend|Rest] = Block,
-                    logger:info("Sending block ~p", [ToSend]),
+                    ?LOG_INFO("Sending block ~p", [ToSend]),
                     if (Rest == []) -> %last portion
                             Blob =# {done => false, block => ToSend},
                             tpic2:cast(PeerID, msgpack:pack(Blob)),
@@ -161,14 +162,14 @@ send_block(TPIC, PeerID, Block) ->
                     error
             end;
         {'$gen_cast', Any} ->
-            logger:info("Unexpected message ~p", [Any])
+            ?LOG_INFO("Unexpected message ~p", [Any])
     after 30000 ->
         tpic2:cast(PeerID, msgpack:pack(#{null => <<"stopped">>})),
         timeout
     end.
 
 send_settings(TPIC, PeerID, Settings) ->
-    logger:info("send_settings"),
+    ?LOG_INFO("send_settings"),
     receive
         {'$gen_cast', {tpic, PeerID, Bin}} ->
             case msgpack:unpack(Bin) of
@@ -177,7 +178,7 @@ send_settings(TPIC, PeerID, Settings) ->
                     interrupted;
                 {ok, #{null:=<<"continue">>}} ->
                     {ToSend, Rest} = pick_settings(Settings, 5),
-                    logger:info("Sending patches ~p", [ToSend]),
+                    ?LOG_INFO("Sending patches ~p", [ToSend]),
                     if(Rest == []) -> %last portion
                           Blob=#{done=>false, settings=>ToSend},
                           tpic2:cast(PeerID, msgpack:pack(Blob)),
@@ -191,7 +192,7 @@ send_settings(TPIC, PeerID, Settings) ->
                     error
             end;
         {'$gen_cast', Any} ->
-            logger:info("Unexpected message ~p", [Any])
+            ?LOG_INFO("Unexpected message ~p", [Any])
     after 30000 ->
               tpic2:cast(PeerID, msgpack:pack(#{null=><<"stopped">>})),
               timeout
@@ -219,7 +220,7 @@ send_ledger(DB, TPIC, PeerID, Act, Itr) ->
                     error
             end;
         {'$gen_cast', Any} ->
-            logger:info("Unexpected message ~p", [Any])
+            ?LOG_INFO("Unexpected message ~p", [Any])
     after 30000 ->
               tpic2:cast(PeerID, msgpack:pack(#{null=><<"stopped">>})),
               timeout
@@ -235,13 +236,13 @@ pickx({DBH, Snapshot}=DB, Act, Itr, N, A) ->
       pickx(DB, next, Itr, N, A);
     {ok, K, V} ->
       V0=binary_to_term(V),
-      logger:notice("FX ME here"),
+      ?LOG_NOTICE("FX ME here"),
       V1=case rocksdb:get(DBH, <<"lb:", K/binary>>, [{snapshot, Snapshot}]) of
            {ok, LBH} ->
-             logger:notice("LB ~p",[LBH]),
+             ?LOG_NOTICE("LB ~p",[LBH]),
              V0#{ ublk=>LBH };
            _ ->
-             logger:notice("LB none"),
+             ?LOG_NOTICE("LB none"),
              V0
          end,
       pickx(DB, next, Itr, N-1, [{K, mbal:pack(V1,true)}|A]);

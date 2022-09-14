@@ -1,4 +1,5 @@
 -module(blockchain_reader).
+-include("include/tplog.hrl").
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -94,7 +95,7 @@ handle_call({get_block, TBH}, _From, #{tmpblock:=#{hash:=TBH}=TB}=State) ->
 
 handle_call({get_block, BlockHash}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}=LB}=State)
   when is_binary(BlockHash) ->
-  %logger:debug("Get block ~p", [BlockHash]),
+  %?LOG_DEBUG("Get block ~p", [BlockHash]),
   Block=if BlockHash==LBH -> LB;
            true ->
              ldb:read_key(LDB,
@@ -105,7 +106,7 @@ handle_call({get_block, BlockHash}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}=L
 
 handle_call({get_block, BlockHash, Rel}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}}=State)
   when is_binary(BlockHash) andalso is_atom(Rel) ->
-  %logger:debug("Get block ~p", [BlockHash]),
+  %?LOG_DEBUG("Get block ~p", [BlockHash]),
   H=if BlockHash==last ->
          LBH;
        true ->
@@ -116,7 +117,7 @@ handle_call({get_block, BlockHash, Rel}, _From, #{ldb:=LDB, lastblock:=#{hash:=L
 
 handle_call({block_exists, BlockHash}, _From, #{ldb:=LDB} = State)
   when is_binary(BlockHash) ->
-  %logger:debug("Get block ~p", [BlockHash]),
+  %?LOG_DEBUG("Get block ~p", [BlockHash]),
   Exists =
   case ldb:read_key(LDB, <<"block:", BlockHash/binary>>, undefined) of
     undefined ->
@@ -131,7 +132,7 @@ handle_call(sync_req, _From, State) ->
   {reply, MaySync, State};
 
 handle_call(_Request, _From, State) ->
-  logger:info("Unhandled ~p",[_Request]),
+  ?LOG_INFO("Unhandled ~p",[_Request]),
   {reply, unhandled_call, State}.
 
 handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
@@ -140,7 +141,7 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
                             }},
             #{ tmpblock:=#{ header:=#{ parent:=Hash } }=TmpBlock } = State) ->
   MyRel = child,
-  logger:info("Pick temp block ~p ~p",[blkid(Hash),Rel]),
+  ?LOG_INFO("Pick temp block ~p ~p",[blkid(Hash),Rel]),
   BlockParts = block:split_packet(block:pack(TmpBlock)),
   Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => MyRel}},
   send_block(tpic, Origin, Map, BlockParts),
@@ -152,7 +153,7 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
                             }},
             #{tmpblock:=#{header:=#{parent:=Hash}}=TmpBlk} = State) ->
   BinBlock=block:pack(TmpBlk),
-  logger:info("I was asked for ~s for blk ~s: ~p",[child,blkid(Hash),TmpBlk]),
+  ?LOG_INFO("I was asked for ~s for blk ~s: ~p",[child,blkid(Hash),TmpBlk]),
   BlockParts = block:split_packet(BinBlock),
   Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => child}},
   send_block(tpic, Origin, Map, BlockParts),
@@ -164,7 +165,7 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
                              <<"rel">>:=Rel
                             }},
             #{ldb:=LDB} = State) ->
-  logger:info("Pick block ~p ~p",[blkid(Hash),Rel]),
+  ?LOG_INFO("Pick block ~p ~p",[blkid(Hash),Rel]),
   MyRel = case Rel of
             <<"pre", _/binary>> -> prev;
             <<"child">> -> child;
@@ -177,7 +178,7 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
       Blk when is_map(Blk) ->
         #{block => block:pack(Blk)}
     end,
-  logger:info("I was asked for ~s for blk ~s: ~p",[MyRel,blkid(Hash),R]),
+  ?LOG_INFO("I was asked for ~s for blk ~s: ~p",[MyRel,blkid(Hash),R]),
 
   case maps:is_key(block, R) of
     false ->
@@ -202,7 +203,7 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
 
 handle_cast({tpic, Origin, #{null:=<<"instant_sync_run">>}},
             #{settings:=Settings, lastblock:=LastBlock}=State) ->
-  logger:info("Starting instant sync source"),
+  ?LOG_INFO("Starting instant sync source"),
   ledger_sync:run_source(tpic, Origin, LastBlock, Settings),
   {noreply, State};
 
@@ -221,16 +222,16 @@ handle_cast({tpic, Origin, #{null := <<"sync_block">>,
 handle_cast({tpic, Peer, #{null := <<"continue_sync">>,
                            <<"block">> := BlkId,
                            <<"cnt">> := NextB}}, #{ldb:=LDB}=State) ->
-  logger:info("SYNCout from ~s to ~p", [blkid(BlkId), Peer]),
+  ?LOG_INFO("SYNCout from ~s to ~p", [blkid(BlkId), Peer]),
   case ldb:read_key(LDB, <<"block:", BlkId/binary>>, undefined) of
     undefined ->
-      logger:info("SYNC done at ~s", [blkid(BlkId)]),
+      ?LOG_INFO("SYNC done at ~s", [blkid(BlkId)]),
       tpic2:cast(Peer, msgpack:pack(#{null=><<"sync_done">>}));
     #{header:=#{}, child:=Child}=_Block ->
-      logger:info("SYNC next block ~s to ~p", [blkid(Child), Peer]),
+      ?LOG_INFO("SYNC next block ~s to ~p", [blkid(Child), Peer]),
       handle_cast({continue_syncc, Child, Peer, NextB}, State);
     #{header:=#{}}=Block ->
-      logger:info("SYNC last block ~p to ~p", [Block, Peer]),
+      ?LOG_INFO("SYNC last block ~p to ~p", [Block, Peer]),
       tpic2:cast(Peer, msgpack:pack(#{null=><<"sync_block">>,
                                            block=>block:pack(Block)})),
       tpic2:cast(Peer, msgpack:pack(#{null=><<"sync_done">>}))
@@ -242,41 +243,41 @@ handle_cast({continue_syncc, BlkId, Peer, NextB}, #{ldb:=LDB,
                                                    }=State) ->
   case ldb:read_key(LDB, <<"block:", BlkId/binary>>, undefined) of
     _ when BlkId == LastHash ->
-      logger:info("SYNCC last block ~s from state", [blkid(BlkId)]),
+      ?LOG_INFO("SYNCC last block ~s from state", [blkid(BlkId)]),
       tpic2:cast(Peer, msgpack:pack(
                               #{null=><<"sync_block">>,
                                 block=>block:pack(LastBlock)})),
       tpic2:cast(Peer, msgpack:pack(
                               #{null=><<"sync_done">>}));
     undefined ->
-      logger:info("SYNCC done at ~s", [blkid(BlkId)]),
+      ?LOG_INFO("SYNCC done at ~s", [blkid(BlkId)]),
       tpic2:cast(Peer, msgpack:pack(
                               #{null=><<"sync_done">>}));
     #{header:=#{height:=H}, child:=Child}=Block ->
       P=msgpack:pack(
           #{null=><<"sync_block">>,
             block=>block:pack(Block)}),
-      logger:info("SYNCC send block ~w ~s ~w bytes to ~p",
+      ?LOG_INFO("SYNCC send block ~w ~s ~w bytes to ~p",
                  [H, blkid(BlkId), size(P), Peer]),
       tpic2:cast(Peer, P),
 
       if NextB > 1 ->
            gen_server:cast(self(), {continue_syncc, Child, Peer, NextB-1});
          true ->
-           logger:info("SYNCC pause ~p", [BlkId]),
+           ?LOG_INFO("SYNCC pause ~p", [BlkId]),
            tpic2:cast(Peer, msgpack:pack(
                                    #{null=><<"sync_suspend">>,
                                      <<"block">>=>BlkId}))
       end;
     #{header:=#{}}=Block ->
-      logger:info("SYNCC last block at ~s", [blkid(BlkId)]),
+      ?LOG_INFO("SYNCC last block at ~s", [blkid(BlkId)]),
       tpic2:cast(Peer, msgpack:pack(
                               #{null=><<"sync_block">>,
                                 block=>block:pack(Block)})),
       if (BlkId==LastHash) ->
-           logger:info("SYNC Real last");
+           ?LOG_INFO("SYNC Real last");
          true ->
-           logger:info("SYNC Not really last")
+           ?LOG_INFO("SYNC Not really last")
       end,
       tpic2:cast(Peer, msgpack:pack(#{null=><<"sync_done">>}))
   end,
@@ -287,34 +288,34 @@ handle_cast({tpic, Peer, #{null := <<"sync_suspend">>,
             #{ sync:=SyncPeer,
                lastblock:=#{hash:=LastHash}=LastBlock
              }=State) when SyncPeer==Peer ->
-  logger:info("Sync suspend ~s, my ~s", [blkid(BlkId), blkid(LastHash)]),
-  logger:info("MyLastBlock ~p", [maps:get(header, LastBlock)]),
+  ?LOG_INFO("Sync suspend ~s, my ~s", [blkid(BlkId), blkid(LastHash)]),
+  ?LOG_INFO("MyLastBlock ~p", [maps:get(header, LastBlock)]),
   if(BlkId == LastHash) ->
-      logger:info("Last block matched, continue sync"),
+      ?LOG_INFO("Last block matched, continue sync"),
       tpic2:cast(Peer, msgpack:pack(#{
                               null=><<"continue_sync">>,
                               <<"block">>=>LastHash,
                               <<"cnt">>=>2})),
       {noreply, State};
     true ->
-      logger:info("SYNC ERROR"),
+      ?LOG_INFO("SYNC ERROR"),
       %          {noreply, run_sync(State)}
       {noreply, State}
   end;
 
 handle_cast({tpic, Peer, #{null := <<"sync_suspend">>,
                            <<"block">> := _BlkId}}, State) ->
-  logger:info("sync_suspend from bad peer ~p", [Peer]),
+  ?LOG_INFO("sync_suspend from bad peer ~p", [Peer]),
   {noreply, State};
 
 handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
   case msgpack:unpack(Bin, []) of
     {ok, Struct} ->
-      logger:debug("Inbound TPIC ~p", [maps:get(null, Struct)]),
+      ?LOG_DEBUG("Inbound TPIC ~p", [maps:get(null, Struct)]),
       handle_cast({tpic, From, Struct}, State);
     _Any ->
-      logger:info("Can't decode  TPIC ~p", [_Any]),
-      logger:info("TPIC ~p", [Bin]),
+      ?LOG_INFO("Can't decode  TPIC ~p", [_Any]),
+      ?LOG_INFO("TPIC ~p", [Bin]),
       {noreply, State}
   end;
 
@@ -334,17 +335,17 @@ handle_cast(update, State) ->
   {noreply, get_last(State)};
 
 handle_cast(_Msg, State) ->
-  logger:info("Unknown cast ~p", [_Msg]),
+  ?LOG_INFO("Unknown cast ~p", [_Msg]),
   file:write_file("tmp/unknown_cast_msg.txt", io_lib:format("~p.~n", [_Msg])),
   file:write_file("tmp/unknown_cast_state.txt", io_lib:format("~p.~n", [State])),
   {noreply, State}.
 
 handle_info(_Info, State) ->
-  logger:info("BC unhandled info ~p", [_Info]),
+  ?LOG_INFO("BC unhandled info ~p", [_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
-  logger:error("Terminate blockchain ~p", [_Reason]),
+  ?LOG_ERROR("Terminate blockchain ~p", [_Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -363,11 +364,11 @@ send_block(TPIC, PeerID, Map, Arr) ->
   ok.
 
 send_block_real(_TPIC, PeerID, Map, [<<Hdr:8/binary,_/binary>>=BlockHead]) ->
-  logger:debug("Send last block part to peer ~p: ~s",
+  ?LOG_DEBUG("Send last block part to peer ~p: ~s",
              [PeerID, hex:encode(Hdr)]),
   tpic2:cast(PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead})));
 send_block_real(_TPIC, PeerID, Map, [<<Hdr:8/binary,_/binary>>=BlockHead|BlockTail]) ->
-  logger:debug("Send block part to peer ~p, ~w to go: ~s",
+  ?LOG_DEBUG("Send block part to peer ~p, ~w to go: ~s",
              [PeerID, length(BlockTail),hex:encode(Hdr)]),
   tpic2:cast(PeerID, msgpack:pack(maps:merge(Map, #{block => BlockHead}))),
   receive
@@ -379,9 +380,9 @@ send_block_real(_TPIC, PeerID, Map, [<<Hdr:8/binary,_/binary>>=BlockHead|BlockTa
           error
       end;
     {'$gen_cast', Any} ->
-      logger:info("Unexpected message ~p", [Any])
+      ?LOG_INFO("Unexpected message ~p", [Any])
   after 30000 ->
-          logger:info("Send block to ~p timeout, ~w parts throw away",
+          ?LOG_INFO("Send block to ~p timeout, ~w parts throw away",
                      [PeerID, length(BlockTail)]),
           timeout
   end.
@@ -517,7 +518,7 @@ mychain() ->
                    (Name, XPubKey, Acc) when is_binary(XPubKey) ->
                     maps:put(tpecdsa:upgrade_pubkey(XPubKey), Name, Acc);
                    (Key, Val, Acc) ->
-                    logger:error("Can't parse node key ~p -> ~p",[Key, Val]),
+                    ?LOG_ERROR("Can't parse node key ~p -> ~p",[Key, Val]),
                     Acc
                 end, #{}, KeyDB),
   MyName=maps:get(PubKey, ChainNodes0, undefined),
@@ -533,14 +534,14 @@ mychain1() ->
   KeyDB=chainsettings:by_path([keys]),
   NodeChain=chainsettings:by_path([nodechain]),
   PubKey=nodekey:get_pub(),
-  logger:notice("My key ~p", [(PubKey)]),
+  ?LOG_NOTICE("My key ~p", [(PubKey)]),
   ChainNodes0=maps:fold(
                 fun(Name, XPubKey, Acc) ->
                     maps:put(tpecdsa:upgrade_pubkey(XPubKey), Name, Acc)
                 end, #{}, KeyDB),
 
-  logger:notice("Nodes ~p", [KeyDB]),
-  logger:notice("Nodes ~p", [ChainNodes0]),
+  ?LOG_NOTICE("Nodes ~p", [KeyDB]),
+  ?LOG_NOTICE("Nodes ~p", [ChainNodes0]),
   MyName=maps:get(PubKey, ChainNodes0, undefined),
   MyChain=maps:get(MyName, NodeChain, 0),
   ChainNodes=maps:filter(
@@ -551,7 +552,7 @@ mychain1() ->
 
 mychain(State) ->
   {MyChain, MyName, ChainNodes}=mychain(),
-  logger:info("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
+  ?LOG_INFO("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
   maps:merge(State,
              #{myname=>MyName,
                chainnodes=>ChainNodes,

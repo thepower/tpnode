@@ -1,6 +1,7 @@
 -module(scratchpad).
 -compile(nowarn_export_all).
 -compile(export_all).
+-include("include/tplog.hrl").
 
 -ignore_xref([{ledger, get, 1}]).
 
@@ -163,7 +164,7 @@ calc_pub(Priv) ->
     {XPub, Priv} ->
       tpecdsa:minify(XPub);
     {_XPub, XPriv} ->
-      logger:error("Priv mismatch ~n~s~n~s",
+      ?LOG_ERROR("Priv mismatch ~n~s~n~s",
                    [
                     bin2hex:dbin2hex(Priv),
                     bin2hex:dbin2hex(XPriv)
@@ -480,12 +481,12 @@ r(Module) ->
   code:delete(Module),
   M1=Module:module_info(),
   Changed=proplists:get_value(md5,M0) =/= proplists:get_value(md5,M1),
-  logger:info("Recompile ~s md5 ~p / ~p",
+  ?LOG_INFO("Recompile ~s md5 ~p / ~p",
                         [Module,
                          proplists:get_value(md5,M0),
                          proplists:get_value(md5,M1)
                         ]),
-  logger:info("Recompile ~s from ~s changed ~s",[Module,SRC,Changed]),
+  ?LOG_INFO("Recompile ~s from ~s changed ~s",[Module,SRC,Changed]),
   {RC,
    Changed
   }.

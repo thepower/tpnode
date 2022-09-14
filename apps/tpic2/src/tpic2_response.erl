@@ -1,4 +1,5 @@
 -module(tpic2_response).
+-include("include/tplog.hrl").
 
 -export([handle/6]).
 
@@ -8,14 +9,14 @@ handle(PK, SID, ReqID, <<>>, Data, State) ->
     {ok, Pid} ->
       Alive=is_process_alive(Pid),
       if Alive ->
-           logger:debug("send to pid ~p",[Pid]),
+           ?LOG_DEBUG("send to pid ~p",[Pid]),
            tpnode_tpic_handler:handle_response(From, Pid, <<>>, Data, State);
          true ->
-           logger:debug("send to default handler ~p because pid ~p is dead",[SID, Pid]),
+           ?LOG_DEBUG("send to default handler ~p because pid ~p is dead",[SID, Pid]),
            tpnode_tpic_handler:handle_tpic(From, SID, <<>>, Data, State)
       end;
     error ->
-      logger:debug("send to default handler ~p",[SID]),
+      ?LOG_DEBUG("send to default handler ~p",[SID]),
       tpnode_tpic_handler:handle_tpic(From, SID, <<>>, Data, State)
   end;
 

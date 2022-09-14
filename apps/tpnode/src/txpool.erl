@@ -1,4 +1,5 @@
 -module(txpool).
+-include("include/tplog.hrl").
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -65,7 +66,7 @@ handle_call(state, _Form, State) ->
 %               signature:=HSig
 %              }
 %            }, _From, #{sync_timer:=Tmr, queue:=Queue}=State) ->
-%    logger:notice("TODO: Check keys"),
+%    ?LOG_NOTICE("TODO: Check keys"),
 %    case generate_txid(State) of
 %      error ->
 %        {reply, {error,cant_gen_txid}, State};
@@ -109,7 +110,7 @@ handle_call({new_tx, BinTx}, _From, #{sync_timer:=_Tmr, queue:=_Queue}=State)
                 end
 
 %                Res=gen_server:cast(txqueue, {push_tx, TxID, BinTx}),
-%                logger:info("New TX ~s cast in to queue ~p",[TxID,Res]),
+%                ?LOG_INFO("New TX ~s cast in to queue ~p",[TxID,Res]),
 %                {reply, {ok, TxID},
 %                 State#{
 %                   %queue=>queue:in({TxID, BinTx}, Queue),
@@ -143,7 +144,7 @@ handle_cast({new_height, H}, State) ->
 
 handle_cast({inbound_block, #{hash:=Hash} = Block}, State) ->
   TxID = bin2hex:dbin2hex(Hash),
-  logger:info("Inbound block ~p", [{TxID, Block}]),
+  ?LOG_INFO("Inbound block ~p", [{TxID, Block}]),
   % we need synchronise inbound blocks as well as incoming transaction from user
   % inbound blocks may arrive at two nodes or more at the same time
   % so, we may already have this inbound block in storage
@@ -154,7 +155,7 @@ handle_cast({inbound_block, #{hash:=Hash} = Block}, State) ->
         ok ->
           ok;
         {error, Any} ->
-          logger:error("inbound block ~p can't put to txstorage ~p",[TxID, Any]),
+          ?LOG_ERROR("inbound block ~p can't put to txstorage ~p",[TxID, Any]),
           error
       end;
     {ok, {TxId, _, _}} ->
@@ -166,7 +167,7 @@ handle_cast({inbound_block, #{hash:=Hash} = Block}, State) ->
 
 %handle_cast({inbound_block, #{hash:=Hash} = Block}, #{sync_timer:=Tmr, queue:=Queue} = State) ->
 %  TxId = bin2hex:dbin2hex(Hash),
-%  logger:info("Inbound block ~p", [{TxId, Block}]),
+%  ?LOG_INFO("Inbound block ~p", [{TxId, Block}]),
 %  % we need synchronise inbound blocks as well as incoming transaction from user
 %  % inbound blocks may arrive at two nodes or more at the same time
 %  % so, we may already have this inbound block in storage
@@ -191,7 +192,7 @@ handle_cast({inbound_block, #{hash:=Hash} = Block}, State) ->
 %  };
 
 handle_cast(_Msg, State) ->
-    logger:info("Unknown cast ~p", [_Msg]),
+    ?LOG_INFO("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 %handle_info(sync_tx,
@@ -199,7 +200,7 @@ handle_cast(_Msg, State) ->
 %    minsig:=MinSig, queue:=Queue, batch_no:=BatchNo} = State) ->
 %  
 %  catch erlang:cancel_timer(Tmr),
-%  logger:info("run tx sync"),
+%  ?LOG_INFO("run tx sync"),
 %  MaxPop = chainsettings:get_val(<<"poptxs">>, ?SYNC_TX_COUNT_PER_PROCESS),
 %  
 %  % do nothing in case peers count less than minsig
@@ -211,11 +212,11 @@ handle_cast(_Msg, State) ->
 %  case length(Peers) of
 %    _ when MinSig == undefined ->
 %      % minsig unknown
-%      logger:error("minsig is undefined, we can't run transaction synchronizer"),
+%      ?LOG_ERROR("minsig is undefined, we can't run transaction synchronizer"),
 %      {noreply, load_settings(State#{ sync_timer => update_sync_timer(undefined)})};
 %    PeersCount when not SingleNodeTest andalso PeersCount+1<MinSig ->
 %      % nodes count is less than we need, do nothing  (nodes = peers + 1)
-%      logger:info("nodes count ~p is less than minsig ~p", [PeersCount+1, MinSig]),
+%      ?LOG_INFO("nodes count ~p is less than minsig ~p", [PeersCount+1, MinSig]),
 %      {noreply, State#{ sync_timer => update_sync_timer(undefined) }};
 %    _ ->
 %      % peers count is OK, sync transactions
@@ -364,7 +365,7 @@ pullx({N, MaxSize}, Q, Acc) ->
             MaxSize1 < 0 ->
               {Q, lists:reverse(Acc)};
             true ->
-              %logger:debug("Pull tx ~p", [E1]),
+              %?LOG_DEBUG("Pull tx ~p", [E1]),
               pullx({N - 1, MaxSize1}, Q1, [E1 | Acc])
           end;
         empty ->

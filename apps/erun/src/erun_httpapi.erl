@@ -1,4 +1,5 @@
 -module(erun_httpapi).
+-include("include/tplog.hrl").
 
 -export([h/3, after_filter/1 ]).
 
@@ -152,7 +153,7 @@ h(<<"POST">>, [<<"run">>,TAddr], Req) ->
        }
      )
   catch error:{badmatch,_}=BadMatch:S ->
-          logger:error("Error badmatch ~p @ ~p",[BadMatch,hd(S)]),
+          ?LOG_ERROR("Error badmatch ~p @ ~p",[BadMatch,hd(S)]),
           err(
             10001,
             <<"Invalid arguments">>,
@@ -178,7 +179,7 @@ h(<<"POST">>, [<<"run">>,TAddr], Req) ->
 %        }
 %      );
 %    {error, Err} ->
-%      logger:info("error ~p", [Err]),
+%      ?LOG_INFO("error ~p", [Err]),
 %      err(
 %          10008,
 %          iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
@@ -192,6 +193,6 @@ h(<<"OPTIONS">>, _, _Req) ->
 
 h(_Method, [<<"status">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
-  %logger:info("Join from ~p", [inet:ntoa(RemoteIP)]),
+  %?LOG_INFO("Join from ~p", [inet:ntoa(RemoteIP)]),
   answer( #{ client => list_to_binary(inet:ntoa(RemoteIP)) }).
 

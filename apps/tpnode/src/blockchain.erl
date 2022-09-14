@@ -1,4 +1,5 @@
 -module(blockchain).
+-include("include/tplog.hrl").
 -export([exists/1, receive_block/2, blkid/1]).
 -export([last_meta/0,
          ready/0,
@@ -22,13 +23,13 @@ ready() ->
     gen_server:call(blockchain_updater, ready, 50)
   catch
     exit:{timeout,{gen_server,call,[blockchain_updater,ready,_]}} ->
-      logger:debug("selftimer5 BC is not ready"),
+      ?LOG_DEBUG("selftimer5 BC is not ready"),
       false;
     Ec:Ee ->
       StackTrace = erlang:process_info(whereis(blockchain_updater), current_stacktrace),
       ProcInfo = erlang:process_info(whereis(blockchain_updater)),
       utils:print_error("SYNC BC is not ready err", Ec, Ee, StackTrace),
-      logger:error("BC process info: ~p", [ProcInfo]),
+      ?LOG_ERROR("BC process info: ~p", [ProcInfo]),
 
       false
   end.

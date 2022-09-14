@@ -1,4 +1,5 @@
 -module(xchain_api).
+-include("include/tplog.hrl").
 
 %% API
 -export([h/3, after_filter/1]).
@@ -133,7 +134,7 @@ h(<<"GET">>, [<<"owblock">>,BChain,SBlock], _Req) ->
 
 h(_Method, [<<"status">>], Req) ->
   {RemoteIP, _Port} = cowboy_req:peer(Req),
-  logger:info("api call from ~p", [inet:ntoa(RemoteIP)]),
+  ?LOG_INFO("api call from ~p", [inet:ntoa(RemoteIP)]),
   Body = apixiom:body_data(Req),
 
   reply(200, #{

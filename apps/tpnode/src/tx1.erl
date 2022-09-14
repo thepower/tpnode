@@ -1,4 +1,5 @@
 -module(tx1).
+-include("include/tplog.hrl").
 
 -export([sign/2,verify1/1,verify/2,pack/1,unpack_mp/1,mkmsg/1]).
 
@@ -59,7 +60,7 @@ mkmsg(#{ from:=From, amount:=Amount,
 
   case maps:is_key(outbound, Tx) of
     true ->
-      logger:notice("MKMSG FIXME: save outbound flag in tx");
+      ?LOG_NOTICE("MKMSG FIXME: save outbound flag in tx");
     false -> ok
   end,
   Append=maps:get(extradata, Tx, <<"">>),
@@ -354,7 +355,7 @@ unpack_mp(Tx0) ->
                                end, #{}, Val)
                          end;
                        Val==<<>> ->
-                         logger:notice("Temporary workaround in tx1.erl. Fix me"),
+                         ?LOG_NOTICE("Temporary workaround in tx1.erl. Fix me"),
                          []
                     end,
                     Acc);
@@ -365,7 +366,7 @@ unpack_mp(Tx0) ->
       R=case Type of
           <<"deploy">> ->
             #{sig:=Sig}=Tx,
-            logger:debug("tx ~p", [Tx]),
+            ?LOG_DEBUG("tx ~p", [Tx]),
             [From, Timestamp, Seq, VMType, NewCode| State] = maps:get(tx, Tx),
             if is_integer(Timestamp) -> ok;
                true -> throw({bad_timestamp, Timestamp})
@@ -397,7 +398,7 @@ unpack_mp(Tx0) ->
             end;
           tx -> %generic finance tx
             #{sig:=Sig}=Tx,
-            logger:debug("tx ~p", [Tx]),
+            ?LOG_DEBUG("tx ~p", [Tx]),
             [From, To, Amount, Cur, Timestamp, Seq, ExtraJSON] = maps:get(tx, Tx),
             if is_integer(Timestamp) ->
                  ok;
@@ -466,7 +467,7 @@ unpack_mp(Tx0) ->
             end;
 
           _ ->
-            logger:error("Bad tx ~p", [Tx]),
+            ?LOG_ERROR("Bad tx ~p", [Tx]),
             throw({"bad tx type", Type})
         end,
       case maps:is_key(<<"extdata">>, Tx) of

@@ -5,6 +5,7 @@
 -module(tpnode_vmsrv).
 -author("cleverfox <devel@viruzzz.org>").
 -create_date("2018-08-15").
+-include("include/tplog.hrl").
 
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
@@ -62,7 +63,7 @@ handle_call({pick, Lang, Ver, CPid}, _From,
         undefined ->
           {reply, {error, nofree}, State};
         {Pid, Params} ->
-          logger:debug("Picked worker ~p",[Worker]),
+          ?LOG_DEBUG("Picked worker ~p",[Worker]),
           MR=erlang:monitor(process, CPid),
           Monitor2=maps:put(MR, {user, Pid}, Monitor),
           VmByType2=maps:put(Type, [{Pid,Params#{usedby=>CPid, mref=>MR}}|NA], VmByType),
@@ -87,7 +88,7 @@ handle_call({register, Pid, #{
   link(Pid),
   Monitor2=maps:put(MR, {worker, Type}, Monitor),
   VmByType2=maps:put(Type,[{Pid,#{}}|maps:get(Type,VmByType,[])],VmByType),
-  logger:debug("Reg ~p ~p",[Pid,Type]),
+  ?LOG_DEBUG("Reg ~p ~p",[Pid,Type]),
   {reply, ok, State#{
                 vmbytype=>VmByType2,
                 vmtype=>maps:put(Pid,Type,VmType),
@@ -95,14 +96,14 @@ handle_call({register, Pid, #{
                }};
 
 handle_call(_Request, _From, State) ->
-    logger:notice("Unknown call ~p",[_Request]),
+    ?LOG_NOTICE("Unknown call ~p",[_Request]),
     {reply, ok, State}.
 
 handle_cast({return, Pid}, State) ->
   {noreply, return_worker(Pid, State)};
 
 handle_cast(_Msg, State) ->
-    logger:notice("Unknown cast ~p",[_Msg]),
+    ?LOG_NOTICE("Unknown cast ~p",[_Msg]),
     {noreply, State}.
 
 handle_info({'DOWN',Ref,process,Pid,_Reason}, 
@@ -111,10 +112,10 @@ handle_info({'DOWN',Ref,process,Pid,_Reason},
              vmbytype:=VmByType}=State) ->
   case maps:find(Ref, Monitor) of 
     error ->
-      logger:notice("Down for unknown ref ~p",[Ref]),
+      ?LOG_NOTICE("Down for unknown ref ~p",[Ref]),
       {noreply, State};
     {ok, {user, WPid}} ->
-      logger:debug("Down user",[Pid]),
+      ?LOG_DEBUG("Down user",[Pid]),
       %Monitor2=maps:remove(Ref, Monitor),
       S1=return_worker(WPid, State),
       {noreply, S1};
@@ -127,7 +128,7 @@ handle_info({'DOWN',Ref,process,Pid,_Reason},
                    true ->
                      maps:put(Type,Workers,VmByType)
                 end,
-      logger:debug("UnReg ~p ~p",[Pid,Type]),
+      ?LOG_DEBUG("UnReg ~p ~p",[Pid,Type]),
       {noreply, State#{
                   vmbytype=>VmByType2,
                   vmtype=>maps:remove(Pid,VmType),
@@ -136,7 +137,7 @@ handle_info({'DOWN',Ref,process,Pid,_Reason},
   end;
 
 handle_info(_Info, State) ->
-    logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
+    ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

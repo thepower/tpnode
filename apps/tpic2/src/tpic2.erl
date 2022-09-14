@@ -3,6 +3,7 @@
         node_addresses/0, alloc_id/0]).
 -export([peers/0,peerstreams/0,cast/2,cast/3,call/2,call/3,cast_prepare/1]).
 -include_lib("public_key/include/public_key.hrl").
+-include("include/tplog.hrl").
 
 alloc_id() ->
   Node=nodekey:node_id(),
@@ -155,14 +156,14 @@ wait_response(_Until,[],Acc) ->
     Acc;
 
 wait_response(Until,[NodeID|RR],Acc) ->
-    logger:debug("Waiting for reply",[]),
+    ?LOG_DEBUG("Waiting for reply",[]),
     T1=Until-erlang:system_time(millisecond),
     T=if(T1>0) -> T1;
         true -> 0
       end,
     receive 
         {'$gen_cast',{tpic,{NodeID,_,_}=R1,A}} ->
-            logger:debug("Got reply from ~p",[R1]),
+            ?LOG_DEBUG("Got reply from ~p",[R1]),
             wait_response(Until,RR,[{R1,A}|Acc])
     after T ->
               wait_response(Until,RR,Acc)
@@ -332,11 +333,11 @@ extract_cert_info(
    }.
 
 verfun(PCert,{bad_cert, _} = Reason, _) ->
-  logger:debug("Peer Cert ~p~n",[extract_cert_info(PCert)]),
-  logger:info("Peer cert ~p~n",[Reason]),
+  ?LOG_DEBUG("Peer Cert ~p: ~p~n",[Reason,extract_cert_info(PCert)]),
+  ?LOG_NOTICE("TODO: check peer cert ~p~n",[Reason]),
   {valid, Reason};
 verfun(_, Reason, _) ->
-  logger:notice("Bad cert. Reason ~p~n",[Reason]),
+  ?LOG_NOTICE("Bad cert. Reason ~p~n",[Reason]),
   {fail, unknown}.
 
 

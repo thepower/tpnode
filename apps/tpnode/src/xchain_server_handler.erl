@@ -2,6 +2,7 @@
 % vi: set ft=erlang :
 
 -module(xchain_server_handler).
+-include("include/tplog.hrl").
 
 %% API
 -export([handle_xchain/1, known_atoms/0]).
@@ -93,7 +94,7 @@ handle_xchain(#{null:=<<"node_id">>,
                 <<"node_id">>:=RemoteNodeId,
                 <<"chain">>:=RemoteChain}) ->
   try
-    logger:info("Got nodeid ~p",[RemoteNodeId]),
+    ?LOG_INFO("Got nodeid ~p",[RemoteNodeId]),
     gen_server:cast(xchain_dispatcher,
                     {register_peer, self(), RemoteNodeId, RemoteChain}),
     #{null=><<"iam">>, 
@@ -108,7 +109,7 @@ handle_xchain(#{null:=<<"node_id">>,
                 <<"node_id">>:=RemoteNodeId,
                 <<"channels">>:=RemoteChannels}) ->
   try
-    logger:info("Got nodeid ~p",[RemoteNodeId]),
+    ?LOG_INFO("Got nodeid ~p",[RemoteNodeId]),
     gen_server:cast(xchain_dispatcher,
                     {register_peer, self(), RemoteNodeId, RemoteChannels}),
     #{null=><<"iam">>, 
@@ -132,12 +133,12 @@ handle_xchain(#{null:=<<"xdiscovery">>, <<"bin">>:=AnnounceBin}) ->
   ok;
 
 handle_xchain(ping) ->
-  %%    logger:notice("got ping"),
+  %%    ?LOG_NOTICE("got ping"),
   ok;
 
 handle_xchain({node_id, RemoteNodeId, RemoteChannels}) ->
   try
-    logger:info("Got old nodeid ~p",[RemoteNodeId]),
+    ?LOG_INFO("Got old nodeid ~p",[RemoteNodeId]),
     gen_server:cast(xchain_dispatcher, {register_peer, self(), RemoteNodeId, RemoteChannels}),
     {<<"iam">>, nodekey:node_id()}
   catch _:_ ->
@@ -168,6 +169,6 @@ handle_xchain({xdiscovery, AnnounceBin}) ->
   ok;
 
 handle_xchain(Cmd) ->
-  logger:info("xchain server got unhandled message from client: ~p", [Cmd]),
+  ?LOG_INFO("xchain server got unhandled message from client: ~p", [Cmd]),
   {unhandled, Cmd}.
 

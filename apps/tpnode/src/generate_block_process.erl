@@ -1,4 +1,5 @@
 -module(generate_block_process).
+-include("include/tplog.hrl").
 -export([try_process/2]).
 -export([return_gas/3, aalloc/1, complete_tx/3]).
 
@@ -20,7 +21,7 @@
 
 -spec try_process([{_,_}], mkblock_acc()) -> mkblock_acc().
 try_process([], Acc) ->
-  logger:info("try_process finish"),
+  ?LOG_INFO("try_process finish"),
   Acc;
 
 %process inbound block
@@ -48,7 +49,7 @@ try_process([{BlID, #{ hash:=BHash,
                                     _ ->
                                       {<<0:64/big>>, 0}
                                   end,
-    logger:info("SyncState ~p", [ChainLastHei]),
+    ?LOG_INFO("SyncState ~p", [ChainLastHei]),
 
   IncPtr=[#{<<"t">> => <<"set">>,
               <<"p">> => ChainPath ++ [<<"block">>],
@@ -62,7 +63,7 @@ try_process([{BlID, #{ hash:=BHash,
     PatchTxID= <<"sync", (xchain:pack_chid(ChID))/binary>>,
     SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
     if P==undefined ->
-         logger:notice("Old block without settings"),
+         ?LOG_NOTICE("Old block without settings"),
          try_process([ {TxID,
                         Tx#{
                           origin_block_hash=>BHash,
@@ -78,21 +79,21 @@ try_process([{BlID, #{ hash:=BHash,
          IWS=settings:get([<<"current">>,<<"outward">>,xchain:pack_chid(MyChain)],settings:patch(P,#{})),
          case IWS of
            #{<<"pre_hash">> := <<0,0,0,0,0,0,0,0>>,<<"pre_height">> := 0} ->
-             logger:debug("New inbound block from ~b with patch ~p",[ChID,IWS]),
+             ?LOG_DEBUG("New inbound block from ~b with patch ~p",[ChID,IWS]),
              ok;
            #{<<"pre_hash">> := ChainLastHash,<<"pre_height">> := ChainLastHei} ->
-             logger:debug("New inbound block from ~b with patch ~p",[ChID,IWS]),
+             ?LOG_DEBUG("New inbound block from ~b with patch ~p",[ChID,IWS]),
              ok;
            #{<<"pre_hash">> := NeedHash ,<<"pre_height">> := PH} when PH>ChainLastHei ->
-             logger:debug("New inbound block from ~b with patch ~p, skipped_block",[ChID,IWS]),
+             ?LOG_DEBUG("New inbound block from ~b with patch ~p, skipped_block",[ChID,IWS]),
              throw({'block_skipped',NeedHash});
            #{<<"pre_hash">> := _ ,<<"pre_height">> := PH} when PH<ChainLastHei ->
-             logger:debug("New inbound block from ~b with patch ~p, overdue",[ChID,IWS]),
+             ?LOG_DEBUG("New inbound block from ~b with patch ~p, overdue",[ChID,IWS]),
              throw({'overdue',BHash});
            #{<<"pre_parent">> := _,<<"pre_height">> := LastHei} when LastHei==ChainLastHei;
                                                                      ChainLastHei==0 ->
-             logger:notice("New inbound block with no hash, looking for parent from ~b with patch ~p",[ChID,IWS]),
-             logger:notice("Disable this after sync all chains!!!!"),
+             ?LOG_NOTICE("New inbound block with no hash, looking for parent from ~b with patch ~p",[ChID,IWS]),
+             ?LOG_NOTICE("Disable this after sync all chains!!!!"),
              ok
          end,
 
@@ -111,17 +112,17 @@ try_process([{BlID, #{ hash:=BHash,
                       })
     end
   catch throw:Ee ->
-          logger:info("Fail to process inbound ~p ~p", [BlID, Ee]),
+          ?LOG_INFO("Fail to process inbound ~p ~p", [BlID, Ee]),
           try_process(Rest, Acc#{
                               failed=>[{BlID, Ee}|Failed],
                               last => failed
                              });
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
-          logger:info("Fail to process inbound block ~p ~p:~p",
+          ?LOG_INFO("Fail to process inbound block ~p ~p:~p",
                      [BlID, Ec, Ee]),
           lists:foreach(fun(SE) ->
-                            logger:error("@ ~p", [SE])
+                            ?LOG_ERROR("@ ~p", [SE])
                         end, S),
           try_process(Rest, Acc#{
                               failed=>[{BlID, unknown}|Failed],
@@ -147,7 +148,7 @@ try_process([{TxID, #{ver:=2,
         ok
     end,
     SS1=settings:patch({TxID, Tx}, SetState),
-    logger:info("Success Patch ~p against settings ~p", [_LPatch, SetState]),
+    ?LOG_INFO("Success Patch ~p against settings ~p", [_LPatch, SetState]),
     try_process(Rest, Acc#{
                         new_settings => SS1,
                         settings=>[{TxID, Tx}|Settings],
@@ -155,7 +156,7 @@ try_process([{TxID, #{ver:=2,
                        }
                )
   catch throw:Ee ->
-          logger:info("Fail to Patch ~p ~p",
+          ?LOG_INFO("Fail to Patch ~p ~p",
                      [_LPatch, Ee]),
           try_process(Rest, Acc#{
                               failed=>[{TxID, Ee}|Failed],
@@ -163,9 +164,9 @@ try_process([{TxID, #{ver:=2,
                              });
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
-          logger:info("Fail to Patch ~p ~p:~p against settings ~p",
+          ?LOG_INFO("Fail to Patch ~p ~p:~p against settings ~p",
                      [_LPatch, Ec, Ee, SetState]),
-          logger:info("at ~p", [S]),
+          ?LOG_INFO("at ~p", [S]),
           try_process(Rest, Acc#{
                               failed=>[{TxID, Tx}|Failed],
                               last => failed
@@ -192,7 +193,7 @@ try_process([{TxID, #{
            end,
     if Verify -> ok;
        true ->
-         %error_logger:error_msg("Unverified ~p",[Tx]),
+         %error_?LOG_ERROR_msg("Unverified ~p",[Tx]),
          throw('unverified')
     end,
 
@@ -222,9 +223,9 @@ try_process([{TxID, #{
                           });
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
-          logger:info("LStore failed ~p:~p", [Ec,Ee]),
+          ?LOG_INFO("LStore failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
-                            logger:error("@ ~p", [SE])
+                            ?LOG_ERROR("@ ~p", [SE])
                         end, S),
           try_process(Rest,
                       Acc#{failed=>[{TxID, other}|Failed],
@@ -251,7 +252,7 @@ try_process([{TxID, #{
            end,
     if Verify -> ok;
        true ->
-         %error_logger:error_msg("Unverified ~p",[Tx]),
+         %error_?LOG_ERROR_msg("Unverified ~p",[Tx]),
          throw('unverified')
     end,
 
@@ -275,9 +276,9 @@ try_process([{TxID, #{
                            last => failed});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
-          logger:info("TStore failed ~p:~p", [Ec,Ee]),
+          ?LOG_INFO("TStore failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
-                            logger:error("@ ~p", [SE])
+                            ?LOG_ERROR("@ ~p", [SE])
                         end, S),
           try_process(Rest,
                       Acc#{failed=>[{TxID, other}|Failed],
@@ -306,14 +307,14 @@ try_process([{TxID, #{
            end,
     if Verify -> ok;
        true ->
-         %error_logger:error_msg("Unverified ~p",[Tx]),
+         %error_?LOG_ERROR_msg("Unverified ~p",[Tx]),
          throw('unverified')
     end,
 
     VMType=to_bin(VMType0),
     VM=try
          VMName= <<"contract_", VMType/binary>>,
-         logger:info("VM ~s",[VMName]),
+         ?LOG_INFO("VM ~s",[VMName]),
          erlang:binary_to_existing_atom(VMName, utf8)
        catch error:badarg ->
                throw('unknown_vm')
@@ -333,11 +334,11 @@ try_process([{TxID, #{
               {ok, View} ->
                 mbal:put(view, View, NewF2)
             end,
-      logger:info("Deploy contract ~s for ~s gas ~w",
+      ?LOG_INFO("Deploy contract ~s for ~s gas ~w",
                  [VM, naddress:encode(Owner), Gas]),
       IGas=GAmount*GRate,
       Left=fun(GL) ->
-               logger:info("VM run gas ~p -> ~p",[IGas,GL]),
+               ?LOG_INFO("VM run gas ~p -> ~p",[IGas,GL]),
                {GCur, GL div GRate, GRate}
            end,
       OpaqueState=#{aalloc=>AAlloc,
@@ -367,15 +368,15 @@ try_process([{TxID, #{
                            {ok, #{null:="exec", "state":=St2, "gas":=IGasLeft }, Opaque} ->
                              {St2, Left(IGasLeft), undefined, Opaque};
                            {ok, #{null:="exec", "state":=St2, "gas":=IGasLeft, "code":=Code1 }} ->
-                             logger:info("Deploy does not returned opaque state"),
+                             ?LOG_INFO("Deploy does not returned opaque state"),
                              {St2, Left(IGasLeft), Code1, OpaqueState};
                            {ok, #{null:="exec", "state":=St2, "gas":=IGasLeft }} ->
-                             logger:info("Deploy does not returned opaque state"),
+                             ?LOG_INFO("Deploy does not returned opaque state"),
                              {St2, Left(IGasLeft), undefined, OpaqueState};
                            {error, Error} ->
                              throw(Error);
                            _Any ->
-                             logger:error("Deploy error ~p",[_Any]),
+                             ?LOG_ERROR("Deploy error ~p",[_Any]),
                              throw(other_error)
                          end
                     end,
@@ -435,17 +436,17 @@ try_process([{TxID, #{
                       Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed],
                            last => failed});
         throw:X ->
-          logger:info("Contract deploy failed ~p", [X]),
+          ?LOG_INFO("Contract deploy failed ~p", [X]),
           try_process(Rest,
                       Acc#{failed=>[{TxID, X}|Failed],
                            last => failed});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
           %io:format("DEPLOY ERROR ~p:~p~n",[Ec,Ee]),
-          logger:info("Contract deploy failed ~p:~p", [Ec,Ee]),
+          ?LOG_INFO("Contract deploy failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
                             %io:format("@ ~p~n", [SE])
-                            logger:info("@ ~p~n", [SE])
+                            ?LOG_INFO("@ ~p~n", [SE])
                         end, S),
           try_process(Rest,
                       Acc#{failed=>[{TxID, other}|Failed],
@@ -473,7 +474,7 @@ try_process([{TxID, #{
            end,
     if Verify -> ok;
        true ->
-         %error_logger:error_msg("Unverified ~p",[Tx]),
+         %error_?LOG_ERROR_msg("Unverified ~p",[Tx]),
          throw('unverified')
     end,
 
@@ -490,10 +491,10 @@ try_process([{TxID, #{
     NewF1=maps:remove(keep,
                       mbal:put(view, NewView, NewF)
                      ),
-    logger:info("F1 ~p",[maps:without([code,state],NewF1)]),
+    ?LOG_INFO("F1 ~p",[maps:without([code,state],NewF1)]),
 
     NewF2=return_gas(Gas, SetState, NewF1),
-    logger:info("F2 ~p",[maps:without([code,state],NewF2)]),
+    ?LOG_INFO("F2 ~p",[maps:without([code,state],NewF2)]),
     NewAddresses=maps:put(Owner, NewF2, Addresses),
 
     try_process(Rest,
@@ -509,15 +510,15 @@ try_process([{TxID, #{
                       Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed],
                            last => failed});
         throw:X ->
-          logger:info("Contract deploy failed ~p", [X]),
+          ?LOG_INFO("Contract deploy failed ~p", [X]),
           try_process(Rest,
                       Acc#{failed=>[{TxID, X}|Failed],
                            last => failed});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
-          logger:info("Contract deploy failed ~p:~p", [Ec,Ee]),
+          ?LOG_INFO("Contract deploy failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
-                            logger:error("@ ~p", [SE])
+                            ?LOG_ERROR("@ ~p", [SE])
                         end, S),
           try_process(Rest,
                       Acc#{failed=>[{TxID, other}|Failed],
@@ -541,21 +542,21 @@ try_process([{TxID, #{ver:=2,
               aalloc:=AAl,
               success:=Success,
               settings:=_Settings }=Acc) ->
-  logger:notice("Ensure verified"),
+  ?LOG_NOTICE("Ensure verified"),
   try
     %TODO: multisig fix here
     RegSettings=settings:get([<<"current">>, <<"register">>], SetState),
     Diff=maps:get(<<"diff">>,RegSettings,0),
     Inv=maps:get(<<"invite">>,RegSettings,0),
-    logger:info("Expected diff ~p ~p",[Diff,Inv]),
-    logger:info("tx ~p",[Tx]),
+    ?LOG_INFO("Expected diff ~p ~p",[Diff,Inv]),
+    ?LOG_INFO("tx ~p",[Tx]),
 
     if Inv==1 ->
          Invite=maps:get(inv,Tx,<<>>),
          Invites=maps:get(<<"invites">>,RegSettings,[]),
          HI=crypto:hash(md5,Invite),
          InvFound=lists:member(HI,Invites),
-         logger:info("Inv ~p ~p",[Invite,InvFound]),
+         ?LOG_INFO("Inv ~p ~p",[Invite,InvFound]),
          if InvFound ->
               ok;
             true ->
@@ -575,7 +576,7 @@ try_process([{TxID, #{ver:=2,
 
     {ok, NewBAddr, AAl1} = aalloc(AAl),
 
-    logger:info("Alloc address ~p ~s for key ~s",
+    ?LOG_INFO("Alloc address ~p ~s for key ~s",
                [NewBAddr,
                 naddress:encode(NewBAddr),
                 hex:encode(PubKey)
@@ -584,7 +585,7 @@ try_process([{TxID, #{ver:=2,
     NewF=mbal:put(pubkey, PubKey, mbal:new()),
     NewAddresses=maps:put(NewBAddr, NewF, Addresses),
     NewTx=maps:remove(inv,tx:set_ext(<<"addr">>,NewBAddr,Tx)),
-    logger:info("try process register tx [~p]: ~p", [NewBAddr, NewTx]),
+    ?LOG_INFO("try process register tx [~p]: ~p", [NewBAddr, NewTx]),
     try_process(Rest,
                 Acc#{success => [{TxID, NewTx}|Success],
                      table  => NewAddresses,
@@ -592,7 +593,7 @@ try_process([{TxID, #{ver:=2,
                      last => ok
                     })
   catch throw:X ->
-          logger:info("Address alloc fail ~p", [X]),
+          ?LOG_INFO("Address alloc fail ~p", [X]),
           try_process(Rest,
                       Acc#{failed=>[{TxID, X}|Failed],
                            last => failed})
@@ -629,7 +630,7 @@ try_process([{TxID, #{from:=From, to:=To}=Tx} |Rest],
       try_process_local([{TxID, Tx}|Rest],
                         Acc);
     _ ->
-      logger:info("TX ~s addr error ~p -> ~p", [TxID, FAddr, TAddr]),
+      ?LOG_INFO("TX ~s addr error ~p -> ~p", [TxID, FAddr, TAddr]),
       try_process(Rest,
                   Acc#{failed=>[{TxID, 'bad_src_or_dst_addr'}|Failed],
                        last => failed})
@@ -637,7 +638,7 @@ try_process([{TxID, #{from:=From, to:=To}=Tx} |Rest],
 
 try_process([{TxID, UnknownTx} |Rest],
             #{failed:=Failed}=Acc) ->
-  logger:info("Unknown TX ~p type ~p", [TxID, UnknownTx]),
+  ?LOG_INFO("Unknown TX ~p type ~p", [TxID, UnknownTx]),
   try_process(Rest, Acc#{failed=>[{TxID, 'unknown_type'}|Failed],
                          last => failed}).
 
@@ -658,7 +659,7 @@ try_process_inbound([{TxID,
                       new_settings:=SetState,
                       emit:=Emit,
                       pick_block:=PickBlock}=Acc) ->
-  logger:error("Check signature once again"),
+  ?LOG_ERROR("Check signature once again"),
   try
     Gas=case tx:get_ext(<<"xc_gas">>, Tx) of
           undefined -> {<<"NONE">>,0,1};
@@ -671,7 +672,7 @@ try_process_inbound([{TxID,
             end
         end,
 
-    logger:info("Orig Block ~p", [OriginBlock]),
+    ?LOG_INFO("Orig Block ~p", [OriginBlock]),
     {Addresses2, NewEmit, GasLeft, Acc1}=deposit(TxID, To, Addresses, Tx, Gas, Acc),
     %Addresses2=maps:put(To, NewT, Addresses),
 
@@ -681,7 +682,7 @@ try_process_inbound([{TxID,
                    {_, IGL, _} when IGL < 0 ->
                      throw('insufficient_gas');
                    {_, IGL, _} when IGL > 0 ->
-                     logger:notice("Return gas ~p to sender",[From]),
+                     ?LOG_NOTICE("Return gas ~p to sender",[From]),
                      Addresses2
                  end,
 
@@ -720,10 +721,10 @@ try_process_inbound([{TxID,
                       table:=Addresses,
                       failed:=Failed,
                       pick_block:=PickBlock}=Acc) ->
-  logger:notice("Check signature once again"),
+  ?LOG_NOTICE("Check signature once again"),
   TBal=maps:get(To, Addresses),
   try
-    logger:debug("Orig Block ~p", [OriginBlock]),
+    ?LOG_DEBUG("Orig Block ~p", [OriginBlock]),
     if Amount >= 0 -> ok;
        true -> throw ('bad_amount')
     end,
@@ -770,14 +771,14 @@ try_process_outbound([{TxID,
                        parent:=ParentHash,
                        height:=MyHeight
                       }=Acc) ->
-  logger:info("Processing outbound ==[ ~s ]=======",[TxID]),
-  logger:notice("TODO:Check signature once again"),
-  logger:info("outbound to chain ~p ~p", [OutTo, To]),
+  ?LOG_INFO("Processing outbound ==[ ~s ]=======",[TxID]),
+  ?LOG_NOTICE("TODO:Check signature once again"),
+  ?LOG_INFO("outbound to chain ~p ~p", [OutTo, To]),
   FBal=maps:get(From, Addresses),
 
   try
     {NewF, _GasF, GotFee, GotGas}=withdraw(FBal, Tx, GetFun, SetState, []),
-    logger:info("Got gas ~p",[GotGas]),
+    ?LOG_INFO("Got gas ~p",[GotGas]),
 
     PatchTxID= <<"out", (xchain:pack_chid(OutTo))/binary>>,
     {SS2, Set2}=case lists:keymember(PatchTxID, 1, Settings) of
@@ -890,18 +891,18 @@ try_process_local([{TxID,
            end,
     if Verify -> ok;
        true ->
-         %error_logger:error_msg("Unverified ~p",[Tx]),
+         %error_?LOG_ERROR_msg("Unverified ~p",[Tx]),
          throw('unverified')
     end,
 
-    logger:info("Processing local =====[ ~s ]=======",[TxID]),
+    ?LOG_INFO("Processing local =====[ ~s ]=======",[TxID]),
     OrigF=maps:get(From, Addresses),
     {NewF, GasF, GotFee, Gas}=withdraw(OrigF, Tx, GetFun, SetState, []),
     try
       Addresses1=maps:put(From, NewF, Addresses),
       {Addresses2, NewEmit, GasLeft, Acc1}=deposit(TxID, To, Addresses1,
                                                    Tx, Gas, Acc),
-      logger:info("Local gas ~p -> ~p f ~p t ~p",[Gas, GasLeft, From, To]),
+      ?LOG_INFO("Local gas ~p -> ~p f ~p t ~p",[Gas, GasLeft, From, To]),
 
       NewAddresses=case GasLeft of
                      {_, 0, _} ->
@@ -975,7 +976,7 @@ savegas({Cur, Amount1, Rate1}, all, Acc) ->
 
 savegas({Cur, Amount1, _}, {Cur, Amount2, _}, #{fee:=FeeBal}=Acc) ->
   %io:format("save gas ~s ~w-~w=~w ~n",[Cur,Amount1, Amount2,Amount1-Amount2]),
-  logger:info("save gas ~s ~w ~w",[Cur,Amount1, Amount2]),
+  ?LOG_INFO("save gas ~s ~w ~w",[Cur,Amount1, Amount2]),
   if Amount1-Amount2 > 0 ->
        Acc#{
          fee=>mbal:put_cur(Cur, Amount1-Amount2 +
@@ -1030,7 +1031,7 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                 N when is_integer(N), N>0 -> N;
                 _ -> 0
               end,
-      logger:info("Smartcontract ~p gas ~p free gas ~p", [VMType, GasLimit, FreeGas]),
+      ?LOG_INFO("Smartcontract ~p gas ~p free gas ~p", [VMType, GasLimit, FreeGas]),
       GetAddr1=fun({storage,BAddr,BKey}=Q) ->
                    case maps:get(BAddr,Addresses,undefined) of
                      undefined ->
@@ -1073,7 +1074,7 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
       {LedgerPatches, TXs, GasLeft, OpaqueState2} =
       if FreeGas > 0 ->
            GasWithFree=gas_plus_int(GasLimit,FreeGas,true),
-           logger:info("Run with free gas ~p+~p=~p",
+           ?LOG_INFO("Run with free gas ~p+~p=~p",
                       [GasLimit,FreeGas,GasWithFree]),
            {L1x,TXsx,GasLeftx,OpaqueState2a} =
            smartcontract:run(VMType, Tx, NewT, GasWithFree, GetFun1, OpaqueState),
@@ -1081,11 +1082,11 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
            TakenFree=gas_plus_int(GasLeftx,-FreeGas,true),
            case is_gas_left(TakenFree) of
              true ->
-               logger:info("Gas left ~p, take back free gas and return ~p",
+               ?LOG_INFO("Gas left ~p, take back free gas and return ~p",
                           [GasLeftx,TakenFree]),
                {L1x,TXsx,TakenFree,OpaqueState2a};
              false ->
-               logger:info("Gas left ~p, return nothing",[GasLeftx]),
+               ?LOG_INFO("Gas left ~p, return nothing",[GasLeftx]),
                {L1x,TXsx,{<<"NONE">>,0,1},OpaqueState2a}
            end;
          true ->
@@ -1124,7 +1125,7 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                        MBal1=mbal:put(mergestate,Data,MBal0),
                        maps:put(Addr1,MBal1,AddrAcc);
                       (_Any,AddrAcc) ->
-                        logger:notice("Ignore patch from VM ~p",[_Any]),
+                        ?LOG_NOTICE("Ignore patch from VM ~p",[_Any]),
                         %io:format("ignore patch ~p~n",[_Any]),
                         AddrAcc
                    end, Addresses2, Changes),
@@ -1140,7 +1141,7 @@ withdraw(FBal0,
     Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
     IsContract=is_binary(mbal:get(vm, FBal0)) andalso Contract_Issued=={ok, From},
 
-    logger:info("Withdraw ~p ~p", [IsContract, maps:without([body,sig],Tx)]),
+    ?LOG_INFO("Withdraw ~p ~p", [IsContract, maps:without([body,sig],Tx)]),
     if Timestamp==0 andalso IsContract ->
          ok;
        is_integer(Timestamp) ->
@@ -1165,7 +1166,7 @@ withdraw(FBal0,
                          true ->
                            mbal:get(usk, FBal0)
                       end,
-              logger:debug("usk ~p SK ~p",[FSKUsed,FSK]),
+              ?LOG_DEBUG("usk ~p SK ~p",[FSKUsed,FSK]),
               if FSK < 1 ->
                    case GetFun({endless, From, <<"SK">>}) of
                      true -> ok;
@@ -1186,7 +1187,7 @@ withdraw(FBal0,
            catch _:_ ->
                    cant_get_ledger
            end,
-         logger:error("Bad seq addr ~p, cur ~p tx ~p, ledger ~p",
+         ?LOG_ERROR("Bad seq addr ~p, cur ~p tx ~p, ledger ~p",
                      [From, CurFSeq, Seq, L]),
          %==== END DEBU CODE
          throw ('bad_seq')
@@ -1242,7 +1243,7 @@ withdraw(FBal0,
                            tx:get_payloads(Tx,gas)
                           )
                      end,
-    logger:info("Fee ~p Gas ~p", [GotFee,GotGas]),
+    ?LOG_INFO("Fee ~p Gas ~p", [GotFee,GotGas]),
 
     TakeMoney=fun(#{amount:=Amount, cur:= Cur}, FBal) ->
                   if Amount >= 0 ->
@@ -1299,9 +1300,9 @@ withdraw(FBal0,
     {NewBal, FBalAfterGas, GotFee, GotGas}
   catch error:Ee:S ->
           %S=erlang:get_stacktrace(),
-          logger:error("Withdrawal error ~p tx ~p",[Ee,Tx]),
+          ?LOG_ERROR("Withdrawal error ~p tx ~p",[Ee,Tx]),
           lists:foreach(fun(SE) ->
-                            logger:error("@ ~p", [SE])
+                            ?LOG_ERROR("@ ~p", [SE])
                         end, S),
           throw('unknown_withdrawal_error')
   end.

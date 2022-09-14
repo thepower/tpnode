@@ -1,4 +1,5 @@
 -module(blockchain_sync).
+-include("include/tplog.hrl").
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -82,14 +83,14 @@ handle_call(state, _From, State) ->
   {reply, State, State};
 
 handle_call(_Request, _From, State) ->
-  logger:info("Unhandled ~p",[_Request]),
+  ?LOG_INFO("Unhandled ~p",[_Request]),
   {reply, unhandled_call, State}.
 
 handle_cast(update, State) ->
   {noreply, get_last(State)};
 
 handle_cast(_Msg, State) ->
-  logger:info("Unknown cast ~p", [_Msg]),
+  ?LOG_INFO("Unknown cast ~p", [_Msg]),
   file:write_file("tmp/unknown_cast_msg.txt", io_lib:format("~p.~n", [_Msg])),
   file:write_file("tmp/unknown_cast_state.txt", io_lib:format("~p.~n", [State])),
   {noreply, State}.
@@ -108,8 +109,8 @@ handle_info({inst_sync, settings, Patches}, State) ->
 
 handle_info({inst_sync, block, BinBlock}, State) ->
   #{hash:=Hash, header:=#{ledger_hash:=LH, height:=Height}}=Block=block:unpack(BinBlock),
-  logger:info("BC Sync Got block ~p ~s~n", [Height, bin2hex:dbin2hex(Hash)]),
-  logger:info("BS Sync Block's Ledger ~s~n", [bin2hex:dbin2hex(LH)]),
+  ?LOG_INFO("BC Sync Got block ~p ~s~n", [Height, bin2hex:dbin2hex(Hash)]),
+  ?LOG_INFO("BS Sync Block's Ledger ~s~n", [bin2hex:dbin2hex(LH)]),
   %sync in progress - got block
   stout:log(inst_sync,
             [
@@ -130,18 +131,18 @@ handle_info({inst_sync, ledger}, State) ->
 
 handle_info({inst_sync, done, Log}, State) ->
   stout:log(runsync, [ {node, nodekey:node_name()}, {where, inst} ]),
-  logger:info("BC Sync done ~p", [Log]),
-  logger:notice("Check block's keys"),
+  ?LOG_INFO("BC Sync done ~p", [Log]),
+  ?LOG_NOTICE("Check block's keys"),
   {ok, C}=gen_server:call(ledger, {check, []}),
-  logger:info("My Ledger hash ~s", [bin2hex:dbin2hex(C)]),
+  ?LOG_INFO("My Ledger hash ~s", [bin2hex:dbin2hex(C)]),
   #{header:=#{ledger_hash:=LH}}=Block=maps:get(syncblock, State),
   if LH==C ->
-       logger:info("Sync done"),
-       logger:notice("Verify settings"),
+       ?LOG_INFO("Sync done"),
+       ?LOG_NOTICE("Verify settings"),
        CleanState=maps:without([sync, syncblock, sync_peer, syncsettings], State#{unksig=>0}),
        SS=maps:get(syncsettings, State),
        %self() ! runsync,
-       logger:error("FIX ME"),
+       ?LOG_ERROR("FIX ME"),
 %       save_block(LDB, Block, true),
 %       save_sets(LDB, SS),
 %       lastblock2ets(BTable, Block),
@@ -153,7 +154,7 @@ handle_info({inst_sync, done, Log}, State) ->
                   }
        };
      true ->
-       logger:error("Sync failed, ledger hash mismatch"),
+       ?LOG_ERROR("Sync failed, ledger hash mismatch"),
        {noreply, State}
   end;
 
@@ -163,10 +164,10 @@ handle_info({bbyb_sync, Hash},
                sync_candidates:=Candidates} = State) ->
   flush_bbsync(),
   stout:log(runsync, [ {node, nodekey:node_name()}, {where, bbsync} ]),
-  logger:debug("*** run bbyb sync from hash: ~p", [blkid(Hash)]),
-  logger:debug("run bbyb sync cands: ~p", [proplists:get_keys(Candidates)]),
+  ?LOG_DEBUG("*** run bbyb sync from hash: ~p", [blkid(Hash)]),
+  ?LOG_DEBUG("run bbyb sync cands: ~p", [proplists:get_keys(Candidates)]),
   BBRes=bbyb_sync(Hash, Handler, Candidates),
-  logger:debug("run bbyb sync res ~p",[BBRes]),
+  ?LOG_DEBUG("run bbyb sync res ~p",[BBRes]),
   case BBRes of
     sync_cont ->
       {noreply, State};
@@ -199,7 +200,7 @@ handle_info({bbyb_sync, Hash},
   end;
 
 handle_info({bbyb_sync, Hash}, State) ->
-  logger:info("*** bbyb sync ~s, but no state ~p",
+  ?LOG_INFO("*** bbyb sync ~s, but no state ~p",
                [
                 blkid(Hash),
                 maps:with([sync, sync_peer, sync_candidates],State)
@@ -229,7 +230,7 @@ handle_info({sync,PID,sync_done, _Reason}, #{bbsync_pid:=BBSPid}=State) when PID
   };
 
 handle_info({'DOWN',_,process,PID, _Reason}, #{bbsync_pid:=BBSPid}=State) when PID==BBSPid ->
-  logger:error("bbsync went down unexpected"),
+  ?LOG_ERROR("bbsync went down unexpected"),
   {noreply, 
    maps:without([bbsync_pid], State)
   };
@@ -237,18 +238,18 @@ handle_info({'DOWN',_,process,PID, _Reason}, #{bbsync_pid:=BBSPid}=State) when P
 handle_info(runsync, State) ->
   #{header:=#{height:=MyHeight}, hash:=MyLastHash}=blockchain:last_meta(),
   stout:log(runsync, [ {node, nodekey:node_name()}, {where, got_info} ]),
-  logger:debug("got runsync, myHeight: ~p, myLastHash: ~p", [MyHeight, blkid(MyLastHash)]),
+  ?LOG_DEBUG("got runsync, myHeight: ~p, myLastHash: ~p", [MyHeight, blkid(MyLastHash)]),
 
   Candidates = case maps:get(sync_candidates, State, []) of
                  [] ->
-                   logger:debug("use default list of candidates"),
+                   ?LOG_DEBUG("use default list of candidates"),
                    lists:reverse(
                      tpiccall(<<"blockchain">>,
                               #{null=><<"sync_request">>},
                               [last_hash, last_height, chain, last_temp]
                              ));
                  SavedCandidates ->
-                   logger:debug("use saved list of candidates"),
+                   ?LOG_DEBUG("use saved list of candidates"),
                    SavedCandidates
                end,
   handle_info({runsync, Candidates}, State);
@@ -279,7 +280,7 @@ handle_info({runsync, Candidates}, State) ->
                                        last_hash:=_,
                                        last_height:=_,
                                        null:=<<"sync_available">>} = CInfo}} ->
-                      logger:notice("Hacked version of candidate selection was used"),
+                      ?LOG_NOTICE("Hacked version of candidate selection was used"),
                       {CHandler1, CInfo};
                     _ ->
                       undefined
@@ -291,7 +292,7 @@ handle_info({runsync, Candidates}, State) ->
                                [last_hash, last_height, chain, last_temp]
                               ),
                   T2=erlang:system_time(),
-                  logger:debug("sync from ~p ~p",[Inf,T2-T1]),
+                  ?LOG_DEBUG("sync from ~p ~p",[Inf,T2-T1]),
                   case Inf of
                     [{CHandler1, #{chain:=_HisChain,
                                    last_hash:=_,
@@ -314,13 +315,13 @@ handle_info({runsync, Candidates}, State) ->
               undefined,
               Candidates
              ),
-  logger:info("runsync candidates: ~p", [
+  ?LOG_INFO("runsync candidates: ~p", [
     chainkeeper:resolve_assoc(proplists:get_keys(Candidates))]),
-  logger:debug("runsync candidates: ~p", [Candidates]),
-  logger:debug("runsync candidate: ~p", [Candidate]),
+  ?LOG_DEBUG("runsync candidates: ~p", [Candidates]),
+  ?LOG_DEBUG("runsync candidate: ~p", [Candidate]),
   case Candidate of
     undefined ->
-      logger:notice("No candidates for sync."),
+      ?LOG_NOTICE("No candidates for sync."),
       synchronizer ! imready,
       {noreply, maps:without([sync, syncblock, sync_peer, sync_candidates], State#{unksig=>0})};
 
@@ -333,7 +334,7 @@ handle_info({runsync, Candidates}, State) ->
        null:=<<"sync_available">>
       } = Info
     } ->
-      logger:debug("chosen sync candidate info: ~p", [Info]),
+      ?LOG_DEBUG("chosen sync candidate info: ~p", [Info]),
       ByBlock = maps:get(<<"byblock">>, Info, false),
       Inst0 = maps:get(<<"instant">>, Info, false),
       Inst = case Inst0 of
@@ -342,12 +343,12 @@ handle_info({runsync, Candidates}, State) ->
                true ->
                  case application:get_env(tpnode, allow_instant) of
                    {ok, true} ->
-                     logger:notice("Forced instant sync in config"),
+                     ?LOG_NOTICE("Forced instant sync in config"),
                      true;
                    {ok, I} when is_integer(I) ->
                      Height - MyHeight >= I;
                    _ ->
-                     logger:notice("Disabled instant syncin config"),
+                     ?LOG_NOTICE("Disabled instant syncin config"),
                      false
                  end
              end,
@@ -355,7 +356,7 @@ handle_info({runsync, Candidates}, State) ->
               error -> false;
               {ok, TmpNo} -> TmpNo
             end,
-      logger:info("Found candidate h=~w:~p my ~w:~p, bb ~s inst ~s/~s",
+      ?LOG_INFO("Found candidate h=~w:~p my ~w:~p, bb ~s inst ~s/~s",
                  [Height, Tmp, MyHeight, MyTmp, ByBlock, Inst0, Inst]),
       if (Height == MyHeight andalso Tmp == MyTmp) orelse
         (Height < MyHeight) orelse
@@ -363,7 +364,7 @@ handle_info({runsync, Candidates}, State) ->
         (Height == MyHeight andalso is_integer(MyTmp)
           andalso is_integer(Tmp) andalso MyTmp > Tmp) ->
         
-           logger:info("Sync done, finish."),
+           ?LOG_INFO("Sync done, finish."),
            synchronizer ! imready,
            flush_bbsync(),
            flush_checksync(),
@@ -384,7 +385,7 @@ handle_info({runsync, Candidates}, State) ->
          true ->
            %try block by block
            if MyTmp == false ->
-                logger:info("RUN bbyb sync since ~s", [blkid(MyLastHash)]),
+                ?LOG_INFO("RUN bbyb sync since ~s", [blkid(MyLastHash)]),
                 handle_info({bbyb_sync, MyLastHash},
                             State#{
                               sync=>bbyb,
@@ -392,7 +393,7 @@ handle_info({runsync, Candidates}, State) ->
                               sync_candidates => Candidates
                              });
               true ->
-                logger:info("RUN bbyb sync since parent ~s", [blkid(Parent)]),
+                ?LOG_INFO("RUN bbyb sync since parent ~s", [blkid(Parent)]),
                 handle_info({bbyb_sync, Parent},
                             State#{
                               sync=>bbyb,
@@ -404,11 +405,11 @@ handle_info({runsync, Candidates}, State) ->
   end;
 
 handle_info(_Info, State) ->
-  logger:info("BC unhandled info ~p", [_Info]),
+  ?LOG_INFO("BC unhandled info ~p", [_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
-  logger:error("Terminate blockchain ~p", [_Reason]),
+  ?LOG_ERROR("Terminate blockchain ~p", [_Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -420,13 +421,13 @@ format_status(_Opt, [_PDict, State]) ->
    }.
 
 bbyb_sync(Hash, Handler, Candidates) ->
-  logger:info("bb_sync since ~s from ~p",[blkid(Hash), Handler]),
+  ?LOG_INFO("bb_sync since ~s from ~p",[blkid(Hash), Handler]),
   case tpiccall(Handler,
                 #{null=><<"pick_block">>, <<"hash">>=>Hash, <<"rel">>=>child},
                 [block]
                ) of
     [{_, #{error:=Err}=R}] ->
-      logger:error("No block part arrived (~p), broken sync ~p", [Err,R]),
+      ?LOG_ERROR("No block part arrived (~p), broken sync ~p", [Err,R]),
       %%          erlang:send_after(10000, self(), runsync), % chainkeeper do that
       stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_block_part} ]),
 
@@ -441,7 +442,7 @@ bbyb_sync(Hash, Handler, Candidates) ->
       end,
       {broken_sync, skip_candidate(Candidates)};
     [{_, #{block:=BlockPart}=R}] ->
-      logger:info("block found in received bbyb sync data ~p",[R]),
+      ?LOG_INFO("block found in received bbyb sync data ~p",[R]),
       try
         BinBlock = receive_block(Handler, BlockPart),
         #{hash:=NewH, header:=#{height:=NewHei}} = Block = block:unpack(BinBlock),
@@ -449,25 +450,25 @@ bbyb_sync(Hash, Handler, Candidates) ->
         case block:verify(Block) of
           {true, _} ->
             %gen_server:cast(blockchain_updater, {new_block, Block, self()}),
-            logger:info("Got block ~w ~s",[NewHei,blkid(NewH)]),
+            ?LOG_INFO("Got block ~w ~s",[NewHei,blkid(NewH)]),
             CRes=gen_server:call(blockchain_updater, {new_block, Block, self()}),
-            logger:info("CRes ~p",[CRes]),
+            ?LOG_INFO("CRes ~p",[CRes]),
             case maps:find(child, Block) of
               {ok, Child} ->
-                logger:info("block ~s has child ~s", [blkid(NewH), blkid(Child)]),
+                ?LOG_INFO("block ~s has child ~s", [blkid(NewH), blkid(Child)]),
                 bbyb_sync(NewH, Handler, Candidates);
 %                self() ! {bbyb_sync, NewH},
 %                sync_cont;
 
               error ->
                 %%                    erlang:send_after(1000, self(), runsync), % chainkeeper do that
-                logger:info("block ~s no child, sync probably done", [blkid(NewH)]),
+                ?LOG_INFO("block ~s no child, sync probably done", [blkid(NewH)]),
                 stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_child} ]),
                 done
             end;
           false ->
             file:write_file("log/brokenblock_"++integer_to_list(os:system_time()),BinBlock),
-            logger:error("Broken block ~s got from ~p. Sync stopped",
+            ?LOG_ERROR("Broken block ~s got from ~p. Sync stopped",
                         [blkid(NewH), Handler]),
             %%              erlang:send_after(10000, self(), runsync), % chainkeeper do that
             stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_broken_block} ]),
@@ -475,13 +476,13 @@ bbyb_sync(Hash, Handler, Candidates) ->
             {broken_block, skip_candidate(Candidates)}
         end
       catch throw:broken_sync ->
-              logger:notice("Broken sync"),
+              ?LOG_NOTICE("Broken sync"),
               stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_throw_broken_sync} ]),
 
               {broken_sync, skip_candidate(Candidates)}
       end;
     _R ->
-      logger:error("bbyb no response ~p from ~p",[_R, Handler]),
+      ?LOG_ERROR("bbyb no response ~p from ~p",[_R, Handler]),
       %%      erlang:send_after(10000, self(), runsync),
       stout:log(runsync, [ {node, nodekey:node_name()}, {where, syncdone_no_response} ]),
       {noresponse, skip_candidate(Candidates)}
@@ -533,15 +534,15 @@ receive_block(Handler, BlockPart, Acc) ->
   if length(NewAcc) == Length ->
        block:glue_packet(NewAcc);
      true ->
-      logger:debug("Received block part number ~p out of ~p", [Number, Length]),
+      ?LOG_DEBUG("Received block part number ~p out of ~p", [Number, Length]),
       Response = tpiccall(Handler,  #{null => <<"pick_next_part">>}, [block]),
-      logger:info("R ~p",[Response]),
+      ?LOG_INFO("R ~p",[Response]),
       case Response of
         [{_, R}] ->
           #{block := NewBlockPart} = R,
           receive_block(Handler, NewBlockPart, NewAcc);
         [] ->
-          logger:notice("Broken sync"),
+          ?LOG_NOTICE("Broken sync"),
           stout:log(runsync,
                     [
                      {node, nodekey:node_name()},
@@ -560,7 +561,7 @@ blkid(X) ->
 
 mychain(State) ->
   {MyChain, MyName, ChainNodes}=blockchain_reader:mychain(),
-  logger:info("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
+  ?LOG_INFO("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
   maps:merge(State,
              #{myname=>MyName,
                chainnodes=>ChainNodes,

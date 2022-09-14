@@ -1,4 +1,5 @@
 -module(mkblock_genblk).
+-include("include/tplog.hrl").
 
 -export([run_generate/5, spawn_generate/5]).
 
@@ -19,7 +20,7 @@ run_generate(
                 [H0|_] -> H0;
                 [] -> undefined
               end,
-  %logger:info("pick txs parent block ~p",[BestHeiHash]),
+  %?LOG_INFO("pick txs parent block ~p",[BestHeiHash]),
   PreTXL0=maps:get(BestHeiHash, PreTXM, []),
   PreTXL1=lists:foldl(
             fun({TxID, TXB}, Acc) ->
@@ -39,12 +40,12 @@ run_generate(
 
   AE=maps:get(ae, MySet, 0),
   B=blockchain:last_meta(),
-  logger:debug("Got blk from our blockchain ~p",[B]),
+  ?LOG_DEBUG("Got blk from our blockchain ~p",[B]),
 
   {PHeight, PHash, PHeiHash}=mkblock:hei_and_has(B),
   PTmp=maps:get(temporary,B,false),
 
-  logger:info("-------[MAKE BLOCK h=~w tmp=~p]-------",[PHeight,PTmp]),
+  ?LOG_INFO("-------[MAKE BLOCK h=~w tmp=~p]-------",[PHeight,PTmp]),
 
   PreNodes=try
              BK=maps:fold(
@@ -69,7 +70,7 @@ run_generate(
          throw({'unsync',BestHeiHash,PHeiHash})
     end,
     T1=erlang:system_time(),
-    logger:debug("MB pre nodes ~p", [PreNodes]),
+    ?LOG_DEBUG("MB pre nodes ~p", [PreNodes]),
 
     FindBlock=fun FB(H, N) ->
                   case blockchain:rel(H, self) of
@@ -86,9 +87,9 @@ run_generate(
 
   MT1=[ 1000*(TT div 1000) || TT <- MT ],
   MeanTime=trunc(median(lists:sort( MT1 ))),
-  logger:debug("MT0 ~p",[MT]),
-  logger:debug("MT1 ~p",[MT1]),
-  logger:debug("MT ~p",[MeanTime]),
+  ?LOG_DEBUG("MT0 ~p",[MT]),
+  ?LOG_DEBUG("MT1 ~p",[MT1]),
+  ?LOG_DEBUG("MT ~p",[MeanTime]),
   Entropy=if Ent == [] ->
                <<>>;
              true ->
@@ -197,7 +198,7 @@ run_generate(
                                      ]
                                     ),
     #{block:=Block, failed:=Failed, log:=Log}=GB,
-    %logger:info("NewS block ~p",[maps:get(bals,Block)]),
+    %?LOG_INFO("NewS block ~p",[maps:get(bals,Block)]),
     T2=erlang:system_time(),
 
     case application:get_env(tpnode,mkblock_debug) of
@@ -215,7 +216,7 @@ run_generate(
                    {temporary, Temporary}
                   ]);
       Any ->
-        logger:notice("What does mkblock_debug=~p mean?",[Any])
+        ?LOG_NOTICE("What does mkblock_debug=~p mean?",[Any])
     end,
     Timestamp=os:system_time(millisecond),
     ED=[
@@ -244,7 +245,7 @@ run_generate(
       _ -> ok
     end,
     %Block signature for each other
-    logger:debug("MB My sign ~p",
+    ?LOG_DEBUG("MB My sign ~p",
                 [
                  maps:get(sign, SignedBlock)
                 ]),
@@ -260,10 +261,10 @@ run_generate(
 
     done
   catch throw:empty ->
-          logger:info("Skip empty block"),
+          ?LOG_INFO("Skip empty block"),
           skip;
         throw:Other ->
-          logger:info("Skip ~p",[Other]),
+          ?LOG_INFO("Skip ~p",[Other]),
           error
   end.
 

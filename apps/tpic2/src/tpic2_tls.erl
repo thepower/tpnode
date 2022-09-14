@@ -1,4 +1,5 @@
 -module(tpic2_tls).
+-include("include/tplog.hrl").
 -behavior(ranch_protocol).
 
 -export([start_link/4]).
@@ -23,7 +24,7 @@ connection_process(Parent, Ref, Socket, Transport, Opts) ->
             undefined
         end,
 
-  logger:info("tpic2_tls protocol ~p",[Proto]),
+  ?LOG_INFO("tpic2_tls protocol ~p",[Proto]),
   {ok,PeerInfo}=ssl:connection_information(Socket),
   Transport:setopts(Socket, [{active, once},{packet,4}]),
   State=#{parent=>Parent,
@@ -50,21 +51,21 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
            #{pubkey:=Der} ->
              Der;
            _ ->
-             logger:notice("Unknown cert ~p",[DCert]),
+             ?LOG_NOTICE("Unknown cert ~p",[DCert]),
              undefined
          end,
   IsItMe=Pubkey==nodekey:get_pub(),
-  logger:info("Peer PubKey ~p ~p",[Pubkey,
+  ?LOG_INFO("Peer PubKey ~s ~p",[hex:encode(Pubkey),
                                   try
                                     chainsettings:is_our_node(Pubkey)
                                   catch _:_ -> unkn0wn
                                   end]),
   case {IsItMe,Role} of
     {true, server} ->
-      logger:notice("Looks like I received connection from myself, dropping session"),
+      ?LOG_NOTICE("Looks like I received connection from myself, dropping session"),
       done;
     {true, _} ->
-      logger:notice("Looks like I received connected to myself, dropping session"),
+      ?LOG_NOTICE("Looks like I received connected to myself, dropping session"),
       done;
     {false, server} ->
       {ok,PPID}=gen_server:call(tpic2_cmgr, {peer,Pubkey, {register, undefined, in, self()}}),
@@ -80,7 +81,7 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
                ok;
              Pid when is_pid(Pid) ->
                gen_server:call(tpic2_cmgr,{peer, Pubkey, {add, IP, Port}}),
-               logger:info("Add address ~p:~p to peer and shutdown",[IP,Port]),
+               ?LOG_INFO("Add address ~p:~p to peer and shutdown",[IP,Port]),
                tpic2_tls:send_msg(dup, State),
                timer:sleep(6000),
                Transport:close(Socket),
@@ -160,7 +161,7 @@ loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
       ?MODULE:loop(State);
     %% Unknown messages.
     Msg ->
-      error_logger:error_msg("Received stray message ~p.~n", [Msg]),
+      ?LOG_ERROR("Received stray message ~p.~n", [Msg]),
       ?MODULE:loop(State)
   after 10000 -> %to avoid killing on code change
           send_msg(#{null=><<"KA">>},State),
@@ -173,9 +174,9 @@ system_continue(_PID,_,{State}) ->
 send_gen_msg(Process, ReqID, Payload, State) ->
   try
     {ok, Unpacked} = msgpack:unpack(Payload),
-    logger:debug("Send gen msg ~p: ~p",[ReqID, Unpacked])
+    ?LOG_DEBUG("Send gen msg ~p: ~p",[ReqID, Unpacked])
   catch _:_ ->
-          logger:debug("Send gen msg ~p: ~p",[ReqID, Payload])
+          ?LOG_DEBUG("Send gen msg ~p: ~p",[ReqID, Payload])
   end,
   Res=send_msg(#{
       null=><<"gen">>,
@@ -185,12 +186,12 @@ send_gen_msg(Process, ReqID, Payload, State) ->
   {Res,State}.
 
 send_msg(dup, #{socket:=Socket, opts:=Opts}) ->
-  logger:debug("dup opts ~p",[Opts]),
+  ?LOG_DEBUG("dup opts ~p",[Opts]),
   Dup=#{null=><<"duplicate">>},
   ssl:send(Socket,msgpack:pack(Dup));
 
 send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
-  logger:debug("Hello opts ~p",[Opts]),
+  ?LOG_DEBUG("Hello opts ~p",[Opts]),
   Stream=maps:get(stream, Opts, 0),
   Announce=my_streams(),
   Cfg=application:get_env(tpnode,tpic,#{}),
@@ -201,7 +202,7 @@ send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
           sid=>Stream,
           services=>Announce
          },
-  logger:debug("Hello ~p",[Hello]),
+  ?LOG_DEBUG("Hello ~p",[Hello]),
   ssl:send(Socket,msgpack:pack(Hello));
 
 send_msg(Msg, #{socket:=Socket}) when is_map(Msg) ->
@@ -252,7 +253,7 @@ handle_msg(#{null:=<<"hello">>,
   end,
 
   send_msg(#{null=><<"hello_ack">>}, State),
-  logger:debug("This is hello ack, new sid ~p",[SID]),
+  ?LOG_DEBUG("This is hello ack, new sid ~p",[SID]),
   State#{ sid=>SID };
 
 handle_msg(#{null:=<<"gen">>,
@@ -282,9 +283,9 @@ handle_msg(#{null:=<<"gen">>,
 %
   try
     {ok, Unpacked} = msgpack:unpack(Data),
-    logger:debug("Inbound msg sid ~p ReqID ~p proc  ~p: ~p",[SID, ReqID, Proc, Unpacked])
+    ?LOG_DEBUG("Inbound msg sid ~p ReqID ~p proc  ~p: ~p",[SID, ReqID, Proc, Unpacked])
   catch _:_ ->
-          logger:debug("Inbound msg sid ~p ReqID ~p proc ~p: ~p",[SID, ReqID, Proc, Data])
+          ?LOG_DEBUG("Inbound msg sid ~p ReqID ~p proc ~p: ~p",[SID, ReqID, Proc, Data])
   end,
 
   tpic2_response:handle(PK, SID, ReqID, Proc, Data, State),
@@ -294,22 +295,22 @@ handle_msg(#{null := <<"hello_ack">>}, State) ->
   State;
 
 handle_msg(Any,State) ->
-  logger:error("Unknown message ~p",[Any]),
+  ?LOG_ERROR("Unknown message ~p",[Any]),
   State.
 
 handle_data(Bin, State=#{socket:=Socket, transport:=Transport}) ->
   {ok,D}=msgpack:unpack(Bin),
-%  logger:info("Got mp ~p",[D]),
+%  ?LOG_INFO("Got mp ~p",[D]),
   State2=handle_msg(D, State),
   Transport:setopts(Socket, [{active, once}]),
   ?MODULE:loop(State2).
 
 -spec terminate(_, _) -> no_return().
 terminate(undefined, Reason) ->
-  logger:info("Term undef"),
+  ?LOG_INFO("Term undef"),
   exit({shutdown, Reason});
 terminate(#{socket:=Socket}, Reason) ->
-  logger:info("Term ~p",[Socket]),
+  ?LOG_INFO("Term ~p",[Socket]),
   ssl:close(Socket),
   exit({shutdown, Reason}).
 

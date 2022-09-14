@@ -1,4 +1,5 @@
 -module(tpnode_dtx_runner).
+-include("include/tplog.hrl").
 
 -export([ready2prepare/0,prepare/0,ready4run/0,run/0]).
 
@@ -19,7 +20,7 @@ prepare() ->
   ET=ready2prepare(),
   EmitBTXs=[{TxID, tx:pack(Tx,[withext])} || {TxID,Tx} <- ET ],
   if(EmitBTXs =/= []) ->
-      logger:info("Prepare dtxs ~p",[proplists:get_keys(EmitBTXs)]);
+      ?LOG_INFO("Prepare dtxs ~p",[proplists:get_keys(EmitBTXs)]);
     true ->
       ok
   end,
@@ -28,7 +29,7 @@ prepare() ->
 
 cast_ready() ->
   IDs = ready4run(),
-  %logger:info("cast ready dtxs ~p",[IDs]),
+  %?LOG_INFO("cast ready dtxs ~p",[IDs]),
   [ gen_server:cast(txqueue, {push_tx, TxID}) || TxID <- IDs ].
 
 ready4run() ->

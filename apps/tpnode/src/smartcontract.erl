@@ -1,4 +1,5 @@
 -module(smartcontract).
+-include("include/tplog.hrl").
 -export([run/6,info/1,getters/1,get/4]).
 
 -callback deploy(Address :: binary(),
@@ -66,8 +67,8 @@ get(VMType,Method,Args,Ledger) ->
                         throw({"unsupported_type",Unknown})
                     end,
                     lists:zip(L,Args)),
-            logger:info("Expected args ~p",[lists:zip(L,Args)]),
-            logger:info("Calling ~p:get(~p,~p,~p)",[A,Method,Args1,Ledger]),
+            ?LOG_INFO("Expected args ~p",[lists:zip(L,Args)]),
+            ?LOG_INFO("Calling ~p:get(~p,~p,~p)",[A,Method,Args1,Ledger]),
             Res=erlang:apply(A, get, [Method,Args1,Ledger]),
             {ok,Res}
         end;
@@ -91,7 +92,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
   %io:format("smartcontract Opaque ~p~n",[Opaque]),
   GasLimit=trunc(GAmount*GRate),
   Left=fun(GL) ->
-           logger:info("VM run gas ~p -> ~p",[GasLimit,GL]),
+           ?LOG_INFO("VM run gas ~p -> ~p",[GasLimit,GL]),
            {GCur, GL div GRate, GRate}
        end,
   VM=try
@@ -99,7 +100,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
      catch error:badarg ->
              throw('unknown_vm')
      end,
-  logger:info("run contract ~s for ~s gas limit ~p", [VM, naddress:encode(To),GasLimit]),
+  ?LOG_INFO("run contract ~s for ~s gas limit ~p", [VM, naddress:encode(To),GasLimit]),
   try
     CallRes=erlang:apply(VM,
                          handle_tx,
@@ -186,7 +187,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
       {ok,#{null := "exec",
             "gas" := _GasLeft,
             "err":=SReason}} ->
-        logger:error("Contract error ~p", [SReason]),
+        ?LOG_ERROR("Contract error ~p", [SReason]),
         try
           throw(list_to_existing_atom(SReason))
         catch error:badarg ->
@@ -194,18 +195,18 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
         end;
       {error, Reason, GasLeft} ->
         %throw({'run_failed', Reason});
-        logger:error("Contract error ~p", [Reason]),
+        ?LOG_ERROR("Contract error ~p", [Reason]),
         {[], [], Left(GasLeft), Opaque};
       {error, Reason} ->
         throw({'run_failed', Reason});
       Any ->
         io:format("Contract return error ~p", [Any]),
-        logger:error("Contract return error ~p", [Any]),
+        ?LOG_ERROR("Contract return error ~p", [Any]),
         throw({'run_failed', other})
     end
   catch 
     Ec:Ee:S when Ec=/=throw ->
-          logger:info("Can't run contract ~p:~p @ ~p~n",
+          ?LOG_INFO("Can't run contract ~p:~p @ ~p~n",
                       [Ec, Ee, hd(S)]),
           io:format("Can't run contract ~p:~p @ ~p/~p~n",
                       [Ec, Ee, hd(S),hd(tl(S))]),

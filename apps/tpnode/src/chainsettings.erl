@@ -1,4 +1,5 @@
 -module(chainsettings).
+-include("include/tplog.hrl").
 
 -export([get/2,get/3]).
 -export([get_val/1,get_val/2]).
@@ -62,11 +63,11 @@ by_path(GetPath) ->
   end.
 
 settings_to_ets(NewSettings) ->
-  logger:debug("Settings2ets ~p",[maps:with([<<"current">>],settings:clean_meta(NewSettings))]),
+  ?LOG_DEBUG("Settings2ets ~p",[maps:with([<<"current">>],settings:clean_meta(NewSettings))]),
   Patches=settings:get_patches(NewSettings,ets),
   Ver=erlang:system_time(),
   SetApply=lists:map(fun(#{<<"p">>:=Path,<<"t">>:=Action,<<"v">>:=Value}) ->
-                  %logger:info("Path ~p:~p",[Path,Action]),
+                  %?LOG_INFO("Path ~p:~p",[Path,Action]),
                   {Path, Ver, Action, Value}
               end,  Patches),
   %ets:match(blockchain,{[<<"current">>,<<"fee">>|'$1'],'_','$2'})
@@ -89,7 +90,7 @@ settings_to_ets(NewSettings) ->
                fun(_PubKey, Name) ->
                    maps:get(Name, NodeChain, 0) == MyChain
                end, ChainNodes0),
-  logger:notice("My name ~s chain ~p our chain nodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
+  ?LOG_NOTICE("My name ~s chain ~p our chain nodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
   ets:insert(blockchain,[{myname,MyName},{chainnodes,ChainNodes},{mychain,MyChain}]),
   NewSettings.
 
@@ -108,7 +109,7 @@ get_val(Name, Default) when Name==minsig; Name==patchsig ->
      true ->
        case ets:lookup(blockchain,chainnodes) of
          [{chainnodes,Map}] ->
-           logger:error("No ~s specified!!!!!",[Name]),
+           ?LOG_ERROR("No ~s specified!!!!!",[Name]),
            (maps:size(Map) div 2)+1;
          _ ->
            Default
@@ -159,7 +160,7 @@ get(Name, Sets, GetChain) ->
      true ->
        MinSig_old=settings:get([chain,GetChain(),Name], Sets),
        if is_integer(MinSig_old) ->
-            logger:info("Got setting ~p from deprecated place",[Name]),
+            ?LOG_INFO("Got setting ~p from deprecated place",[Name]),
             MinSig_old;
           true -> undefined
        end

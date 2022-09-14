@@ -1,4 +1,5 @@
 -module(contract_evm).
+-include("include/tplog.hrl").
 -behaviour(smartcontract2).
 
 -export([deploy/5, handle_tx/5, getters/0, get/3, info/0, call/3]).
@@ -235,7 +236,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                    #{address:=CAddr, value:=V}=CallArgs,
                    #{global_acc:=GAcc}=Xtra) ->
                    io:format("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
-                   logger:info("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
+                   ?LOG_INFO("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
                    if V > 0 ->
                         TX=msgpack:pack(#{
                                           "k"=>tx:encode_kind(2,generic),
@@ -364,7 +365,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
 
 logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}=_EEvmState) ->
   LArgs=[binary:encode_unsigned(I) || I <- LArgs0],
-  logger:info("EVM log ~p ~p",[Message,LArgs]),
+  ?LOG_INFO("EVM log ~p ~p",[Message,LArgs]),
   io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
   maps:put(log,[([evm,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog],Xtra).
 

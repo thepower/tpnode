@@ -1,4 +1,5 @@
 -module(blockvote).
+-include("include/tplog.hrl").
 
 -compile([{parse_transform, stout_pt}]).
 -behaviour(gen_server).
@@ -64,7 +65,7 @@ handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
         {ok, Struct} ->
             handle_cast({tpic, From, Struct}, State);
         _Any ->
-            logger:info("Can't decode TPIC ~p", [_Any]),
+            ?LOG_INFO("Can't decode TPIC ~p", [_Any]),
             {noreply, State}
     end;
 
@@ -86,13 +87,13 @@ handle_cast({tpic, _From, #{
                      <<"sign">> := _Sigs
                     }},
             #{mychain:=MyChain}=State) when MyChain=/=MsgChain ->
-    logger:info("BV sig from other chain"),
+    ?LOG_INFO("BV sig from other chain"),
     {noreply, State};
 
 handle_cast({signature, BlockHash, Sigs}=WholeSig,
             #{lastblock:=#{hash:=LBH}}=State) when LBH==BlockHash->
-    logger:debug("BV Got extra sig for ~s ~p", [blkid(BlockHash), WholeSig]),
-    logger:info("BV Got extra sig for ~s", [blkid(BlockHash)]),
+    ?LOG_DEBUG("BV Got extra sig for ~s ~p", [blkid(BlockHash), WholeSig]),
+    ?LOG_INFO("BV Got extra sig for ~s", [blkid(BlockHash)]),
 
     stout:log(
       bv_gotsig,
@@ -105,10 +106,10 @@ handle_cast({signature, BlockHash, Sigs}=WholeSig,
 
 handle_cast({signature, BlockHash, Sigs},
     #{candidatesig:=Candidatesig, candidatets:=CandidateTS}=State) ->
-    logger:info("BV Got sig for ~s", [blkid(BlockHash)]),
+    ?LOG_INFO("BV Got sig for ~s", [blkid(BlockHash)]),
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
-    %logger:debug("BV S CS2 ~p", [maps:keys(CSig)]),
+    %?LOG_DEBUG("BV S CS2 ~p", [maps:keys(CSig)]),
 
     stout:log(bv_gotsig,
       [{hash, BlockHash}, {sig, Sigs}, {candsig, Candidatesig}, {extra, false}, {node_name, nodekey:node_name()}]),
@@ -131,7 +132,7 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID, Extr
 
     #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
     Height=maps:get(height, maps:get(header, Blk)),
-    logger:info("BV New block (~p/~p) arrived (~s/~s)",
+    ?LOG_INFO("BV New block (~p/~p) arrived (~s/~s)",
                [
                 Height,
                 maps:get(height, maps:get(header, LastBlock)),
@@ -140,7 +141,7 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID, Extr
                ]),
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
-    %logger:debug("BV N CS2 ~p", [maps:keys(CSig)]),
+    %?LOG_DEBUG("BV N CS2 ~p", [maps:keys(CSig)]),
 
     stout:log(
       bv_gotblock,
@@ -165,7 +166,7 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID, Extr
     {noreply, is_block_ready(BlockHash, State2)};
 
 handle_cast(_Msg, State) ->
-    logger:info("BV Unknown cast ~p", [_Msg]),
+    ?LOG_INFO("BV Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(cleanup, State) ->
@@ -187,7 +188,7 @@ handle_info(cleanup_timer,
   {NewCandTS, NewCandidates, NewCandidateSig, NewExtras} =
     remove_expired_candidates(CandTS, Candidates, CandidateSig, Extras, TimeoutSec),
 
-%%  logger:info("BV cleaned ~p expired candidates", [
+%%  ?LOG_INFO("BV cleaned ~p expired candidates", [
 %%    maps:size(CandidateSig) - maps:size(NewCandidateSig)
 %%  ]),
 
@@ -202,7 +203,7 @@ handle_info(cleanup_timer,
 
 handle_info(init, undefined) ->
     #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
-    logger:info("BV My last block hash ~s",
+    ?LOG_INFO("BV My last block hash ~s",
                [bin2hex:dbin2hex(LBlockHash)]),
     Res = #{
       candidatesig => #{},
@@ -218,7 +219,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    logger:error("Terminate blockvote ~p", [_Reason]),
+    ?LOG_ERROR("Terminate blockvote ~p", [_Reason]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -239,7 +240,7 @@ checksig(BlockHash, Sigs, Acc0) ->
               case bsig:checksig1(BlockHash, Signature) of
                   {true, #{extra:=Xtra}=US} ->
                       Pub=proplists:get_value(pubkey, Xtra),
-                      logger:debug("BV ~s Check sig ~s", [
+                      ?LOG_DEBUG("BV ~s Check sig ~s", [
                                       blkid(BlockHash),
                                       bin2hex:dbin2hex(Pub)
                                      ]),
@@ -269,7 +270,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
         case maps:size(Sigs) >= MinSig of
           true ->
             %throw({notready, nocand1}),
-            logger:info("Probably they went ahead"),
+            ?LOG_INFO("Probably they went ahead"),
             blockchain_sync ! checksync,
             State;
           false ->
@@ -281,9 +282,9 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
         {true, {Success, _}}=block:verify(Blk1),
         T1=erlang:system_time(),
         Txs=maps:get(txs, Blk0, []),
-        logger:info("TODO: Check keys ~p of ~p", [length(Success), MinSig]),
+        ?LOG_INFO("TODO: Check keys ~p of ~p", [length(Success), MinSig]),
         if length(Success)<MinSig ->
-             logger:info("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
+             ?LOG_INFO("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
                   [maps:get(height, maps:get(header, Blk0)),
                    blkid(BlockHash),
                    length(Txs),
@@ -291,7 +292,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
                    (T1-T0)/1000000]),
              throw({notready, minsig});
            true ->
-             logger:info("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
+             ?LOG_INFO("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
                   [maps:get(height, maps:get(header, Blk0)),
                    blkid(BlockHash),
                    length(Txs),
@@ -311,7 +312,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
             {header, maps:get(header, Blk)}
           ]),
 
-        logger:info("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
+        ?LOG_INFO("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
                    [blkid(BlockHash),
                     Height,
                     (T3-T0)/1000000
@@ -319,7 +320,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
 
         blockchain_updater:new_block(Blk),
         Extra=maps:get(BlockHash, Extras, #{}),
-        logger:info("Extra for blk ~w ~s: ~p",[Height, blkid(BlockHash), Extra]),
+        ?LOG_INFO("Extra for blk ~w ~s: ~p",[Height, blkid(BlockHash), Extra]),
         case maps:is_key(log, Extra) of
           false -> ok;
           true ->
@@ -327,7 +328,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
               true ->
                 ignore;
               false ->
-                logger:info("Store log for block ~w:~s",[Height, hex:encode(BlockHash)]),
+                ?LOG_INFO("Store log for block ~w:~s",[Height, hex:encode(BlockHash)]),
                 Logs=maps:get(log, Extra),
                 logs_db:put(BlockHash, Height, Logs),
                 if Logs==[] -> ok;
@@ -353,13 +354,13 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
          }
     end
   catch throw:{notready, Where} ->
-        logger:info("Not ready ~s ~p", [blkid(BlockHash), Where]),
+        ?LOG_INFO("Not ready ~s ~p", [blkid(BlockHash), Where]),
         State;
       Ec:Ee:S ->
-        logger:error("BV New_block error ~p:~p", [Ec, Ee]),
+        ?LOG_ERROR("BV New_block error ~p:~p", [Ec, Ee]),
         lists:foreach(
         fun(Se) ->
-            logger:error("at ~p", [Se])
+            ?LOG_ERROR("at ~p", [Se])
         end, S),
         State
   end.
@@ -370,7 +371,7 @@ load_settings(State) ->
   {ok, MyChain} = chainsettings:get_setting(mychain),
   MinSig=chainsettings:get_val(minsig,1000),
   LastBlock=blockchain:last_meta(),
-  logger:info("BV My last block hash ~s",
+  ?LOG_INFO("BV My last block hash ~s",
     [bin2hex:dbin2hex(maps:get(hash, LastBlock))]),
 
   State#{
@@ -393,7 +394,7 @@ ets_init() ->
 
 ets_init(EtsTableName) ->
   Table = ets:new(EtsTableName, [named_table, protected, set, {read_concurrency, true}]),
-  logger:info("created ets table ~p", [Table]).
+  ?LOG_INFO("created ets table ~p", [Table]).
 
 %% ------------------------------------------------------------------
 

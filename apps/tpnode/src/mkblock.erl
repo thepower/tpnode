@@ -1,4 +1,5 @@
 -module(mkblock).
+-include("include/tplog.hrl").
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -55,7 +56,7 @@ handle_cast({tpic, From, Bin}, State) when is_binary(Bin) ->
         {ok, Struct} ->
             handle_cast({tpic, From, Struct}, State);
         _Any ->
-            logger:info("Can't decode TPIC ~p", [_Any]),
+            ?LOG_INFO("Can't decode TPIC ~p", [_Any]),
             {noreply, State}
     end;
 
@@ -64,7 +65,7 @@ handle_cast({tpic, FromKey, #{
                      <<"lbh">>:=LBH
                     }}, State)  ->
   Origin=chainsettings:is_our_node(FromKey),
-  logger:debug("MB Node ~s tells I lagging, his h=~w", [Origin, LBH]),
+  ?LOG_DEBUG("MB Node ~s tells I lagging, his h=~w", [Origin, LBH]),
   {noreply, State};
 
 
@@ -74,7 +75,7 @@ handle_cast({tpic, FromKey, #{
                      <<"signed">> := SignedBy
                     }}, State)  ->
   Origin=chainsettings:is_our_node(FromKey),
-  logger:debug("MB presig got ~s ~p", [Origin, SignedBy]),
+  ?LOG_DEBUG("MB presig got ~s ~p", [Origin, SignedBy]),
   if Origin==false ->
        {noreply, State};
      true ->
@@ -93,7 +94,7 @@ handle_cast({tpic, FromKey, #{
   TXs=decode_tpic_txs(maps:to_list(TPICTXs)),
   if TXs==[] -> ok;
      true ->
-       logger:info("Got ~w txs from ~s",
+       ?LOG_INFO("Got ~w txs from ~s",
             [
              length(TXs),
              chainsettings:is_our_node(FromKey)
@@ -115,7 +116,7 @@ handle_cast({tpic, FromKey, #{
       case block:verify(PreBlk, [hdronly, {checksig, CheckFun}]) of
         {true, {Sigs,_}} when length(Sigs) >= MS ->
           % valid block, enough sigs
-          logger:debug("Got blk from peer ~p",[PreBlk]),
+          ?LOG_DEBUG("Got blk from peer ~p",[PreBlk]),
           handle_cast({prepare, FromKey, TXs, HeiHas, Entropy, Timestamp}, State);
         {true, _ } ->
           % valid block, not enough sigs
@@ -132,13 +133,13 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
               preptxm:=PreTXM}=State) ->
   Origin=chainsettings:is_our_node(Node),
   if Origin==false ->
-       logger:error("Got txs from bad node ~s",
+       ?LOG_ERROR("Got txs from bad node ~s",
              [bin2hex:dbin2hex(Node)]),
        {noreply, State};
      true ->
        if Txs==[] -> ok;
         true ->
-          logger:info("Prepare TXs from node ~s: ~p time ~p",
+          ?LOG_INFO("Prepare TXs from node ~s: ~p time ~p",
                [ Origin, length(Txs), Timestamp ])
        end,
        MarkTx =
@@ -166,19 +167,19 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
                      bad_sig ->
                        throw('bad_sig');
                      {ok, Tx1} ->
-                       logger:info("TX ok ~p",[TxID]),
+                       ?LOG_INFO("TX ok ~p",[TxID]),
                        tx:set_ext(origin, Origin, Tx1)
                    end
                end
              catch
                throw:no_transaction ->
-                 logger:info("TX absend ~p",[TxID]),
+                 ?LOG_INFO("TX absend ~p",[TxID]),
                  null;
                throw:bad_sig ->
-                 logger:info("TX bad_sig ~p",[TxID]),
+                 ?LOG_INFO("TX bad_sig ~p",[TxID]),
                  null;
                _Ec:_Ee:S ->
-                 logger:info("TX error ~p",[TxID]),
+                 ?LOG_INFO("TX error ~p",[TxID]),
                  %S=erlang:get_stacktrace(),
                  utils:print_error("Error", _Ec, _Ee, S),
                  file:write_file(
@@ -222,13 +223,13 @@ handle_cast(settings, State) ->
     {noreply, load_settings(State)};
 
 handle_cast(_Msg, State) ->
-    logger:info("MB unknown cast ~p", [_Msg]),
+    ?LOG_INFO("MB unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(process, #{preptxm := PreTxMap, presig := PreSig, gbpid:=PID}=State) ->
   case is_process_alive(PID) of
     true ->
-      logger:info("skip PreSig ~p, PreTxMap ~p", [PreSig, PreTxMap]),
+      ?LOG_INFO("skip PreSig ~p, PreTxMap ~p", [PreSig, PreTxMap]),
       {noreply, State#{preptxm=>#{},
                        presig=>#{}
                       }};
@@ -251,7 +252,7 @@ handle_info(process,
   }};
 
 handle_info(process, State) ->
-    logger:notice("MKBLOCK Blocktime, but I not ready"),
+    ?LOG_NOTICE("MKBLOCK Blocktime, but I not ready"),
     {noreply, load_settings(State)};
 
 handle_info(_Info, State) ->
@@ -296,10 +297,10 @@ decode_tpic_txs(TXs) ->
             {TxID, Tx} when is_map(Tx) ->
               Tx;
             error ->
-              logger:error("can't get body for tx ~p", [TxID]),
+              ?LOG_ERROR("can't get body for tx ~p", [TxID]),
               null;
             _Any ->
-              logger:error("can't get body for tx ~p unknown response ~p", [TxID, _Any]),
+              ?LOG_ERROR("can't get body for tx ~p unknown response ~p", [TxID, _Any]),
               null
           end,
         {TxID, TxBody};
@@ -308,10 +309,10 @@ decode_tpic_txs(TXs) ->
       ({TxID, Tx}) when is_binary(Tx) ->
         try
         Unpacked = tx:unpack(Tx),
-%%      logger:info("debug tx unpack: ~p", [Unpacked]),
+%%      ?LOG_INFO("debug tx unpack: ~p", [Unpacked]),
         {TxID, Unpacked}
         catch Ec:Ee ->
-                logger:error("TX ~p decode error ~p:~p",[TxID,Ec,Ee]),
+                ?LOG_ERROR("TX ~p decode error ~p:~p",[TxID,Ec,Ee]),
                 {TxID, null}
         end;
       ({TxID, Tx}) when is_map(Tx) ->
@@ -324,13 +325,13 @@ hei_and_has(B) ->
   PTmp=maps:get(temporary,B,false),
 
   case PTmp of false ->
-                 logger:info("Prev block is permanent, make child"),
+                 ?LOG_INFO("Prev block is permanent, make child"),
                  #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=B,
                  {Last_Height1,
                   Last_Hash1,
                   <<(bnot Last_Height1):64/big,Last_Hash1/binary>>};
                X when is_integer(X) ->
-                 logger:info("Prev block is temporary, make replacement"),
+                 ?LOG_INFO("Prev block is temporary, make replacement"),
                  #{header:=#{height:=Last_Height1, parent:=Last_Hash1}}=B,
                  {Last_Height1-1,
                   Last_Hash1,

@@ -1,4 +1,5 @@
 -module(generate_block).
+-include("include/tplog.hrl").
 
 -export([generate_block/5, generate_block/6]).
 
@@ -34,7 +35,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   Load=fun({_, #{hash:=Hash, header:=#{}, txs:=Txs}}, AAcc0) ->
            lists:foldl(
              fun({TxID, #{to:=T, cur:=_}}, AAcc) ->
-                 logger:notice("Deprecated transaction ~p in inbound block ~p",[TxID,Hash]),
+                 ?LOG_NOTICE("Deprecated transaction ~p in inbound block ~p",[TxID,Hash]),
                  TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
                  maps:put(T, TB, AAcc);
                 ({_, #{ver:=2, kind:=generic, to:=T, payload:=_}}, AAcc) ->
@@ -63,12 +64,12 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            TB=mbal:fetch(T, Cur, false, maps:get(T, AAcc, #{}), GetAddr),
            maps:put(F, FB, maps:put(T, TB, AAcc));
           ({_,_Any}, AAcc) ->
-           logger:info("Can't load address for tx ~p",[_Any]),
+           ?LOG_INFO("Can't load address for tx ~p",[_Any]),
            AAcc
        end,
   Addrs=lists:foldl(Load, Addrs0, TXL),
-  logger:debug("Bals Loaded ~p",[Addrs]),
-  logger:debug("MB Pre Setting ~p", [XSettings]),
+  ?LOG_DEBUG("Bals Loaded ~p",[Addrs]),
+  ?LOG_DEBUG("MB Pre Setting ~p", [XSettings]),
   _T3=erlang:system_time(),
   Entropy=proplists:get_value(entropy, Options, <<>>),
   MeanTime=proplists:get_value(mean_time, Options, 0),
@@ -122,11 +123,11 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     log:=Logs0,
     new_settings := NewSettings
    }=finish_processing(generate_block_process:try_process(TXL, GBInit)),
-  logger:info("MB Collected fee ~p tip ~p", [_FeeCollected, _TipCollected]),
+  ?LOG_INFO("MB Collected fee ~p tip ~p", [_FeeCollected, _TipCollected]),
   Logs=lists:reverse(Logs0),
 
   if length(Settings)>0 ->
-       logger:info("MB Post Setting ~p", [Settings]);
+       ?LOG_INFO("MB Post Setting ~p", [Settings]);
      true -> ok
   end,
   OutChains=lists:foldl(
@@ -135,32 +136,32 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
               end, #{}, Outbound),
   case maps:size(OutChains)>0 of
     true ->
-      logger:info("MB Outbound to ~p", [OutChains]);
+      ?LOG_INFO("MB Outbound to ~p", [OutChains]);
     false -> ok
   end,
   if length(Settings)>0 ->
-       logger:info("MB Must pick blocks ~p", [maps:keys(PickBlocks)]);
+       ?LOG_INFO("MB Must pick blocks ~p", [maps:keys(PickBlocks)]);
      true -> ok
   end,
   _T4=erlang:system_time(),
-  logger:debug("Bals before clean ~p",[NewBal0]),
+  ?LOG_DEBUG("Bals before clean ~p",[NewBal0]),
   NewBal=maps:map(
            fun(_,Bal) ->
                mbal:prepare(Bal)
            end,
            cleanup_bals(NewBal0)
           ),
-  logger:debug("Bals after clean and prepare ~p",[NewBal]),
+  ?LOG_DEBUG("Bals after clean and prepare ~p",[NewBal]),
   ExtraPatch=maps:fold(
                fun(ToChain, _NoOfTxs, AccExtraPatch) ->
                    [ToChain|AccExtraPatch]
                end, [], OutChains),
   if length(ExtraPatch)>0 ->
-       logger:info("MB Extra out settings ~p", [ExtraPatch]);
+       ?LOG_INFO("MB Extra out settings ~p", [ExtraPatch]);
      true -> ok
   end,
 
-  %logger:info("MB NewBal ~p", [NewBal]),
+  %?LOG_INFO("MB NewBal ~p", [NewBal]),
 
   LedgerHash = ledger_hash(NewBal, LedgerPid),
   SettingsHash = settings_hash(NewSettings),
@@ -202,7 +203,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
             extdata=>ExtraData
            },
   Blk=block:mkblock2(BlkData),
-  logger:info("BLK ~p",[BlkData]),
+  ?LOG_DEBUG("BLK ~p",[BlkData]),
 
   % TODO: Remove after testing
   % Verify myself
@@ -210,7 +211,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   case block:verify(block:unpack(block:pack(Blk))) of
     {true, _} -> ok;
     false ->
-      logger:error("Block is not verifiable after repacking!!!!"),
+      ?LOG_ERROR("Block is not verifiable after repacking!!!!"),
       file:write_file("tmp/blk_repack_error.txt",
                       io_lib:format("~p.~n", [Blk])
                      ),
@@ -218,7 +219,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
       case block:verify(Blk) of
         {true, _} -> ok;
         false ->
-          logger:error("Block is not verifiable at all!!!!")
+          ?LOG_ERROR("Block is not verifiable at all!!!!")
       end
 
   end,
@@ -235,12 +236,12 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                                                ETx)),
                        nodekey:get_priv())
                     )},
-                logger:info("Emit ~p", [C]),
+                ?LOG_INFO("Emit ~p", [C]),
                 C
             end, EmitTXs0),
 
   _T6=erlang:system_time(),
-  logger:info("Created block ~w ~s: txs: ~w, bals: ~w, LH: ~s, chain ~p temp ~p",
+  ?LOG_INFO("Created block ~w ~s: txs: ~w, bals: ~w, LH: ~s, chain ~p temp ~p",
              [
               Parent_Height+1,
               block:blkid(maps:get(hash, Blk)),
@@ -250,14 +251,14 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
               GetSettings(mychain),
               proplists:get_value(temporary,Options)
              ]),
-  logger:info("Hdr ~p",[maps:get(header,Blk)]),
-  logger:debug("BENCHMARK txs       ~w~n", [length(TXL)]),
-  logger:debug("BENCHMARK sort tx   ~.6f ~n", [(_T2-_T1)/1000000]),
-  logger:debug("BENCHMARK pull addr ~.6f ~n", [(_T3-_T2)/1000000]),
-  logger:debug("BENCHMARK process   ~.6f ~n", [(_T4-_T3)/1000000]),
-  logger:debug("BENCHMARK filter    ~.6f ~n", [(_T5-_T4)/1000000]),
-  logger:debug("BENCHMARK mk block  ~.6f ~n", [(_T6-_T5)/1000000]),
-  logger:debug("BENCHMARK total ~.6f ~n", [(_T6-_T1)/1000000]),
+  ?LOG_DEBUG("Hdr ~p",[maps:get(header,Blk)]),
+  ?LOG_DEBUG("BENCHMARK txs       ~w~n", [length(TXL)]),
+  ?LOG_DEBUG("BENCHMARK sort tx   ~.6f ~n", [(_T2-_T1)/1000000]),
+  ?LOG_DEBUG("BENCHMARK pull addr ~.6f ~n", [(_T3-_T2)/1000000]),
+  ?LOG_DEBUG("BENCHMARK process   ~.6f ~n", [(_T4-_T3)/1000000]),
+  ?LOG_DEBUG("BENCHMARK filter    ~.6f ~n", [(_T5-_T4)/1000000]),
+  ?LOG_DEBUG("BENCHMARK mk block  ~.6f ~n", [(_T6-_T5)/1000000]),
+  ?LOG_DEBUG("BENCHMARK total ~.6f ~n", [(_T6-_T1)/1000000]),
   #{block=>Blk#{outbound=>Outbound},
     failed=>Failed,
     emit=>EmitTXs,
@@ -268,7 +269,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
 cleanup_bals(NewBal0) ->
   maps:fold(
     fun(K, V, BA) ->
-        logger:debug("Bal cleanup ~p ~p",[K,V]),
+        ?LOG_DEBUG("Bal cleanup ~p ~p",[K,V]),
         case maps:get(keep, V, true) of
           false ->
             BA;
@@ -329,7 +330,7 @@ save_fee(#{fee:=FeeBal,
     GetFeeFun=fun (Parameter) ->
                   settings:get([<<"current">>, <<"fee">>, params, Parameter], Settings)
               end,
-    logger:debug("fee ~p tip ~p", [FeeBal, TipBal]),
+    ?LOG_DEBUG("fee ~p tip ~p", [FeeBal, TipBal]),
     {Addresses2, NewEmit}=lists:foldl(
                             fun({CType, CBal}, {FAcc, TXL}) ->
                                 Addr=case CType of
@@ -346,7 +347,7 @@ save_fee(#{fee:=FeeBal,
                                        _ ->
                                          naddress:construct_private(0, 0)
                                      end,
-                                logger:debug("fee ~s ~p to ~p", [CType, CBal, Addr]),
+                                ?LOG_DEBUG("fee ~s ~p to ~p", [CType, CBal, Addr]),
                                 deposit_fee(CBal, Addr, FAcc, TXL, GetFun, Settings,Acc)
                             end,
                             {Addresses, []},
@@ -354,7 +355,7 @@ save_fee(#{fee:=FeeBal,
                            ),
     if NewEmit==[] -> ok;
        true ->
-         logger:info("NewEmit ~p", [NewEmit])
+         ?LOG_INFO("NewEmit ~p", [NewEmit])
     end,
     Acc#{
       table=>Addresses2,
@@ -362,9 +363,9 @@ save_fee(#{fee:=FeeBal,
      }
   catch _Ec:_Ee:S ->
           %S=erlang:get_stacktrace(),
-          logger:error("Can't save fees: ~p:~p", [_Ec, _Ee]),
+          ?LOG_ERROR("Can't save fees: ~p:~p", [_Ec, _Ee]),
           lists:foreach(fun(E) ->
-                            logger:info("Can't save fee at ~p", [E])
+                            ?LOG_INFO("Can't save fee at ~p", [E])
                         end, S),
           Acc
   end.
@@ -393,7 +394,7 @@ depositf(Address, TBal, #{cur:=Cur, amount:=Amount}=Tx, GetFun, _Settings, GasLi
     undefined ->
       {NewT, [], GasLimit, Acc};
     VMType ->
-      logger:info("Smartcontract ~p", [VMType]),
+      ?LOG_INFO("Smartcontract ~p", [VMType]),
       {L1, TXs, Gas, _}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun, #{}),
       {L1, lists:map(
              fun(#{seq:=Seq}=ETx) ->
@@ -470,7 +471,7 @@ txfind([_|Rest],TxID) ->
   txfind(Rest,TxID).
 
 cleanup_delayed(#{delayed:=DTX, new_settings:=NS, settings:=Sets} = Acc) ->
-  logger:info("Delayed ~p",[DTX]),
+  ?LOG_INFO("Delayed ~p",[DTX]),
   ToDel=lists:foldl(
           fun({TxID,DT},Acc1) ->
               case settings:get([<<"current">>, <<"delaytx">>, DT], NS) of
@@ -489,12 +490,12 @@ cleanup_delayed(#{delayed:=DTX, new_settings:=NS, settings:=Sets} = Acc) ->
   if(ToDel==[]) ->
       Acc;
     true ->
-      logger:info("Delayed clean ~p",[ToDel]),
+      ?LOG_INFO("Delayed clean ~p",[ToDel]),
       Cleanup=[#{<<"p">>=>[<<"current">>,<<"delaytx">>],
                  <<"t">>=><<"lists_cleanup">>,
                  <<"v">>=><<"empty_list">>}],
       DelPatch={<<"cleanjob">>, #{sig=>[], patch=>ToDel++Cleanup}},
-      logger:info("Patches ~p~n",[ToDel]),
+      ?LOG_INFO("Patches ~p~n",[ToDel]),
       Acc#{
         settings=>[DelPatch|Sets]
        }
@@ -505,7 +506,7 @@ process_delayed_txs(#{emit:=[]}=Acc) ->
 
 process_delayed_txs(#{emit:=Emit, settings:=Settings, parent:=P,
                       height:=H}=Acc) ->
-  logger:info("process_delayed_txs"),
+  ?LOG_INFO("process_delayed_txs"),
   {NewEmit,ToSet}=lists:foldl(
                     fun({TxID,#{not_before:=DT}=Tx},{AccEm,AccTos}) ->
                         {
@@ -534,8 +535,8 @@ process_delayed_txs(#{emit:=Emit, settings:=Settings, parent:=P,
                  <<"t">> => <<"list_add">>,<<"v">> => [H,P,TxID]} || {TxID, Timestamp} <- ToSet ],
       SyncPatch={<<"delayjob">>, #{sig=>[], patch=>Patches}},
 
-      logger:info("Emit ~p~n",[NewEmit]),
-      logger:info("Patches ~p~n",[Patches]),
+      ?LOG_INFO("Emit ~p~n",[NewEmit]),
+      ?LOG_INFO("Patches ~p~n",[Patches]),
 
       Acc#{
         emit=>NewEmit,

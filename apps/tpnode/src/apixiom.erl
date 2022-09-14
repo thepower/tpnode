@@ -1,4 +1,5 @@
 -module(apixiom).
+-include("include/tplog.hrl").
 -export([bodyjs/1, body_data/1]).
 -export([init/2]).
 
@@ -7,7 +8,7 @@ init(Req0, {Target, Opts}) ->
     Method = cowboy_req:method(Req0),
     {Format, Req1} = get_format(Req0),
     Path = cowboy_req:path_info(Req1),
-%%    logger:info("request: ~p ~p", [Format, Req1]),
+%%    ?LOG_INFO("request: ~p ~p", [Format, Req1]),
     PRes = handle_request(Method, Path, Req1, Target, Format, Opts),
     Req2 =
         case erlang:function_exported(Target, before_filter, 1) of
@@ -24,7 +25,7 @@ init(Req0, {Target, Opts}) ->
             false ->
                 ResReq
         end,
-    %logger:debug("Res ~p", [Response]),
+    %?LOG_DEBUG("Res ~p", [Response]),
     {ok, cowboy_req:reply(Status, #{}, Body, Response), Opts}.
 
 bodyjs(Req) ->
@@ -85,7 +86,7 @@ handle_request(Method, Path, Req, Target, Format, _Opts) ->
       api_call,
       [{path, cowboy_req:path(Req)}, {client_addr, get_client_ip_headers(Req)}]
     ),
-    logger:info("api: ~p ~p", [cowboy_req:path(Req), get_client_ip_headers(Req)]),
+    ?LOG_INFO("api: ~p ~p", [cowboy_req:path(Req), get_client_ip_headers(Req)]),
     
     Req1 =
       case Format of
@@ -183,7 +184,7 @@ process_response({Status, [], Body}, Format, Req)
 
 process_response({Status, [{Hdr, Val}|Headers], Body}, Format, Req)
     when is_integer(Status) ->
-    %logger:debug("resp ~p: ~p", [Hdr, Val]),
+    %?LOG_DEBUG("resp ~p: ~p", [Hdr, Val]),
     process_response(
         {Status, Headers, Body},
         Format,
@@ -246,7 +247,7 @@ parse_reqjs(Req) ->
                 ReqJSON=jsx:decode(ReqBody, [return_maps]),
                 maps:put(request_data, ReqJSON, NewReq)
             catch _:_ ->
-                logger:error("json parse error: ~p", [Req]),
+                ?LOG_ERROR("json parse error: ~p", [Req]),
                 throw({return, "invalid json"})
             end;
         _ ->
@@ -262,7 +263,7 @@ parse_msgpack(Req) ->
                 ReqData = msgpack:unpack(ReqBody, [{unpack_str, as_binary}]),
                 maps:put(request_data, ReqData, NewReq)
             catch _:_ ->
-                logger:error("msgpack parse error: ~p", [Req]),
+                ?LOG_ERROR("msgpack parse error: ~p", [Req]),
                 throw({return, "invalid msgpack"})
             end;
         _ ->

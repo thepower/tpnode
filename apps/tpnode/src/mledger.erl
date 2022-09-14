@@ -1,4 +1,5 @@
 -module(mledger).
+-include("include/tplog.hrl").
 -compile({no_auto_import,[get/1]}).
 -export([start_db/0,deploy4test/2, put/2,get/1,get_vers/1,hash/1,hashl/1]).
 -export([bi_create/6,bi_set_ver/2]).
@@ -331,7 +332,7 @@ apply_patch(Patches, check) ->
 apply_patch(Patches, {commit, HeiHash, ExpectedHash}) ->
   F=fun() ->
         {ok,LH}=do_apply(Patches, HeiHash),
-        logger:info("check and commit expected ~p actual ~p",[ExpectedHash, LH]),
+        ?LOG_INFO("check and commit expected ~p actual ~p",[ExpectedHash, LH]),
         case LH == ExpectedHash of
           true ->
             LH;
@@ -348,7 +349,7 @@ apply_patch(Patches, {commit, HeiHash, ExpectedHash}) ->
 
 apply_patch(Patches, {commit, HeiHash}) ->
   %Filename="ledger_"++integer_to_list(os:system_time(millisecond))++atom_to_list(node()),
-  %logger:info("Ledger dump ~s",[Filename]),
+  %?LOG_INFO("Ledger dump ~s",[Filename]),
   %wrfile(Filename, Patches),
   %dump_ledger("pre",Filename),
   F=fun() ->
@@ -413,7 +414,7 @@ del_mt(ChAddrs) ->
 
 apply_mt(ChAddrs) ->
   NewLedger=[ {Address, hash(Address)} || Address <- ChAddrs ],
-  logger:debug("Apply ledger ~p",[NewLedger]),
+  ?LOG_DEBUG("Apply ledger ~p",[NewLedger]),
   lists:foldl(
     fun({Addr,Hash},Acc) ->
         db_merkle_trees:enter(Addr, Hash, {fun dbmtfun/3,Acc})

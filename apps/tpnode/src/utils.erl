@@ -1,4 +1,5 @@
 -module(utils).
+-include("include/tplog.hrl").
 
 -export([alloc_tcp_port/0,make_binary/1, make_list/1, apply_macro/2,
   print_error/4, log_stacktrace/1, check_tcp_port/1]).
@@ -93,14 +94,14 @@ apply_macro(MapWithMacro, Dict) when is_map(MapWithMacro) andalso is_map(Dict) -
 
 log_stacktrace(StackTrace) ->
   lists:foreach(
-    fun(Where) -> logger:error("@ ~p", [Where]) end,
+    fun(Where) -> ?LOG_ERROR("@ ~p", [Where]) end,
     StackTrace
   ).
 
 %% -------------------------------------------------------------------------------------
 
 print_error(Message, Ec, Ee, StackTrace) ->
-  logger:error(make_list(Message) ++ " [~p:~p]", [Ec, Ee]),
+  ?LOG_ERROR(make_list(Message) ++ " [~p:~p]", [Ec, Ee]),
   log_stacktrace(StackTrace).
 
 %% -------------------------------------------------------------------------------------

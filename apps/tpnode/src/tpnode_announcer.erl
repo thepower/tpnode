@@ -1,4 +1,5 @@
 % -*- mode: erlang -*-
+-include("include/tplog.hrl").
 % vi: set ft=erlang :
 
 -module(tpnode_announcer).
@@ -44,11 +45,11 @@ handle_call(get_peers, _From, State) ->
     {reply, get_peers(), State};
 
 handle_call(_Request, _From, State) ->
-    logger:notice("Unknown call ~p", [_Request]),
+    ?LOG_NOTICE("Unknown call ~p", [_Request]),
     {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
-    logger:notice("Unknown cast ~p", [_Msg]),
+    ?LOG_NOTICE("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(renew_peers, #{peers_check_timer:=PeersCheckTimer} = State) ->
@@ -60,7 +61,7 @@ handle_info(renew_peers, #{peers_check_timer:=PeersCheckTimer} = State) ->
     }};
 
 handle_info(_Info, State) ->
-    logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
+    ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -79,7 +80,7 @@ parse_address(#{address:=Ip, port:=Port, proto:=Proto} = _Address)
     {Ip, Port, Proto};
 
 parse_address(_Address) ->
-    logger:error("invalid address: ~p", [_Address]),
+    ?LOG_ERROR("invalid address: ~p", [_Address]),
     error.
 
 
@@ -104,7 +105,7 @@ renew_peers([]) ->
     ok;
 
 renew_peers(Peers) when is_list(Peers) ->
-    logger:debug("add peers to tpic ~p", [Peers]),
+    ?LOG_DEBUG("add peers to tpic ~p", [Peers]),
     tpic2_cmgr:add_peers(Peers).
 
 register_node() ->

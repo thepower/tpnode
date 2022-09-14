@@ -1,4 +1,5 @@
 -module(httpapi_playground).
+-include("include/tplog.hrl").
 -export([h/3]).
 -import(tpnode_httpapi,[answer/1, answer/2]).
 
@@ -84,8 +85,8 @@ h(<<"POST">>, [<<"tx">>,<<"validate">>], Req) ->
       end,
   maps:fold(
     fun(K,V,_) ->
-        logger:info("~s Res ~p",[K,V]),
-        logger:info("~s Res ~s",[K,jsx:encode(V)])
+        ?LOG_INFO("~s Res ~p",[K,V]),
+        ?LOG_INFO("~s Res ~s",[K,jsx:encode(V)])
     end, [], Res),
   tpnode_httpapi:answer(Res,
          #{jsx=>[ strict, {error_handler, EHF} ]}

@@ -1,4 +1,5 @@
 -module(txlog).
+-include("include/tplog.hrl").
 
 %% API
 -export([log/2]).
@@ -13,7 +14,7 @@
 %%      EtsTableName,
 %%      [named_table, protected, set, {read_concurrency, true}]
 %%    ),
-%%  logger:info("table ~p was created", [Table]).
+%%  ?LOG_INFO("table ~p was created", [Table]).
 %%
 
 
@@ -56,15 +57,7 @@ log(TxIds, Options) when is_list(TxIds) ->
 %%      end,
 %%      TxTimes
 %%    ),
-  
+
   stout:log(txlog, [{ts, TxIds}, {options, Options}]).
 %%stout:log(txlog, [{ts, TranslatedTxTimes}, {options, Options}]).
-
-  
-  
-  
-
-  
-  
-  
 

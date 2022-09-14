@@ -2,6 +2,7 @@
 % vi: set ft=erlang :
 
 -module(xchain_client).
+-include("include/tplog.hrl").
 
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
@@ -46,7 +47,7 @@ handle_call(state, _From, State) ->
 
 handle_call({add_subscribe, Subscribe}, _From, #{subs:=Subs} = State) ->
   AS=add_sub(Subscribe, Subs),
-  logger:notice("xchain client add subscribe ~p: ~p", [Subscribe, AS]),
+  ?LOG_NOTICE("xchain client add subscribe ~p: ~p", [Subscribe, AS]),
   {reply, ok, State#{
                 subs => AS
                }};
@@ -55,15 +56,15 @@ handle_call(peers, _From, #{subs:=Subs} = State) ->
   {reply, get_peers(Subs), State};
 
 handle_call(_Request, _From, State) ->
-  logger:notice("xchain client unknown call ~p", [_Request]),
+  ?LOG_NOTICE("xchain client unknown call ~p", [_Request]),
   {reply, ok, State}.
 
 handle_cast(settings, State) ->
-  logger:notice("xchain client reload settings"),
+  ?LOG_NOTICE("xchain client reload settings"),
   {noreply, change_settings_handler(State)};
 
 handle_cast({discovery, Announce, AnnounceBin}, #{subs:=Subs} = State) ->
-%%  logger:debug(
+%%  ?LOG_DEBUG(
 %%    "xchain client got announce from discovery. " ++
 %%    "Relay it to all active xchain connections."),
   try
@@ -71,7 +72,7 @@ handle_cast({discovery, Announce, AnnounceBin}, #{subs:=Subs} = State) ->
     relay_discovery(Announce, AnnounceBin, Subs)
   catch
     Err:Reason ->
-      logger:error(
+      ?LOG_ERROR(
         "xchain client can't relay announce ~p ~p ~p",
         [Err, Reason, Announce]
        )
@@ -79,11 +80,11 @@ handle_cast({discovery, Announce, AnnounceBin}, #{subs:=Subs} = State) ->
   {noreply, State};
 
 handle_cast(_Msg, State) ->
-  logger:error("xchain client unknown cast ~p", [_Msg]),
+  ?LOG_ERROR("xchain client unknown cast ~p", [_Msg]),
   {noreply, State}.
 
 handle_info({wrk_up, ConnPid, NodeID}, #{subs:=Subs} = State) ->
-  logger:notice("xchain client got nodeid from server for pid ~p: ~p",
+  ?LOG_NOTICE("xchain client got nodeid from server for pid ~p: ~p",
                [ConnPid, NodeID]),
   {noreply, State#{
               subs => update_sub(
@@ -93,7 +94,7 @@ handle_info({wrk_up, ConnPid, NodeID}, #{subs:=Subs} = State) ->
              }};
 
 handle_info({wrk_down, ConnPid, Reason}, #{subs:=Subs} = State) ->
-  logger:notice(
+  ?LOG_NOTICE(
     "xchain client got close from server for pid ~p: ~p",
     [ConnPid, Reason]
   ),
@@ -121,7 +122,7 @@ handle_info(make_connections, #{connect_timer:=Timer, subs:=Subs} = State) ->
     }};
 
 handle_info(_Info, State) ->
-  logger:error("xchain client unknown info ~p", [_Info]),
+  ?LOG_ERROR("xchain client unknown info ~p", [_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -153,16 +154,16 @@ make_connections(Subs) ->
   
               case IsBanned() of
                 false ->
-                  logger:info("xchain client make connection to ~p",[Sub]),
+                  ?LOG_INFO("xchain client make connection to ~p",[Sub]),
                   {ok, Pid} = xchain_client_worker:start_link(Sub),
                   Sub#{worker=>Pid};
                 WaitUntil ->
-                  logger:debug("xchain client skip until ~p connection to ~p",[WaitUntil, Sub]),
+                  ?LOG_DEBUG("xchain client skip until ~p connection to ~p",[WaitUntil, Sub]),
                   Sub
               end
             catch
               Err:Reason ->
-                logger:info(
+                ?LOG_INFO(
                   "xchain client got error while connection to remote xchain: ~p ~p",
                   [Err, Reason]
                 ),
@@ -187,7 +188,7 @@ add_sub(#{address:=IP,port:=Port}=Subscribe, Subs) ->
     maps:put(Key, NewSub, Subs)
   catch
     Reason ->
-      logger:error("xchain client can't process subscribe. ~p ~p", [Reason, Subscribe]),
+      ?LOG_ERROR("xchain client can't process subscribe. ~p ~p", [Reason, Subscribe]),
       Subs
   end.
 
@@ -205,11 +206,11 @@ relay_discovery(_Announce, AnnounceBin, Subs) ->
       W ! {send_msg, #{null=><<"xdiscovery">>, <<"bin">>=>AnnounceBin}},
       Cnt+1;
      (_Key, Sub, Cnt) ->
-      logger:debug("Skip relaying to unfinished connection: ~p", [Sub]),
+      ?LOG_DEBUG("Skip relaying to unfinished connection: ~p", [Sub]),
       Cnt
   end,
   Sent = maps:fold(Sender, 0, Subs),
-  logger:debug("~p xchain discovery announces were sent", [Sent]),
+  ?LOG_DEBUG("~p xchain discovery announces were sent", [Sent]),
   ok.
 
 change_settings_handler(#{chain:=Chain, subs:=Subs} = State) ->
@@ -218,7 +219,7 @@ change_settings_handler(#{chain:=Chain, subs:=Subs} = State) ->
     Chain ->
       State;
     _ ->
-      logger:info("xchain client wiped out all crosschain subscribes"),
+      ?LOG_INFO("xchain client wiped out all crosschain subscribes"),
 
       % close all active connections
       maps:fold(
@@ -249,7 +250,7 @@ init_subscribes(Subs) ->
          },
         add_sub(Sub, Acc);
        (Invalid, Acc) ->
-        logger:error("xhcain client got invalid crosschain connect term: ~p", Invalid),
+        ?LOG_ERROR("xhcain client got invalid crosschain connect term: ~p", Invalid),
         Acc
     end, Subs, ConnectIpsList).
 

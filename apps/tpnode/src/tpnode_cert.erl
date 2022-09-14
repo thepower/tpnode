@@ -1,4 +1,5 @@
 -module(tpnode_cert).
+-include("include/tplog.hrl").
 
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
@@ -46,32 +47,32 @@ handle_call(state, _From, State) ->
   {reply, State, State};
 
 handle_call(_Request, _From, State) ->
-  logger:notice("Unknown call ~p", [_Request]),
+  ?LOG_NOTICE("Unknown call ~p", [_Request]),
   {reply, ok, State}.
 
 handle_cast(certreq_done, State) ->
-  logger:debug("enable certificate requests"),
+  ?LOG_DEBUG("enable certificate requests"),
   self() ! ssl_restart,
   {noreply, State#{
     cert_req_active => false
   }};
 
 handle_cast(_Msg, State) ->
-  logger:notice("Unknown cast ~p", [_Msg]),
+  ?LOG_NOTICE("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
 handle_info(ssl_on, State) ->
-  logger:info("spawning ssl api listeners"),
+  ?LOG_INFO("spawning ssl api listeners"),
   spawn_ssl(),
   {noreply, State};
 
 handle_info(ssl_off, State) ->
-  logger:info("shuting down ssl api"),
+  ?LOG_INFO("shuting down ssl api"),
   shutdown_ssl(),
   {noreply, State};
 
 handle_info(ssl_restart, State) ->
-  logger:info("restarting ssl api"),
+  ?LOG_INFO("restarting ssl api"),
   shutdown_ssl(),
   spawn_ssl(),
   {noreply, State};
@@ -91,7 +92,7 @@ handle_info(certreq, #{cert_req_active := false} = State) ->
 
 % certificate request is in the process, skip this certreq
 handle_info(certreq, #{cert_req_active := CurrentCertReq} = State) ->
-  logger:debug("skiping certreq because of current cert_req state: ~p", [CurrentCertReq]),
+  ?LOG_DEBUG("skiping certreq because of current cert_req state: ~p", [CurrentCertReq]),
   {noreply, State};
 
 
@@ -107,7 +108,7 @@ handle_info(check_cert_expire, #{expiretimer := Timer, cert_req_active := false}
           pass
       end;
     certreq ->
-      logger:notice("going to request a new certificate"),
+      ?LOG_NOTICE("going to request a new certificate"),
       self() ! certreq,
       certreq
   end,
@@ -118,31 +119,31 @@ handle_info(check_cert_expire, #{expiretimer := Timer, cert_req_active := false}
 % certificate request is in progress, just renew timer
 handle_info(check_cert_expire, #{expiretimer := Timer} = State) ->
   catch erlang:cancel_timer(Timer),
-  logger:debug("cert expire timer tick (certificate request is in progress)"),
+  ?LOG_DEBUG("cert expire timer tick (certificate request is in progress)"),
   {noreply, State#{
     expiretimer => erlang:send_after(?EXPIRE_CHECK_INTERVAL * 1000, self(), check_cert_expire)
   }};
 
 
 handle_info({'DOWN', Ref, process, _Pid, normal}, #{cert_req_active := Ref} = State) ->
-  logger:debug("cert request process ~p finished successfuly", [_Pid]),
+  ?LOG_DEBUG("cert request process ~p finished successfuly", [_Pid]),
   {noreply, State#{
     cert_req_active => false
   }};
 
 handle_info({'DOWN', Ref, process, _Pid, Reason}, #{cert_req_active := Ref} = State) ->
-  logger:debug("cert request process ~p finished with reason: ~p", [_Pid, Reason]),
+  ?LOG_DEBUG("cert request process ~p finished with reason: ~p", [_Pid, Reason]),
   {noreply, State#{
     cert_req_active => false
   }};
 
 
 handle_info(_Info, State) when is_tuple(_Info)->
-  logger:notice("Unhandled info tuple [~b]: ~p", [size(_Info), _Info]),
+  ?LOG_NOTICE("Unhandled info tuple [~b]: ~p", [size(_Info), _Info]),
   {noreply, State};
 
 handle_info(_Info, State) ->
-  logger:notice("Unhandled info ~p", [_Info]),
+  ?LOG_NOTICE("Unhandled info ~p", [_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -233,25 +234,25 @@ check_cert_expire(CertFile) ->
     [{'Certificate', Der, not_encrypted} | _] = public_key:pem_decode(PEM),
     OTPCert = public_key:pkix_decode_cert(Der, otp),
     {'Validity', _, Expire} = OTPCert#'OTPCertificate'.tbsCertificate#'OTPTBSCertificate'.validity,
-    logger:debug("node cert expire date: ~p", [Expire]),
+    ?LOG_DEBUG("node cert expire date: ~p", [Expire]),
     Now = os:system_time(second),
     ExpireTimestamp = parse_cert_date(Expire),
     Diff = ExpireTimestamp - Now - 30 * 24 * 60 * 60, % 30 days before real expiration date
     case Diff of
       Diff1 when Diff1 < 1 ->
-        logger:error("Certificate is close to it's expiration date: ~p ~p", [Expire, Diff]),
+        ?LOG_ERROR("Certificate is close to it's expiration date: ~p ~p", [Expire, Diff]),
         expired;
       _ ->
-        logger:debug("Certificate expire date '~p' is OK", [Expire]),
+        ?LOG_DEBUG("Certificate expire date '~p' is OK", [Expire]),
         ok
     end
   catch
     {not_found, Reason} ->
-      logger:error("can't read certificate: ~p ~p", [CertFile, Reason]),
+      ?LOG_ERROR("can't read certificate: ~p ~p", [CertFile, Reason]),
       not_found;
     Ee:Ec:S ->
       %S=erlang:get_stacktrace(),
-      logger:error(
+      ?LOG_ERROR(
         "can't check certificate expire date: ~p ~p ~p",
         [Ee, Ec, S]
       ),
@@ -289,7 +290,7 @@ check_or_request(Hostname) ->
   KeyExists = filelib:is_regular(get_cert_key_file(Hostname)),
   CertFile = get_cert_file(Hostname),
   CertExists = filelib:is_regular(CertFile),
-  logger:info("Certfile ~s ~s",[CertFile,if CertExists ->
+  ?LOG_INFO("Certfile ~s ~s",[CertFile,if CertExists ->
                                              "found";
                                            true ->
                                              "not found"
@@ -346,20 +347,20 @@ check_or_request(Hostname) ->
 %  try
 %    case letsencrypt:make_cert(utils:make_binary(Hostname), #{async => false}) of
 %      {error, Data} ->
-%        logger:error("letsencrypt error: ~p", [Data]);
+%        ?LOG_ERROR("letsencrypt error: ~p", [Data]);
 %      {State, Data} ->
-%        logger:error("letsencrypt certificate issued: ~p (~p)", [State, Data]);
+%        ?LOG_ERROR("letsencrypt certificate issued: ~p (~p)", [State, Data]);
 %      Error ->
-%        logger:error("letsencrypt generic error: ~p", [Error])
+%        ?LOG_ERROR("letsencrypt generic error: ~p", [Error])
 %    end
 %  catch
 %    exit:{{{badmatch,{error,eacces}}, _ }, _} ->
-%      logger:error(
+%      ?LOG_ERROR(
 %        "Got eacces error. Do you have permition to run the http server on port 80 " ++
 %        "or webroot access for letsencrypt hostname verification?");
 %    
 %    Ee:Ec ->
-%      logger:error(
+%      ?LOG_ERROR(
 %        "letsencrypt runtime error: ~p ~p ~p",
 %        [Ee, Ec, erlang:get_stacktrace()]
 %      )
@@ -372,7 +373,7 @@ check_or_request(Hostname) ->
 %%% -------------------------------------------------------------------------------------
 %
 %do_cert_request(Hostname) ->
-%  logger:debug("request letsencrypt cert for host ~p", [Hostname]),
+%  ?LOG_DEBUG("request letsencrypt cert for host ~p", [Hostname]),
 %  CertPath = get_cert_path(),
 %  filelib:ensure_dir(CertPath ++ "/"),
 %  RunnerFun =
@@ -422,15 +423,15 @@ spawn_ssl() ->
   Hostname = get_hostname(),
   Pids = case is_ssl_configured() of
     false ->
-      logger:debug("ssl api unconfigured"),
+      ?LOG_DEBUG("ssl api unconfigured"),
       [];
     _ ->
-      logger:info("enable ssl api"),
+      ?LOG_INFO("enable ssl api"),
       Specs =
         tpnode_http:childspec_ssl(get_cert_file(Hostname), get_cert_key_file(Hostname)),
       [supervisor:start_child(tpnode_sup, Spec) || Spec <- Specs]
   end,
-  logger:debug("ssl spawn result: ~p", [Pids]),
+  ?LOG_DEBUG("ssl spawn result: ~p", [Pids]),
   ListenerFilter =
     fun({ok, Pid}, Acc) ->
       Acc ++ [Pid];
@@ -441,7 +442,7 @@ spawn_ssl() ->
 
 
 shutdown_ssl() ->
-  logger:info("disable ssl api"),
+  ?LOG_INFO("disable ssl api"),
   Names = tpnode_http:child_names_ssl(),
   Killer =
     fun(Name) ->

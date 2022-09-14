@@ -1,4 +1,5 @@
 -module(tx).
+-include("include/tplog.hrl").
 
 -export([del_ext/2, get_ext/2, set_ext/3]).
 -export([sign/2, verify/1, verify/2, pack/1, pack/2, unpack/1, unpack/2]).
@@ -916,9 +917,9 @@ rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
                                           Tx,
                                           element(2,erlang:fun_info(GetRateFun,env))
                                          ])]),
-          logger:error("Calc fee error ~p~ntx ~p",[{throw,Ee},Tx]),
+          ?LOG_ERROR("Calc fee error ~p~ntx ~p",[{throw,Ee},Tx]),
           lists:foreach(fun(SE) ->
-                            logger:error("@ ~p", [SE])
+                            ?LOG_ERROR("@ ~p", [SE])
                         end, S),
           throw(Ee);
         Ec:Ee:S ->
@@ -933,9 +934,9 @@ rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
                                           Tx,
                                           element(2,erlang:fun_info(GetRateFun,env))
                                          ])]),
-          logger:error("Calc fee error ~p~ntx ~p",[{Ec,Ee},Tx]),
+          ?LOG_ERROR("Calc fee error ~p~ntx ~p",[{Ec,Ee},Tx]),
           lists:foreach(fun(SE) ->
-                            logger:error("@ ~p", [SE])
+                            ?LOG_ERROR("@ ~p", [SE])
                         end, S),
           throw('cant_calculate_fee')
   end;

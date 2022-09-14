@@ -1,4 +1,5 @@
 -module(vm_wasm).
+-include("include/tplog.hrl").
 -export([run/0,run/2,client/2,loop/1,start_link/0]).
 
 run(Host, Port) ->
@@ -17,7 +18,7 @@ client(Host, Port) ->
   Executable="wanode",
   case os:find_executable(Executable,code:priv_dir(wanode)) of
     false ->
-      logger:error("Can't find ~s",[Executable]);
+      ?LOG_ERROR("Can't find ~s",[Executable]);
     Path when is_list(Path) ->
       Handle=erlang:open_port(
              {spawn_executable, Path},
@@ -33,9 +34,9 @@ client(Host, Port) ->
 loop(#{port:=Handle}=State) ->
   receive
     {Handle, {data, Msg}} ->
-      logger:info("Log ~ts",[Msg]),
+      ?LOG_INFO("Log ~ts",[Msg]),
       loop(State);
     {Handle, eof} ->
-      logger:error("Port went down ~p",[Handle])
+      ?LOG_ERROR("Port went down ~p",[Handle])
   end.
 

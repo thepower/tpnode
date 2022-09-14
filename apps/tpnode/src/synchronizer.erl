@@ -1,4 +1,5 @@
 -module(synchronizer).
+-include("include/tplog.hrl").
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -55,14 +56,14 @@ handle_cast({tpic, _PeerID, Payload}, State) ->
     {ok, #{null:=<<"hello">>, <<"n">>:=Node, <<"t">>:=T}} ->
       handle_cast({hello, Node, T}, State);
     Any ->
-      logger:info("Bad TPIC received ~p", [Any]),
+      ?LOG_INFO("Bad TPIC received ~p", [Any]),
       {noreply, State}
   end;
 
 
 handle_cast({hello, PID, WallClock}, State) ->
   Behind = erlang:system_time(microsecond) - WallClock,
-  logger:debug("Hello from ~p our clock diff ~p", [PID, Behind]),
+  ?LOG_DEBUG("Hello from ~p our clock diff ~p", [PID, Behind]),
   {noreply, State#{
     offsets => maps:put(
       PID,
@@ -72,13 +73,13 @@ handle_cast({hello, PID, WallClock}, State) ->
   }};
 
 handle_cast({setdelay, Ms}, State) when Ms > 900 ->
-  logger:info("Setting ~p ms block delay", [Ms]),
+  ?LOG_INFO("Setting ~p ms block delay", [Ms]),
   {noreply, State#{
     tickms => Ms
   }};
 
 handle_cast(_Msg, State) ->
-  logger:info("Unknown cast ~p", [_Msg]),
+  ?LOG_INFO("Unknown cast ~p", [_Msg]),
   {noreply, State}.
 
 handle_info(imready, State) ->
@@ -96,7 +97,7 @@ handle_info(ticktimer,
         X when is_integer(X), X>-500, X<2000, X=/=0 ->
           X;
         Any ->
-          logger:info("Bad mkblock_delay ~p",[Any]),
+          ?LOG_INFO("Bad mkblock_delay ~p",[Any]),
           200
       end,
 
@@ -113,10 +114,10 @@ handle_info(ticktimer,
            txqueue ! prepare
       end,
       tpnode_dtx_runner:run(), %run dtx txs
-      logger:debug("Time to tick. next in ~w", [Wait]);
+      ?LOG_DEBUG("Time to tick. next in ~w", [Wait]);
     false ->
       erlang:send_after(MBD, whereis(mkblock), flush),
-      logger:info("Time to tick. But we not in sync. wait ~w", [Wait])
+      ?LOG_INFO("Time to tick. But we not in sync. wait ~w", [Wait])
   end,
   
   {noreply,
@@ -159,9 +160,9 @@ handle_info(selftimer5, #{mychain:=_MyChain, tickms:=_Ms, timer5:=Tmr, offsets:=
 %
 %  if
 %    (Friends == []) ->
-%      logger:debug("I'm alone in universe my time ~w", [(MeanMs rem 3600000) / 1000]);
+%      ?LOG_DEBUG("I'm alone in universe my time ~w", [(MeanMs rem 3600000) / 1000]);
 %    true ->
-%      logger:debug(
+%      ?LOG_DEBUG(
 %        "I have ~b friends, and mean hospital time ~w, mean diff ~w blocktime ~w",
 %        [length(Friends), (MeanMs rem 3600000) / 1000, MeanDiff / 1000, Ms]
 %      )
@@ -176,7 +177,7 @@ handle_info(selftimer5, #{mychain:=_MyChain, tickms:=_Ms, timer5:=Tmr, offsets:=
   }};
 
 handle_info(_Info, State) ->
-  logger:notice("~s Unknown info ~p", [?MODULE,_Info]),
+  ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
