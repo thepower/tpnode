@@ -19,7 +19,7 @@ run_generate(
                 [H0|_] -> H0;
                 [] -> undefined
               end,
-  logger:info("pick txs parent block ~p",[BestHeiHash]),
+  %logger:info("pick txs parent block ~p",[BestHeiHash]),
   PreTXL0=maps:get(BestHeiHash, PreTXM, []),
   PreTXL1=lists:foldl(
             fun({TxID, TXB}, Acc) ->
@@ -45,7 +45,6 @@ run_generate(
   PTmp=maps:get(temporary,B,false),
 
   logger:info("-------[MAKE BLOCK h=~w tmp=~p]-------",[PHeight,PTmp]),
-  logger:info("Pre ~p",[PreTXL0]),
 
   PreNodes=try
              BK=maps:fold(
@@ -87,9 +86,9 @@ run_generate(
 
   MT1=[ 1000*(TT div 1000) || TT <- MT ],
   MeanTime=trunc(median(lists:sort( MT1 ))),
-  logger:info("MT0 ~p",[MT]),
-  logger:info("MT1 ~p",[MT1]),
-  logger:info("MT ~p",[MeanTime]),
+  logger:debug("MT0 ~p",[MT]),
+  logger:debug("MT1 ~p",[MT1]),
+  logger:debug("MT ~p",[MeanTime]),
   Entropy=if Ent == [] ->
                <<>>;
              true ->
@@ -198,7 +197,7 @@ run_generate(
                                      ]
                                     ),
     #{block:=Block, failed:=Failed, log:=Log}=GB,
-    logger:info("NewS block ~p",[maps:get(bals,Block)]),
+    %logger:info("NewS block ~p",[maps:get(bals,Block)]),
     T2=erlang:system_time(),
 
     case application:get_env(tpnode,mkblock_debug) of

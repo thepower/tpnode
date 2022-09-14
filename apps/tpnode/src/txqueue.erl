@@ -156,14 +156,11 @@ handle_cast(settings, State) ->
 handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue, lost_cnt:=LCnt} = State) ->
 
   Time = erlang:system_time(seconds),
-  logger:info("Q ~p",[Queue]),
   {InProc1, {Queue1,LCnt1}} = recovery_lost(InProc0, Queue, Time, LCnt),
-  logger:info("Q1 ~p",[Queue1]),
   ETime = Time + 20,
 
   {Queue2, TxIds} =
   txpool:pullx({txpool:get_max_pop_tx(), txpool:get_max_tx_size()}, Queue1, []),
-  logger:info("Q2 ~p",[Queue2]),
 
   txlog:log(TxIds, #{where => txqueue_prepare}),
 

@@ -93,10 +93,10 @@ handle_cast({tpic, FromKey, #{
   TXs=decode_tpic_txs(maps:to_list(TPICTXs)),
   if TXs==[] -> ok;
      true ->
-       logger:info("Got txs from ~s: ~p",
+       logger:info("Got ~w txs from ~s",
             [
-             chainsettings:is_our_node(FromKey),
-             TXs
+             length(TXs),
+             chainsettings:is_our_node(FromKey)
             ])
   end,
   Entropy=maps:get(<<"entropy">>,Msg,undefined),
@@ -138,7 +138,7 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
      true ->
        if Txs==[] -> ok;
         true ->
-          logger:info("HI TXs from node ~s: ~p time ~p",
+          logger:info("Prepare TXs from node ~s: ~p time ~p",
                [ Origin, length(Txs), Timestamp ])
        end,
        MarkTx =
