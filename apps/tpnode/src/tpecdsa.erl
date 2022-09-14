@@ -368,7 +368,7 @@ rawkey(Key) ->
                       algorithm=A %{1,2,840,10045,2,1}
                      },
        subjectPublicKey = PubKey } = public_key:der_decode('SubjectPublicKeyInfo', Key),
-    {pkalgo(A), PubKey}
+    {pub, pkalgo(A), PubKey}
   end.
 
 
@@ -397,7 +397,6 @@ import_der(pub, DerKey) ->
   import_der('SubjectPublicKeyInfo', DerKey);
 
 import_der(KeyType, DerKey) ->
-  io:format("Decode key ~p~n",[KeyType]),
   case public_key:der_decode(KeyType, DerKey) of
     #'ECPrivateKey'{
        version = 1,
