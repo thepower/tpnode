@@ -42,7 +42,8 @@ childspec() ->
 
 connection_process(Parent, Host, Port, Opts) ->
   SSLOpts=[
-           %{alpn_preferred_protocols, [<<"tpctl">>,<<"tpstream">>]},
+           {alpn_advertised_protocols, [<<"tpic2">>]},
+           {client_preferred_next_protocols, {client, [<<"tpic2">>]}},
            {active, true}
            | tpic2:certificate()
           ],

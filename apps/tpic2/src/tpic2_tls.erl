@@ -12,12 +12,18 @@ start_link(Ref, Socket, Transport, Opts) ->
 
 -spec connection_process(pid(), ranch:ref(), ssl:sslsocket(), module(), cowboy:opts()) -> ok.
 connection_process(Parent, Ref, Socket, Transport, Opts) ->
-  logger:notice("CON ~p~n",[Ref]),
   ok = ranch:accept_ack(Ref),
-  logger:notice("Ack ~p~n",[Ref]),
 
-  Proto=ssl:negotiated_protocol(Socket),
-  logger:info("Transport ~p NegProto ~p",[Transport, Proto]),
+  Proto=case ssl:negotiated_protocol(Socket) of
+          {ok, <<"tpic2">>} ->
+            tpic2;
+          {ok, Name} ->
+            Name;
+          _ ->
+            undefined
+        end,
+
+  logger:info("tpic2_tls protocol ~p",[Proto]),
   {ok,PeerInfo}=ssl:connection_information(Socket),
   Transport:setopts(Socket, [{active, once},{packet,4}]),
   State=#{parent=>Parent,
@@ -26,6 +32,7 @@ connection_process(Parent, Ref, Socket, Transport, Opts) ->
           peerinfo=>PeerInfo,
           timer=>undefined,
           transport=>Transport,
+          protocol => Proto,
           nodeid=> try
                      nodekey:get_pub()
                    catch _:_ -> atom_to_binary(node(),utf8)

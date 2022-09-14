@@ -215,7 +215,8 @@ childspec() ->
   HTTPOpts = fun(E) -> #{
                          connection_type => supervisor,
                          socket_opts => [{port,Port},
-                                         {alpn_preferred_protocols, [<<"tpctl">>,<<"tpstream">>]}
+                                         {next_protocols_advertised, [<<"tpic2">>]},
+                                         {alpn_preferred_protocols, [<<"tpic2">>]}
                                         ] ++ E ++ certificate()
                         }
              end,
