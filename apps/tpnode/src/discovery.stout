@@ -2,4 +2,6 @@
 {discvry_register, ["Discovery register local service ", service]}.
 {discvry_unregister, ["Discovery unregister pid ", pid]}.
 {discvry_unregister_name, ["Discovery unregister name ", name]}.
+{discvry_announce, ["Discovery announce", message]}.
+{discvry_gotannounce, ["Discovery announce", message]}.
 

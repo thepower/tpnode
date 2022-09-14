@@ -849,6 +849,7 @@ add_chain_to_name(Name, Chain) ->
 
 parse_and_process_announce(MaxTtl, AnnounceBin, #{remote_services:=Dict} = State) ->
     {ok, Announce} = unpack(AnnounceBin),
+    stout:log(discvry_gotannounce, [{message, Announce}]),
     logger:debug("Announce details: ~p", [Announce]),
     validate_announce(Announce, State),
     case is_local_service(Announce) of
@@ -999,6 +1000,7 @@ split_bin_to_sign_and_data(Bin) ->
 
 pack(Message) ->
     PrivKey = nodekey:get_priv(),
+    stout:log(discvry_announce, [{message, Message}]),
     Packed = msgpack:pack(Message),
     Hash = crypto:hash(sha256, Packed),
     Sign = bsig:signhash(
