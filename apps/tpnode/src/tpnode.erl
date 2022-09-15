@@ -32,10 +32,69 @@ reload() ->
               fun({K, V}) ->
                       application:set_env(tpnode, K, V)
               end, Config),
+            logger_reconfig(),
             application:unset_env(tpnode, pubkey);
         {error, Any} ->
             {error, Any}
     end.
+
+logger_reconfig() ->
+
+  L=case application:get_env(tpnode, loglevel, info) of
+        info -> info;
+        debug -> debug;
+        notice -> notice;
+        error -> error;
+        _ -> info
+      end,
+  logger:set_primary_config( #{filter_default => log, level => L }),
+  Host=application:get_env(tpnode,hostname,atom_to_list(node())),
+
+  logger:remove_handler(disk_debug_log),
+  if(L==debug) ->
+      logger:add_handler(disk_debug_log, logger_std_h,
+                         #{config => #{
+                                       file => application:get_env(tpnode,debug_log,"log/debug_"++Host++".log"),
+                                       type => file,
+                                       max_no_files => 10,
+                                       max_no_bytes => 52428800 % 10 x 5mb
+                                      },
+                           level => all,
+                           filters => [{nosasl, {fun logger_filters:progress/2, stop}}]
+                          }),
+      logger:update_handler_config(disk_debug_log,formatter,
+                                   {logger_formatter,#{template => [time," ",file,":",line," ",level,": ",msg,"\n"]}});
+    true -> 
+      ok
+  end,
+
+  logger:remove_handler(disk_info_log),
+  logger:add_handler(disk_info_log, logger_std_h,
+                     #{config => #{
+                                   file => application:get_env(tpnode,info_log,"log/info_"++Host++".log"),
+                                   type => file,
+                                   max_no_files => 10,
+                                   max_no_bytes => 52428800 % 10 x 5mb
+                                  },
+                       level => info,
+                       filters => [{nosasl, {fun logger_filters:progress/2, stop}}]
+                      }),
+  logger:update_handler_config(disk_info_log,formatter,
+                               {logger_formatter,#{template => [time," ",file,":",line," ",level,": ",msg,"\n"]}}),
+  logger:remove_handler(disk_err_log),
+  logger:add_handler(disk_err_log, logger_std_h,
+                     #{config => #{
+                                   file => application:get_env(tpnode,error_log,"log/error_"++Host++".log"),
+                                   type => file,
+                                   max_no_files => 10,
+                                   max_no_bytes => 52428800 % 10 x 5mb
+                                  },
+                       level => error
+                      }
+                    ),
+  logger:update_handler_config(disk_err_log,formatter,
+                               {logger_formatter,#{template => [time," ",file,":",line," ",level,": ",msg,"\n"]}}),
+  ok.
 
 die(Reason) ->
   ?LOG_ERROR("Node dead: ~p",[Reason]),

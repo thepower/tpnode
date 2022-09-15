@@ -53,7 +53,7 @@
  {<<"sext">>,{pkg,<<"sext">>,<<"1.4.1">>},1},
  {<<"stout">>,
   {git,"https://github.com/cleverfox/stout.git",
-       {ref,"e80793db0f0161b2b8592c8a1a683945c5f2d71b"}},
+       {ref,"1c8c1c2321771e9307511f510e00951919f514c9"}},
   0},
  {<<"sync">>,
   {git,"https://github.com/rustyio/sync.git",

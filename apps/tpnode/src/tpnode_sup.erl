@@ -31,9 +31,6 @@ init([repl_sup]) ->
   {ok, Sup};
 
 init([]) ->
-  logger:update_handler_config(disk_info_log,formatter,
-  {logger_formatter,#{template => [time," ",file,":",line," ",level,": ",msg,"\n"]}}),
-
     tpnode:reload(),
     MandatoryServices = [ api ],
     VMHost=case application:get_env(tpnode,vmaddr,undefined) of
