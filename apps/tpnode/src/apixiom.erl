@@ -54,15 +54,27 @@ get_format(Req) ->
     if
         length(PathSplit) > 1 ->
             Format = lists:last(PathSplit),
-            NewPath = binary:part(Path, 0, byte_size(Path) - byte_size(Format) - 1),
-            NewPathInfoLast =
+            Allow=case Format of
+                    <<"json">> ->
+                      true;
+                    <<"mp">> ->
+                      true;
+                    _ ->
+                      false
+                  end,
+            if(Allow) ->
+                NewPath = binary:part(Path, 0, byte_size(Path) - byte_size(Format) - 1),
+                NewPathInfoLast =
                 binary:part(PathInfoLast, 0, byte_size(PathInfoLast) - byte_size(Format) - 1),
-            NewPathInfo = lists:droplast(PathInfo) ++ [NewPathInfoLast],
+                NewPathInfo = lists:droplast(PathInfo) ++ [NewPathInfoLast],
 
-            {Format, Req#{
-                path => NewPath,
-                path_info => NewPathInfo
-            }};
+                {Format, Req#{
+                           path => NewPath,
+                           path_info => NewPathInfo
+                          }};
+              true ->
+                {<<"json">>, Req}
+            end;
         true ->
             {<<"json">>, Req}
     end.
