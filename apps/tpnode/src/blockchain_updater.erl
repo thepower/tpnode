@@ -390,6 +390,9 @@ handle_call({new_block, #{hash:=BlockHash,
                                    ({TxID, #{kind:=register, ver:=2,
                                              extdata:=#{<<"addr">>:=Addr}}}) ->
                                     {TxID, #{address=>Addr, block=>BlockHash}};
+                                   ({TxID, #{kind:=generic, ver:=2,
+                                             extdata:=#{<<"retval">>:=RV}}}) ->
+                                    {TxID, #{retval=>RV, block=>BlockHash}};
                                    ({TxID, _Any}) ->
                                     ?LOG_INFO("TX ~p",[_Any]),
                                     {TxID, #{block=>BlockHash}}

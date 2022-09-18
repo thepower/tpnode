@@ -673,7 +673,7 @@ try_process_inbound([{TxID,
         end,
 
     ?LOG_INFO("Orig Block ~p", [OriginBlock]),
-    {Addresses2, NewEmit, GasLeft, Acc1}=deposit(TxID, To, Addresses, Tx, Gas, Acc),
+    {Addresses2, NewEmit, GasLeft, Acc1, AddEd}=deposit(TxID, To, Addresses, Tx, Gas, Acc),
     %Addresses2=maps:put(To, NewT, Addresses),
 
     NewAddresses=case GasLeft of
@@ -687,11 +687,13 @@ try_process_inbound([{TxID,
                  end,
 
     TxExt=maps:get(extdata,Tx,#{}),
-    NewExt=TxExt#{
-             <<"orig_bhei">>=>OriginHeight,
-             <<"orig_bhash">>=>OriginHash,
-             <<"orig_chain">>=>ChID
-            },
+    NewExt=maps:mege(
+             TxExt#{
+               <<"orig_bhei">>=>OriginHeight,
+               <<"orig_bhash">>=>OriginHash,
+               <<"orig_chain">>=>ChID
+              }, maps:from_list(AddEd)
+            ),
     FixTX=maps:without(
             [origin_block,origin_block_height, origin_block_hash, origin_chain],
             Tx#{extdata=>NewExt}
@@ -900,7 +902,7 @@ try_process_local([{TxID,
     {NewF, GasF, GotFee, Gas}=withdraw(OrigF, Tx, GetFun, SetState, []),
     try
       Addresses1=maps:put(From, NewF, Addresses),
-      {Addresses2, NewEmit, GasLeft, Acc1}=deposit(TxID, To, Addresses1,
+      {Addresses2, NewEmit, GasLeft, Acc1, AddEd}=deposit(TxID, To, Addresses1,
                                                    Tx, Gas, Acc),
       ?LOG_INFO("Local gas ~p -> ~p f ~p t ~p",[Gas, GasLeft, From, To]),
 
@@ -925,11 +927,15 @@ try_process_local([{TxID,
              true ->
                Tx
           end,
+      Tx2=lists:foldl(
+            fun({K,V},A) ->
+                tx:set_ext( K, V, A)
+            end, Tx1, AddEd),
 
       #{success:=Success, emit:=Emit} = Acc1,
 
       Acc2=Acc1#{
-        success=>[{TxID, Tx1}|Success],
+        success=>[{TxID, Tx2}|Success],
         table => NewAddresses,
         emit=>Emit ++ NewEmit
        },
@@ -1023,9 +1029,9 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
   Addresses=maps:put(Address,NewT,Addresses0),
   case {maps:is_key(norun,Tx),mbal:get(vm, NewT)} of
     {true,_} ->
-      {Addresses, [], GasLimit, Acc#{table=>Addresses}};
+      {Addresses, [], GasLimit, Acc#{table=>Addresses}, []};
     {_,undefined} ->
-      {Addresses, [], GasLimit, Acc#{table=>Addresses}};
+      {Addresses, [], GasLimit, Acc#{table=>Addresses}, []};
     {false,VMType} ->
       FreeGas=case settings:get([<<"current">>, <<"freegas">>], SetState) of
                 N when is_integer(N), N>0 -> N;
@@ -1102,6 +1108,7 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
         global_acc:=Acc2,
         log:=EmitLog0
        }=OpaqueState2,
+      
       EmitLog = [ msgpack:pack([TxID|LL]) || LL <- EmitLog0 ],
       #{table:=Addresses1}=Acc2,
       EmitTxs=lists:map(
@@ -1131,7 +1138,16 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                    end, Addresses2, Changes),
       LToPatch=maps:get(Address, Addresses3),
       Addresses4=maps:put(Address, mbal:patch(LedgerPatches,LToPatch), Addresses3),
-      {Addresses4, EmitTxs, GasLeft, Acc2#{aalloc=>AAlloc2, log=>EmitLog++Logs}}
+      {Addresses4, EmitTxs, GasLeft, Acc2#{aalloc=>AAlloc2, log=>EmitLog++Logs},
+       case maps:get("return",OpaqueState2,undefined) of
+         <<Int:256/big>> when Int < 16#10000000000000000 ->
+           [{retval,Int}];
+         <<Bin:32/big>> ->
+           [{retval,Bin}];
+         _ ->
+           []
+       end
+      }
   end.
 
 withdraw(FBal0,

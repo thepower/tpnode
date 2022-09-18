@@ -482,7 +482,7 @@ returndata(#{ gas:=GasLeft, storage:=NewStorage, extra:=Extra },Append) ->
        "gas"=>GasLeft,
        "txs"=>[]},
      Append),
-   transform_extra(Extra)}.
+   maps:merge(Append,transform_extra(Extra))}.
 
 getters() ->
   [].

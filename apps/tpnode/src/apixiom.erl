@@ -59,6 +59,8 @@ get_format(Req) ->
                       true;
                     <<"mp">> ->
                       true;
+                    <<"bin">> ->
+                      true;
                     _ ->
                       false
                   end,
