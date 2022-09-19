@@ -262,6 +262,29 @@ construct_tx(#{
     sig=>[]
    };
 
+construct_tx(#{
+  ver:=2,
+  kind:=chkey,
+  from:=F,
+  t:=Timestamp,
+  seq:=Seq,
+  keys:=[_|_]=PubKeys
+ }=Tx0,_Params) ->
+  Tx=maps:with([ver,from,t,seq,keys],Tx0),
+  E0=#{
+    "k"=>encode_kind(2,chkey),
+    "f"=>F,
+    "t"=>Timestamp,
+    "s"=>Seq,
+    "y"=>{array,PubKeys}
+   },
+
+  Tx#{
+    kind=>chkey,
+    body=>msgpack:pack(E0,[{spec,new},{pack_str, from_list}]),
+    sig=>[]
+   };
+
 
 construct_tx(#{
   ver:=2,
@@ -527,6 +550,22 @@ unpack_body(#{ ver:=2,
    };
 
 unpack_body(#{ ver:=2,
+               kind:=chkey
+             }=Tx,
+            #{ "t":=Timestamp,
+               "f":=From,
+               "s":=Seq,
+               "y":=PubKeys
+             }) ->
+  Tx#{
+    ver=>2,
+    t=>unpack_timestamp(Timestamp),
+    seq=>Seq,
+    from=>From,
+    keys=>PubKeys
+   };
+
+unpack_body(#{ ver:=2,
               kind:=patch
              }=Tx,
             #{ "p":=Patches
@@ -582,6 +621,7 @@ verify(#{
   ver:=2
  }=Tx, Opts) when GenericOrDeploy==generic;
                   GenericOrDeploy==deploy;
+                  GenericOrDeploy==chkey;
                   GenericOrDeploy==tstore;
                   GenericOrDeploy==notify;
                   GenericOrDeploy==lstore ->

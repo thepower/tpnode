@@ -471,6 +471,82 @@ try_process([{TxID, #{
 
 try_process([{TxID, #{
                       ver:=2,
+                      kind:=chkey,
+                      from:=Owner,
+                      t:=Timestamp,
+                      seq:=Seq,
+                      keys:=[NewKey|_]
+                     }=Tx} |Rest],
+            #{failed:=Failed,
+              table:=Addresses,
+              get_settings:=GetFun,
+              success:=Success}=Acc) ->
+  try
+    Verify=try
+             #{sigverify:=#{valid:=SigValid}}=Tx,
+             SigValid>0
+           catch _:_ ->
+                   false
+           end,
+    if Verify -> ok;
+       true ->
+         throw('unverified')
+    end,
+    Bal=maps:get(Owner, Addresses),
+
+    case GetFun({valid_timestamp, Timestamp}) of
+      true ->
+        ok;
+      false ->
+        throw ('invalid_timestamp')
+    end,
+    CurFSeq=mbal:get(seq, Bal),
+    if CurFSeq < Seq -> ok;
+       true ->
+         ?LOG_ERROR("Bad seq addr ~p, cur ~p tx ~p",
+                     [Owner, CurFSeq, Seq]),
+         throw ('bad_seq')
+    end,
+    CurFTime=mbal:get(t, Bal),
+    if CurFTime < Timestamp -> ok;
+       true -> throw ('bad_timestamp')
+    end,
+
+    NewF2=mbal:put(seq, Seq,
+                   mbal:put(t, Timestamp,
+                            mbal:put(pubkey, NewKey, Bal)
+                           )),
+    NewAddresses=maps:put(Owner, NewF2, Addresses),
+
+    try_process(Rest,
+                Acc#{success=> [{TxID, Tx}|Success],
+                     table => NewAddresses,
+                     last => ok
+                    }
+               )
+  catch error:{badkey,Owner} ->
+          try_process(Rest,
+                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed],
+                           last => failed});
+        throw:X ->
+          ?LOG_INFO("Contract deploy failed ~p", [X]),
+          try_process(Rest,
+                      Acc#{failed=>[{TxID, X}|Failed],
+                           last => failed});
+        Ec:Ee:S ->
+          %S=erlang:get_stacktrace(),
+          ?LOG_INFO("Contract deploy failed ~p:~p", [Ec,Ee]),
+          lists:foreach(fun(SE) ->
+                            ?LOG_ERROR("@ ~p", [SE])
+                        end, S),
+          try_process(Rest,
+                      Acc#{failed=>[{TxID, other}|Failed],
+                           last => failed})
+  end;
+
+
+try_process([{TxID, #{
+                      ver:=2,
                       kind:=deploy,
                       from:=Owner,
                       txext:=#{"view":=NewView}

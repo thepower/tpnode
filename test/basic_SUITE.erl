@@ -26,22 +26,23 @@
 %%]).
 
 all() ->
-    [
-        discovery_register_test,
-        discovery_lookup_test,
-        discovery_unregister_by_name_test,
-        discovery_unregister_by_pid_test,
-        discovery_ssl_test,
-        transaction_test,
-        register_wallet_test,
-        patch_gasprice_test,
-        %smartcontract_test,
-        evm_test,
-        check_blocks_test,
-        discovery_got_announce_test
-        %,crashme_test
-        %instant_sync_test
-    ].
+  [
+   transaction_test,
+   register_wallet_test,
+   patch_gasprice_test,
+   %smartcontract_test,
+   evm_test,
+   check_blocks_test,
+   discovery_got_announce_test,
+   discovery_register_test,
+   discovery_lookup_test,
+   discovery_unregister_by_name_test,
+   discovery_unregister_by_pid_test,
+   discovery_ssl_test
+
+   %,crashme_test
+   %instant_sync_test
+  ].
 
 % -----------------------------------------------------------------------------
 

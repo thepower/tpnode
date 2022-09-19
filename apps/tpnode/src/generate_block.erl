@@ -50,6 +50,9 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            maps:put(F, FB, maps:put(T, TB, AAcc));
           ({_TxID, #{ver:=2, kind:=register}}=_TX, AAcc) ->
            AAcc;
+          ({_TxID, #{ver:=2, kind:=chkey, from:=F, keys:=_}}=_TX, AAcc) ->
+           FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
+           maps:put(F, FB, AAcc);
           ({_TxID, #{ver:=2, kind:=deploy, from:=F, payload:=_}}=_TX, AAcc) ->
            FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
            maps:put(F, FB, AAcc);
