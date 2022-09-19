@@ -27,7 +27,6 @@
 
 all() ->
     [
-        discovery_got_announce_test,
         discovery_register_test,
         discovery_lookup_test,
         discovery_unregister_by_name_test,
@@ -38,7 +37,8 @@ all() ->
         patch_gasprice_test,
         %smartcontract_test,
         evm_test,
-        check_blocks_test
+        check_blocks_test,
+        discovery_got_announce_test
         %,crashme_test
         %instant_sync_test
     ].

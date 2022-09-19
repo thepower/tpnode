@@ -134,19 +134,35 @@ try_process([{TxID, #{ver:=2,
                       kind:=patch,
                       patches:=[_|_]=_LPatch,
                       sigverify:=#{
-                                   pubkeys:=[_|_]=PubKeys
+                                   pubkeys:=[_|_]=PubKeys,
+                                   source:=Src
                                   }
                      }=Tx} |Rest],
             #{failed:=Failed,
               new_settings:=SetState, %Addresses, GetFun,
               settings:=Settings}=Acc) ->
   try
-    NeedSig=chainsettings:get(patchsig,SetState),
-    if(length(PubKeys)<NeedSig) ->
-        throw({patchsig, NeedSig});
-      true ->
-        ok
+    case Src of
+      nodekeys ->
+        NeedSig=chainsettings:get(patchsig,SetState),
+        if(length(PubKeys)<NeedSig) ->
+            throw({patchsig, NeedSig});
+          true ->
+            ok
+        end;
+      patchkeys ->
+        case settings:get([<<"current">>,<<"patchkeys">>,<<"required">>],SetState) of
+          NeedSig when is_integer(NeedSig), NeedSig>0 ->
+            if(length(PubKeys)<NeedSig) ->
+                throw({patchkeys_needsig, NeedSig});
+              true ->
+                ok
+            end;
+          true ->
+            throw({patchkeys_needsig, undefined})
+        end
     end,
+
     SS1=settings:patch({TxID, Tx}, SetState),
     ?LOG_INFO("Success Patch ~p against settings ~p", [_LPatch, SetState]),
     try_process(Rest, Acc#{

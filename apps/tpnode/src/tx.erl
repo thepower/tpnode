@@ -675,9 +675,9 @@ verify(#{
   ver:=2
  }=Tx, Opts) ->
   CheckFun=case lists:keyfind(settings,1,Opts) of
-             {_,Sets} ->
+             {_,Sets0} ->
                fun(PubKey,_) ->
-                   chainsettings:is_our_node(PubKey, Sets) =/= false
+                   chainsettings:is_our_node(PubKey, Sets0) =/= false
                end;
              false ->
                fun(PubKey,_) ->
@@ -687,12 +687,44 @@ verify(#{
   Res=bsig:checksig(Body, LSigs, CheckFun),
   case Res of
     {[], _} ->
-      bad_sig;
+      Sets=case lists:keyfind(settings,1,Opts) of
+             {_,Sets1} ->
+               settings:get([<<"current">>,<<"patchkeys">>],Sets1);
+             false ->
+               chainsettings:by_path([<<"current">>,<<"patchkeys">>])
+           end,
+      case Sets of
+        #{keys:=Keys0} when is_list(Keys0) ->
+          Keys=[tpecdsa:cmp_pubkey(K) || K <- Keys0 ],
+
+          CheckFun1=fun(PubKey,_) ->
+                        CP=tpecdsa:cmp_pubkey(PubKey),
+                        lists:member(CP, Keys)
+                    end,
+          Res1=bsig:checksig(Body, LSigs, CheckFun1),
+          case Res1 of
+            {[], _} ->
+              bad_sig;
+            {Valid, Invalid} when length(Valid)>0 ->
+              {ok, Tx#{
+                     sigverify=>#{
+                                  valid=>length(Valid),
+                                  invalid=>Invalid,
+                                  source=>patchkeys,
+                                  pubkeys=>bsig:extract_pubkeys(Valid)
+                                 }
+                    }
+              }
+          end;
+        _ ->
+          bad_sig
+      end;
     {Valid, Invalid} when length(Valid)>0 ->
       {ok, Tx#{
              sigverify=>#{
                valid=>length(Valid),
                invalid=>Invalid,
+               source=>nodekeys,
                pubkeys=>bsig:extract_pubkeys(Valid)
               }
             }

@@ -90,9 +90,9 @@ settings_to_ets(NewSettings) ->
                fun(_PubKey, Name) ->
                    maps:get(Name, NodeChain, 0) == MyChain
                end, ChainNodes0),
-  ?LOG_NOTICE("My name ~s chain ~p our chain nodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
-  ets:insert(blockchain,[{myname,MyName},{chainnodes,ChainNodes},{mychain,MyChain}]),
+  blockchain_updater:store_mychain(MyName, ChainNodes, MyChain),
   NewSettings.
+
 
 get_val(Name) ->
   get_val(Name, undefined).

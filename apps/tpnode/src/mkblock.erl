@@ -147,15 +147,14 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
            TxBody1 =
              try
                case TxBody of
-                 #{patch:=_} ->
-                   VerFun =
-                     fun(PubKey) ->
-                       NodeID = chainsettings:is_our_node(PubKey),
-                       is_binary(NodeID)
-                     end,
-                   {ok, Tx1} = settings:verify(TxBody, VerFun),
-                   tx:set_ext(origin, Origin, Tx1);
-
+%                 #{patch:=_} -> %legacy patch
+%                   VerFun =
+%                     fun(PubKey) ->
+%                       NodeID = chainsettings:is_our_node(PubKey),
+%                       is_binary(NodeID)
+%                     end,
+%                   {ok, Tx1} = settings:verify(TxBody, VerFun),
+%                   tx:set_ext(origin, Origin, Tx1);
                  #{hash:=_,
                    header:=_,
                    sign:=_} ->

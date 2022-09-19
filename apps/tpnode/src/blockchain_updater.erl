@@ -12,6 +12,7 @@
 -export([apply_block_conf/2,
          apply_block_conf_meta/2,
          apply_ledger/2,
+         store_mychain/3,
          backup/1, restore/1]).
 
 %% ------------------------------------------------------------------
@@ -39,7 +40,7 @@ new_sig(BlockHash, Sigs) ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-  Table=ets:new(blockchain,[named_table,protected,set,{read_concurrency,true}]),
+  Table=ets:new(blockchain,[named_table,protected,bag,{read_concurrency,true}]),
   ?LOG_INFO("Table created: ~p",[Table]),
   BTable=ets:new(lastblock,[named_table,protected,set,{read_concurrency,true}]),
   ?LOG_INFO("Table created: ~p",[BTable]),
@@ -775,13 +776,31 @@ notify_settings() ->
 
 mychain(State) ->
   {MyChain, MyName, ChainNodes}=blockchain_reader:mychain(),
-  ?LOG_INFO("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
-  ets:insert(blockchain,[{myname,MyName},{chainnodes,ChainNodes},{mychain,MyChain}]),
+  store_mychain(MyName, ChainNodes, MyChain),
   maps:merge(State,
              #{myname=>MyName,
                chainnodes=>ChainNodes,
                mychain=>MyChain
               }).
+
+replace(Field, Value) ->
+  case ets:lookup(blockchain,Field) of
+    [] ->
+      ets:insert(blockchain,[{Field,Value}]);
+    [{myname, V1}] when V1==Value ->
+      ignore;
+    _ ->
+      ets:delete(blockchain,Field),
+      ets:insert(blockchain,[{Field,Value}])
+  end.
+
+store_mychain(MyName, ChainNodes, MyChain) ->
+  ?LOG_NOTICE("My name ~s chain ~p our chain nodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
+  replace(myname, MyName),
+  replace(chainnodes, ChainNodes),
+  replace(mychain, MyChain),
+  %ets:insert(blockchain,[{myname,MyName},{chainnodes,ChainNodes},{mychain,MyChain}]).
+  ok.
 
 getset(Name,#{settings:=Sets, mychain:=MyChain}=_State) ->
   chainsettings:get(Name, Sets, fun()->MyChain end).

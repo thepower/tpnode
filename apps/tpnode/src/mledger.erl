@@ -78,8 +78,10 @@ deploy4test(LedgerData, TestFun) ->
 start_db() ->
   Path=utils:dbpath(mledger),
   %Path="db/mledger_" ++ atom_to_list(node()) ++ ".db",
-  ok=rockstable:open_db(mledger,Path,tables()),
-  ok.
+  case rockstable:open_db(mledger,Path,tables()) of
+    ok -> ok;
+    {error,alias_in_use} -> ok
+  end.
 
 bi_set_ver(#bal_items{}=BI,Ver) ->
   BI#bal_items{version=Ver}.

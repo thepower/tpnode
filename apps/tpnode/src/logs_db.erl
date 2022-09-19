@@ -43,8 +43,10 @@ deploy4test(TestFun) ->
 
 start_db() ->
   Path=utils:dbpath(logs_db),
-  ok=rockstable:open_db(logs_db,Path,tables()),
-  ok.
+  case rockstable:open_db(logs_db,Path,tables()) of
+    ok -> ok;
+    {error,alias_in_use} -> ok
+  end.
 
 put(BlkID, Height, Logs) ->
   F=fun() ->
