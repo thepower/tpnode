@@ -218,6 +218,8 @@ cmp_pubkey(<<_:33/binary>>=Public) ->
   {secp256k1, Public};
 cmp_pubkey(<<4,_:64/binary>>=Public) ->
   {secp256k1, Public};
+cmp_pubkey(<<>>) ->
+  {undefined, <<>>};
 cmp_pubkey(DerPublic) ->
   case public_key:der_decode('SubjectPublicKeyInfo', DerPublic) of
     #'SubjectPublicKeyInfo'{
