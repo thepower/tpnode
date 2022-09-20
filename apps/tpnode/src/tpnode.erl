@@ -40,6 +40,7 @@ reload() ->
 
 logger_reconfig() ->
 
+  logger:remove_handler(default),
   L=case application:get_env(tpnode, loglevel, info) of
         info -> info;
         debug -> debug;
