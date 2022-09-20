@@ -75,6 +75,19 @@ init(_Args) ->
                     {ok, [Genesis]}=file:consult(P),
                     Genesis
                 end,
+
+                Roots=maps:get(roots,maps:get(header,LBLK),[]),
+                BlockLedgerHash=proplists:get_value(ledger_hash,Roots,<<0,0,0,0>>),
+
+                LApply=apply_ledger(
+                         case BlockLedgerHash of
+                           <<0,0,0,0>> ->
+                             put;
+                           _ ->
+                             {checkput, BlockLedgerHash}
+                         end, LBLK),
+                ?LOG_INFO("LApply ~p",[LApply]),
+
                 save_block(LDB, LBLK, true),
                 LBLK;
               Block ->
