@@ -779,7 +779,7 @@ try_process_inbound([{TxID,
                  end,
 
     TxExt=maps:get(extdata,Tx,#{}),
-    NewExt=maps:mege(
+    NewExt=maps:merge(
              TxExt#{
                <<"orig_bhei">>=>OriginHeight,
                <<"orig_bhash">>=>OriginHash,
@@ -1233,11 +1233,23 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
       {Addresses4, EmitTxs, GasLeft, Acc2#{aalloc=>AAlloc2, log=>EmitLog++Logs},
        case maps:get("return",OpaqueState2,undefined) of
          <<Int:256/big>> when Int < 16#10000000000000000 ->
-           [{retval,Int}];
+           [{retval, Int}];
          <<Bin:32/big>> ->
-           [{retval,Bin}];
-         _ ->
-           []
+           [{retval, Bin}];
+         RetVal when is_binary(RetVal) ->
+           [{retval, other}];
+         undefined ->
+           case maps:get("revert",OpaqueState2,undefined) of
+             <<16#08C379A0:32/big,
+               16#20:256/big,
+               Len:256/big,
+               Str:Len/binary,_/binary>> when 32>=Len ->
+               [{revert, Str}];
+             Revert when is_binary(Revert) ->
+               [{revert, other}];
+             undefined ->
+               []
+           end
        end
       }
   end.

@@ -1144,6 +1144,142 @@ mapval(N,Key) when is_binary(Key) ->
   {ok,Hash}=ksha3:hash(256, <<NKey:256/big, N:256/big>>),
   Hash.
 
+evm_revert_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+      SkAddr1=naddress:construct_public(1, OurChain, 4),
+      SkAddr2=naddress:construct_public(1, OurChain, 5),
+      Code1=eevm_asm:asm(
+              [{push,1,0},
+ sload,
+ {push,1,1},
+ add,
+ {dup,1},
+ {push,1,0},
+ sstore,
+ {push,1,0},
+ mstore,
+
+ {push,1,50}, %2
+ {push,1,32},
+ {push,1,0},
+ {log,1},
+
+ {push,1,32},
+ {push,1,0},
+ revert]
+             ),
+      Code2=eevm_asm:asm(
+              [{push,32,16#08c379a0},
+               {push,1,224},
+               shl,
+               {push,1,0},
+               mstore,
+
+               {push,1,32},
+               {push,1,4},
+               mstore,
+
+               {push,1,6},
+               {push,1,4+32},
+               mstore,
+
+               {push,32,0},
+               {push,1,4+64},
+               mstore,
+
+               {push,32,binary:decode_unsigned(<<"preved">>)},
+               {push,1,(256-6)*8},
+               shl,
+               {push,1,4+64},
+               mstore,
+
+               {push,1,4+64+32},
+               {push,1,0},
+               revert]
+             ),
+
+      TX1=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr1,
+              call=>#{
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+
+      TX2=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr2,
+              call=>#{
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>4,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+      TxList1=[
+               {<<"1log">>, maps:put(sigverify,#{valid=>1},TX1)},
+               {<<"2log">>, maps:put(sigverify,#{valid=>1},TX2)}
+              ],
+      TestFun=fun(#{block:=_Block=#{txs:=Txs1},
+                    emit:=_Emit,
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,Txs1}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+              },
+              {SkAddr1,
+               #{amount => #{},
+                 code => Code1,
+                 vm => <<"evm">>,
+                 state => #{ <<0>> => <<2,0,0>> }
+                }
+              },
+              {SkAddr2,
+               #{amount => #{},
+                 code => Code2,
+                 vm => <<"evm">>,
+                 state => #{}
+                }
+              }
+             ],
+      {ok,Log,BlockTx}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      io:format("Logs ~p~n",[BlockTx]),
+      ReadableLog=lists:map(
+        fun(Bin) ->
+            {ok,LogEntry} = msgpack:unpack(Bin),
+            io:format("- ~p~n",[LogEntry]),
+            LogEntry
+        end, Log),
+      [
+       ?assertMatch([
+                     [<<"1log">>,<<"evm">>, <<"revert">>, <<131073:256/big>>]
+                    ], ReadableLog),
+       ?assertMatch(true,false)
+      ].
+
 evm_log_test() ->
       OurChain=150,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,

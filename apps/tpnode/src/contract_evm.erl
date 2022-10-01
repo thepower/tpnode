@@ -137,7 +137,7 @@ encode_arg(_,_) ->
 
 
 handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
-          GasLimit, GetFun, Opaque) ->
+          GasLimit, GetFun, #{log:=PreLog}=Opaque) ->
   State=case maps:get(state,Ledger,#{}) of
           BinState when is_binary(BinState) ->
             {ok,MapState}=msgpack:unpack(BinState),
@@ -347,11 +347,12 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
              "state"=>unchanged,
              "gas"=>0,
              "txs"=>[]}, Opaque};
-    {done, {revert, _}, #{ gas:=GasLeft}} ->
+    {done, {revert, Revert}, #{ gas:=GasLeft}} ->
+      Log1=[([evm,revert,Revert])|PreLog],
       {ok, #{null=>"exec",
              "state"=>unchanged,
              "gas"=>GasLeft,
-             "txs"=>[]}, Opaque};
+             "txs"=>[]}, Opaque#{"revert"=>Revert, log=>Log1}};
     {error, nogas, #{storage:=NewStorage}} ->
       io:format("St ~w keys~n",[maps:size(NewStorage)]),
       io:format("St ~p~n",[(NewStorage)]),
