@@ -58,7 +58,10 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                                    <<"allowempty">> => 0
                                   },
                                  <<"gas">> => #{
-                                     <<"FTT">> => 10,
+                                     <<"FTT">> => #{
+                                                    <<"tokens">> =>100,
+                                                    <<"gas">> => 1000
+                                                   },
                                      <<"SK">> => 1000
                                     },
                                  <<"fee">> => #{

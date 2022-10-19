@@ -88,12 +88,12 @@ getters(VMType) ->
           error
   end.
 
-run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,GRate}, GetFun, Opaque) ->
+run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,{GNum,GDen}=GRate}, GetFun, Opaque) ->
   %io:format("smartcontract Opaque ~p~n",[Opaque]),
-  GasLimit=trunc(GAmount*GRate),
+  GasLimit=(GAmount*GNum) div GDen,
   Left=fun(GL) ->
            ?LOG_INFO("VM run gas ~p -> ~p",[GasLimit,GL]),
-           {GCur, GL div GRate, GRate}
+           {GCur, (GL*GDen) div GNum, GRate}
        end,
   VM=try
        erlang:binary_to_existing_atom(<<"contract_", VMType/binary>>, utf8)

@@ -340,7 +340,7 @@ try_process([{TxID, #{
 
     %State0=maps:get(state, Tx, <<>>),
     Bal=maps:get(Owner, Addresses),
-    {NewF, GasF, GotFee, {GCur,GAmount,GRate}=Gas}=withdraw(Bal, Tx, GetFun, SetState, []),
+    {NewF, GasF, GotFee, {GCur,GAmount,GRate={GNum,GDen}}=Gas}=withdraw(Bal, Tx, GetFun, SetState, []),
 
     try
       NewF1=mbal:put(vm, VMType, NewF),
@@ -352,10 +352,10 @@ try_process([{TxID, #{
             end,
       ?LOG_INFO("Deploy contract ~s for ~s gas ~w",
                  [VM, naddress:encode(Owner), Gas]),
-      IGas=GAmount*GRate,
+      IGas=(GAmount*GNum) div GDen,
       Left=fun(GL) ->
                ?LOG_INFO("VM run gas ~p -> ~p",[IGas,GL]),
-               {GCur, GL div GRate, GRate}
+               {GCur, (GL*GDen) div GNum, GRate}
            end,
       OpaqueState=#{aalloc=>AAlloc,
                     created=>[],
@@ -754,13 +754,13 @@ try_process_inbound([{TxID,
   ?LOG_ERROR("Check signature once again"),
   try
     Gas=case tx:get_ext(<<"xc_gas">>, Tx) of
-          undefined -> {<<"NONE">>,0,1};
+          undefined -> {<<"NONE">>,0,{1,1}};
           {ok, [GasCur, GasAmount]} ->
             case to_gas(#{amount=>GasAmount,cur=>GasCur},SetState) of
               {ok, G} ->
                 G;
               _ ->
-                {<<"NONE">>,0,1}
+                {<<"NONE">>,0,{1,1}}
             end
         end,
 
@@ -1185,7 +1185,7 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                {L1x,TXsx,TakenFree,OpaqueState2a};
              false ->
                ?LOG_INFO("Gas left ~p, return nothing",[GasLeftx]),
-               {L1x,TXsx,{<<"NONE">>,0,1},OpaqueState2a}
+               {L1x,TXsx,{<<"NONE">>,0,{1,1}},OpaqueState2a}
            end;
          true ->
            smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun1, OpaqueState)
@@ -1320,9 +1320,9 @@ withdraw(FBal0,
 
     NoTakeFee = lists:member(nofee,Opts),
     {ForFee,GotFee}=if IsContract ->
-                         {[],{<<"NONE">>,0,0}};
+                         {[],{<<"NONE">>,0,1}};
                        NoTakeFee ->
-                         {[],{<<"NONE">>,0,0}};
+                         {[],{<<"NONE">>,0,1}};
                        true ->
                          GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
                                        settings:get([
@@ -1348,7 +1348,7 @@ withdraw(FBal0,
     TakeGas = not lists:member(nogas,Opts),
     {ForGas,GotGas}= case TakeGas of
                        false ->
-                         {[], {<<"NONE">>,0,1}};
+                         {[], {<<"NONE">>,0,{1,1}}};
                        true ->
                          lists:foldl(
                            fun(Payload, {[],{<<"NONE">>,0,_}}=Acc) ->
@@ -1359,7 +1359,7 @@ withdraw(FBal0,
                                    Acc
                                end;
                               (_,Res) -> Res
-                           end, {[], {<<"NONE">>,0,1}},
+                           end, {[], {<<"NONE">>,0,{1,1}}},
                            tx:get_payloads(Tx,gas)
                           )
                      end,
@@ -1452,8 +1452,11 @@ to_bin(Bin) when is_binary(Bin) -> Bin.
 to_gas(#{amount:=A, cur:=C}, Settings) ->
   Path=[<<"current">>, <<"gas">>, C],
   case settings:get(Path, Settings) of
+    #{<<"tokens">> := T, <<"gas">> := G} when is_integer(T),
+                                              is_integer(G) ->
+      {ok, {C, A, {G,T}}};
     I when is_integer(I) ->
-      {ok, {C, A, I}};
+      {ok, {C, A, {I,1}}};
     _ ->
       error
   end.
