@@ -81,7 +81,7 @@
   0},
  {<<"wanode">>,
   {git,"git@github.com:thepower/wanode.git",
-       {ref,"00148f33e46f85ace864628c707070eb1767e204"}},
+       {ref,"4708a36505b5ba63e84780aa4dfba80e0a03b5b5"}},
   0}]}.
 [
 {pkg_hash,[
