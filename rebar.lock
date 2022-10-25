@@ -14,7 +14,7 @@
        {ref,"f9d691507ab4f999ab19ac1b228d0041e394aedf"}},
   0},
  {<<"eevm">>,
-  {git,"git@github.com:thepower/eevm.git",
+  {git,"https://github.com/thepower/eevm.git",
        {ref,"1673141695e13e5ba2adda5236cb869d7012d38d"}},
   0},
  {<<"fs">>,{pkg,<<"fs">>,<<"6.1.1">>},2},
@@ -80,7 +80,7 @@
        {ref,"1a6823399a5282a762184f2dafe1a884771da337"}},
   0},
  {<<"wanode">>,
-  {git,"git@github.com:thepower/wanode.git",
+  {git,"https://github.com/thepower/wanode.git",
        {ref,"4708a36505b5ba63e84780aa4dfba80e0a03b5b5"}},
   0}]}.
 [
