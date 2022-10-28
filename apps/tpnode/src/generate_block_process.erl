@@ -1058,12 +1058,13 @@ try_process_local([{TxID,
       %            Acc#{failed=>[{TxID, no_dst_addr_loaded}|Failed]});
       Load=maps:get(loadaddr, Acc),
       try_process(TXL, Acc#{table=>Load({TxID,Tx}, Addresses)});
-    throw:X ->
+    throw:X:S ->
+      io:format("~s throw ~p at ~p/~p~n",[TxID,X,hd(S),hd(tl(S))]),
       try_process(Rest,
                   Acc#{failed=>[{TxID, fmterr(X)}|Failed],
                        last => failed});
     error:X:S ->
-      io:format("Error ~p at ~p/~p~n",[X,hd(S),hd(tl(S))]),
+      io:format("~s Error ~p at ~p/~p~n",[TxID,X,hd(S),hd(tl(S))]),
       try_process(Rest,
                   Acc#{failed=>[{TxID, fmterr(X)}|Failed],
                        last => failed})
