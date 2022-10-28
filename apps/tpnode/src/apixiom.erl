@@ -212,14 +212,20 @@ process_response({Status, Body}, <<"msgpack">> = Format, Req)
     when is_integer(Status) andalso is_map(Body) ->
     process_response({Status,
         [{<<"Content-Type">>, <<"application/msgpack">>}],
-        msgpack:pack(Body)
+        case msgpack:pack(Body) of
+          {error, Err} -> throw({error,Err});
+          Ok -> Ok
+        end
     }, Format, Req);
 
 process_response({Status, {Body,PackerOpts}}, <<"msgpack">> = Format, Req)
     when is_integer(Status) andalso is_map(Body) ->
     process_response({Status,
         [{<<"Content-Type">>, <<"application/msgpack">>}],
-        msgpack:pack(Body,maps:get(msgpack,PackerOpts,[]))
+        case msgpack:pack(Body,maps:get(msgpack,PackerOpts,[])) of
+          {error, Err} -> throw({error,Err});
+          Ok -> Ok
+        end
     }, Format, Req);
 
 %% json is default answer format

@@ -632,16 +632,22 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
             #{http_code => 404}
         );
     #{header:=_,hash:=_Hash}=GoodBlock ->
-      ReadyBlock=maps:put(
-                   txs_count,
-                   length(maps:get(txs,GoodBlock,[])),
-                   maps:without([txs,bals],GoodBlock)
-                  ),
+      TxIDs=[ID || {ID,_} <- maps:get(txs,GoodBlock,[])],
+      ReadyBlock=maps:put(txs_ids, TxIDs,
+                          maps:put(
+                            txs_count,
+                            length(maps:get(txs,GoodBlock,[])),
+                            maps:without([txs,bals],GoodBlock)
+                           )
+                         ),
       Block=prettify_block(ReadyBlock, BinPacker),
+      ?LOG_INFO("blockinfo ~p",[Block]),
       answer(
        #{ result => <<"ok">>,
           block => Block
-        })
+        },
+       #{msgpack=>[{map_format, jsx}]}
+       )
   end;
 
 h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
