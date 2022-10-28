@@ -1095,11 +1095,8 @@ savefee({Cur, Fee, Tip}, #{fee:=FeeBal, tip:=TipBal}=Acc) ->
     tip=>mbal:put_cur(Cur, Tip+mbal:get_cur(Cur, TipBal), TipBal)
    }.
 
-gas_plus_int({Cur,Amount, Rate}, Int, false) ->
-  {Cur, Amount+(Int/Rate), Rate};
-
-gas_plus_int({Cur,Amount, Rate}, Int, true) ->
-  {Cur, trunc(Amount+(Int/Rate)), Rate}.
+gas_plus_int({Cur,Amount, {R1,R2}}, Int, true) ->
+  {Cur, trunc(Amount+((Int*R1) div R2)), {R1,R2}}.
 
 is_gas_left({_,Amount,_Rate}) ->
   Amount>0.
