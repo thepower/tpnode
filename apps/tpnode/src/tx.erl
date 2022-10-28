@@ -746,12 +746,17 @@ verify(#{
             {[], _} ->
               bad_sig;
             {Valid, Invalid} when length(Valid)>0 ->
+              CPKs=lists:foldl(
+                     fun(PubKey,A) ->
+                         maps:put(tpecdsa:cmp_pubkey(PubKey),PubKey,A)
+                     end, #{}, bsig:extract_pubkeys(Valid)
+                    ),
               {ok, Tx#{
                      sigverify=>#{
-                                  valid=>length(Valid),
+                                  valid=>maps:size(CPKs),
                                   invalid=>Invalid,
                                   source=>patchkeys,
-                                  pubkeys=>bsig:extract_pubkeys(Valid)
+                                  pubkeys=>maps:values(CPKs)
                                  }
                     }
               }
