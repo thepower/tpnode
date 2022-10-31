@@ -137,12 +137,17 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
   Peers = try
             try
               lists:map(
-                fun(#{addr:=_Addr, auth:=Auth, state:=Sta, authdata:=AD}) ->
+                fun(#{addr:=_Addr, auth:=Auth, state:=Sta, authdata:=AD, streams:=S}) ->
                     #{auth=>Auth,
                       state=>Sta,
                       node=>chainsettings:is_our_node(
                               proplists:get_value(pubkey, AD, null)
-                             )
+                             ),
+                      streams=> lists:foldl(
+                                  fun({Sid,Dir,Pid},A) ->
+                                      [[Sid,Dir,is_pid(Pid) andalso is_process_alive(Pid)]|A]
+                                  end, [], S)
+
                      };
                    (#{addr:=_Addr}) ->
                     #{auth=>unknown,
@@ -324,7 +329,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], _Req) ->
              fun(K,_,Acc) ->
                 [<<"0x",(hex:encode(K))/binary>>|Acc]
              end, [], State),
-        {200, [{"Content-Type","application/json"}], 
+        {200, [{"Content-Type","application/json"}],
          #{
            notice => <<"Only for debugging. Do not use it in scripts!!!">>,
            keys => S1
@@ -958,7 +963,7 @@ prettify_block(#{}=Block0, BinPacker) ->
                    ({K, V}) ->
                      {K, V}
                  end, RootsProplist);
-      
+
              (_K, V) when is_binary(V) andalso size(V) == 32 ->
                BinPacker(V);
              (_K, V) ->

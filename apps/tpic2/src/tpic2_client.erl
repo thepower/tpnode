@@ -68,26 +68,27 @@ connection_process(Parent, Host, Port, Opts) ->
                    %?LOG_ERROR("Address ~p error: ~p",[Host, Err]),
                    throw({parse_addr,Err})
                end,
-  try
-    {ok, TCPSocket} = gen_tcp:connect(NAddr, Port, [binary, {packet,4}]++Opts1),
-    ?LOG_DEBUG("Opts ~p~n",[SSLOpts]),
-    {ok, Socket} = ssl:connect(TCPSocket, SSLOpts),
-    ssl:setopts(Socket, [{active, once}]),
-    {ok,PeerInfo}=ssl:connection_information(Socket),
-    State=#{
-      ref=>maps:get(ref, Opts, undefined),
-      socket=>Socket,
-      peerinfo=>PeerInfo,
-      timer=>undefined,
-      transport=>ranch_ssl,
-      parent=>Parent,
-      role=>client,
-      opts=>Opts,
-      address=>{Host,Port}
-     },
-    tpic2_tls:send_msg(hello, State),
-    tpic2_tls:loop1(State)
-  catch error:{badmatch,{error,econnrefused}} ->
-          ?LOG_INFO("Peer ~s:~w conn refused",[inet:ntoa(NAddr),Port])
+    case gen_tcp:connect(NAddr, Port, [binary, {packet,4}]++Opts1) of
+      {ok, TCPSocket} ->
+        ?LOG_DEBUG("Opts ~p~n",[SSLOpts]),
+        {ok, Socket} = ssl:connect(TCPSocket, SSLOpts),
+        ssl:setopts(Socket, [{active, once}]),
+        {ok,PeerInfo}=ssl:connection_information(Socket),
+        State=#{
+                ref=>maps:get(ref, Opts, undefined),
+                socket=>Socket,
+                peerinfo=>PeerInfo,
+                timer=>undefined,
+                transport=>ranch_ssl,
+                parent=>Parent,
+                role=>client,
+                opts=>Opts,
+                address=>{Host,Port}
+               },
+        tpic2_tls:send_msg(hello, State),
+        tpic2_tls:loop1(State);
+      {error, Reason} ->
+        ?LOG_INFO("Peer ~s:~w conn error: ~p",[inet:ntoa(NAddr), Port, Reason]),
+        {error,Reason}
   end.
 
