@@ -234,12 +234,12 @@ h(<<"POST">>, [<<"node">>, <<"new_peer">>], Req) ->
   case apixiom:bodyjs(Req) of
     #{<<"host">>:=H, <<"port">>:=P}=Body ->
       R=tpic2_cmgr:add_peers([{H,P}]),
-      logger:info("new_peer Req ~p:~p~n",[Body,R]),
+      ?LOG_INFO("new_peer Req ~p:~p~n",[Body,R]),
       answer(#{ result => ok, r=>list_to_binary(
                                    io_lib:format("~p",[R])
                                   )});
     Body ->
-      logger:info("new_peer Bad req ~p~n",[Body]),
+      ?LOG_INFO("new_peer Bad req ~p~n",[Body]),
       answer(#{ result=> false, error=><<"bad_input">>})
   end;
 
