@@ -206,6 +206,43 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
        }
     });
 
+h(<<"GET">>, [<<"node">>, <<"tpicpeers">>], _Req) ->
+  {200,
+   [{<<"content-type">>,<<"text/plain">>}],
+   list_to_binary(io_lib:format("~p.~n",[tpic2:peers()]))
+  };
+
+h(<<"GET">>, [<<"node">>, <<"chainstate">>], _Req) ->
+  R=maps:fold(
+      fun({H,B1,B2,Tmp},Cnt,A) ->
+          [[H,hex:encode(B1),hex:encode(B2),Tmp,Cnt]|A]
+      end,
+      [],
+      blockchain_sync:chainstate()),
+  answer(
+    #{ result => <<"ok">>,
+       chainstate => R
+     });
+
+h(<<"POST">>, [<<"node">>, <<"runsync">>], _Req) ->
+  blockchain_sync ! runsync,
+  answer(#{ result => <<"ok">> });
+
+h(<<"POST">>, [<<"node">>, <<"new_peer">>], Req) ->
+  {RemoteIP, _Port}=cowboy_req:peer(Req),
+  ?LOG_DEBUG("New peer requestt from ~s", [inet:ntoa(RemoteIP)]),
+  case apixiom:bodyjs(Req) of
+    #{<<"host">>:=H, <<"port">>:=P}=Body ->
+      R=tpic2_cmgr:add_peers([{H,P}]),
+      logger:info("new_peer Req ~p:~p~n",[Body,R]),
+      answer(#{ result => ok, r=>list_to_binary(
+                                   io_lib:format("~p",[R])
+                                  )});
+    Body ->
+      logger:info("new_peer Bad req ~p~n",[Body]),
+      answer(#{ result=> false, error=><<"bad_input">>})
+  end;
+
 h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
   try
     Addr=case TAddr of
