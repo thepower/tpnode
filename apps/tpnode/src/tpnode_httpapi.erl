@@ -659,6 +659,27 @@ h(<<"GET">>, [<<"address">>, TAddr], Req) ->
               )
   end;
 
+h(<<"GET">>, [<<"blockhash">>, BHeight], _Req) ->
+  BinPacker=packer(_Req,hex),
+  Height=binary_to_integer(BHeight),
+  case gen_server:call(blockchain_reader,{get_hash,Height}) of
+    {ok, Hash} ->
+      answer(
+        #{ result => <<"ok">>,
+           blockhash => BinPacker(Hash)
+         },
+        #{msgpack=>[{map_format, jsx}]}
+       );
+      {error, Reason} ->
+      err(
+        10012,
+        Reason,
+        #{result => <<"not_found">>},
+        #{http_code => 404}
+       )
+  end;
+
+
 h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
   BinPacker=packer(_Req,hex),
   BlockHash0=if(BlockId == <<"last">>) -> last;

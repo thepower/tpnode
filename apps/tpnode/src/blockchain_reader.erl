@@ -127,6 +127,16 @@ handle_call({block_exists, BlockHash}, _From, #{ldb:=LDB} = State)
   end,
   {reply, Exists, State};
 
+handle_call({get_hash, Height}, _From, #{ldb:=LDB} = State) when is_integer(Height) ->
+  R=
+  case ldb:read_key(LDB, <<"h:", Height:64/big>>, undefined) of
+    undefined ->
+      {error, not_found};
+    Hash ->
+      {ok, Hash}
+  end,
+  {reply, R, State};
+
 handle_call(sync_req, _From, State) ->
   MaySync=sync_req(State),
   {reply, MaySync, State};

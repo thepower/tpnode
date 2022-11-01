@@ -695,9 +695,9 @@ save_sets(LDB, #{hash:=Hash, header:=#{parent:=Parent}}, OldSettings, Settings) 
   ldb:put_key(LDB, <<"settings">>, erlang:term_to_binary(Settings)).
 
 save_block(ignore, _Block, _IsLast) -> ok;
-save_block(LDB, Block, IsLast) ->
-  BlockHash=maps:get(hash, Block),
+save_block(LDB, #{hash:=BlockHash,header:=#{height:=Hei}}=Block, IsLast) ->
   ldb:put_key(LDB, <<"block:", BlockHash/binary>>, Block),
+  ldb:put_key(LDB, <<"h:", Hei:64/big>>, BlockHash),
   if IsLast ->
        ldb:put_key(LDB, <<"lastblock">>, BlockHash),
        gen_server:cast(blockchain_reader,update);
