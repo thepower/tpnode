@@ -713,6 +713,36 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
        )
   end;
 
+h(<<"GET">>, [<<"block_candidates">>], _Req) ->
+  BinPacker=packer(_Req,hex),
+  Blocks=gen_server:call(blockvote, candidates),
+  if is_map(Blocks) ->
+       EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+               Conf1=jsx_config:list_to_config(Conf),
+               jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                                 State, Handler, Stack, Conf1)
+           end,
+       answer(
+        #{ result => <<"ok">>,
+           blocks => maps:fold(
+                       fun(_Hash, Block, A) ->
+                           [
+                            prettify_block(Block, BinPacker)
+                           | A]
+                       end, [], Blocks)
+         },
+        #{jsx=>[ strict, {error_handler, EHF} ], msgpack=>[{map_format, jsx}]}
+       );
+     true ->
+       err(
+         10007,
+         <<"unexpected result">>,
+         #{result => <<"unexpected result">>},
+         #{http_code => 500}
+        )
+  end;
+
+
 h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
   BlockHash0=if(BlockId == <<"last">>) -> last;
                (BlockId == <<"genesis">>) -> genesis;

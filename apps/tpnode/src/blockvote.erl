@@ -45,8 +45,26 @@ handle_call(_, _From, undefined) ->
 handle_call(status, _From, #{candidatesig:=Candidatesig, candidates:=Candidates}=State) ->
   {reply, #{
      sig=>maps:size(Candidatesig),
-     block=>maps:size(Candidates)
+     block=>maps:size(Candidates),
+     candidates =>[ hex:encode(K) || K<-maps:keys(Candidates) ],
+     signatures => lists:reverse(
+                     maps:fold(
+                       fun(K,V,A) ->
+                           [
+                            [block:blkid(K),
+                             [chainsettings:is_our_node(N) || N<- maps:keys(V) ]
+                            ]
+                            |A]
+                       end,
+                       [],
+                       Candidatesig))
     }, State};
+
+handle_call({candidate, Hash}, _From, #{candidates:=Cand}=State) ->
+    {reply, maps:get(Hash,Cand,undefined), State};
+
+handle_call(candidates, _From, #{candidates:=Cand}=State) ->
+    {reply, Cand, State};
 
 handle_call(state, _From, State) ->
     {reply, State, State};
