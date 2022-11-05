@@ -54,7 +54,7 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
              ?LOG_NOTICE("Unknown cert ~p",[DCert]),
              undefined
          end,
-  IsItMe=Pubkey==nodekey:get_pub(),
+  IsItMe=tpecdsa:cmp_pubkey(Pubkey)==tpecdsa:cmp_pubkey(nodekey:get_pub()),
   ?LOG_INFO("Peer PubKey ~s ~p",[hex:encode(Pubkey),
                                   try
                                     chainsettings:is_our_node(Pubkey)
@@ -73,22 +73,22 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
     {false, _} ->
       Stream=maps:get(stream, Opts, 0),
       {IP, Port} = maps:get(address, State),
+      gen_server:call(tpic2_cmgr,{peer, Pubkey, {add, IP, Port}}),
       WhatToDo=if Stream == 0 ->
-           case gen_server:call(tpic2_cmgr,{peer, Pubkey, active_out}) of
-             false ->
-               ok;
-             Pid when Pid == self() ->
-               ok;
-             Pid when is_pid(Pid) ->
-               gen_server:call(tpic2_cmgr,{peer, Pubkey, {add, IP, Port}}),
-               ?LOG_INFO("Add address ~p:~p to peer and shutdown",[IP,Port]),
-               tpic2_tls:send_msg(dup, State),
-               timer:sleep(6000),
-               Transport:close(Socket),
-               shutdown
-           end;
-         true -> ok
-      end,
+                    case gen_server:call(tpic2_cmgr,{peer, Pubkey, active_out}) of
+                      false ->
+                        ok;
+                      Pid when Pid == self() ->
+                        ok;
+                      Pid when is_pid(Pid) ->
+                        ?LOG_INFO("Add address ~p:~p to peer and shutdown",[IP,Port]),
+                        tpic2_tls:send_msg(dup, State),
+                        timer:sleep(6000),
+                        Transport:close(Socket),
+                        shutdown
+                    end;
+                  true -> ok
+               end,
       if WhatToDo==shutdown ->
            done;
          true ->
