@@ -6,7 +6,7 @@
 -export([start_link/0]).
 
 %% Supervisor callbacks
--export([init/1]).
+-export([init/1, check_key/0]).
 
 %% Helper macro for declaring children of supervisor
 -define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
@@ -22,6 +22,28 @@ start_link() ->
 %% Supervisor callbacks
 %% ===================================================================
 
+check_key() ->
+  try
+    Priv=nodekey:get_priv(),
+    case tpecdsa:keytype(Priv) of
+      {priv, ed25519} -> ok;
+      {priv, Type} ->
+        throw({keytype_not_supported,Type})
+    end,
+    Public=nodekey:get_pub(),
+    logger:notice("Starting up, pubkey is ~s",[hex:encode(Public)]),
+    ok
+  catch
+    error:{badmatch,undefined} ->
+      {error,"privkey does not specified"};
+    throw:Reason ->
+      {error,Reason};
+    Ec:Ee ->
+      logger:notice("Node key error ~p:~p",[Ec,Ee]),
+      {error,"privkey broken"}
+  end.
+
+
 init([repl_sup]) ->
   Sup={_SupFlags = {simple_one_for_one, 5, 10},
        [
@@ -32,6 +54,13 @@ init([repl_sup]) ->
 
 init([]) ->
     tpnode:reload(),
+
+    case check_key() of
+      ok -> ok;
+      {error, Reason} ->
+        throw(Reason)
+    end,
+
     MandatoryServices = [ api ],
     VMHost=case application:get_env(tpnode,vmaddr,undefined) of
              XHost when is_list(XHost) ->
