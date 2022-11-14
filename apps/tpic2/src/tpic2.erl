@@ -290,7 +290,9 @@ cert(Key, Subject) ->
       ]),
   PrivKey=tpecdsa:export(Key,pem),
   H ! {self(), {command, <<PrivKey/binary,"\n">>}},
-  cert_loop(H).
+  Res=cert_loop(H),
+  erlang:port_close(H),
+  Res.
 
 cert_loop(Handle) ->
   receive
