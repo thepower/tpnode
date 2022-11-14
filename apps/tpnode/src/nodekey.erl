@@ -23,23 +23,28 @@ get_privs() ->
   end.
 
 get_priv() ->
-  {ok, K1}=application:get_env(tpnode, privkey),
-  case K1 of
-    <<_:32/binary>> -> K1;
-    <<_:48/binary>> -> K1;
-    <<_:64/binary>> -> K1;
-    _ -> 
-      Res=hex:parse(K1),
-      %32=size(Res),
-      application:set_env(tpnode, privkey, Res),
-      Res
+  case application:get_env(tpnode,privkey_dec) of
+    {ok, Bin} ->
+      Bin;
+    undefined ->
+      {ok, K1}=application:get_env(tpnode, privkey),
+      case K1 of
+        <<_:32/binary>> -> K1;
+        <<_:48/binary>> -> K1;
+        <<_:64/binary>> -> K1;
+        _ ->
+          Res=hex:parse(K1),
+          %32=size(Res),
+          application:set_env(tpnode, privkey_dec, Res),
+          Res
+      end
   end.
 
 get_pub() ->
   case application:get_env(tpnode, pubkey) of
     {ok, Bin} when is_binary(Bin) ->
       Bin;
-    _ -> 
+    _ ->
       Pub=tpecdsa:calc_pub(get_priv()),
       application:set_env(tpnode, pubkey, Pub),
       Pub
@@ -47,7 +52,7 @@ get_pub() ->
 
 node_id() ->
   case application:get_env(tpnode, nodeid) of
-    undefined -> 
+    undefined ->
       ID=node_id(get_pub()),
       application:set_env(tpnode, nodeid, ID),
       ID;
@@ -67,12 +72,12 @@ node_name(Default) ->
 node_name() ->
   try
     case application:get_env(tpnode, nodename) of
-      undefined -> 
+      undefined ->
         case chainsettings:is_our_node(get_pub()) of
           Name when is_binary(Name) ->
             application:set_env(tpnode, nodename, Name),
             Name;
-          _ -> 
+          _ ->
             node_id()
         end;
       {ok, Name} -> Name

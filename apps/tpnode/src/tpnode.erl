@@ -33,7 +33,8 @@ reload() ->
                       application:set_env(tpnode, K, V)
               end, Config),
             logger_reconfig(),
-            application:unset_env(tpnode, pubkey);
+            application:unset_env(tpnode, pubkey),
+            application:unset_env(tpnode,privkey_dec);
         {error, Any} ->
             {error, Any}
     end.
