@@ -164,7 +164,7 @@ loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
       ?LOG_ERROR("Received stray message ~p.~n", [Msg]),
       ?MODULE:loop(State)
   after 10000 -> %to avoid killing on code change
-          send_msg(#{null=><<"KA">>},State),
+          ok=send_msg(#{null=><<"KA">>},State),
           ?MODULE:loop(State)
   end.
 
