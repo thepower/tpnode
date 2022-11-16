@@ -9,6 +9,7 @@
       tinymq,
       jsx,
       cowboy,
+      certifi,
       rocksdb,
       gb_merkle_trees,
       msgpack,

@@ -243,6 +243,36 @@ h(<<"POST">>, [<<"node">>, <<"new_peer">>], Req) ->
       answer(#{ result=> false, error=><<"bad_input">>})
   end;
 
+h(<<"POST">>, [<<"node">>, <<"hotfix">>], Req) ->
+  {RemoteIP, _Port}=cowboy_req:peer(Req),
+  ?LOG_DEBUG("New hotfix request from ~s", [inet:ntoa(RemoteIP)]),
+  case apixiom:bodyjs(Req) of
+    #{<<"fixid">>:=ID, <<"t">>:=Timestamp, <<"sig">>:=Sig} ->
+      T=os:system_time(millisecond),
+      SigBinH=crypto:hash(sha256,<<"httphfix",Timestamp:64/big, ID/binary>>),
+      Valid=bsig:checksig1(SigBinH,
+                           base64:decode(Sig),
+                           fun(PubKey,_) ->
+                               tpnode_hotfix:validkey(PubKey)
+                           end
+                          ),
+
+      if(abs(T-Timestamp) > 60000) ->
+          answer(#{ result=> false, error=><<"bad_timestamp">>, t=>T});
+        Valid =/= false ->
+          Files=tpnode_hotfix:install(ID),
+          logger:debug("hotfix Files ~p",[Files]),
+          answer(#{ result => ok, r=>list_to_binary(
+                                       io_lib:format("~p",[Files])
+                                      )});
+        true ->
+          answer(#{ result=> false, error=><<"bad_signature">>, t=>T})
+      end;
+    Body ->
+      ?LOG_INFO("hotfix Bad req ~p~n",[Body]),
+      answer(#{ result=> false, error=><<"bad_input">>})
+  end;
+
 h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
   try
     Addr=case TAddr of

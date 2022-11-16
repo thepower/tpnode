@@ -164,8 +164,11 @@ loop(State=#{parent:=Parent, socket:=Socket, transport:=Transport, opts:=_Opts,
       ?LOG_ERROR("Received stray message ~p.~n", [Msg]),
       ?MODULE:loop(State)
   after 10000 -> %to avoid killing on code change
-          ok=send_msg(#{null=><<"KA">>},State),
-          ?MODULE:loop(State)
+          case send_msg(#{null=><<"KA">>},State) of
+            ok -> ?MODULE:loop(State);
+            {error, closed} ->
+              exit(normal)
+          end
   end.
 
 system_continue(_PID,_,{State}) ->
