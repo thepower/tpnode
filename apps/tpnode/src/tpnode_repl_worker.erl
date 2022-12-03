@@ -50,11 +50,16 @@ start_link(Sub0) when is_list(Sub0) ->
   start_link(maps:from_list(Sub0));
 
 start_link(Sub0) when is_map(Sub0) ->
-  GetFun=fun({apply_block,#{hash:=_H}=Block}) ->
-             gen_server:call(blockchain_updater,{new_block, Block, self()});
-            (last_known_block) ->
-             blockchain:last_permanent_meta()
-             %blockchain:last_meta()
+  GetFun=case maps:is_key(getfun,Sub0) of
+           true ->
+             maps:get(getfun,Sub0);
+           false ->
+             fun({apply_block,#{hash:=_H}=Block}) ->
+                 gen_server:call(blockchain_updater,{new_block, Block, self()});
+                (last_known_block) ->
+                 blockchain:last_permanent_meta()
+                 %blockchain:last_meta()
+             end
          end,
   Sub=case Sub0 of
         #{uri:=URL} ->
@@ -134,19 +139,26 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
               {404, _, _} -> throw('incompatible');
               _ -> throw('incompatible')
             end,
-    case blockchain:rel(genesis,self) of
-      #{hash:=Hash} ->
-        case maps:get(hash, Genesis) == Hash of
-          false ->
-            file:write_file("genesis_repl.txt",
-                            io_lib:format("~p.~n",[Genesis])),
-            ?LOG_NOTICE("Genesis mismatch for replication. Their genesis saved in genesis_repl.txt"),
-            throw('genesis_mismatch');
-          true ->
-            ?LOG_INFO("Genesis ok")
-        end;
-      _ ->
-        throw('unexpected_genesis')
+    case maps:get(check_genesis, Sub, undefined) of
+      false ->
+        ok;
+      F when is_function(F)  ->
+        F(Genesis);
+      undefined ->
+        case blockchain:rel(genesis,self) of
+          #{hash:=Hash} ->
+            case maps:get(hash, Genesis) == Hash of
+              false ->
+                file:write_file("genesis_repl.txt",
+                                io_lib:format("~p.~n",[Genesis])),
+                ?LOG_NOTICE("Genesis mismatch for replication. Their genesis saved in genesis_repl.txt"),
+                throw('genesis_mismatch');
+              true ->
+                ?LOG_INFO("Genesis ok")
+            end;
+          _ ->
+            throw('unexpected_genesis')
+        end
     end,
     LastBlock=case sync_get_decode(Pid, "/api/binblock/last") of
                 {200, _, V2} -> maps:with([hash,header],V2);
