@@ -695,12 +695,12 @@ try_process([{TxID, #{from:=From, to:=To}=Tx} |Rest],
 %            SetState, Addresses, GetFun,
             #{failed:=Failed,
               %table:=Addresses,
-              %new_settings:=SetState,
+              new_settings:=SetState,
               get_settings:=GetFun
              }=Acc) ->
   MyChain=GetFun(mychain),
-  FAddr=addrcheck(From),
-  TAddr=addrcheck(To),
+  FAddr=addrcheck(From, SetState, MyChain),
+  TAddr=addrcheck(To, SetState, MyChain),
   case {FAddr, TAddr} of
     {{true, {chain, MyChain}}, {true, {chain, MyChain}}} ->
       try_process_local([{TxID, Tx}|Rest], Acc);
@@ -721,6 +721,11 @@ try_process([{TxID, #{from:=From, to:=To}=Tx} |Rest],
     {{true, {chain, MyChain}}, {true, private}}  -> %local to pvt
       try_process_local([{TxID, Tx}|Rest],
                         Acc);
+    {{true, {chain, _}}, false} ->
+      ?LOG_INFO("TX ~s dst addr error ~p", [TxID, TAddr]),
+      try_process(Rest,
+                  Acc#{failed=>[{TxID, 'bad_dst_addr'}|Failed],
+                       last => failed});
     _ ->
       ?LOG_INFO("TX ~s addr error ~p -> ~p", [TxID, FAddr, TAddr]),
       try_process(Rest,
@@ -1471,12 +1476,20 @@ return_gas({GCur, GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
       Bal0
   end.
 
-addrcheck(Addr) ->
+addrcheck(Addr, Set, OC) ->
   case naddress:check(Addr) of
     {true, #{type:=public}} ->
       case address_db:lookup(Addr) of
+        {ok, Chain} when Chain==OC->
+              {true, {chain, Chain}};
         {ok, Chain} ->
-          {true, {chain, Chain}};
+          Valid=maps:get(chains,Set,[]),
+          case lists:member(Chain,Valid) of
+            true ->
+              {true, {chain, Chain}};
+            false ->
+              unroutable
+          end;
         _ ->
           unroutable
       end;

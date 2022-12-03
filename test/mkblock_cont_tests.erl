@@ -26,39 +26,7 @@ allocport() ->
   gen_tcp:close(S),
   CPort.
 
-extcontract_template(OurChain, TxList, Ledger, CheckFun, Workers) ->
-  Servers=case whereis(tpnode_vmsrv) of 
-            undefined ->
-              Port=allocport(),
-              application:ensure_all_started(ranch),
-              {ok, Pid1} = tpnode_vmsrv:start_link(),
-              {ok, Pid2} = ranch_listener_sup:start_link(
-                             {vm_listener,Port},
-                             ranch_tcp,
-                             #{
-                               connection_type => supervisor,
-                               socket_opts => [{port,Port}]
-                              },
-                             tpnode_vmproto,[]),
-              timer:sleep(300),
-              [fun()->gen_server:stop(Pid1) end,
-               fun()->exit(Pid2,normal) end
-               | [ 
-                  begin
-                    SPid=vm_erltest:run("127.0.0.1",Port),
-                    fun()->SPid ! stop end
-                  end || _ <- lists:seq(1,Workers) ] 
-              ];
-            _ -> 
-              VMPort=application:get_env(tpnode,vmport,50050),
-              [ 
-               begin
-                 SPid=vm_erltest:run("127.0.0.1",VMPort),
-                 fun()->SPid ! stop end
-               end || _ <- lists:seq(1,Workers) ]
-          end,
-  timer:sleep(200),
-  try
+extcontract_template(OurChain, TxList, Ledger, CheckFun, _Workers) ->
     Test=fun(LedgerPID) ->
              GetSettings=fun(mychain) -> OurChain;
                             (settings) ->
@@ -156,14 +124,14 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun, Workers) ->
                [{ledger_pid, LedgerPID}]))
   end,
 
-  mledger:deploy4test(Ledger, Test)
-
-after
-  lists:foreach(
-    fun(TermFun) ->
-        TermFun()
-    end, Servers)
-  end.
+  mledger:deploy4test(Ledger, Test).
+%
+%after
+%  lists:foreach(
+%    fun(TermFun) ->
+%        TermFun()
+%    end, Servers)
+%  end.
 
 %extcontract_baddeploy1_test() ->
 %  OurChain=150,
@@ -267,7 +235,7 @@ xchain_test_callingblock() ->
            GetSettings=fun(mychain) -> Chain2;
                           (settings) ->
                            #{
-                             chains => [1,Chain2],
+                             chains => [Chain1,Chain2],
                              keys =>
                              #{
                                <<"node1">> => crypto:hash(sha256, <<"node1">>),
@@ -360,7 +328,39 @@ xchain_test_callingblock() ->
   mledger:deploy4test(Ledger, Test).
 
 
-
+xchain_test() ->
+  Chain1=1,
+  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Addr1=naddress:construct_public(1, Chain1, 1),
+  Addr2=naddress:construct_public(1, Chain1+10, 1),
+  TX1=tx:sign(
+        tx:construct_tx(#{
+                          ver=>2,
+                          kind=>generic,
+                          from=>Addr1,
+                          to=>Addr2,
+                          seq=>2,
+                          t=>os:system_time(millisecond),
+                          payload=>[
+                                    #{purpose=>transfer, amount=>30, cur=><<"FTT">>}
+                                    #{purpose=>srcfee, amount=>28, cur=><<"TST">>}
+                                   ]
+                         }), Pvt1),
+  TestFun=fun(#{block:=Block,
+                failed:=Failed}) ->
+              io:format("Block  ~p~n",[Block]),
+              io:format("Failed ~p~n",[Failed])
+          end,
+  Ledger1=[
+          {Addr1,
+           #{amount => #{ <<"FTT">> => 10, <<"SK">> => 3, <<"TST">> => 28 }}
+          }
+         ],
+  TxL=[
+       {<<"1test">>, maps:put(sigverify,#{valid=>1},TX1)}
+      ],
+  extcontract_template(Chain1, TxL, Ledger1, TestFun, 1).
 
 %xchain_test() ->
 %  Chain1=1,

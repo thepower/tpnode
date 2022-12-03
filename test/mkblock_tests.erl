@@ -620,7 +620,7 @@ mkblock_tx2_test() ->
                            OurChain;
                           (settings) ->
                            #{
-                             chains => [0, 1],
+                             chains => [0, 1, OurChain+2],
                              chain =>
                              #{0 =>
                                #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
@@ -886,7 +886,7 @@ mkblock_test() ->
                            OurChain;
                           (settings) ->
                            #{
-                             chains => [0, 1],
+                             chains => [0, 1, OurChain, OurChain+2],
                              chain =>
                              #{0 =>
                                #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
@@ -978,6 +978,20 @@ mkblock_test() ->
                    kind=>generic,
                    from=>naddress:construct_public(SG, OurChain, 3),
                    to=>naddress:construct_public(1, OurChain+2, 1),
+                   payload=>[
+                             #{purpose=>transfer, amount=>9, cur=><<"FTT">>},
+                             #{purpose=>srcfee, amount=>1, cur=><<"FTT">> }
+                            ],
+                   seq=>4,
+                   t=>os:system_time(millisecond)
+                  }), Pvt1),
+           TX2f=tx:sign(
+                 tx:construct_tx(
+                   #{
+                   ver=>2,
+                   kind=>generic,
+                   from=>naddress:construct_public(SG, OurChain, 3),
+                   to=>naddress:construct_public(1, OurChain+3, 1),
                    payload=>[
                              #{purpose=>transfer, amount=>9, cur=><<"FTT">>},
                              #{purpose=>srcfee, amount=>1, cur=><<"FTT">> }
@@ -1087,6 +1101,7 @@ mkblock_test() ->
                                 {<<"1interchain">>, maps:put(sigverify,#{valid=>1},TX0)},
                                 {<<"2invalid">>, maps:put(sigverify,#{valid=>1},TX1)},
                                 {<<"3crosschain">>, maps:put(sigverify,#{valid=>1},TX2)},
+                                {<<"3.1badcross">>, maps:put(sigverify,#{valid=>1},TX2f)},
                                 {<<"4crosschain">>, maps:put(sigverify,#{valid=>1},TX3)},
                                 {<<"5nosk">>, maps:put(sigverify,#{valid=>1},TX4)},
                                 {<<"6sklim">>, maps:put(sigverify,#{valid=>1},TX5)},
@@ -1109,6 +1124,7 @@ mkblock_test() ->
 
            [
            ?assertMatch([{<<"2invalid">>, insufficient_fund},
+                         {<<"3.1badcross">>,bad_src_or_dst_addr},
                          {<<"5nosk">>, no_sk},
                          {<<"6sklim">>, sk_limit},
                          {<<"8nofee">>, {insufficient_fee, 2}},
