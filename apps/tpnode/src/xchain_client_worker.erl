@@ -58,7 +58,7 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
     end,
     Proto=case sync_get_decode(Pid, "/xchain/api/compat.mp") of
             {200, _, #{<<"ok">>:=true,<<"version">>:=Ver}} -> Ver;
-            {404, _, _} -> 0;
+            {404, _, _} -> throw('xchain_protocol_does_not_supported');
             _ -> 0
           end,
     {[<<"websocket">>],UpgradeHdrs}=upgrade(Pid,Proto),
