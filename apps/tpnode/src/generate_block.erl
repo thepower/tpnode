@@ -13,8 +13,19 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   %file:write_file("tmp/tx.txt", io_lib:format("~p.~n", [PreTXL])),
   _T1=erlang:system_time(),
   _T2=erlang:system_time(),
-  TXL=sort_txs(PreTXL),
   XSettings=GetSettings(settings),
+  PreTXL1=lists:filter(
+            fun({TxID,#{not_before:=DT}}) ->
+                L=settings:get([<<"current">>,<<"delaytx">>,DT], XSettings),
+                if is_list(L) ->
+                     lists:member(TxID,L);
+                   true ->
+                     false
+                end;
+               (_) -> true
+            end, PreTXL),
+
+  TXL=sort_txs(PreTXL1),
   Addrs0=lists:foldl(
            fun(default, Acc) ->
                BinAddr=naddress:construct_private(0, 0),
