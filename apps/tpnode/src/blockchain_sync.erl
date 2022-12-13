@@ -7,7 +7,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0,chainstate/0,bbyb_sync/3,receive_block/2,tpiccall/3]).
+-export([start_link/0,chainstate/0,bbyb_sync/3,receive_block/2,tpiccall/3,sort_rnd/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -243,11 +243,10 @@ handle_info(runsync, State) ->
   Candidates = case maps:get(sync_candidates, State, []) of
                  [] ->
                    ?LOG_DEBUG("use default list of candidates"),
-                   lists:reverse(
-                     tpiccall(<<"blockchain">>,
-                              #{null=><<"sync_request">>},
-                              [last_hash, last_height, chain, last_temp]
-                             ));
+                   sort_rnd(tpiccall(<<"blockchain">>,
+                                     #{null=><<"sync_request">>},
+                                     [last_hash, last_height, chain, last_temp]
+                                    ));
                  SavedCandidates ->
                    ?LOG_DEBUG("use saved list of candidates"),
                    SavedCandidates
@@ -262,15 +261,15 @@ handle_info({runsync, Candidates}, State) ->
              }, hash:=MyLastHash}=MyLast=blockchain:last_meta(),
 
   B=tpiccall(<<"blockchain">>,
-           #{null=><<"sync_request">>},
-           [last_hash, last_height, chain, last_temp]
-          ),
+             #{null=><<"sync_request">>},
+             [last_hash, last_height, chain, last_temp]
+            ),
   Hack_Candidates=lists:foldl(
                     fun({{A1,B1,_},_}=Elem, Acc) ->
                         maps:put({A1,B1},Elem,Acc)
                     end, #{}, B),
 
-  Candidate=lists:foldl( %first suitable will be the quickest
+  Candidate=lists:foldl(
               fun
                 ({{A2,B2,_}, undefined}, undefined) ->
                   case maps:find({A2,B2},Hack_Candidates) of
@@ -588,5 +587,11 @@ skip_candidate(default)->
 
 skip_candidate(Candidates) when is_list(Candidates) ->
   tl(Candidates).
+
+sort_rnd(List) ->
+  List0=[ {rand:uniform(), I} || I <- List ],
+  List1=lists:keysort(1, List0),
+  [ E || {_,E} <- List1 ].
+
 
 %% ------------------------------------------------------------------
