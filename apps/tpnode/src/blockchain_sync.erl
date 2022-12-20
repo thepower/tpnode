@@ -31,7 +31,7 @@ chainstate() ->
                        ))++[{self,gen_server:call(blockchain_reader,sync_req)}],
 %  io:format("Cand ~p~n",[Candidates]),
   ChainState=lists:foldl( %first suitable will be the quickest
-               fun({_, #{chain:=_HisChain,
+               fun({PK0, #{chain:=_HisChain,
                          %null:=<<"sync_available">>,
                          last_hash:=Hash,
                          last_temp:=Tmp,
@@ -39,9 +39,19 @@ chainstate() ->
                          last_height:=Heig
                         }=A
                    }, Acc) ->
+                   PK=case PK0 of
+                        self -> nodekey:node_name();
+                        {HisKey,_,_} ->
+                          case chainsettings:is_our_node(HisKey) of
+                            false ->
+                              hex:encode(HisKey);
+                            OurName ->
+                              OurName
+                          end
+                      end,
                    PHash=maps:get(prev_hash,A,<<0,0,0,0,0,0,0,0>>),
                    maps:put({Heig, Hash, PHash, Tmp},
-                            maps:get({Heig, Hash, PHash, Tmp}, Acc, 0)+1, Acc);
+                            [PK|maps:get({Heig, Hash, PHash, Tmp}, Acc, [])], Acc);
                   ({_, _}, Acc) ->
                    Acc
                end, #{}, Candidates),
@@ -54,7 +64,7 @@ chainstate() ->
                             ":",blkid(Has),
                             "/",blkid(PHas),":",
                             integer_to_list(if Tmp==false -> 0; true -> Tmp end)
-                           ]),V,Acc)
+                           ]),length(V),Acc)
                    end, #{}, ChainState)),
   ChainState.
 
