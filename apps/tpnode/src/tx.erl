@@ -882,6 +882,7 @@ unpack(BinTx,Opts) when is_binary(BinTx), is_list(Opts) ->
     #{<<"ver">>:=2, <<"sig">>:=Sign, <<"body">>:=TxBody} ->
       unpack_generic(Trusted, Tx0, TxBody, Sign);
     _ ->
+      ?LOG_INFO("FIXME isTXv1: ~p", [Tx0]),
       tx1:unpack_mp(Tx0)
   end.
 
