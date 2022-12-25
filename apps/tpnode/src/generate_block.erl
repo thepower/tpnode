@@ -452,7 +452,7 @@ update_aalloc(#{
   IncAddr=#{<<"t">> => <<"set">>,
             <<"p">> => [<<"current">>, <<"allocblock">>, <<"last">>],
             <<"v">> => CA},
-  AAlloc={<<"aalloc">>, #{sig=>[], patch=>[IncAddr]}},
+  AAlloc={<<"aalloc">>, #{sig=>[], ver=>2, kind=>patch, patches=>[IncAddr]}},
   SS1=settings:patch(AAlloc, SetState),
 
   Acc#{new_settings=>SS1,
@@ -508,7 +508,7 @@ cleanup_delayed(#{delayed:=DTX, new_settings:=NS, settings:=Sets} = Acc) ->
       Cleanup=[#{<<"p">>=>[<<"current">>,<<"delaytx">>],
                  <<"t">>=><<"lists_cleanup">>,
                  <<"v">>=><<"empty_list">>}],
-      DelPatch={<<"cleanjob">>, #{sig=>[], patch=>ToDel++Cleanup}},
+      DelPatch={<<"cleanjob">>, #{sig=>[], ver=>2, kind=>patch, patches=>ToDel++Cleanup}},
       ?LOG_INFO("Patches ~p~n",[ToDel]),
       Acc#{
         settings=>[DelPatch|Sets]
@@ -547,7 +547,7 @@ process_delayed_txs(#{emit:=Emit, settings:=Settings, parent:=P,
     _ ->
       Patches=[#{<<"p">> => [<<"current">>,<<"delaytx">>,Timestamp],
                  <<"t">> => <<"list_add">>,<<"v">> => [H,P,TxID]} || {TxID, Timestamp} <- ToSet ],
-      SyncPatch={<<"delayjob">>, #{sig=>[], patch=>Patches}},
+      SyncPatch={<<"delayjob">>, #{sig=>[], ver=>2, kind=>patch, patches=>Patches}},
 
       ?LOG_INFO("Emit ~p~n",[NewEmit]),
       ?LOG_INFO("Patches ~p~n",[Patches]),

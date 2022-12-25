@@ -31,6 +31,7 @@ all() ->
    register_wallet_test,
    patch_gasprice_test,
    %smartcontract_test,
+   %smartcontract2_test,
    evm_test,
    check_blocks_test,
    discovery_got_announce_test,
@@ -94,7 +95,7 @@ save_bckups() ->
         end,
     lists:foreach(SaveBckupForNode, get_testnet_nodenames()),
     ok.
-  
+
 
 
 %%get_node_cmd(Name) when is_list(Name) ->
@@ -291,8 +292,8 @@ discovery_ssl_test(_Config) ->
   Ips = maps:get(ip, AddrInfo, []),
   ?assertEqual(true, lists:member(Host, Hosts)),
   ?assertEqual(true, lists:member(Ip, Ips)).
-  
-  
+
+
 
 
 discovery_got_announce_test(_Config) ->
@@ -523,7 +524,7 @@ dump_testnet_state() ->
     erlang:spawn(?MODULE, dump_node_state, [self(), NodeName]) ||
     NodeName <- get_testnet_nodenames()
   ],
-  
+
   wait_for_dumpers(Pids),
   ok.
 % -----------------------------------------------------------------------------
@@ -552,7 +553,7 @@ wait_for_dumpers(Pids, StatesAcc) ->
         wait_for_dumpers(Pids, StatesAcc);
       _ ->
         logger("------ testnet states data ------"),
-        
+
         maps:filter(
           fun
             (NodeName, NodeStates) ->
@@ -564,7 +565,7 @@ wait_for_dumpers(Pids, StatesAcc) ->
           end,
           StatesAcc
         ),
-        
+
         logger("------ end of data ------"),
         ok
     end
@@ -679,6 +680,113 @@ evm_test(_Config) ->
 %  ?assertMatch(#{<<"res">> := <<"ok">>}, StatusDJ),
   ok.
 
+smartcontract2_test(_Config) ->
+  {ok,Addr}=application:get_env(tptest,endless_addr),
+  {ok,Priv}=application:get_env(tptest,endless_addr_pk),
+  ?assertMatch(true, is_binary(Addr)),
+  ?assertMatch(true, is_binary(Priv)),
+
+  {ok, Code}=file:read_file("../examples/testcontract_emit.ec"),
+
+  DeployTx=tx:pack(
+             tx:sign(
+             tx:construct_tx(
+               #{ver=>2,
+                 kind=>deploy,
+                 from=>Addr,
+                 seq=>os:system_time(millisecond),
+                 t=>os:system_time(millisecond),
+                 payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+                 call=>#{function=>"init",args=>[1024]},
+                 txext=>#{ "code"=> Code,"vm" => "erltest"}}
+              ),Priv)),
+
+  #{<<"txid">>:=TxID1} = api_post_transaction(DeployTx),
+  {ok, Status1, _} = api_get_tx_status(TxID1),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status1),
+
+  GenTx=tx:pack(
+          tx:sign(
+          tx:construct_tx(
+            #{ver=>2,
+              kind=>generic,
+              to=>Addr,
+              from=>Addr,
+              seq=>os:system_time(millisecond),
+              t=>os:system_time(millisecond),
+              payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+              call=>#{function=>"notify",args=>[1024]}
+             }
+           ),Priv)),
+
+  #{<<"txid">>:=TxID2} = api_post_transaction(GenTx),
+  {ok, Status2, _} = api_get_tx_status(TxID2),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
+
+  DJTx=tx:pack(
+         tx:sign(
+         tx:construct_tx(
+           #{ver=>2,
+             kind=>generic,
+             to=>Addr,
+             from=>Addr,
+             seq=>os:system_time(millisecond),
+             t=>os:system_time(millisecond),
+             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+             call=>#{function=>"delayjob",args=>[1024]}
+            }),Priv)),
+
+  #{<<"txid">>:=TxID3} = api_post_transaction(DJTx),
+  {ok, #{<<"block">>:=Blkid3}=Status3, _} = api_get_tx_status(TxID3),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
+
+  Emit=tx:pack(
+         tx:sign(
+         tx:construct_tx(
+           #{ver=>2,
+             kind=>generic,
+             to=>Addr,
+             from=>Addr,
+             seq=>os:system_time(millisecond),
+             t=>os:system_time(millisecond),
+             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+             call=>#{function=>"emit",args=>[1024]}
+            }),Priv)),
+
+  #{<<"txid">>:=TxID4} = api_post_transaction(Emit),
+  {ok, Status4, _} = api_get_tx_status(TxID4),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status4),
+
+  BadResp=tx:pack(
+         tx:sign(
+         tx:construct_tx(
+           #{ver=>2,
+             kind=>generic,
+             to=>Addr,
+             from=>Addr,
+             seq=>os:system_time(millisecond),
+             t=>os:system_time(millisecond),
+             payload=>[#{purpose=>gas, amount=>50000, cur=><<"FTT">>}],
+             call=>#{function=>"badnotify",args=>[1024]}
+            }),Priv)),
+
+  #{<<"txid">>:=TxID5} = api_post_transaction(BadResp),
+  {ok, Status5, _} = api_get_tx_status(TxID5),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status5),
+
+  #{etxs:=[{DJTxID,_}|_]}=Block3=tpapi:get_fullblock(Blkid3,get_base_url()),
+
+  io:format("Block3 ~p~n",[Block3]),
+  io:format("Have to wait for DJ tx ~p~n",[DJTxID]),
+  ?assertMatch(#{etxs:=[{<<"8001400004",_/binary>>,#{not_before:=_}}]},Block3),
+
+  {ok, StatusDJ, _} = api_get_tx_status(DJTxID, 65),
+  io:format("DJ tx status ~p~n",[StatusDJ]),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, StatusDJ),
+  ok.
+
+
+%
 %smartcontract_test(_Config) ->
 %  {ok,Addr}=application:get_env(tptest,endless_addr),
 %  {ok,Priv}=application:get_env(tptest,endless_addr_pk),
@@ -802,25 +910,27 @@ test_blocks_verify(_, <<0,0,0,0,0,0,0,0>>, C) ->
   C;
 
 test_blocks_verify(Reader, Pos, C) ->
- Blk=gen_server:call(Reader,{get_block,Pos}),
- if(is_map(Blk)) ->
-     ok;
-   true ->
-     throw({noblock,Pos})
- end,
- {true,_}=block:verify(Blk),
- case block:verify(block:unpack(block:pack(Blk))) of
-   false ->
-     io:format("bad block ~p (depth ~w)~n",[Pos,C]),
-     throw('BB');
-   {true,_} -> 
-     case Blk of
-       #{header:=#{parent:=PBlk}} ->
-         test_blocks_verify(Reader, PBlk, C+1);
-       _ ->
-         C+1
-     end
- end.
+  Blk=gen_server:call(Reader,{get_block,Pos}),
+  case Blk of
+    #{header:=#{height:=0}} ->
+      C;
+    #{header:=#{height:=_},hash:=_} ->
+      {true,_}=block:verify(Blk),
+      case block:verify(block:unpack(block:pack(Blk))) of
+        false ->
+          io:format("bad block ~p (depth ~w)~n",[Pos,C]),
+          throw('BB');
+        {true,_} ->
+          case Blk of
+            #{header:=#{parent:=PBlk}} ->
+              test_blocks_verify(Reader, PBlk, C+1);
+            _ ->
+              C+1
+          end
+      end;
+    _ ->
+      throw({noblock,Pos})
+  end.
 
 crashme_test(_Config) ->
   ?assertMatch(crashme,ok).
@@ -837,7 +947,7 @@ transaction_test(_Config) ->
       rpc:call(get_node(get_default_nodename()), erlang, whereis, [txpool]),
     C4N1NodePrivKey =
       rpc:call(get_node(get_default_nodename()), nodekey, get_priv, []),
-  
+
     PatchTx = tx:sign(
                 tx:construct_tx(
                   #{kind=>patch,
@@ -851,7 +961,7 @@ transaction_test(_Config) ->
                        <<"v">>=>true}]
                    }
                  ), C4N1NodePrivKey),
-  
+
     {ok, PatchTxId} = gen_server:call(TxpoolPidC4N1, {new_tx, PatchTx}),
     logger("PatchTxId: ~p~n", [PatchTxId]),
     {ok, _} = wait_for_tx(PatchTxId, get_node(get_default_nodename())),
@@ -990,7 +1100,7 @@ tpiccall(TPIC, Handler, Object, Atoms) ->
 %              ]
 %             ),
 %  gen_server:call(Pid, '_flush'),
-%  
+%
 %  Hash2=rpc:call(get_node(get_default_nodename()),ledger,check,[[]]),
 %  Hash2=rpc:call(get_node(get_default_nodename()),ledger,check,[[]]),
 %
@@ -1009,7 +1119,7 @@ tpiccall(TPIC, Handler, Object, Atoms) ->
 %  ?assertEqual(Hash1,Hash2),
 %  gen_server:cast(Pid, terminate),
 %  done.
-%  
+%
 %
 %inst_sync_wait_more(A) ->
 %  receive
@@ -1040,7 +1150,7 @@ tpiccall(TPIC, Handler, Object, Atoms) ->
 
 logger(Format) when is_list(Format) ->
   logger(Format, []).
-  
+
 logger(Format, Args) when is_list(Format), is_list(Args) ->
   utils:logger(Format, Args).
 

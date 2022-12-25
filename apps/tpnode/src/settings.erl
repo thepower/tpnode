@@ -1,69 +1,71 @@
 -module(settings).
+-include("include/tplog.hrl").
 
 -export([new/0, set/3, patch/2, mp/1, dmp/1, get/2]).
--export([sign/2, verify/1, verify/2, get_patches/1, get_patches/2]).
+-export([get_patches/1, get_patches/2]).
+%-export([sign/2, verify/1, verify/2]).
 -export([make_meta/2, clean_meta/1]).
 
-sign(Patch, PrivKey) when is_list(Patch) ->
-    BinPatch=mp(Patch),
-    sign(#{patch=>BinPatch, sig=>[]}, PrivKey);
-sign(Patch, PrivKey) when is_binary(Patch) ->
-    sign(#{patch=>Patch, sig=>[]}, PrivKey);
-
-sign(#{patch:=LPatch}=Patch, PrivKey) ->
-    BPatch=if is_list(LPatch) -> mp(LPatch);
-                is_binary(LPatch) -> LPatch
-             end,
-    Sig=bsig:signhash(
-          crypto:hash(sha256, BPatch),
-          [{timestamp, os:system_time(millisecond)}],
-          PrivKey),
-    #{ patch=>BPatch,
-        sig => [Sig|maps:get(sig, Patch, [])]
-     }.
-
-verify(#{patch:=LPatch, sig:=HSig}=Patch, VerFun) ->
-  BinPatch=if is_list(LPatch) -> mp(LPatch);
-              is_binary(LPatch) -> LPatch
-           end,
-  {Valid, Invalid}=bsig:checksig(crypto:hash(sha256, BinPatch), HSig),
-  case length(Valid) of
-    0 ->
-      bad_sig;
-    N when N>0 ->
-      Map=lists:foldl(%make signatures unique
-            fun(#{extra:=ED}=P,Acc) ->
-                case proplists:get_value(pubkey,ED) of
-                  PK when is_binary(PK) ->
-                    maps:put(PK,P,Acc);
-                  _ ->
-                    Acc
-                end
-            end, #{}, Valid),
-      ValidSig=if VerFun==undefined ->
-                    maps:values(Map);
-                 is_function(VerFun) ->
-                    maps:fold(
-                      fun(K,V,Acc) ->
-                          case VerFun(K) of
-                            true ->
-                              [V|Acc];
-                            false ->
-                              Acc
-                          end
-                      end, [], Map)
-               end,
-      {ok, Patch#{
-             sigverify=>#{
-               valid=>ValidSig,
-               invalid=>Invalid
-              }
-            }
-      }
-  end.
-
-verify(#{patch:=_, sig:=_}=Patch) ->
-  verify(Patch, undefined).
+%sign(Patch, PrivKey) when is_list(Patch) ->
+%    BinPatch=mp(Patch),
+%    sign(#{patch=>BinPatch, sig=>[]}, PrivKey);
+%sign(Patch, PrivKey) when is_binary(Patch) ->
+%    sign(#{patch=>Patch, sig=>[]}, PrivKey);
+%
+%sign(#{patch:=LPatch}=Patch, PrivKey) ->
+%    BPatch=if is_list(LPatch) -> mp(LPatch);
+%                is_binary(LPatch) -> LPatch
+%             end,
+%    Sig=bsig:signhash(
+%          crypto:hash(sha256, BPatch),
+%          [{timestamp, os:system_time(millisecond)}],
+%          PrivKey),
+%    #{ patch=>BPatch,
+%        sig => [Sig|maps:get(sig, Patch, [])]
+%     }.
+%
+%verify(#{patch:=LPatch, sig:=HSig}=Patch, VerFun) ->
+%  BinPatch=if is_list(LPatch) -> mp(LPatch);
+%              is_binary(LPatch) -> LPatch
+%           end,
+%  {Valid, Invalid}=bsig:checksig(crypto:hash(sha256, BinPatch), HSig),
+%  case length(Valid) of
+%    0 ->
+%      bad_sig;
+%    N when N>0 ->
+%      Map=lists:foldl(%make signatures unique
+%            fun(#{extra:=ED}=P,Acc) ->
+%                case proplists:get_value(pubkey,ED) of
+%                  PK when is_binary(PK) ->
+%                    maps:put(PK,P,Acc);
+%                  _ ->
+%                    Acc
+%                end
+%            end, #{}, Valid),
+%      ValidSig=if VerFun==undefined ->
+%                    maps:values(Map);
+%                 is_function(VerFun) ->
+%                    maps:fold(
+%                      fun(K,V,Acc) ->
+%                          case VerFun(K) of
+%                            true ->
+%                              [V|Acc];
+%                            false ->
+%                              Acc
+%                          end
+%                      end, [], Map)
+%               end,
+%      {ok, Patch#{
+%             sigverify=>#{
+%               valid=>ValidSig,
+%               invalid=>Invalid
+%              }
+%            }
+%      }
+%  end.
+%
+%verify(#{patch:=_, sig:=_}=Patch) ->
+%  verify(Patch, undefined).
 
 new() ->
     #{}.
@@ -274,16 +276,22 @@ patch1([#{<<"t">>:=Action, <<"p">>:=K, <<"v">>:=V}|Settings], M) ->
     patch1(Settings, M1).
 
 %txv2
-patch({_TxID, #{patches:=Patch, sig:=Sigs}}, M) ->
-    patch(#{patch=>Patch, sig=>Sigs}, M);
+patch(#{patches:=Patch, sig:=_Sigs}, M) ->
+    patch1(Patch, M);
+
+%txv2
+patch({_TxID, #{patches:=Patch, sig:=_Sigs}}, M) ->
+    patch1(Patch, M);
 
 %tvx1
-patch({_TxID, #{patch:=Patch, sig:=Sigs}}, M) ->
-    patch(#{patch=>Patch, sig=>Sigs}, M);
+patch({_TxID, #{patch:=Patch, sig:=Sigs}}=E, M) ->
+  ?LOG_NOTICE("deprecated v1 patch ~p", [E]),
+  patch(#{patch=>Patch, sig=>Sigs}, M);
 
 %txv1
-patch(#{patch:=Patch}, M) ->
-    patch(Patch, M);
+patch(#{patch:=Patch}=E, M) ->
+  ?LOG_NOTICE("deprecated v1 patch ~p", [E]),
+  patch(Patch, M);
 
 %naked
 patch(Changes, M) when is_list(Changes) ->
