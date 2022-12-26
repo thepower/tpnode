@@ -20,9 +20,79 @@
                         }.
 
 -spec try_process([{_,_}], mkblock_acc()) -> mkblock_acc().
-try_process([], Acc) ->
+try_process([], #{
+                  settings:=Settings,
+                  parent:=ParentHash,
+                  height:=MyHeight,
+                  new_settings:=SetState,
+                  outbound:=Outbound
+                 }=Acc) ->
+  OutChains = lists:usort([Chain || {_, Chain} <- Outbound]),
+  {SS2, Set2}=lists:foldl(
+                fun(OutTo, {SS, Set}) ->
+                    PatchTxID= <<"out", (xchain:pack_chid(OutTo))/binary>>,
+                    ChainPath=[<<"current">>, <<"outward">>,
+                               xchain:pack_chid(OutTo)],
+                    SyncSet=settings:get(ChainPath, SS),
+                    PC1=case SyncSet of
+                          #{<<".">>:=#{<<"height">>:=#{<<"ublk">>:=UBLK}}} ->
+                            [
+                             #{<<"t">> =><<"set">>,
+                               <<"p">> => ChainPath ++ [<<"pre_hash">>],
+                               <<"v">> => UBLK
+                              }
+                            ];
+                          _ -> []
+                        end,
+                    PC2=case SyncSet of
+                          #{<<"parent">>:=PP} ->
+                            [
+                             #{<<"t">> =><<"set">>,
+                               <<"p">> => ChainPath ++ [<<"pre_parent">>],
+                               <<"v">> => PP
+                              }
+                            ];
+                          _ ->
+                            []
+                        end,
+                    PC3=case SyncSet of
+                          #{<<"height">>:=HH} ->
+                            [
+                             #{<<"t">> =><<"set">>,
+                               <<"p">> => ChainPath ++ [<<"pre_height">>],
+                               <<"v">> => HH
+                              }
+                            ];
+                          _ ->
+                            []
+                        end,
+                    PCP=if PC1==[] andalso PC2==[] andalso PC3==[] ->
+                             [
+                              #{<<"t">> =><<"set">>,
+                                <<"p">> => ChainPath ++ [<<"pre_hash">>],
+                                <<"v">> => <<0,0,0,0,0,0,0,0>>
+                               },
+                              #{<<"t">> =><<"set">>,
+                                <<"p">> => ChainPath ++ [<<"pre_height">>],
+                                <<"v">> => 0
+                               }
+                             ];
+                           true ->
+                             PC1++PC2++PC3
+                        end,
+                    IncPtr=[
+                            #{<<"t">> => <<"set">>, <<"p">> => ChainPath ++ [<<"parent">>], <<"v">> => ParentHash },
+                            #{<<"t">> => <<"set">>, <<"p">> => ChainPath ++ [<<"height">>], <<"v">> => MyHeight }
+                            |PCP ],
+                    SyncPatch={PatchTxID, #{sig=>[], ver=>2, kind=>patch, patches=>IncPtr}},
+                    {
+                     settings:patch(SyncPatch, SS),
+                     [SyncPatch|Set]
+                    }
+                end, {SetState, Settings}, OutChains),
+
   ?LOG_INFO("try_process finish"),
-  Acc;
+  Acc#{settings=>Set2, set_state=>SS2};
 
 %process inbound block
 try_process([{BlID, #{ hash:=BHash,
@@ -61,7 +131,7 @@ try_process([{BlID, #{ hash:=BHash,
              }
            ],
     PatchTxID= <<"sync", (xchain:pack_chid(ChID))/binary>>,
-    SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
+    SyncPatch={PatchTxID, #{sig=>[], ver=>2, kind=>patch, patches=>IncPtr}},
     if P==undefined ->
          ?LOG_NOTICE("Old block without settings"),
          try_process([ {TxID,
@@ -583,10 +653,8 @@ try_process([{TxID, #{
     NewF1=maps:remove(keep,
                       mbal:put(view, NewView, NewF)
                      ),
-    ?LOG_INFO("F1 ~p",[maps:without([code,state],NewF1)]),
 
     NewF2=return_gas(Gas, SetState, NewF1),
-    ?LOG_INFO("F2 ~p",[maps:without([code,state],NewF2)]),
     NewAddresses=maps:put(Owner, NewF2, Addresses),
 
     try_process(Rest,
@@ -695,12 +763,12 @@ try_process([{TxID, #{from:=From, to:=To}=Tx} |Rest],
 %            SetState, Addresses, GetFun,
             #{failed:=Failed,
               %table:=Addresses,
-              %new_settings:=SetState,
+              new_settings:=SetState,
               get_settings:=GetFun
              }=Acc) ->
   MyChain=GetFun(mychain),
-  FAddr=addrcheck(From),
-  TAddr=addrcheck(To),
+  FAddr=addrcheck(From, SetState, MyChain),
+  TAddr=addrcheck(To, SetState, MyChain),
   case {FAddr, TAddr} of
     {{true, {chain, MyChain}}, {true, {chain, MyChain}}} ->
       try_process_local([{TxID, Tx}|Rest], Acc);
@@ -709,18 +777,21 @@ try_process([{TxID, #{from:=From, to:=To}=Tx} |Rest],
                                      outbound=>OtherChain
                                     }}|Rest],
                            Acc);
-    {{true, {chain, _OtherChain}}, {true, {chain, MyChain}}} ->
+    {{true, {chain, _FromChain}}, {true, {chain, MyChain}}} ->
       try_process_inbound([{TxID,
-                            maps:remove(outbound,
-                                        Tx
-                                       )}|Rest],
+                            maps:remove(outbound, Tx)}|Rest],
                           Acc);
+    {{true, private}, {true, private}}  -> %pvt
+      try_process_local([{TxID, Tx}|Rest], Acc);
     {{true, private}, {true, {chain, MyChain}}}  -> %local from pvt
-      try_process_local([{TxID, Tx}|Rest],
-                        Acc);
+      try_process_local([{TxID, Tx}|Rest], Acc);
     {{true, {chain, MyChain}}, {true, private}}  -> %local to pvt
-      try_process_local([{TxID, Tx}|Rest],
-                        Acc);
+      try_process_local([{TxID, Tx}|Rest], Acc);
+    {{true, {chain, _}}, false} ->
+      ?LOG_INFO("TX ~s dst addr error ~p", [TxID, TAddr]),
+      try_process(Rest,
+                  Acc#{failed=>[{TxID, 'bad_dst_addr'}|Failed],
+                       last => failed});
     _ ->
       ?LOG_INFO("TX ~s addr error ~p -> ~p", [TxID, FAddr, TAddr]),
       try_process(Rest,
@@ -739,6 +810,7 @@ try_process_inbound([{TxID,
                         kind:=generic,
                         from:=From,
                         to:=To,
+                        t:=T,
                         origin_block:=OriginBlock,
                         origin_block_height:=OriginHeight,
                         origin_block_hash:=OriginHash,
@@ -750,8 +822,9 @@ try_process_inbound([{TxID,
                       table:=Addresses,
                       new_settings:=SetState,
                       emit:=Emit,
+                      outbound:=Outbound,
                       pick_block:=PickBlock}=Acc) ->
-  ?LOG_ERROR("Check signature once again"),
+  ?LOG_INFO("Check signature once again"),
   try
     Gas=case tx:get_ext(<<"xc_gas">>, Tx) of
           undefined -> {<<"NONE">>,0,{1,1}};
@@ -764,106 +837,156 @@ try_process_inbound([{TxID,
             end
         end,
 
-    ?LOG_INFO("Orig Block ~p", [OriginBlock]),
-    {Addresses2, NewEmit, GasLeft, Acc1, AddEd}=deposit(TxID, To, Addresses, Tx, Gas, Acc),
-    %Addresses2=maps:put(To, NewT, Addresses),
+    try
+      ?LOG_INFO("Orig Block ~p", [OriginBlock]),
+      {NewAddresses, NewEmit, GasLeft, Acc1, AddEd}=deposit(TxID, To, Addresses, Tx, Gas, Acc),
+      %Addresses2=maps:put(To, NewT, Addresses),
 
-    NewAddresses=case GasLeft of
-                   {_, 0, _} ->
-                     Addresses2;
-                   {_, IGL, _} when IGL < 0 ->
-                     throw('insufficient_gas');
-                   {_, IGL, _} when IGL > 0 ->
-                     ?LOG_NOTICE("Return gas ~p to sender",[From]),
-                     Addresses2
-                 end,
+      RetGas=case GasLeft of
+               {_, 0, _} ->
+                 false;
+               {_, IGL, _} when IGL < 0 ->
+                 throw('insufficient_gas');
+               {Token, IGL, _} when IGL > 50 ->
+                 %TODO: take this minimal return limit from somewhere
+                 ?LOG_INFO("Return gas ~p to sender ~p",[{Token,IGL},From]),
+                 {Token, IGL};
+               _ ->
+                 false
+             end,
+      io:format("RetGas ~p to address ~p chain ~p~n",[RetGas, From, ChID]),
 
-    TxExt=maps:get(extdata,Tx,#{}),
-    NewExt=maps:merge(
-             TxExt#{
-               <<"orig_bhei">>=>OriginHeight,
-               <<"orig_bhash">>=>OriginHash,
-               <<"orig_chain">>=>ChID
-              }, maps:from_list(AddEd)
-            ),
-    FixTX=maps:without(
-            [origin_block,origin_block_height, origin_block_hash, origin_chain],
-            Tx#{extdata=>NewExt}
-           ),
-    try_process(Rest,
-                Acc1#{success=>[{TxID, FixTX}|Success],
-                     emit => Emit ++ NewEmit,
-                     table => NewAddresses,
-                     pick_block=>maps:put(OriginBlock, 1, PickBlock),
-                     last => ok
-                    })
-  catch throw:X ->
-          try_process(Rest,
-                      Acc#{failed=>[{TxID, X}|Failed],
-                           last => failed})
-  end;
+      TxExt=maps:get(extdata,Tx,#{}),
+      NewExt=maps:merge(
+               TxExt#{
+                 <<"orig_bhei">>=>OriginHeight,
+                 <<"orig_bhash">>=>OriginHash,
+                 <<"orig_chain">>=>ChID
+                }, maps:from_list(AddEd)
+              ),
+      FixTX=maps:without(
+              [origin_block,origin_block_height, origin_block_hash, origin_chain],
+              Tx#{extdata=>NewExt}
+             ),
 
-try_process_inbound([{TxID,
-                      #{cur:=Cur, amount:=Amount, to:=To,
-                        origin_block:=OriginBlock,
-                        origin_block_height:=OriginHeight,
-                        origin_block_hash:=OriginHash,
-                        origin_chain:=ChID
-                       }=Tx}
-                     |Rest],
-                    #{success:=Success,
-                      table:=Addresses,
-                      failed:=Failed,
-                      pick_block:=PickBlock}=Acc) ->
-  ?LOG_NOTICE("Check signature once again"),
-  TBal=maps:get(To, Addresses),
-  try
-    ?LOG_DEBUG("Orig Block ~p", [OriginBlock]),
-    if Amount >= 0 -> ok;
-       true -> throw ('bad_amount')
-    end,
-    NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
-    NewT=maps:remove(keep,
-                     mbal:put_cur(
-                       Cur,
-                       NewTAmount,
-                       TBal)
-                    ),
-    NewAddresses=maps:put(To, NewT, Addresses),
-    TxExt=maps:get(extdata,Tx,#{}),
-    NewExt=TxExt#{
-             <<"orig_bhei">>=>OriginHeight,
-             <<"orig_bhash">>=>OriginHash,
-             <<"orig_chain">>=>ChID
-            },
-    FixTX=maps:without(
-            [origin_block,origin_block_height, origin_block_hash, origin_chain],
-            Tx#{extdata=>NewExt}
-           ),
-    try_process(Rest,
-                Acc#{success=>[{TxID, FixTX}|Success],
-                     table => NewAddresses,
-                     pick_block=>maps:put(OriginBlock, 1, PickBlock),
-                     last => ok
-                    })
-  catch throw:X ->
+
+    case RetGas of
+      false ->
+         try_process(Rest,
+                     savegas(Gas, all,
+                             Acc1#{success=>[{TxID, FixTX}|Success],
+                                   emit => Emit ++ NewEmit,
+                                   table => NewAddresses,
+                                   pick_block=>maps:put(OriginBlock, 1, PickBlock),
+                                   last => ok
+                                  })
+                    );
+      {Tkn, Amount} ->
+         TxID2= <<TxID/binary, ":ret">>,
+         Tx2=tx:construct_tx(
+               #{kind=>generic,
+                 ver=>2,
+                 from=>To,
+                 to=>From,
+                 payload=>[
+                           #{purpose=>transfer, cur=>Tkn, amount=>Amount }
+                          ],
+                 txext=>#{<<"xc_retgas">> => true},
+                 seq=>0,
+                 t=>T
+                }),
+
+         try_process(Rest,
+                     savegas(Gas, GasLeft,
+                             Acc1#{success=>[{TxID, FixTX},{TxID2, Tx2}|Success],
+                                   emit => Emit ++ NewEmit,
+                                   table => NewAddresses,
+                                   outbound=>[{TxID2, ChID}|Outbound],
+                                   pick_block=>maps:put(OriginBlock, 1, PickBlock),
+                                   last => ok
+                                  })
+                    )
+    end
+
+    catch 
+      throw:insufficient_gas ->
+        try_process(Rest,
+                    savegas(Gas, all,
+                            Acc#{failed=>[{TxID, insufficient_gas}|Failed],
+                                 last => failed
+                                }
+                           )
+                   )
+    end
+  catch
+    throw:X ->
           try_process(Rest,
                       Acc#{failed=>[{TxID, X}|Failed],
                            last => failed})
   end.
 
+%try_process_inbound([{TxID,
+%                      #{cur:=Cur, amount:=Amount, to:=To,
+%                        origin_block:=OriginBlock,
+%                        origin_block_height:=OriginHeight,
+%                        origin_block_hash:=OriginHash,
+%                        origin_chain:=ChID
+%                       }=Tx}
+%                     |Rest],
+%                    #{success:=Success,
+%                      table:=Addresses,
+%                      failed:=Failed,
+%                      pick_block:=PickBlock}=Acc) ->
+%  TBal=maps:get(To, Addresses),
+%  try
+%    ?LOG_DEBUG("Orig Block ~p", [OriginBlock]),
+%    if Amount >= 0 -> ok;
+%       true -> throw ('bad_amount')
+%    end,
+%    NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
+%    NewT=maps:remove(keep,
+%                     mbal:put_cur(
+%                       Cur,
+%                       NewTAmount,
+%                       TBal)
+%                    ),
+%    NewAddresses=maps:put(To, NewT, Addresses),
+%    TxExt=maps:get(extdata,Tx,#{}),
+%    NewExt=TxExt#{
+%             <<"orig_bhei">>=>OriginHeight,
+%             <<"orig_bhash">>=>OriginHash,
+%             <<"orig_chain">>=>ChID
+%            },
+%    FixTX=maps:without(
+%            [origin_block,origin_block_height, origin_block_hash, origin_chain],
+%            Tx#{extdata=>NewExt}
+%           ),
+%    try_process(Rest,
+%                Acc#{success=>[{TxID, FixTX}|Success],
+%                     table => NewAddresses,
+%                     pick_block=>maps:put(OriginBlock, 1, PickBlock),
+%                     last => ok
+%                    })
+%  catch throw:X ->
+%          try_process(Rest,
+%                      Acc#{failed=>[{TxID, X}|Failed],
+%                           last => failed})
+%  end.
+
 try_process_outbound([{TxID,
-                       #{outbound:=OutTo, to:=To, from:=From}=Tx}
+                       #{
+                         ver:=2,
+                         outbound:=OutTo,
+                         to:=To,
+                         from:=From
+                        }=Tx}
                       |Rest],
                      #{failed:=Failed,
                        success:=Success,
-                       settings:=Settings,
                        outbound:=Outbound,
                        table:=Addresses,
                        get_settings:=GetFun,
-                       new_settings:=SetState,
-                       parent:=ParentHash,
-                       height:=MyHeight
+                       new_settings:=SetState
                       }=Acc) ->
   ?LOG_INFO("Processing outbound ==[ ~s ]=======",[TxID]),
   ?LOG_NOTICE("TODO:Check signature once again"),
@@ -874,76 +997,6 @@ try_process_outbound([{TxID,
     {NewF, _GasF, GotFee, GotGas}=withdraw(FBal, Tx, GetFun, SetState, []),
     ?LOG_INFO("Got gas ~p",[GotGas]),
 
-    PatchTxID= <<"out", (xchain:pack_chid(OutTo))/binary>>,
-    {SS2, Set2}=case lists:keymember(PatchTxID, 1, Settings) of
-                  true ->
-                    {SetState, Settings};
-                  false ->
-                    ChainPath=[<<"current">>, <<"outward">>,
-                               xchain:pack_chid(OutTo)],
-                    SyncSet=settings:get(ChainPath, SetState),
-                    PC1=case SyncSet of
-                          #{<<".">>:=#{<<"height">>:=#{<<"ublk">>:=UBLK}}} ->
-                            [
-                             #{<<"t">> =><<"set">>,
-                               <<"p">> => ChainPath ++ [<<"pre_hash">>],
-                               <<"v">> => UBLK
-                              }
-                            ];
-                          _ -> []
-                        end,
-                    PC2=case SyncSet of
-                          #{<<"parent">>:=PP} ->
-                            [
-                             #{<<"t">> =><<"set">>,
-                               <<"p">> => ChainPath ++ [<<"pre_parent">>],
-                               <<"v">> => PP
-                              }
-                            ];
-                          _ ->
-                            []
-                        end,
-                    PC3=case SyncSet of
-                          #{<<"height">>:=HH} ->
-                            [
-                             #{<<"t">> =><<"set">>,
-                               <<"p">> => ChainPath ++ [<<"pre_height">>],
-                               <<"v">> => HH
-                              }
-                            ];
-                          _ ->
-                            []
-                        end,
-                    PCP=if PC1==[] andalso PC2==[] andalso PC3==[] ->
-                             [
-                              #{<<"t">> =><<"set">>,
-                                <<"p">> => ChainPath ++ [<<"pre_hash">>],
-                                <<"v">> => <<0,0,0,0,0,0,0,0>>
-                               },
-                              #{<<"t">> =><<"set">>,
-                                <<"p">> => ChainPath ++ [<<"pre_height">>],
-                                <<"v">> => 0
-                               }
-                             ];
-                           true ->
-                             PC1++PC2++PC3
-                        end,
-                    IncPtr=[
-                            #{<<"t">> => <<"set">>,
-                              <<"p">> => ChainPath ++ [<<"parent">>],
-                              <<"v">> => ParentHash
-                             },
-                            #{<<"t">> => <<"set">>,
-                              <<"p">> => ChainPath ++ [<<"height">>],
-                              <<"v">> => MyHeight
-                             }
-                            |PCP ],
-                    SyncPatch={PatchTxID, #{sig=>[], patch=>IncPtr}},
-                    {
-                     settings:patch(SyncPatch, SetState),
-                     [SyncPatch|Settings]
-                    }
-                end,
     NewAddresses=maps:put(From, NewF, Addresses),
     Tx1=case GotGas of
           {_,0,_} -> tx:del_ext(<<"xc_gas">>, Tx);
@@ -953,8 +1006,6 @@ try_process_outbound([{TxID,
     try_process(Rest,
                 savefee(GotFee,
                         Acc#{
-                          settings=>Set2,
-                          new_settings=>SS2,
                           table => NewAddresses,
                           success=>[{TxID, Tx1}|Success],
                           outbound=>[{TxID, OutTo}|Outbound],
@@ -1228,27 +1279,31 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                    end, Addresses2, Changes),
       LToPatch=maps:get(Address, Addresses3),
       Addresses4=maps:put(Address, mbal:patch(LedgerPatches,LToPatch), Addresses3),
-      {Addresses4, EmitTxs, GasLeft, Acc2#{aalloc=>AAlloc2, log=>EmitLog++Logs},
-       case maps:get("return",OpaqueState2,undefined) of
+      AddED=case maps:get("return",OpaqueState2,undefined) of
          <<Int:256/big>> when Int < 16#10000000000000000 ->
-           [{retval, Int}];
+           [{<<"retval">>, Int}];
          <<Bin:32/big>> ->
-           [{retval, Bin}];
+           [{<<"retval">>, Bin}];
          RetVal when is_binary(RetVal) ->
-           [{retval, other}];
+           [{<<"retval">>, <<"other">>}];
          undefined ->
            case maps:get("revert",OpaqueState2,undefined) of
              <<16#08C379A0:32/big,
                16#20:256/big,
                Len:256/big,
                Str:Len/binary,_/binary>> when 32>=Len ->
-               [{revert, Str}];
+               [{<<"revert">>, Str}];
              Revert when is_binary(Revert) ->
-               [{revert, other}];
+               [{<<"revert">>, <<"other">>}];
              undefined ->
                []
            end
-       end
+       end,
+      {Addresses4,
+       EmitTxs,
+       GasLeft,
+       Acc2#{aalloc=>AAlloc2, log=>EmitLog++Logs},
+       AddED
       }
   end.
 
@@ -1471,12 +1526,20 @@ return_gas({GCur, GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
       Bal0
   end.
 
-addrcheck(Addr) ->
+addrcheck(Addr, Set, OC) ->
   case naddress:check(Addr) of
     {true, #{type:=public}} ->
       case address_db:lookup(Addr) of
+        {ok, Chain} when Chain==OC->
+              {true, {chain, Chain}};
         {ok, Chain} ->
-          {true, {chain, Chain}};
+          Valid=maps:get(chains,Set,[]),
+          case lists:member(Chain,Valid) of
+            true ->
+              {true, {chain, Chain}};
+            false ->
+              unroutable
+          end;
         _ ->
           unroutable
       end;

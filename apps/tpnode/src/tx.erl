@@ -585,8 +585,9 @@ sign(#{kind:=_Kind,
   Sig=bsig:signhash(Body,[],PrivKey),
   Tx#{sig=>[Sig|PS]};
 
-sign(Any, PrivKey) ->
-  tx1:sign(Any, PrivKey).
+sign(Any, _PrivKey) ->
+  throw({not_a_tx,Any}).
+  %tx1:sign(Any, PrivKey).
 
 
 -type tx() :: tx2() | tx1().
@@ -714,18 +715,25 @@ verify(#{
   sig:=LSigs,
   ver:=2
  }=Tx, Opts) ->
-  CheckFun=case lists:keyfind(settings,1,Opts) of
-             {_,Sets0} ->
+  NCK=lists:member(nocheck_keys, Opts),
+  CheckFun=case {NCK,lists:keyfind(settings,1,Opts)} of
+             {true,_} ->
+               fun(_PubKey,_) ->
+                   true
+               end;
+             {false, {_,Sets0}} ->
                fun(PubKey,_) ->
                    chainsettings:is_our_node(PubKey, Sets0) =/= false
                end;
-             false ->
+             {false, false} ->
                fun(PubKey,_) ->
                    chainsettings:is_our_node(PubKey) =/= false
                end
            end,
   Res=bsig:checksig(Body, LSigs, CheckFun),
   case Res of
+    {[], _} when NCK==true ->
+      bad_sig;
     {[], _} ->
       Sets=case lists:keyfind(settings,1,Opts) of
              {_,Sets1} ->
@@ -764,6 +772,16 @@ verify(#{
         _ ->
           bad_sig
       end;
+    {Valid, Invalid} when length(Valid)>0 andalso NCK ->
+      {ok, Tx#{
+             sigverify=>#{
+               valid=>length(Valid),
+               invalid=>Invalid,
+               source=>unverified,
+               pubkeys=>bsig:extract_pubkeys(Valid)
+              }
+            }
+      };
     {Valid, Invalid} when length(Valid)>0 ->
       {ok, Tx#{
              sigverify=>#{
@@ -787,8 +805,9 @@ verify(Bin, Opts) when is_binary(Bin) ->
   end;
 
 
-verify(Struct, Opts) ->
-  tx1:verify(Struct, Opts).
+verify(Struct, _Opts) ->
+  throw({invalid_tx, Struct}).
+  %tx1:verify(Struct, Opts).
 
 -spec pack(tx()) -> binary().
 
@@ -838,7 +857,8 @@ pack(#{ ver:=2,
                  ]);
 
 pack(Any, _) ->
-  tx1:pack(Any).
+  throw({invalid_tx, Any}).
+  %tx1:pack(Any).
 
 
 complete_tx(BinTx,Comp) when is_binary(BinTx) ->
@@ -872,16 +892,8 @@ unpack(BinTx,Opts) when is_binary(BinTx), is_list(Opts) ->
        });
     #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody} ->
       unpack_generic(Trusted, Tx0, TxBody, Sign);
-    #{<<"ver">>:=2, <<"sig">>:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv} ->
-      unpack_body( #{
-        ver=>2,
-        sig=>Sign,
-        body=>TxBody,
-        inv=>Inv
-       });
-    #{<<"ver">>:=2, <<"sig">>:=Sign, <<"body">>:=TxBody} ->
-      unpack_generic(Trusted, Tx0, TxBody, Sign);
     _ ->
+      ?LOG_INFO("FIXME isTXv1: ~p", [Tx0]),
       tx1:unpack_mp(Tx0)
   end.
 

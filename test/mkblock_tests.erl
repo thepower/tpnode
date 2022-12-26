@@ -620,7 +620,7 @@ mkblock_tx2_test() ->
                            OurChain;
                           (settings) ->
                            #{
-                             chains => [0, 1],
+                             chains => [0, 1, OurChain+2],
                              chain =>
                              #{0 =>
                                #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
@@ -886,7 +886,7 @@ mkblock_test() ->
                            OurChain;
                           (settings) ->
                            #{
-                             chains => [0, 1],
+                             chains => [0, 1, OurChain, OurChain+2],
                              chain =>
                              #{0 =>
                                #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
@@ -978,6 +978,20 @@ mkblock_test() ->
                    kind=>generic,
                    from=>naddress:construct_public(SG, OurChain, 3),
                    to=>naddress:construct_public(1, OurChain+2, 1),
+                   payload=>[
+                             #{purpose=>transfer, amount=>9, cur=><<"FTT">>},
+                             #{purpose=>srcfee, amount=>1, cur=><<"FTT">> }
+                            ],
+                   seq=>4,
+                   t=>os:system_time(millisecond)
+                  }), Pvt1),
+           TX2f=tx:sign(
+                 tx:construct_tx(
+                   #{
+                   ver=>2,
+                   kind=>generic,
+                   from=>naddress:construct_public(SG, OurChain, 3),
+                   to=>naddress:construct_public(1, OurChain+3, 1),
                    payload=>[
                              #{purpose=>transfer, amount=>9, cur=><<"FTT">>},
                              #{purpose=>srcfee, amount=>1, cur=><<"FTT">> }
@@ -1087,6 +1101,7 @@ mkblock_test() ->
                                 {<<"1interchain">>, maps:put(sigverify,#{valid=>1},TX0)},
                                 {<<"2invalid">>, maps:put(sigverify,#{valid=>1},TX1)},
                                 {<<"3crosschain">>, maps:put(sigverify,#{valid=>1},TX2)},
+                                {<<"3.1badcross">>, maps:put(sigverify,#{valid=>1},TX2f)},
                                 {<<"4crosschain">>, maps:put(sigverify,#{valid=>1},TX3)},
                                 {<<"5nosk">>, maps:put(sigverify,#{valid=>1},TX4)},
                                 {<<"6sklim">>, maps:put(sigverify,#{valid=>1},TX5)},
@@ -1109,6 +1124,7 @@ mkblock_test() ->
 
            [
            ?assertMatch([{<<"2invalid">>, insufficient_fund},
+                         {<<"3.1badcross">>,bad_src_or_dst_addr},
                          {<<"5nosk">>, no_sk},
                          {<<"6sklim">>, sk_limit},
                          {<<"8nofee">>, {insufficient_fee, 2}},
@@ -1243,17 +1259,29 @@ xchain_test() ->
            ParentHash=crypto:hash(sha256, <<"parent">>),
            SG=3,
 
+           TX1a=tx:sign(
+                  tx:upgrade(
+                    #{
+                      from=>naddress:construct_public(SG, OurChain, 3),
+                      to=>naddress:construct_public(SG, OurChain, 3),
+                      amount=>0,
+                      cur=><<"FTT">>,
+                      extradata=>jsx:encode(#{ fee=>1, feecur=><<"FTT">> }),
+                      seq=>3,
+                      timestamp=>os:system_time(millisecond)-1
+                     }), Pvt1),
+
            TX1=tx:sign(
-                   tx:upgrade(
+                 tx:upgrade(
                    #{
-                   from=>naddress:construct_public(SG, OurChain, 3),
-                   to=>naddress:construct_public(1, OurChain+1, 1),
-                   amount=>9,
-                   cur=><<"FTT">>,
-                   extradata=>jsx:encode(#{ fee=>1, feecur=><<"FTT">> }),
-                   seq=>4,
-                   timestamp=>os:system_time(millisecond)
-                  }), Pvt1),
+                     from=>naddress:construct_public(SG, OurChain, 3),
+                     to=>naddress:construct_public(1, OurChain+1, 1),
+                     amount=>9,
+                     cur=><<"FTT">>,
+                     extradata=>jsx:encode(#{ fee=>1, feecur=><<"FTT">> }),
+                     seq=>4,
+                     timestamp=>os:system_time(millisecond)
+                    }), Pvt1),
            TX2=tx:sign(
                  tx:construct_tx(
                    #{
@@ -1271,6 +1299,7 @@ xchain_test() ->
            #{block:=Block1,
              failed:=Failed1}=generate_block:generate_block(
                                 [
+                                 {<<"tx0">>, maps:put(sigverify,#{valid=>1},TX1a)},
                                  {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
                                 ],
                                 {1, ParentHash},
@@ -1280,7 +1309,7 @@ xchain_test() ->
 
            Success1=proplists:get_keys(maps:get(txs, Block1)),
            ?assertMatch([], lists:sort(Failed1)),
-           ?assertEqual([ <<"tx1">> ], lists:sort(Success1)),
+           ?assertEqual([ <<"tx0">>, <<"tx1">> ], lists:sort(Success1)),
            ?assertEqual([ <<"tx1">> ],
                         proplists:get_keys(maps:get(tx_proof, Block1))
                        ),
@@ -1307,11 +1336,6 @@ xchain_test() ->
                            GetAddr,
                            []),
            SignedBlock2=block:sign(Block2, C1N1),
-           FormatBS=fun(Block) ->
-                        settings:patch(
-                          maps:get(patch,proplists:get_value(<<"outch:6">>,maps:get(settings,Block))),
-                          #{})
-                    end,
            #{hash:=OH1}=OBlk1=maps:get(OurChain+1, block:outward_mk(maps:get(outbound, SignedBlock1), SignedBlock1)),
            #{hash:=OH2}=OBlk2=maps:get(OurChain+1, block:outward_mk(maps:get(outbound, SignedBlock2), SignedBlock2)),
            HOH1=hex:encode(OH1),
@@ -1362,20 +1386,43 @@ xchain_test() ->
                            GetAddr,
                            []),
 
-           FormatDBS=fun(Block) ->
-                         settings:patch(
-                           maps:get(patch,proplists:get_value(<<"syncch:5">>,maps:get(settings,Block))),
-                           #{})
-                     end,
-           TT=proplists:get_value(<<"tx2">>,maps:get(txs,RBlock2)),
-           {
-            FormatBS(OBlk1),
-            maps:get(hash,OBlk1),
-            FormatBS(OBlk2),
-            FormatDBS(RBlock1),
-            FormatDBS(RBlock2),
-            TT
-           }
+           FormatBS=fun(Block) ->
+                        settings:patch(
+                          maps:get(patches,proplists:get_value(<<"outch:6">>,maps:get(settings,Block))),
+                          #{})
+                    end,
+
+           %FormatDBS=fun(Block) ->
+           %              settings:patch(
+           %                maps:get(patches,proplists:get_value(<<"syncch:5">>,maps:get(settings,Block))),
+           %                #{})
+           %          end,
+           [
+            ?assertMatch(#{},proplists:get_value(<<"tx2">>,maps:get(txs,RBlock2))),
+
+            ?assertEqual(
+               <<0,0,0,0,0,0,0,0>>,
+               settings:get([<<"current">>,<<"outward">>,<<"ch:6">>,<<"pre_hash">>],
+                            FormatBS(OBlk1)
+                           )
+              ),
+
+            ?assertEqual(
+               maps:get(hash,OBlk1),
+               settings:get([<<"current">>,<<"outward">>,<<"ch:6">>,<<"pre_hash">>],
+                            FormatBS(OBlk2)
+                           )
+              ),
+            ?assertEqual(
+               maps:get(hash,OBlk1),
+               settings:get([<<"current">>,<<"outward">>,<<"ch:6">>,<<"parent">>],
+                            FormatBS(OBlk2))
+              )
+           ]
+           %{
+           % settings:get([<<"current">>,<<"sync_status">>,<<"ch:5">>,<<"block">>], FormatDBS(RBlock1)),
+           % FormatDBS(RBlock2)
+           %}
        end,
   Ledger=[],
   mledger:deploy4test(Ledger, Test).

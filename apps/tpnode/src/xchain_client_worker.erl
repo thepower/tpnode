@@ -58,7 +58,7 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
     end,
     Proto=case sync_get_decode(Pid, "/xchain/api/compat.mp") of
             {200, _, #{<<"ok">>:=true,<<"version">>:=Ver}} -> Ver;
-            {404, _, _} -> 0;
+            {404, _, _} -> throw('xchain_protocol_does_not_supported');
             _ -> 0
           end,
     {[<<"websocket">>],UpgradeHdrs}=upgrade(Pid,Proto),
@@ -149,7 +149,7 @@ ws_mode(Pid, #{parent:=Parent, proto:=Proto}=Sub, GetFun) ->
       Cmd = xchain:pack(Payload, Proto),
       gun:ws_send(Pid, {binary, Cmd}),
       ?MODULE:ws_mode(Pid, Sub, GetFun);
-    {gun_ws, Pid, {binary, Bin}} ->
+    {gun_ws, Pid, _Ref, {binary, Bin}} ->
       Cmd = xchain:unpack(Bin, Proto),
       ?LOG_DEBUG("XChain client got ~p",[Cmd]),
       Sub1=xchain_client_handler:handle_xchain(Cmd, Pid, Sub),

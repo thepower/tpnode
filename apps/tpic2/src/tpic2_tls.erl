@@ -55,22 +55,39 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
              undefined
          end,
   IsItMe=tpecdsa:cmp_pubkey(Pubkey)==tpecdsa:cmp_pubkey(nodekey:get_pub()),
+  IsOurNode=chainsettings:is_our_node(Pubkey),
   ?LOG_INFO("Peer PubKey ~s ~p",[hex:encode(Pubkey),
-                                  try
-                                    chainsettings:is_our_node(Pubkey)
-                                  catch _:_ -> unkn0wn
-                                  end]),
-  case {IsItMe,Role} of
-    {true, server} ->
-      ?LOG_NOTICE("Looks like I received connection from myself, dropping session"),
+                                  try IsOurNode catch _:_ -> unkn0wn end]),
+  if IsItMe andalso Role==server ->
+      ?LOG_NOTICE("I received connection from myself, dropping session"),
+      timer:sleep(1000),
+      Transport:close(Socket),
       done;
-    {true, _} ->
-      ?LOG_NOTICE("Looks like I received connected to myself, dropping session"),
+
+     IsItMe ->
+      ?LOG_NOTICE("I connected to myself, dropping session"),
+      timer:sleep(1000),
+      Transport:close(Socket),
       done;
-    {false, server} ->
+
+     Role == server andalso IsOurNode == false -> %server, unknonwn peer
+      tpic2_tls:send_msg(unknown_node, State),
+      timer:sleep(1000),
+      Transport:close(Socket),
+      done;
+
+     Role == server -> %server, known peer
       {ok,PPID}=gen_server:call(tpic2_cmgr, {peer,Pubkey, {register, undefined, in, self()}}),
       ?MODULE:loop(State#{pubkey=>Pubkey,peerpid=>PPID});
-    {false, _} ->
+
+     IsOurNode == false -> %client unknown node
+      {IP, Port} = maps:get(address, State),
+      gen_server:call(tpic2_cmgr,{peer, Pubkey, {del, IP, Port}, unknown_node}),
+      timer:sleep(5000),
+      Transport:close(Socket),
+      done;
+
+    true -> %client, known node
       Stream=maps:get(stream, Opts, 0),
       {IP, Port} = maps:get(address, State),
       gen_server:call(tpic2_cmgr,{peer, Pubkey, {add, IP, Port}}),
@@ -206,6 +223,11 @@ send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
           services=>Announce
          },
   ?LOG_DEBUG("Hello ~p",[Hello]),
+  ssl:send(Socket,msgpack:pack(Hello));
+
+send_msg(unknown_node, #{socket:=Socket, opts:=Opts}) ->
+  ?LOG_DEBUG("send unknown_node and close conn to ~p",[Opts]),
+  Hello=#{null=><<"unknown_node">>},
   ssl:send(Socket,msgpack:pack(Hello));
 
 send_msg(Msg, #{socket:=Socket}) when is_map(Msg) ->

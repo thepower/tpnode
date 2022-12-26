@@ -12,7 +12,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1]).
+-export([start_link/1,init_subscribes/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -35,9 +35,10 @@ start_link(Options) ->
 
 init(_Args) ->
   State = #{
-    subs => init_subscribes(#{}),
+    %subs => init_subscribes(#{}),
+    subs => #{},
     chain => blockchain:chain(),
-    connect_timer => erlang:send_after(3 * 1000, self(), make_connections)
+    connect_timer => erlang:send_after(5 * 1000, self(), make_connections)
   },
   code:ensure_loaded(xchain_client_handler),
   {ok, State}.
@@ -113,7 +114,8 @@ handle_info({wrk_down, ConnPid, Reason}, #{subs:=Subs} = State) ->
 
 handle_info(make_connections, #{connect_timer:=Timer, subs:=Subs} = State) ->
   catch erlang:cancel_timer(Timer),
-  NewSubs = make_connections(Subs),
+  Subs1 = init_subscribes(Subs),
+  NewSubs = make_connections(Subs1),
   {noreply,
     State#{
       subs => NewSubs,
@@ -175,8 +177,6 @@ make_connections(Subs) ->
     end,
     Subs
    ).
-
-
 
 add_sub(#{address:=IP,port:=Port}=Subscribe, Subs) ->
   try
@@ -240,19 +240,92 @@ change_settings_handler(#{chain:=Chain, subs:=Subs} = State) ->
   end.
 
 init_subscribes(Subs) ->
+  CS=case ets:info(blockchain) of
+       undefined ->
+         false;
+       _ ->
+         true
+     end,
   Config = application:get_env(tpnode, crosschain, #{}),
-  ConnectIpsList = maps:get(connect, Config, []),
-  lists:foldl(
-    fun({Ip, Port}, Acc) when is_integer(Port) ->
-        Sub = #{
-          address => Ip,
-          port => Port
-         },
-        add_sub(Sub, Acc);
-       (Invalid, Acc) ->
-        ?LOG_ERROR("xhcain client got invalid crosschain connect term: ~p", Invalid),
-        Acc
-    end, Subs, ConnectIpsList).
+  case maps:get(connect, Config, undefined) of
+    undefined ->
+      MyCfg=if CS==false ->
+                 #{};
+               CS==true ->
+                 CfgPath=[<<"current">>, <<"xchain">>, nodekey:node_name()],
+                 chainsettings:by_path(CfgPath)
+            end,
+      case maps:get(<<"connect">>,MyCfg,#{}) of
+        Nodes2Connect when is_list(Nodes2Connect) ->
+          S1=lists:foldl(
+            fun(NodeName,A) ->
+                C=chainsettings:contacts(NodeName,[<<"xchain">>,<<"xchain+tls">>]),
+                if is_list(C) ->
+                     lists:foldl(
+                       fun(ConnTo,Acc) ->
+                           %uri_string:parse(<<"xchain://user:pw@10.3.252.69:1080/as/er.txt?x=1#s123">>).
+                           URI=#{scheme:=S,host:=H,port:=P}=uri_string:parse(ConnTo),
+                           Parts=binary:split(
+                                   maps:get( query, URI, <<>>),
+                                   <<"&">>,
+                                   [global]),
+                           Param=[ case binary:split(L,<<"=">>) of
+                                      [A1,B1] -> {A1,B1};
+                                      [A1] -> A1
+                                    end || L <- Parts ]--[<<>>],
+                           case S of
+                             <<"xchain">> ->
+                               add_sub( #{ url=>ConnTo,
+                                           scheme=>S,
+                                           address => binary_to_list(H),
+                                           port => P,
+                                           param => Param,
+                                           new => true
+                                         },Acc);
+                             <<"xchain+tls">> -> %not ready yet, so ignore
+                               Acc;
+                             _ ->
+                               Acc
+                           end
+                       end,
+                       A, C);
+                   C==#{} ->
+                     A;
+                   true ->
+                     ?LOG_ERROR("Can't parse node ~p contacts ~p",[NodeName,C]),
+                     A
+                end
+            end,
+            Subs,
+            Nodes2Connect),
+          maps:fold(
+            fun(K, #{new:=_}=V, Acc)  ->
+                maps:put(K,maps:remove(new,V),Acc);
+               (K, #{worker:=_}=V, Acc)  ->
+                maps:put(K,V,Acc);
+               (_K, _Sub, Acc)  ->
+                Acc
+            end, #{}, S1);
+
+        #{} ->
+          Subs;
+        Any ->
+          ?LOG_ERROR("Can't parse connect ~p",[Any]),
+          Subs
+      end;
+    ConnectIpsList ->
+      lists:foldl(
+        fun({Ip, Port}, Acc) when is_integer(Port) ->
+            Sub = #{
+                    address => Ip,
+                    port => Port
+                   },
+            add_sub(Sub, Acc);
+           (Invalid, Acc) ->
+            ?LOG_ERROR("xhcain client got invalid crosschain connect term: ~p", Invalid),
+            Acc
+        end, Subs, ConnectIpsList)
+  end.
 
 update_sub(Fun, GunPid, Subs) ->
   case find_sub_by_pid_and_ref(GunPid, Subs) of

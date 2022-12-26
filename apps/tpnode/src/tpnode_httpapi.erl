@@ -215,7 +215,7 @@ h(<<"GET">>, [<<"node">>, <<"tpicpeers">>], _Req) ->
 h(<<"GET">>, [<<"node">>, <<"chainstate">>], _Req) ->
   R=maps:fold(
       fun({H,B1,B2,Tmp},Cnt,A) ->
-          [[H,hex:encode(B1),hex:encode(B2),Tmp,Cnt]|A]
+          [[H,hex:encode(B1),hex:encode(B2),Tmp,length(Cnt),Cnt]|A]
       end,
       [],
       blockchain_sync:chainstate()),

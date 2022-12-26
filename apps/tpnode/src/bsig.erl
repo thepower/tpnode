@@ -105,9 +105,8 @@ encode_edval(N, PK) when is_binary(N) andalso is_binary(PK) ->
   end;
 encode_edval(_, _) -> <<>>.
 
-splitsig(<<255, SLen:8/integer, Rest/binary>>) ->
-    <<Signature:SLen/binary, Extradata/binary>>=Rest,
-    {Signature, Extradata}.
+splitsig(<<255, SLen:8/integer, Signature:SLen/binary, Rest/binary>>) ->
+    {Signature, Rest}.
 
 unpacksig(HSig) when is_map(HSig) ->
     HSig;
