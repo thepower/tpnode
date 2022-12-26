@@ -375,38 +375,45 @@ h(<<"GET">>, [<<"nodes">>, Chain], _Req) ->
         chain_nodes => get_nodes(binary_to_integer(Chain, 10))
     });
 
-h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], _Req) ->
+h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], Req) ->
   try
     Addr=case TAddr of
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    Ledger=mledger:get(Addr),
-    case Ledger =/= undefined of
-      false ->
-          err(
-              10003,
-              <<"Not found">>,
-              #{result => <<"not_found">>},
-              #{http_code => 404}
-          );
-      true ->
-        State=maps:get(state, Ledger, #{}),
-        S1=maps:fold(
-             fun(K,_,Acc) ->
-                [<<"0x",(hex:encode(K))/binary>>|Acc]
-             end, [], State),
+    case mledger:get_kpv(Addr,vm,'_') of
+      undefined ->
+        err(
+          10003,
+          <<"Not found">>,
+          #{result => <<"not_found">>},
+          #{http_code => 404}
+         );
+      {ok,_VM} ->
+        RawKeys=mledger:get_kpvs(Addr,state,'_'),
+
+        S1=case maps:get(req_format,Req) of
+             <<"mp">> ->
+               lists:foldl(
+                 fun({state,K,_},Acc) ->
+                     [K|Acc]
+                 end, [], RawKeys);
+             _ -> %default hex encode
+               lists:foldl(
+                 fun({state,K,_},Acc) ->
+                     [<<"0x",(hex:encode(K))/binary>>|Acc]
+                 end, [], RawKeys)
+           end,
         {200, [{"Content-Type","application/json"}],
          #{
            notice => <<"Only for debugging. Do not use it in scripts!!!">>,
            keys => S1
           }
         }
-
     end
   catch
     throw:{error, address_crc} ->
-              err(
+      err(
                   10004,
                   <<"Invalid address">>,
                   #{result => <<"error">>},
@@ -428,33 +435,36 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    Ledger=mledger:get(Addr),
-    case Ledger =/= undefined of
-      false ->
+    case mledger:get_kpv(Addr,vm,'_') of
+      undefined ->
           err(
               10003,
               <<"Not found">>,
               #{result => <<"not_found">>},
               #{http_code => 404}
           );
-      true ->
-        State=maps:get(state, Ledger, #{}),
+      {ok,_VM} ->
         case Path of
           [] ->
-            ?LOG_INFO("F ~p",[F]),
+            RawKeys=mledger:get_kpvs(Addr,state,'_'),
             case F of <<>> ->
-                        S1=msgpack:pack(State),
+                        KVs=lists:foldl(
+                              fun({state,K,V}, A) ->
+                                  maps:put(K,V,A)
+                              end,#{},RawKeys
+                             ),
+                        S1=msgpack:pack(KVs),
                         {200, [{"Content-Type","binary/octet-stream"}], S1};
                       <<"json">> ->
-                        S1=maps:fold(
-                          fun(K,V,Acc) ->
-                              maps:put(
-                                base64:encode(K),
-                                base64:encode(V),
-                                Acc)
-                          end, #{
-                            notice => <<"Only for Sasha">>
-                           }, State),
+                        S1=lists:foldl(
+                             fun({state,K,V},Acc) ->
+                                 maps:put(
+                                   base64:encode(K),
+                                   base64:encode(V),
+                                   Acc)
+                             end, #{
+                                    notice => <<"Only for Sasha">>
+                                   }, RawKeys),
                         {200, [{"Content-Type","application/json"}], S1}
             end;
           [Key] ->
@@ -462,7 +472,10 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
                    <<"0x", HexK/binary>> -> hex:parse(HexK);
                    _ -> base64:decode(Key)
                  end,
-            Val=maps:get(K,State,<<>>),
+            Val=case mledger:get_kpv(Addr,state,K) of
+                  undefined -> <<>>;
+                  {ok,V1} -> V1
+                end,
             {200, [{"Content-Type","binary/octet-stream"}], Val}
         end
     end
@@ -490,17 +503,16 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    Ledger=mledger:get(Addr),
-    case Ledger =/= undefined of
-      false ->
+    Ledger=mledger:get_kpv(Addr, code, []),
+    case Ledger of
+      undefined ->
           err(
               10003,
               <<"Not found">>,
               #{result => <<"not_found">>},
               #{http_code => 404}
           );
-      true ->
-        Code=maps:get(code, Ledger, <<>>),
+      {ok, Code} ->
         {200, [{"Content-Type","binary/octet-stream"}], Code}
     end
   catch
