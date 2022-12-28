@@ -42,7 +42,8 @@ start_link() ->
 callback_mode() -> state_functions.
 
 init([]) ->
-  self() ! init,
+  erlang:send_after(2000, self(), run_workers),
+  %self() ! run_workers,
   {ok, state_init, #{loaders=>[]}}.
 
 format_status(_Opt, [_PDict, State, Data]) ->
@@ -134,6 +135,9 @@ state_init(info, run_workers, _Data) ->
   keep_state_and_data;
 
 state_init(info, {wrk_up,_Pid,_}, _Data) ->
+  keep_state_and_data;
+
+state_init(info, {wrk_presync,_Pid,start}, _Data) ->
   keep_state_and_data;
 
 state_init(Kind, Msg, _Data) ->
