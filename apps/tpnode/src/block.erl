@@ -512,8 +512,10 @@ binarize_settings([]) -> [];
 binarize_settings([{TxID, Patch}|Rest]) ->
   [{TxID, pack_patch(Patch)}|binarize_settings(Rest)].
 
-pack_patch(#{ patch:=P }) ->
-  tx:pack(tx:construct_tx(#{patches=>P, kind=>patch, ver=>2}));
+pack_patch(#{ patch:=_LPatch }=OldTX) ->
+  tx:pack(OldTX);
+%  tx:pack(tx:construct_tx(#{patches=>P, kind=>patch, ver=>2}));
+
 pack_patch(#{ kind:=patch, ver:=2, patches:=_, body:=_ }=Patch) ->
   tx:pack(Patch);
 pack_patch(#{ kind:=patch, ver:=2, patches:=_ }=Patch) ->
