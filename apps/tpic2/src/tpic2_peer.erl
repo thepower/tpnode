@@ -318,6 +318,7 @@ filter_rfc1918(IPP) ->
               {ok, {172,O,_,_}} when O>=16, O<24 -> false;
               {ok, {192,168,_,_}} -> false;
               {ok, _} -> true;
+              {error,einval} -> true;
               _ -> false
             end
         end,
