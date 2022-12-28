@@ -585,6 +585,9 @@ sign(#{kind:=_Kind,
   Sig=bsig:signhash(Body,[],PrivKey),
   Tx#{sig=>[Sig|PS]};
 
+sign(#{patch:=Patch}, PrivKey) ->
+  tx:sign(tx:construct_tx(#{patches=>Patch, kind=>patch, ver=>2}), PrivKey);
+
 sign(Any, _PrivKey) ->
   throw({not_a_tx,Any}).
   %tx1:sign(Any, PrivKey).
@@ -813,6 +816,17 @@ verify(Struct, _Opts) ->
 
 pack(Tx) ->
   pack(Tx, []).
+
+pack(#{ patch:=LPatch }=OldTX, _Opts) ->
+  msgpack:pack(
+    maps:merge(
+      #{
+        type => <<"patch">>,
+        patch => LPatch,
+        sig => maps:get(sig, OldTX, [])
+       },
+      maps:with([extdata], OldTX))
+   );
 
 pack(#{
   hash:=_,

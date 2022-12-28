@@ -263,8 +263,8 @@ run_generate(
   catch throw:empty ->
           ?LOG_INFO("Skip empty block"),
           skip;
-        throw:Other ->
-          ?LOG_INFO("Skip ~p",[Other]),
+        throw:Other:Stack ->
+          ?LOG_NOTICE("Skip ~p @ ~p",[Other,hd(Stack)]),
           error
   end.
 

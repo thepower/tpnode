@@ -3,7 +3,8 @@
 
 -export([new/0, set/3, patch/2, mp/1, dmp/1, get/2]).
 -export([get_patches/1, get_patches/2]).
-%-export([sign/2, verify/1, verify/2]).
+%-export([sign/2, verify/2]).
+-export([verify/1]).
 -export([make_meta/2, clean_meta/1]).
 
 %sign(Patch, PrivKey) when is_list(Patch) ->
@@ -24,48 +25,48 @@
 %        sig => [Sig|maps:get(sig, Patch, [])]
 %     }.
 %
-%verify(#{patch:=LPatch, sig:=HSig}=Patch, VerFun) ->
-%  BinPatch=if is_list(LPatch) -> mp(LPatch);
-%              is_binary(LPatch) -> LPatch
-%           end,
-%  {Valid, Invalid}=bsig:checksig(crypto:hash(sha256, BinPatch), HSig),
-%  case length(Valid) of
-%    0 ->
-%      bad_sig;
-%    N when N>0 ->
-%      Map=lists:foldl(%make signatures unique
-%            fun(#{extra:=ED}=P,Acc) ->
-%                case proplists:get_value(pubkey,ED) of
-%                  PK when is_binary(PK) ->
-%                    maps:put(PK,P,Acc);
-%                  _ ->
-%                    Acc
-%                end
-%            end, #{}, Valid),
-%      ValidSig=if VerFun==undefined ->
-%                    maps:values(Map);
-%                 is_function(VerFun) ->
-%                    maps:fold(
-%                      fun(K,V,Acc) ->
-%                          case VerFun(K) of
-%                            true ->
-%                              [V|Acc];
-%                            false ->
-%                              Acc
-%                          end
-%                      end, [], Map)
-%               end,
-%      {ok, Patch#{
-%             sigverify=>#{
-%               valid=>ValidSig,
-%               invalid=>Invalid
-%              }
-%            }
-%      }
-%  end.
-%
-%verify(#{patch:=_, sig:=_}=Patch) ->
-%  verify(Patch, undefined).
+verify(#{patch:=LPatch, sig:=HSig}=Patch, VerFun) ->
+  BinPatch=if is_list(LPatch) -> mp(LPatch);
+              is_binary(LPatch) -> LPatch
+           end,
+  {Valid, Invalid}=bsig:checksig(crypto:hash(sha256, BinPatch), HSig),
+  case length(Valid) of
+    0 ->
+      bad_sig;
+    N when N>0 ->
+      Map=lists:foldl(%make signatures unique
+            fun(#{extra:=ED}=P,Acc) ->
+                case proplists:get_value(pubkey,ED) of
+                  PK when is_binary(PK) ->
+                    maps:put(PK,P,Acc);
+                  _ ->
+                    Acc
+                end
+            end, #{}, Valid),
+      ValidSig=if VerFun==undefined ->
+                    maps:values(Map);
+                 is_function(VerFun) ->
+                    maps:fold(
+                      fun(K,V,Acc) ->
+                          case VerFun(K) of
+                            true ->
+                              [V|Acc];
+                            false ->
+                              Acc
+                          end
+                      end, [], Map)
+               end,
+      {ok, Patch#{
+             sigverify=>#{
+               valid=>ValidSig,
+               invalid=>Invalid
+              }
+            }
+      }
+  end.
+
+verify(#{patch:=_, sig:=_}=Patch) ->
+  verify(Patch, undefined).
 
 new() ->
     #{}.
