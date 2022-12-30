@@ -5,13 +5,13 @@
 -include("include/tplog.hrl").
 
 %% API
--export([handle_xchain/1, known_atoms/0]).
+-export([handle_xchain/2, known_atoms/0]).
 
 known_atoms() ->
   [iam, subscribed].
 
 handle_xchain(#{null:=<<"last_ptr">>,
-                <<"chain">>:=Chain}) ->
+                <<"chain">>:=Chain},_) ->
   ChainPath=[<<"current">>, <<"outward">>, xchain:pack_chid(Chain)],
   Last=chainsettings:by_path(ChainPath),
   H=settings:get([<<".">>,<<"height">>,<<"ublk">>],Last),
@@ -22,7 +22,7 @@ handle_xchain(#{null:=<<"last_ptr">>,
 
 handle_xchain(#{null:=<<"pre_ptr">>,
                 <<"chain">>:=Chain,
-                <<"block">>:=Parent}) ->
+                <<"block">>:=Parent},_) ->
   try
     Res=blockchain:rel(Parent,self),
     if is_map(Res) -> ok;
@@ -61,7 +61,7 @@ handle_xchain(#{null:=<<"pre_ptr">>,
 
 handle_xchain(#{null:=<<"owblock">>,
                 <<"chain">>:=Chain,
-                <<"parent">>:=Parent}) ->
+                <<"parent">>:=Parent},_) ->
   Res=blockchain:rel(Parent,self),
   OutwardBlock=block:outward_chain(Res,Chain),
   case OutwardBlock of
@@ -92,24 +92,27 @@ handle_xchain(#{null:=<<"owblock">>,
 
 handle_xchain(#{null:=<<"node_id">>,
                 <<"node_id">>:=RemoteNodeId,
-                <<"chain">>:=RemoteChain}) ->
+                <<"chain">>:=RemoteChain}=Msg,_) ->
   try
-    ?LOG_INFO("Got nodeid ~p",[RemoteNodeId]),
+    ?LOG_INFO("Got nodeid ~p pk ~p",[RemoteNodeId,maps:get(<<"pubkey">>,Msg)]),
     gen_server:cast(xchain_dispatcher,
                     {register_peer, self(), RemoteNodeId, RemoteChain}),
-    #{null=><<"iam">>, 
+    {reply,
+     #{null=><<"iam">>, 
       <<"node_id">>=>nodekey:node_id(),
+      <<"pubkey">>=>nodekey:get_pub(),
       <<"chain">>=>blockchain:chain()
      }
+    }
   catch _:_ ->
           error
   end;
 
 handle_xchain(#{null:=<<"node_id">>,
                 <<"node_id">>:=RemoteNodeId,
-                <<"channels">>:=RemoteChannels}) ->
+                <<"channels">>:=RemoteChannels},_) ->
   try
-    ?LOG_INFO("Got nodeid ~p",[RemoteNodeId]),
+    ?LOG_NOTICE("DEPRECATED?: Got nodeid ~p",[RemoteNodeId]),
     gen_server:cast(xchain_dispatcher,
                     {register_peer, self(), RemoteNodeId, RemoteChannels}),
     #{null=><<"iam">>, 
@@ -121,22 +124,22 @@ handle_xchain(#{null:=<<"node_id">>,
   end;
 
 handle_xchain(#{null:=<<"subscribe">>,
-                <<"channel">>:=Channel}) ->
+                <<"channel">>:=Channel},_) ->
   gen_server:cast(xchain_dispatcher, {subscribe, Channel, self()}),
   {<<"subscribed">>, Channel};
 
-handle_xchain(#{null:=<<"ping">>}) ->
+handle_xchain(#{null:=<<"ping">>},_) ->
   #{null=><<"pong">>};
 
-handle_xchain(#{null:=<<"xdiscovery">>, <<"bin">>:=AnnounceBin}) ->
+handle_xchain(#{null:=<<"xdiscovery">>, <<"bin">>:=AnnounceBin},_) ->
   gen_server:cast(discovery, {got_xchain_announce, AnnounceBin}),
   ok;
 
-handle_xchain(ping) ->
+handle_xchain(ping,_) ->
   %%    ?LOG_NOTICE("got ping"),
   ok;
 
-handle_xchain({node_id, RemoteNodeId, RemoteChannels}) ->
+handle_xchain({node_id, RemoteNodeId, RemoteChannels},_) ->
   try
     ?LOG_INFO("Got old nodeid ~p",[RemoteNodeId]),
     gen_server:cast(xchain_dispatcher, {register_peer, self(), RemoteNodeId, RemoteChannels}),
@@ -145,14 +148,14 @@ handle_xchain({node_id, RemoteNodeId, RemoteChannels}) ->
           error
   end;
 
-handle_xchain(chain) ->
+handle_xchain(chain,_) ->
   try
     {ok, blockchain:chain()}
   catch _:_ ->
           error
   end;
 
-handle_xchain(height) ->
+handle_xchain(height,_) ->
   try
     #{header:=#{height:=H}}=blockchain:last_meta(),
     {ok, H}
@@ -160,15 +163,11 @@ handle_xchain(height) ->
           error
   end;
 
-handle_xchain({subscribe, Channel}) ->
+handle_xchain({subscribe, Channel},_) ->
   gen_server:cast(xchain_dispatcher, {subscribe, Channel, self()}),
   {<<"subscribed">>, Channel};
 
-handle_xchain({xdiscovery, AnnounceBin}) ->
-  gen_server:cast(discovery, {got_xchain_announce, AnnounceBin}),
-  ok;
-
-handle_xchain(Cmd) ->
+handle_xchain(Cmd,_) ->
   ?LOG_INFO("xchain server got unhandled message from client: ~p", [Cmd]),
   {unhandled, Cmd}.
 

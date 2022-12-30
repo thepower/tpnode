@@ -861,21 +861,19 @@ parse_and_process_announce(MaxTtl, AnnounceBin, #{remote_services:=Dict} = State
     end,
 
     XChainThrottle = get_config(xchain_throttle, 600, State),
-    Settings = {Dict, MaxTtl, XChainThrottle, AnnounceBin},
-    process_announce(Announce, Settings).
+    process_announce(Announce, Dict, MaxTtl, XChainThrottle, AnnounceBin).
 
 % --------------------------------------------------------
 
 
 % parse foreign service announce and add it to services database
 process_announce(
-  #{name := Name0, address := Address, chain := Chain} = Announce0, Settings) ->
-    {Dict, MaxTtl, XChainThrottle, AnnounceBin} = Settings,
+  #{name := Name0, address := Address, chain := Chain} = Announce0, Dict, MaxTtl, XChainThrottle, AnnounceBin) ->
     try
         Key = address2key(Address),
         Name = add_chain_to_name(Name0, Chain),
-        Nodes = maps:get(Name, Dict, #{}),
         Announce = add_valid_until(Announce0, MaxTtl),
+        Nodes = maps:get(Name, Dict, #{}),
         PrevAnnounce = maps:get(Key, Nodes, #{created => 0, ttl=> 0, sent_xchain => 0}),
         SentXchain = relay_announce(PrevAnnounce, Announce, AnnounceBin, XChainThrottle),
         Announce1 = Announce#{sent_xchain => SentXchain},
@@ -887,8 +885,7 @@ process_announce(
             Dict
     end;
 
-process_announce(Announce, Settings) ->
-    {Dict, _MaxTtl, _XChainThrottle, _AnnounceBin} = Settings,
+process_announce(Announce, Dict, _MaxTtl, _XChainThrottle, _AnnounceBin) ->
     ?LOG_ERROR("invalid announce: ~p", [Announce]),
     Dict.
 
@@ -1022,7 +1019,8 @@ unpack(<<254, _Rest/binary>> = Packed) ->
     Hash = crypto:hash(sha256, Bin),
     case bsig:checksig(Hash, [Sign]) of
         { [ #{ signature:= _FirstSign } | _] , _InvalidSings} ->
-            ?LOG_NOTICE("TODO: Check signature here");
+            %?LOG_NOTICE("TODO: Check signature here");
+           ok;
         _X ->
             ?LOG_DEBUG("checksig result ~p", [_X]),
             throw("invalid signature")
@@ -1116,13 +1114,13 @@ test1() ->
 %%  gen_server:cast(discovery, {got_announce, Announce}),
     MaxTtl = 120,
     XChainThrottle = 600,
-    D1 = process_announce(Announce, {#{}, MaxTtl, XChainThrottle, <<>>}),
-    D2 = process_announce(Announce#{name => <<"looking_glass2">>}, {D1, MaxTtl, XChainThrottle, <<>>}),
+    D1 = process_announce(Announce, #{}, MaxTtl, XChainThrottle, <<>>),
+    D2 = process_announce(Announce#{name => <<"looking_glass2">>}, D1, MaxTtl, XChainThrottle, <<>>),
     D3 = process_announce(Announce#{
         name => <<"looking_glass2">>,
         address => #{address => <<"127.0.0.2">>, port => 1234, proto => tpic}
-    }, {D2, MaxTtl, XChainThrottle, <<>>}),
-    D4 = process_announce(Announce#{name => <<"looking_glass2">>, valid_until => 20}, {D3, MaxTtl, XChainThrottle, <<>>}),
+    }, D2, MaxTtl, XChainThrottle, <<>>),
+    D4 = process_announce(Announce#{name => <<"looking_glass2">>, valid_until => 20}, D3, MaxTtl, XChainThrottle, <<>>),
     query_remote(<<"looking_glass2">>, D4).
 
 test2() ->
