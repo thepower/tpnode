@@ -3,6 +3,7 @@
 
 -export([new/0, set/3, patch/2, mp/1, dmp/1, get/2]).
 -export([get_patches/1, get_patches/2]).
+-export([b2pc/1]).
 %-export([sign/2, verify/2]).
 -export([verify/1]).
 -export([make_meta/2, clean_meta/1]).
@@ -133,6 +134,26 @@ make_meta(Patches, MetaInfo) ->
         [#{<<"t">>=><<"set">>, <<"p">>=>Key, <<"v">>=>Val}|Acc]
     end, [], Map).
 
+% binary to path components
+b2pc([]) -> [];
+
+b2pc([Element|Rest]) when
+      Element==<<"chain">> orelse
+      Element==<<"chains">> orelse
+      Element==<<"nodechain">> orelse
+      Element==<<"keys">> orelse
+      Element==<<"globals">> orelse
+      Element==<<"patchsig">> orelse
+      Element==<<"blocktime">> orelse
+      Element==<<"minsig">> orelse
+      Element==<<"enable">> orelse
+      Element==<<"params">> orelse
+      Element==<<"disable">> orelse
+      Element==<<"nodes">> ->
+  [binary_to_atom(Element, utf8)|b2pc(Rest)];
+
+b2pc([Element|Rest]) ->
+  [Element|b2pc(Rest)].
 
 get([], M) -> M;
 get([Hd|Path], M) when is_list(Path) ->
