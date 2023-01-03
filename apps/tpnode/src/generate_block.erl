@@ -53,7 +53,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                  TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
                  maps:put(T, TB, AAcc)
              end, AAcc0, Txs);
-          ({_TxID, #{ver:=2, kind:=patches}}=_TX, AAcc) ->
+          ({_TxID, #{ver:=2, kind:=patch}}=_TX, AAcc) ->
            AAcc;
           ({_TxID, #{ver:=2, to:=T, from:=F, payload:=_}}=_TX, AAcc) ->
            FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),

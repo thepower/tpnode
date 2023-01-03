@@ -29,7 +29,7 @@ websocket_handle({binary, Bin}, #{proto:=P}=State) ->
   try
     %%?LOG_DEBUG("ws server got binary msg: ~p", [Bin]),
     Cmd = xchain:unpack(Bin, P),
-    ?LOG_INFO("ws server got term: ~p", [Cmd]),
+    ?LOG_DEBUG("ws server got term: ~p", [Cmd]),
     Result = xchain_server_handler:handle_xchain(Cmd,State),
     case Result of
       ok ->

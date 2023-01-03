@@ -39,7 +39,7 @@
 
 
 % ------ for tests ---
--export([pack/1, unpack/1]).
+-export([pack/1, unpack/2]).
 -export([test/0, test1/0, test2/0, test3/0, test4/0]).
 
 
@@ -193,7 +193,7 @@ handle_cast(make_announce, #{local_services:=Dict} = State) ->
 
 
 handle_cast({got_announce, AnnounceBin}, State) ->
-    ?LOG_DEBUG("Got service announce ~p", [AnnounceBin]),
+    %?LOG_DEBUG("Got service announce ~p", [AnnounceBin]),
     try
         MaxTtl = get_config(intrachain_ttl, 300, State),
 
@@ -326,7 +326,7 @@ get_local_addresses(State) ->
     end,
   lists:foldl(Translator, [], Addresses).
 
-  
+
 
 
 
@@ -334,7 +334,7 @@ get_local_addresses(State) ->
 announce_one_service(Name, TranslatedAddress, Ttl, Scopes) ->
     try
 %%        TranslatedAddress = add_hostname(translate_address(Address), Hostname),
-        
+
         ?LOG_DEBUG(
             "make announce for service ~p, address: ~p, scopes: ~p",
             [Name, TranslatedAddress, Scopes]
@@ -351,7 +351,7 @@ announce_one_service(Name, TranslatedAddress, Ttl, Scopes) ->
             chain => blockchain:chain()
         },
         AnnounceBin = pack(Announce),
-        send_service_announce(local, AnnounceBin)
+        send_service_announce(AnnounceBin)
     catch
         Err:Reason ->
             ?LOG_ERROR(
@@ -426,9 +426,7 @@ make_announce(#{names:=Names} = _Dict, State) ->
   Addresses = get_config(addresses, get_default_addresses(), State),
   AllScopesCfg = get_config(scope, ?DEFAULT_SCOPE_CONFIG, State),
   MacroDict = get_config(macro_dict, #{}, State),
-  
   LocalNames = get_local_names(Names),
-  
   Announcer = fun(Name, Counter) ->
     Counter + lists:foldl(
       % #{address => local4, port => 53221, proto => tpic}
@@ -437,7 +435,7 @@ make_announce(#{names:=Names} = _Dict, State) ->
         IsAdvertisable = in_scope(Proto, tpic, AllScopesCfg),
         IsRightProto = is_right_proto(Name, Proto),
 %%        ?LOG_DEBUG("ann dbg ~p ~p ~p ~p", [Name, IsAdvertisable, IsRightProto, Address]),
-        
+
         if
           IsRightProto == true andalso IsAdvertisable == true ->
             try
@@ -450,7 +448,7 @@ make_announce(#{names:=Names} = _Dict, State) ->
                 ?LOG_DEBUG("skip address (can't substitute macro?): ~p", [Address]),
                 AddrCounter
             end;
-          
+
           true ->
 %%            ?LOG_DEBUG("skip announce for address ~p ~p", [Name, Address]),
             AddrCounter
@@ -618,11 +616,11 @@ substitute_macro(Address, Dict) when is_map(Address), is_map(Dict) ->
           IPv6Addresses ->
             hd(IPv6Addresses)
         end;
-        
+
       (proto, apis) when IsSslRan =/= true ->
         ?LOG_ERROR("skip apis proto because ssl is down right now"),
         throw(pass);  % we can't announce this proto because ssl is down
-      
+
       (_K, V) ->
         V
     end,
@@ -664,7 +662,7 @@ add_hostname(Address, Hostname) ->
     _ ->
       maps:put(hostname, Hostname, Address)
   end.
-  
+
 
 % --------------------------------------------------------
 
@@ -703,7 +701,10 @@ query_local(Name, #{names:=Names} = _Dict, State) ->
     fun(Address) when is_map(Address) ->
       Translated =
         add_hostname(substitute_macro(Address, MacroDict), Hostname),
-      maps:put(nodeid, NodeId, Translated)
+        maps:merge(Translated, #{node_id => NodeId,
+                                pubkey => nodekey:get_pub(),
+                                node_name => nodekey:node_name()
+                                })
     end,
   LocalNames = get_local_names(Names),
   case lists:member(Name, LocalNames) of
@@ -724,7 +725,7 @@ query_local(Name, #{names:=Names} = _Dict, State) ->
               pass ->
                 ?LOG_DEBUG("skip address ~p", [Addr])
             end;
-          
+
           (_Invalid, Result) ->
             ?LOG_ERROR("Invalid address: ~p", [_Invalid]),
             Result
@@ -744,11 +745,8 @@ query_remote(Name0, Dict, Chain) when is_integer(Chain)->
     Nodes = maps:get(Name, Dict, #{}),
     Announces = maps:values(Nodes),
     lists:map(
-        fun(#{address:=Address, nodeid:=NodeId})
-                when is_map(Address) andalso is_binary(NodeId) ->
-                    maps:put(nodeid, NodeId, Address);
-            (#{address:=Address}) ->
-                Address
+        fun(#{address:=Address}=A) when is_map(Address) ->
+                    maps:merge(Address, maps:with([nodeid,node_name,pubkey],A))
         end, Announces
     );
 
@@ -849,9 +847,9 @@ add_chain_to_name(Name, Chain) ->
 % --------------------------------------------------------
 
 parse_and_process_announce(MaxTtl, AnnounceBin, #{remote_services:=Dict} = State) ->
-    {ok, Announce} = unpack(AnnounceBin),
+    {ok, Announce} = unpack(AnnounceBin,[]),
     stout:log(discvry_gotannounce, [{message, Announce}]),
-    ?LOG_DEBUG("Got announce: ~p", [Announce]),
+    %?LOG_DEBUG("Got announce: ~p", [Announce]),
     validate_announce(Announce, State),
     case is_local_service(Announce) of
         true ->
@@ -909,7 +907,7 @@ add_valid_until(Announce, _MaxTtl) ->
 
 % relay announce to active xchain connections
 relay_announce(
-        #{created:=CreatedPrev, sent_xchain:=SentXChainPrev} = PrevAnnounce,
+        #{created:=CreatedPrev, sent_xchain:=SentXChainPrev} = _PrevAnnounce,
         #{created:=CreatedNew, nodeid:=NodeId} = NewAnnounce,
         AnnounceBin,
         XChainThrottle
@@ -927,13 +925,13 @@ relay_announce(
               "relay new announce. old: ~p, new: ~p, new announce body: ~p",
               [CreatedPrev, CreatedNew, NewAnnounce]
             ),
-            send_service_announce(NewAnnounce, AnnounceBin),
+            tpic2:cast(0, {<<"discovery">>, AnnounceBin}),
             xchain_relay_announce(SentXChainPrev, XChainThrottle, NewAnnounce, AnnounceBin);
         CreatedPrev =:= CreatedNew ->
 %%            ?LOG_DEBUG("skip relaying of announce (equal created): ~p", [NewAnnounce]),
             SentXChainPrev;
         true ->
-            ?LOG_DEBUG("skip relaying of announce: new ~p, prev ~p", [NewAnnounce, PrevAnnounce]),
+%            ?LOG_DEBUG("skip relaying of announce: new ~p, prev ~p", [NewAnnounce, PrevAnnounce]),
             SentXChainPrev
     end;
 
@@ -949,13 +947,13 @@ relay_announce(_PrevAnnounce, NewAnnounce, _AnnounceBin, _XChainThrottle) ->
   AnnounceBin :: binary()) -> non_neg_integer().
 
 
-xchain_relay_announce(SentXchain, Throttle, #{chain:=Chain}=Announce, AnnounceBin) ->
+xchain_relay_announce(SentXchain, Throttle, #{chain:=Chain}=_Announce, AnnounceBin) ->
     Now = os:system_time(seconds),
     MyChain = blockchain:chain(),
     if
         % relay our chain announces which isn't throttled
         MyChain =:= Chain andalso SentXchain + Throttle < Now ->
-            gen_server:cast(xchain_client, {discovery, Announce, AnnounceBin}),
+            gen_server:cast(xchain_client, {discovery, AnnounceBin}),
             Now;
         true ->
             ?LOG_DEBUG("skipping xchain relay"),
@@ -968,21 +966,14 @@ xchain_relay_announce(SentXchain, _Throttle, Announce, _AnnounceBin) ->
 
 
 % --------------------------------------------------------
-send_service_announce(local, AnnounceBin) ->
-%%    ?LOG_DEBUG("send tpic announce ~p", [AnnounceBin]),
-    tpic2:cast(0, {<<"discovery">>, AnnounceBin});
-
-send_service_announce(Announce, AnnounceBin) ->
-%%    ?LOG_DEBUG("send tpic announce ~p", [AnnounceBin]),
-    gen_server:cast(xchain_client, {discovery, Announce, AnnounceBin}),
-    tpic2:cast(0, {<<"discovery">>, AnnounceBin}).
-
+send_service_announce(AnnounceBin) ->
+  gen_server:cast(xchain_client, {discovery, AnnounceBin}),
+  tpic2:cast(0, {<<"discovery">>, AnnounceBin}).
 
 % --------------------------------------------------------
 
 add_sign_to_bin(Sign, Data) ->
     <<254, (size(Sign)):8/integer, Sign/binary, Data/binary>>.
-
 
 % --------------------------------------------------------
 
@@ -1014,24 +1005,36 @@ pack(Message) ->
 % --------------------------------------------------------
 
 
-unpack(<<254, _Rest/binary>> = Packed) ->
+unpack(<<254, _Rest/binary>> = Packed, Opts) ->
     {Sign, Bin} = split_bin_to_sign_and_data(Packed),
     Hash = crypto:hash(sha256, Bin),
-    case bsig:checksig(Hash, [Sign]) of
-        { [ #{ signature:= _FirstSign } | _] , _InvalidSings} ->
-            %?LOG_NOTICE("TODO: Check signature here");
-           ok;
-        _X ->
-            ?LOG_DEBUG("checksig result ~p", [_X]),
-            throw("invalid signature")
+    NodeInfo=case bsig:checksig1(Hash, Sign) of
+               {true, #{ extra:=ED, signature:= _FirstSign } } ->
+                 PubKey=proplists:get_value(pubkey, ED),
+                 case lists:member(nocheck, Opts) of
+                   true ->
+                     #{ pubkey => PubKey };
+                   false ->
+                     case chainsettings:is_net_node(PubKey) of
+                       {true, Name} ->
+                         #{node_name => Name,
+                           pubkey => PubKey};
+                       false ->
+                         throw({'untrusted_annouce',PubKey})
+                     end
+                 end;
+               false ->
+                 throw("invalid signature")
     end,
     case msgpack:unpack(Bin, [{known_atoms, ?KNOWN_ATOMS}]) of
+        {ok, Message} when is_map(Message) ->
+            {ok, maps:merge(Message, NodeInfo)};
         {ok, Message} ->
             {ok, Message};
         _ -> throw("msgpack unpack error")
     end;
 
-unpack(Packed) ->
+unpack(Packed, _) ->
     ?LOG_INFO("Invalid packed data ~p", [Packed]),
     throw("invalid packed data").
 
@@ -1080,7 +1083,7 @@ pack_unpack_test() ->
     meck:new(nodekey),
     meck:expect(nodekey, get_priv, fun() -> hex:parse("1E919CD3897241D78B420255F66426CC9A31163653AD7685DBBF0C34FFFFFFFF") end),
     Packed = pack(Original),
-    Unpacked = unpack(Packed),
+    Unpacked = unpack(Packed, [nocheck]),
     meck:unload(nodekey),
     ?assertEqual({ok, Original}, Unpacked).
 -endif.
@@ -1154,5 +1157,5 @@ test4() ->
     },
     Packed = pack(Announce),
     io:fwrite("packed: ~n~p~n", [ Packed ]),
-    {ok, Message} = unpack(Packed),
+    {ok, Message} = unpack(Packed, [nocheck]),
     io:fwrite("message: ~n~p~n", [ Message ]).

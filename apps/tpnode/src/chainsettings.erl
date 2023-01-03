@@ -6,10 +6,17 @@
 -export([get_setting/1,
          is_our_node/1,
          is_our_node/2,
+         is_net_node/1,
          settings_to_ets/1,
          all/0, by_path/1]).
 -export([contacts/1,contacts/2]).
 -export([checksum/0]).
+
+is_net_node(PubKey) ->
+  case ets:match(blockchain,{[keys,'$1'],'_',<<"set">>,PubKey}) of
+    [] -> false;
+    [[Name]] -> {true, Name}
+  end.
 
 is_our_node(PubKey, Settings) ->
   KeyDB=maps:get(keys, Settings, #{}),

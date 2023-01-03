@@ -230,11 +230,11 @@ discovery_unregister_by_pid_test(_Config) ->
     ?assertEqual({error, not_found, <<"test_service2">>}, Result4).
 
 
-build_announce(Name) when is_binary(Name)->
-  build_announce(#{name => Name});
+build_announce(Name, Priv) when is_binary(Name)->
+  build_announce(#{name => Name}, Priv);
 
 % build announce as c4n3
-build_announce(Options) when is_map(Options) ->
+build_announce(Options, Priv) when is_map(Options) ->
   Now = os:system_time(second),
   Name = maps:get(name, Options, <<"service_name">>),
   Proto =  maps:get(proto, Options, api),
@@ -261,21 +261,21 @@ build_announce(Options) when is_map(Options) ->
   },
   meck:new(nodekey),
   % priv key from c4n3 node
-  meck:expect(nodekey, get_priv, fun() ->
-    hex:parse("2ACC7ACDBFFA92C252ADC21D8469CC08013EBE74924AB9FEA8627AE512B0A1E0") end),
+  meck:expect(nodekey, get_priv, fun() -> Priv end),
   AnnounceBin = discovery:pack(Announce),
   meck:unload(nodekey),
   {Announce, AnnounceBin}.
 
 discovery_ssl_test(_Config) ->
   DiscoveryC4N1 = rpc:call(get_node(get_default_nodename()), erlang, whereis, [discovery]),
+  Priv = rpc:call(get_node(get_default_nodename()), nodekey, get_priv, []),
   ServiceName = <<"apispeer">>,
   {Announce, AnnounceBin} =
     build_announce(#{
       name => ServiceName,
       proto => apis
-    }),
-  NodeId = maps:get(nodeid, Announce, unknown),
+    },Priv),
+  %NodeId = maps:get(nodeid, Announce, unknown),
   Address = maps:get(address, Announce, unknown),
   Hostname = utils:make_binary(maps:get(hostname, Address, unknown)),
   IpAddr = utils:make_binary(maps:get(address, Address, unknown)),
@@ -286,24 +286,25 @@ discovery_ssl_test(_Config) ->
   timer:sleep(2000),  % wait for announce propagation
   Result = rpc:call(get_node(get_default_nodename()), tpnode_httpapi, get_nodes, [4]),
   logger("get_nodes answer: ~p~n", [Result]),
-  ?assertMatch(#{NodeId := #{ host := _, ip := _}}, Result),
-  AddrInfo = maps:get(NodeId, Result, #{}),
-  Hosts = maps:get(host, AddrInfo, []),
-  Ips = maps:get(ip, AddrInfo, []),
-  ?assertEqual(true, lists:member(Host, Hosts)),
-  ?assertEqual(true, lists:member(Ip, Ips)).
-
-
-
+  {HRes1,IRes1}=maps:fold(
+                  fun(_, #{host:=HH, ip:=II}, {HA, IA}) ->
+                      {HH++HA, II++IA}
+                  end,
+                  {[], []}, Result),
+  %logger("answer: ~p~n", [Res1]),
+  %logger("HIP: ~p~n", [{Host,Ip}]),
+  ?assertMatch(true, lists:member(Host,HRes1)),
+  ?assertMatch(true, lists:member(Ip,IRes1)).
 
 discovery_got_announce_test(_Config) ->
     DiscoveryC4N1 = rpc:call(get_node(<<"test_c4n1">>), erlang, whereis, [discovery]),
+    Priv = rpc:call(get_node(<<"test_c4n1">>), nodekey, get_priv, []),
     DiscoveryC4N2 = rpc:call(get_node(<<"test_c4n2">>), erlang, whereis, [discovery]),
     %DiscoveryC4N3 = rpc:call(get_node(<<"test_c4n3">>), erlang, whereis, [discovery]),
     DiscoveryC5N2 = rpc:call(get_node(<<"test_c5n2">>), erlang, whereis, [discovery]),
     Rnd = integer_to_binary(rand:uniform(100000)),
     ServiceName = <<"looking_glass_", Rnd/binary>>,
-    {Announce, AnnounceBin} = build_announce(ServiceName),
+    {Announce, AnnounceBin} = build_announce(ServiceName, Priv),
     gen_server:cast(DiscoveryC4N1, {got_announce, AnnounceBin}),
     timer:sleep(2000),  % wait for announce propagation
     Result = gen_server:call(DiscoveryC4N1, {lookup, ServiceName, 4}),
@@ -312,10 +313,10 @@ discovery_got_announce_test(_Config) ->
     Experted = [
         maps:put(nodeid, NodeId, Address)
     ],
-    ?assertEqual(Experted, Result),
+    ?assertEqual(Experted, [ maps:with([address,hostname,nodeid,port,proto],XX) || XX <- Result]),
     % c4n1 should forward the announce to c4n2
     Result1 = gen_server:call(DiscoveryC4N2, {lookup, ServiceName, 4}),
-    ?assertEqual(Experted, Result1),
+    ?assertEqual(Experted, [ maps:with([address,hostname,nodeid,port,proto],XX) || XX <- Result1]),
     Result2 = gen_server:call(DiscoveryC4N2, {lookup, ServiceName, 5}),
     ?assertEqual([], Result2),
     % c4n3 should discard self announce
@@ -323,7 +324,7 @@ discovery_got_announce_test(_Config) ->
     %?assertEqual([], Result3),
     % c5n2 should get info from xchain announce
     Result4 = gen_server:call(DiscoveryC5N2, {lookup, ServiceName, 4}),
-    ?assertEqual(Experted, Result4),
+    ?assertEqual(Experted, [ maps:with([address,hostname,nodeid,port,proto],XX) || XX <- Result4]),
     Result5 = gen_server:call(DiscoveryC5N2, {lookup, ServiceName, 5}),
     ?assertEqual([], Result5).
 
