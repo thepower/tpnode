@@ -36,3 +36,7 @@ apps/tpnode/include/tx_const.hrl
 alpha
 *.orig
 *.rej
+*.key
+*.bin
+genesis.txt
+*.erl_
