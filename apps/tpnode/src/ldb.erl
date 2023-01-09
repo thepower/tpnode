@@ -1,10 +1,13 @@
 -module(ldb).
 -include("include/tplog.hrl").
--export([put_key/3, read_key/3, del_key/2, open/1]).
+-export([put_key/3, read_key/3, del_key/2, open/1, close/1]).
 
 open(Path) ->
     gen_server:call(rdb_dispatcher,
                                 {open, Path, [{create_if_missing, true}]}).
+
+close(Path) ->
+    gen_server:call(rdb_dispatcher, {close, Path}).
 
 read_key(DB, Key, Default) when is_binary(Key) ->
     case rocksdb:get(DB, Key, []) of

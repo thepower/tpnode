@@ -36,6 +36,7 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(Args) ->
+  process_flag(trap_exit, true),
     {ok, #{
        args=>Args,
        dbs=>#{}
@@ -86,16 +87,24 @@ handle_cast(_Msg, State) ->
     ?LOG_NOTICE("Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
+handle_info({'EXIT', From, Reason}, #{dbs:=DBS}=State) ->
+  ?LOG_NOTICE("~s exit from ~p reason ~p", [?MODULE,From,Reason]),
+  maps:fold(
+    fun(_Path, {ok, DBH}, _) ->
+        rocksdb:close(DBH)
+    end, undefined, DBS),
+  {stop, Reason, State};
+
 handle_info(_Info, State) ->
-    ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
-    {noreply, State}.
+  ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
+  {noreply, State}.
 
 terminate(_Reason, #{dbs:=DBS}=_State) ->
     maps:fold(
       fun(_Path, {ok, DBH}, _) ->
               rocksdb:close(DBH)
       end, undefined, DBS),
-    ?LOG_ERROR("Terminate me ~p", [_State]),
+    ?LOG_NOTICE("Terminate me ~p", [_State]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
