@@ -153,7 +153,11 @@ encode_simple(Elements) ->
                 {<<Hdr/binary,E:256/big>>,
                  Body,
                  BOff};
-               ({bin, <<E:256/big>>}, {Hdr,Body,BOff}) ->
+               (<<E:64/big>>, {Hdr,Body,BOff}) -> %the power address
+                {<<Hdr/binary,E:256/big>>,
+                 Body,
+                 BOff};
+               (<<E:256/big>>, {Hdr,Body,BOff}) ->
                 {<<Hdr/binary,E:256/big>>,
                  Body,
                  BOff};
