@@ -190,7 +190,8 @@ handle_call(rollback, _From, #{
   end;
 
 handle_call({new_block, #{hash:=BlockHash,
-                          header:=#{height:=Hei}=Header}=Blk, PID}=_Message,
+                          header:=#{height:=Hei}=Header,
+                          sign:=Signatures}=Blk, PID}=_Message,
             _From,
             #{candidates:=Candidates, ldb:=LDB0,
               settings:=Sets,
@@ -319,6 +320,19 @@ handle_call({new_block, #{hash:=BlockHash,
                             ]),
 
                   lastblock2ets(BTable, MBlk),
+                  CastAllSigs=msgpack:pack(
+                             #{null=><<"blockvote">>,
+                               <<"n">>=>node(),
+                               <<"hash">>=>BlockHash,
+                               <<"sign">>=> lists:map(
+                                              fun(SignatureMap) ->
+                                                  bsig:packsig(SignatureMap)
+                                              end, Signatures),
+                               <<"chain">>=>MyChain
+                              }
+                            ),
+                  tpic2:cast(<<"blockvote">>, CastAllSigs),
+
                   tpic2:cast(<<"blockchain">>,
                             {<<"chainkeeper">>,
                              msgpack:pack(
