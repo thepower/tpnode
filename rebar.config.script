@@ -1,0 +1,27 @@
+
+Ver=case string:chomp(os:cmd("git describe")) of
+  "v"++Version ->
+    Version;
+  _ ->
+    throw('bad_version')
+end,
+CONFIG2=lists:map(
+    fun
+    ({relx,RP}) ->
+    RP2=lists:map(
+      fun({release,{thepower,_},Deps}) ->
+        {release,{thepower,Ver},Deps};
+        (Any) -> Any
+      end,
+      RP),
+    {relx,RP2};
+    (A) -> A
+    end,
+    CONFIG
+    ),
+{relx, Rel}=lists:keyfind(relx,1,CONFIG2),
+{release,RelVer,_Deps}=lists:keyfind(release,1,Rel),
+
+io:format("Version: ~p~n",[RelVer]),
+
+CONFIG2.
