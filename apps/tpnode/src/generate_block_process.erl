@@ -307,6 +307,15 @@ try_process([{TxID, #{
                       Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed],
                            last => failed
                           });
+        throw:X:S ->
+          try_process(Rest,
+                      Acc#{failed=>[{TxID, fmterr(X)}|Failed],
+                           last => failed});
+        error:X:S ->
+          io:format("~s Error ~p at ~p/~p~n",[TxID,X,hd(S),hd(tl(S))]),
+          try_process(Rest,
+                      Acc#{failed=>[{TxID, fmterr(X)}|Failed],
+                           last => failed});
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
           ?LOG_INFO("LStore failed ~p:~p", [Ec,Ee]),
@@ -854,7 +863,7 @@ try_process_inbound([{TxID,
                _ ->
                  false
              end,
-      io:format("RetGas ~p to address ~p chain ~p~n",[RetGas, From, ChID]),
+      %io:format("RetGas ~p to address ~p chain ~p~n",[RetGas, From, ChID]),
 
       TxExt=maps:get(extdata,Tx,#{}),
       NewExt=maps:merge(
