@@ -432,6 +432,48 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], Req) ->
   end;
 
 
+h(<<"GET">>, [<<"address">>, TAddr, <<"lstore">>|Path], _Req) ->
+  try
+    Addr=case TAddr of
+           <<"0x", Hex/binary>> -> hex:parse(Hex);
+           _ -> naddress:decode(TAddr)
+         end,
+        RawKeys=mledger:get_kpvs(Addr,lstore,'_'),
+        MatchPath=fun M([],P) -> P;
+                      M([E1|R1],[E2|R2]) when E1==E2 ->
+                        M(R1,R2);
+                      M(_,_) -> false
+                  end,
+
+        S1=lists:foldl(
+             fun({lstore,K,V},Acc) ->
+                 case MatchPath(Path,K) of
+                   false ->
+                     Acc;
+                   P ->
+                     settings:patch([#{<<"t">> => <<"set">>,
+                                       <<"p">> =>P,
+                                       <<"v">> =>V}],Acc)
+                 end
+             end, #{}, RawKeys),
+        {200, [{"Content-Type","application/json"}], S1}
+  catch
+    throw:{error, address_crc} ->
+              err(
+                  10004,
+                  <<"Invalid address">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              );
+          throw:bad_addr ->
+              err(
+                  10005,
+                  <<"Invalid address (2)">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              )
+  end;
+
 h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
   try
     Addr=case TAddr of
