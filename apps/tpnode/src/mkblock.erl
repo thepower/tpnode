@@ -324,13 +324,13 @@ hei_and_has(B) ->
   PTmp=maps:get(temporary,B,false),
 
   case PTmp of false ->
-                 ?LOG_INFO("Prev block is permanent, make child"),
+                 ?LOG_DEBUG("Prev block is permanent, make child"),
                  #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=B,
                  {Last_Height1,
                   Last_Hash1,
                   <<(bnot Last_Height1):64/big,Last_Hash1/binary>>};
                X when is_integer(X) ->
-                 ?LOG_INFO("Prev block is temporary, make replacement"),
+                 ?LOG_DEBUG("Prev block is temporary, make replacement"),
                  #{header:=#{height:=Last_Height1, parent:=Last_Hash1}}=B,
                  {Last_Height1-1,
                   Last_Hash1,

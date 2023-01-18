@@ -131,13 +131,19 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     settings:=Settings,
     outbound:=Outbound,
     pick_block:=PickBlocks,
-    fee:=_FeeCollected,
-    tip:=_TipCollected,
+    fee:=FeeCollected,
+    tip:=TipCollected,
     emit:=EmitTXs0,
     log:=Logs0,
     new_settings := NewSettings
    }=finish_processing(generate_block_process:try_process(TXL, GBInit)),
-  ?LOG_INFO("MB Collected fee ~p tip ~p", [_FeeCollected, _TipCollected]),
+  if(FeeCollected == #{amount => #{},changes => []}
+     andalso
+     TipCollected == #{amount => #{},changes => []}) ->
+          ok;
+     true ->
+      ?LOG_INFO("MB Collected fee ~p tip ~p", [FeeCollected, TipCollected])
+  end,
   Logs=lists:reverse(Logs0),
 
   if length(Settings)>0 ->
@@ -485,7 +491,10 @@ txfind([_|Rest],TxID) ->
   txfind(Rest,TxID).
 
 cleanup_delayed(#{delayed:=DTX, new_settings:=NS, settings:=Sets} = Acc) ->
-  ?LOG_INFO("Delayed ~p",[DTX]),
+  if(DTX==[]) -> ok;
+    true ->
+      ?LOG_INFO("Delayed txs ~p",[DTX])
+  end,
   ToDel=lists:foldl(
           fun({TxID,DT},Acc1) ->
               case settings:get([<<"current">>, <<"delaytx">>, DT], NS) of

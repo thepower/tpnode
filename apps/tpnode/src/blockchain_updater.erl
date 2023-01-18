@@ -203,11 +203,9 @@ handle_call({new_block, #{hash:=BlockHash,
               is_tuple(PID) -> PID;
               true -> emulator
            end,
-  ?LOG_INFO("Arrived block from ~p Verify block with ~p",
-             [FromNode, maps:keys(Blk)]),
-
-  ?LOG_INFO("New block (~p/~p) hash ~s (~s/~s)",
+  ?LOG_INFO("New block from ~p (~p/~p) hash ~s (~s/~s)",
              [
+              FromNode,
               Hei,
               maps:get(height, maps:get(header, LastBlock)),
               blkid(BlockHash),
@@ -250,8 +248,8 @@ handle_call({new_block, #{hash:=BlockHash,
         Txs=maps:get(txs, Blk, []),
         Txsl=length(Txs),
         if LenSucc>0 ->
-             ?LOG_INFO("from ~p New block ~w arrived ~s, txs ~b, verify ~w sig (~.3f ms)",
-                        [FromNode, maps:get(height, maps:get(header, Blk)),
+             ?LOG_INFO("Block ~w verified ~s, txs ~b, verify ~w sig (~.3f ms)",
+                        [maps:get(height, maps:get(header, Blk)),
                          blkid(BlockHash), Txsl, length(Success), (T1-T0)/1000000]),
              ok;
            true ->
@@ -272,7 +270,6 @@ handle_call({new_block, #{hash:=BlockHash,
         SigLen=length(maps:get(sign, MBlk)),
         ?LOG_DEBUG("Signs ~p", [Success]),
         MinSig=getset(minsig,State),
-        ?LOG_INFO("Sig ~p ~p", [SigLen, MinSig]),
         if SigLen>=MinSig ->
              IsTemp=maps:get(temporary,Blk,false) =/= false,
              Header=maps:get(header, Blk),
@@ -554,6 +551,7 @@ handle_call({new_block, #{hash:=BlockHash,
              end;
            true ->
              %not enough
+             ?LOG_NOTICE("Block arrived to updater, but insufficient signature ~p, required ~p", [SigLen, MinSig]),
              {reply, {ok, no_enough_sig}, State#{
                                             candidates=>
                                             maps:put(BlockHash,

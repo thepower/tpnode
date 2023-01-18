@@ -300,7 +300,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
         {true, {Success, _}}=block:verify(Blk1),
         T1=erlang:system_time(),
         Txs=maps:get(txs, Blk0, []),
-        ?LOG_INFO("TODO: Check keys ~p of ~p", [length(Success), MinSig]),
+        ?LOG_DEBUG("TODO: Check keys ~p of ~p", [length(Success), MinSig]),
         if length(Success)<MinSig ->
              ?LOG_INFO("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
                   [maps:get(height, maps:get(header, Blk0)),
@@ -310,7 +310,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
                    (T1-T0)/1000000]),
              throw({notready, minsig});
            true ->
-             ?LOG_INFO("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
+             ?LOG_DEBUG("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
                   [maps:get(height, maps:get(header, Blk0)),
                    blkid(BlockHash),
                    length(Txs),
@@ -338,7 +338,10 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
 
         blockchain_updater:new_block(Blk),
         Extra=maps:get(BlockHash, Extras, #{}),
-        ?LOG_INFO("Extra for blk ~w ~s: ~p",[Height, blkid(BlockHash), Extra]),
+        if Extra =/= #{} andalso Extra =/= #{log=>[]} ->
+             ?LOG_INFO("Extra for blk ~w ~s: ~p",[Height, blkid(BlockHash), Extra]);
+           true -> ok
+        end,
         case maps:is_key(log, Extra) of
           false -> ok;
           true ->

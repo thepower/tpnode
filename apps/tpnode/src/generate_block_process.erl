@@ -91,7 +91,7 @@ try_process([], #{
                     }
                 end, {SetState, Settings}, OutChains),
 
-  ?LOG_INFO("try_process finish"),
+  ?LOG_DEBUG("try_process finish"),
   Acc#{settings=>Set2, set_state=>SS2};
 
 %process inbound block
@@ -308,6 +308,7 @@ try_process([{TxID, #{
                            last => failed
                           });
         throw:X:S ->
+          io:format("~s Throw  ~p at ~p/~p~n",[TxID,X,hd(S),hd(tl(S))]),
           try_process(Rest,
                       Acc#{failed=>[{TxID, fmterr(X)}|Failed],
                            last => failed});
