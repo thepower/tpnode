@@ -44,9 +44,11 @@ init([ServiceName, #{}=Args]) when is_atom(ServiceName) ->
   %Conf=load_sets(LDB, LastBlock),
   ?LOG_INFO("My last block hash ~s", [bin2hex:dbin2hex(LastBlockHash)]),
   Res=Args#{
+        service=>ServiceName,
         ldb=>LDB,
         %settings=>chainsettings:settings_to_ets(Conf),
-        lastblockhash=>LastBlockHash
+        lastblock => #{ header => #{}, hash => LastBlockHash },
+        lastblockhash => LastBlockHash
        },
   erlang:send_after(6000, self(), runsync),
   {ok, Res}.
@@ -54,12 +56,30 @@ init([ServiceName, #{}=Args]) when is_atom(ServiceName) ->
 handle_call(get_dbh, _From, #{ldb:=LDB}=State) ->
   {reply, {ok, LDB}, State};
 
+handle_call(last_hash, _From, #{lastblockhash:=LBH}=State) ->
+  {reply, {ok, LBH}, State};
+
+handle_call(settings, _From, #{ldb:=LDB}=State) ->
+  R=case ldb:read_key(LDB, <<"settings">>, undefined) of
+    undefined ->
+      settings:new();
+    Bin ->
+      binary_to_term(Bin)
+  end,
+  {reply, R, State};
+
+handle_call(set_fix, _From, #{ldb:=LDB, service:=ServiceName}=State) ->
+  Blk=#{ header => #{}, hash => <<0:64>> },
+  Conf=load_sets(LDB, Blk),
+  {reply, Conf, State#{
+                  settings=>chainsettings:settings_to_ets(Conf,ServiceName)
+                 }};
 
 %% first block
 handle_call({new_block, #{hash:=BlockHash,
                           header:=#{height:=0, chain:=Chain}=_Header}=Blk},
             _From,
-            #{ldb:=LDB, genesis:=GenesisHash }=State) ->
+            #{ldb:=LDB, genesis:=GenesisHash, service:=ServiceName }=State) ->
   if BlockHash=/=GenesisHash ->
        {reply, {error, bad_genesis}, State};
      true ->
@@ -67,7 +87,7 @@ handle_call({new_block, #{hash:=BlockHash,
 
        {reply, ok, State#{
                      lastblock=>Blk,
-                     settings=>chainsettings:settings_to_ets(Conf),
+                     settings=>chainsettings:settings_to_ets(Conf,ServiceName),
                      mychain=>Chain
                     }}
   end;
@@ -79,8 +99,10 @@ handle_call({new_block, #{hash:=BlockHash,
             #{ldb:=LDB,
               settings:=Sets,
               lastblock:=#{header:=#{}, hash:=LBlockHash}=LastBlock,
+              service:=ServiceName,
               mychain:=MyChain
              }=State) ->
+
   ?LOG_INFO("Arrived netmgmt block Verify block with ~p",
              [maps:keys(Blk)]),
 
@@ -179,7 +201,7 @@ handle_call({new_block, #{hash:=BlockHash,
                       settings=>if Sets==Sets1 ->
                                      Sets;
                                    true ->
-                                     chainsettings:settings_to_ets(Sets1)
+                                     chainsettings:settings_to_ets(Sets1, ServiceName)
                                 end
                      }
         }

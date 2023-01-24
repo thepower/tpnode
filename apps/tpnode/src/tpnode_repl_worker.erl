@@ -11,7 +11,8 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([start_link/1,run/2,ws_mode/1,genesis/1]).
--export([run4test/0,run_worker/1]).
+-export([run_worker/1]).
+-export([run4test/0,run4test_mgmt/0]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -24,6 +25,29 @@ run_worker(Params) ->
      [{parent,self()}|Params]
     ]
    ).
+
+run4test_mgmt() ->
+  tpnode_repl_worker:run(
+    #{
+      parent=>self(),
+      %protocol=>http,
+      %address=>"127.0.0.1",
+      %port=>49841
+      protocol=>http,
+      address=>"c3n1.thepower.io",
+      port=>1083,
+      check_genesis=>false
+     },
+    fun({apply_block,#{hash:=_H}=Block}) ->
+        gen_server:call(mgt,{new_block, Block});
+       (last_known_block) ->
+        {ok,LBH}=gen_server:call(mgt,last_hash),
+        LBH;
+       (Any) ->
+        io:format("requested ~p~n",[Any]),
+        ok 
+    end).
+
 
 run4test() ->
   tpnode_repl_worker:run(
@@ -39,7 +63,7 @@ run4test() ->
     fun({apply_block,#{hash:=_H}=Block}) ->
         gen_server:call(blockchain_updater,{new_block, Block, self()});
        (last_known_block) ->
-        blockchain:last_permanent_meta();
+        maps:get(hash,blockchain:last_permanent_meta());
         %blockchain:last_meta();
        (Any) ->
         io:format("requested ~p~n",[Any]),
@@ -57,7 +81,7 @@ start_link(Sub0) when is_map(Sub0) ->
              fun({apply_block,#{hash:=_H}=Block}) ->
                  gen_server:call(blockchain_updater,{new_block, Block, self()});
                 (last_known_block) ->
-                 blockchain:last_permanent_meta()
+                 maps:get(hash,blockchain:last_permanent_meta())
                  %blockchain:last_meta()
              end
          end,
@@ -172,8 +196,12 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
     ?LOG_INFO("My lastblk: ~s",[blkinfo(KnownBlock)]),
     Parent ! {wrk_presync, self(), start},
     {ok,Sub1}=presync(Sub#{pid=>Pid,getfun=>GetFun,
-                           last=>maps:with([hash,header],KnownBlock)},
-                      hex:encode(maps:get(hash,KnownBlock))),
+                           last=>KnownBlock},
+                      if KnownBlock==<<0:64>> ->
+                           <<"genesis">>;
+                         true ->
+                           hex:encode(KnownBlock)
+                      end),
 
     {ok,UpgradeHdrs}=upgrade(Pid),
     ?LOG_INFO("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
@@ -319,7 +347,7 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
                          }=Blk} ->
           ?LOG_INFO("Has block h=~w 0x~s parent 0x~s",
                      [Hei, hex:encode(Hash), hex:encode(ParentHash)]),
-          LBH=maps:get(hash,maps:get(last,Sub,#{}),undefined),
+          LBH=maps:get(last,Sub,#{}),
           case Blk of
             #{hash:=BH,header:=_,child:=Child} ->
               T0=erlang:system_time(microsecond),
@@ -454,5 +482,7 @@ sync_get_continue(Pid, Ref, {PCode,PHdr,PBody}) ->
 blkinfo(#{hash:=H,header:=#{height:=Hei,chain:=Ch},temporary:=T}) ->
   io_lib:format("~s h=~w ch=~w tmp=~w",[blockchain:blkid(H),Hei,Ch,T]);
 blkinfo(#{hash:=H,header:=#{height:=Hei,chain:=Ch}}) ->
-  io_lib:format("~s h=~w ch=~w",[blockchain:blkid(H),Hei,Ch]).
+  io_lib:format("~s h=~w ch=~w",[blockchain:blkid(H),Hei,Ch]);
+blkinfo(H) ->
+  io_lib:format("~s",[blockchain:blkid(H)]).
 

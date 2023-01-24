@@ -276,6 +276,7 @@ change(set, [Path], Value, M, FPath) -> %set or replace
     if is_map(M) ->
            PrevValue=maps:get(Path, M, undefined),
            if is_list(PrevValue) orelse is_map(PrevValue) ->
+                io:format("change(set,[~p],~p,~p,~p)~n",[Path,Value,M,FPath]),
                   throw({'non_value', FPath});
               true ->
                   maps:put(Path, Value, M)
