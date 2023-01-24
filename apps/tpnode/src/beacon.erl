@@ -1,5 +1,5 @@
 -module(beacon).
--export([create/1, check/2, relay/2, parse_relayed/1]).
+-export([create/1, check/1, check/2, relay/2, parse_relayed/1]).
 
 %% ------------------------------------------------------------------
 
@@ -32,21 +32,17 @@ parse_relayed(<<16#BE, PayloadLen:32/integer, Rest/binary>> = Bin) ->
   <<PayloadBin:PayloadLen/binary, Sig/binary>> = Rest,
   HB = crypto:hash(sha256, PayloadBin),
   case bsig:checksig1(HB, Sig) of
-    {true, #{extra:=Extra}} ->
+    {true, #{extra:=Extra}=D} ->
       case parse_relayed(PayloadBin) of
         {To, Payload} ->
           Origin = proplists:get_value(pubkey, Extra),
-          case chainsettings:is_our_node(Origin) of
-            false ->
-              error;
-            _NodeName ->
-              #{
-                to => To,
-                from => Origin,
-                collection => Payload,
-                bin => Bin
-              }
-          end;
+          #{
+            check => D,
+            to => To,
+            from => Origin,
+            collection => Payload,
+            bin => Bin
+           };
         _ ->
           error
       end;
@@ -67,27 +63,25 @@ pack_and_sign(Bin, Priv, SizeLen) when is_binary(Bin) andalso is_binary(Priv) ->
 
 %% ------------------------------------------------------------------
 
-check(<<16#BE, PayloadLen:8/integer, Rest/binary>> = Bin, Validator) ->
-  <<Payload:PayloadLen/binary, Sig/binary>> = Rest,
+check(<<16#BE, PL:8/integer, _:PL/binary, _/binary>> = Bin) ->
+  check(Bin, fun(E) -> E end).
+
+check(<<16#BE, PayloadLen:8/integer, Payload:PayloadLen/binary, Sig/binary>> = Bin, Validator) ->
   <<Timestamp:64/big, Address/binary>> = Payload,
   HB = crypto:hash(sha256, Payload),
   case bsig:checksig1(HB, Sig) of
-    {true, #{extra:=Extra}} ->
+    {true, #{extra:=Extra}=D} ->
       Origin = proplists:get_value(pubkey, Extra),
-      case chainsettings:is_our_node(Origin) of
-        false ->
-          error;
-        _NodeName ->
-          Beacon =
-            #{
-              to => Address,
-              from => Origin,
-              timestamp => Timestamp,
-              bin => Bin
-            },
-          Validator(Beacon)
-      end;
-    false ->
+      Beacon =
+      #{
+        check => D,
+        to => Address,
+        from => Origin,
+        timestamp => Timestamp,
+        bin => Bin
+       },
+      Validator(Beacon);
+      false ->
       error
   end.
 

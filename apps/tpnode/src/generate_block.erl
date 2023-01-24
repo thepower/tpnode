@@ -13,8 +13,19 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
   %file:write_file("tmp/tx.txt", io_lib:format("~p.~n", [PreTXL])),
   _T1=erlang:system_time(),
   _T2=erlang:system_time(),
-  TXL=sort_txs(PreTXL),
   XSettings=GetSettings(settings),
+  PreTXL1=lists:filter(
+            fun({TxID,#{not_before:=DT}}) ->
+                L=settings:get([<<"current">>,<<"delaytx">>,DT], XSettings),
+                if is_list(L) ->
+                     lists:member(TxID,L);
+                   true ->
+                     false
+                end;
+               (_) -> true
+            end, PreTXL),
+
+  TXL=sort_txs(PreTXL1),
   Addrs0=lists:foldl(
            fun(default, Acc) ->
                BinAddr=naddress:construct_private(0, 0),
@@ -42,7 +53,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                  TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
                  maps:put(T, TB, AAcc)
              end, AAcc0, Txs);
-          ({_TxID, #{ver:=2, kind:=patches}}=_TX, AAcc) ->
+          ({_TxID, #{ver:=2, kind:=patch}}=_TX, AAcc) ->
            AAcc;
           ({_TxID, #{ver:=2, to:=T, from:=F, payload:=_}}=_TX, AAcc) ->
            FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
@@ -120,13 +131,19 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     settings:=Settings,
     outbound:=Outbound,
     pick_block:=PickBlocks,
-    fee:=_FeeCollected,
-    tip:=_TipCollected,
+    fee:=FeeCollected,
+    tip:=TipCollected,
     emit:=EmitTXs0,
     log:=Logs0,
     new_settings := NewSettings
    }=finish_processing(generate_block_process:try_process(TXL, GBInit)),
-  ?LOG_INFO("MB Collected fee ~p tip ~p", [_FeeCollected, _TipCollected]),
+  if(FeeCollected == #{amount => #{},changes => []}
+     andalso
+     TipCollected == #{amount => #{},changes => []}) ->
+          ok;
+     true ->
+      ?LOG_INFO("MB Collected fee ~p tip ~p", [FeeCollected, TipCollected])
+  end,
   Logs=lists:reverse(Logs0),
 
   if length(Settings)>0 ->
@@ -441,7 +458,7 @@ update_aalloc(#{
   IncAddr=#{<<"t">> => <<"set">>,
             <<"p">> => [<<"current">>, <<"allocblock">>, <<"last">>],
             <<"v">> => CA},
-  AAlloc={<<"aalloc">>, #{sig=>[], patch=>[IncAddr]}},
+  AAlloc={<<"aalloc">>, #{sig=>[], ver=>2, kind=>patch, patches=>[IncAddr]}},
   SS1=settings:patch(AAlloc, SetState),
 
   Acc#{new_settings=>SS1,
@@ -474,7 +491,10 @@ txfind([_|Rest],TxID) ->
   txfind(Rest,TxID).
 
 cleanup_delayed(#{delayed:=DTX, new_settings:=NS, settings:=Sets} = Acc) ->
-  ?LOG_INFO("Delayed ~p",[DTX]),
+  if(DTX==[]) -> ok;
+    true ->
+      ?LOG_INFO("Delayed txs ~p",[DTX])
+  end,
   ToDel=lists:foldl(
           fun({TxID,DT},Acc1) ->
               case settings:get([<<"current">>, <<"delaytx">>, DT], NS) of
@@ -497,7 +517,7 @@ cleanup_delayed(#{delayed:=DTX, new_settings:=NS, settings:=Sets} = Acc) ->
       Cleanup=[#{<<"p">>=>[<<"current">>,<<"delaytx">>],
                  <<"t">>=><<"lists_cleanup">>,
                  <<"v">>=><<"empty_list">>}],
-      DelPatch={<<"cleanjob">>, #{sig=>[], patch=>ToDel++Cleanup}},
+      DelPatch={<<"cleanjob">>, #{sig=>[], ver=>2, kind=>patch, patches=>ToDel++Cleanup}},
       ?LOG_INFO("Patches ~p~n",[ToDel]),
       Acc#{
         settings=>[DelPatch|Sets]
@@ -536,7 +556,7 @@ process_delayed_txs(#{emit:=Emit, settings:=Settings, parent:=P,
     _ ->
       Patches=[#{<<"p">> => [<<"current">>,<<"delaytx">>,Timestamp],
                  <<"t">> => <<"list_add">>,<<"v">> => [H,P,TxID]} || {TxID, Timestamp} <- ToSet ],
-      SyncPatch={<<"delayjob">>, #{sig=>[], patch=>Patches}},
+      SyncPatch={<<"delayjob">>, #{sig=>[], ver=>2, kind=>patch, patches=>Patches}},
 
       ?LOG_INFO("Emit ~p~n",[NewEmit]),
       ?LOG_INFO("Patches ~p~n",[Patches]),

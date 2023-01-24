@@ -7,7 +7,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0,chainstate/0,bbyb_sync/3,receive_block/2,tpiccall/3]).
+-export([start_link/0,chainstate/0,bbyb_sync/3,receive_block/2,tpiccall/3,sort_rnd/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -31,7 +31,7 @@ chainstate() ->
                        ))++[{self,gen_server:call(blockchain_reader,sync_req)}],
 %  io:format("Cand ~p~n",[Candidates]),
   ChainState=lists:foldl( %first suitable will be the quickest
-               fun({_, #{chain:=_HisChain,
+               fun({PK0, #{chain:=_HisChain,
                          %null:=<<"sync_available">>,
                          last_hash:=Hash,
                          last_temp:=Tmp,
@@ -39,9 +39,19 @@ chainstate() ->
                          last_height:=Heig
                         }=A
                    }, Acc) ->
+                   PK=case PK0 of
+                        self -> nodekey:node_name();
+                        {HisKey,_,_} ->
+                          case chainsettings:is_our_node(HisKey) of
+                            false ->
+                              hex:encode(HisKey);
+                            OurName ->
+                              OurName
+                          end
+                      end,
                    PHash=maps:get(prev_hash,A,<<0,0,0,0,0,0,0,0>>),
                    maps:put({Heig, Hash, PHash, Tmp},
-                            maps:get({Heig, Hash, PHash, Tmp}, Acc, 0)+1, Acc);
+                            [PK|maps:get({Heig, Hash, PHash, Tmp}, Acc, [])], Acc);
                   ({_, _}, Acc) ->
                    Acc
                end, #{}, Candidates),
@@ -54,7 +64,7 @@ chainstate() ->
                             ":",blkid(Has),
                             "/",blkid(PHas),":",
                             integer_to_list(if Tmp==false -> 0; true -> Tmp end)
-                           ]),V,Acc)
+                           ]),length(V),Acc)
                    end, #{}, ChainState)),
   ChainState.
 
@@ -243,11 +253,10 @@ handle_info(runsync, State) ->
   Candidates = case maps:get(sync_candidates, State, []) of
                  [] ->
                    ?LOG_DEBUG("use default list of candidates"),
-                   lists:reverse(
-                     tpiccall(<<"blockchain">>,
-                              #{null=><<"sync_request">>},
-                              [last_hash, last_height, chain, last_temp]
-                             ));
+                   sort_rnd(tpiccall(<<"blockchain">>,
+                                     #{null=><<"sync_request">>},
+                                     [last_hash, last_height, chain, last_temp]
+                                    ));
                  SavedCandidates ->
                    ?LOG_DEBUG("use saved list of candidates"),
                    SavedCandidates
@@ -262,15 +271,15 @@ handle_info({runsync, Candidates}, State) ->
              }, hash:=MyLastHash}=MyLast=blockchain:last_meta(),
 
   B=tpiccall(<<"blockchain">>,
-           #{null=><<"sync_request">>},
-           [last_hash, last_height, chain, last_temp]
-          ),
+             #{null=><<"sync_request">>},
+             [last_hash, last_height, chain, last_temp]
+            ),
   Hack_Candidates=lists:foldl(
                     fun({{A1,B1,_},_}=Elem, Acc) ->
                         maps:put({A1,B1},Elem,Acc)
                     end, #{}, B),
 
-  Candidate=lists:foldl( %first suitable will be the quickest
+  Candidate=lists:foldl(
               fun
                 ({{A2,B2,_}, undefined}, undefined) ->
                   case maps:find({A2,B2},Hack_Candidates) of
@@ -588,5 +597,11 @@ skip_candidate(default)->
 
 skip_candidate(Candidates) when is_list(Candidates) ->
   tl(Candidates).
+
+sort_rnd(List) ->
+  List0=[ {rand:uniform(), I} || I <- List ],
+  List1=lists:keysort(1, List0),
+  [ E || {_,E} <- List1 ].
+
 
 %% ------------------------------------------------------------------

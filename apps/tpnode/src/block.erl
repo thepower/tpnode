@@ -68,7 +68,7 @@ prepack(Block) ->
         maps:from_list(
           lists:map(
             fun({TxID, T}) ->
-                {TxID, tx:pack(T)}
+                {TxID, pack_patch(T)}
             end, Txs)
          );
        (inbound_blocks, Blocks) ->
@@ -372,6 +372,8 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         {settings_hash, SH};
       ({<<"settings_hash">>, SH}) ->
         {settings_hash, SH};
+      ({<<"log_hash">>, SH}) ->
+        {log_hash, SH};
       ({Key, Value}) ->
         ?LOG_INFO("Unknown root ~p",[Key]),
         {Key, Value}
@@ -507,11 +509,17 @@ verify(#{ header:=#{parent:=_,
 
 
 binarize_settings([]) -> [];
-binarize_settings([{TxID, #{ kind:=patch, ver:=2, patches:=_ }=Patch}|Rest]) ->
-  [{TxID, tx:pack(Patch)}|binarize_settings(Rest)];
-binarize_settings([{TxID, #{ patch:=_LPatch }=Patch}|Rest]) ->
-  [{TxID, tx:pack(Patch)}|binarize_settings(Rest)].
+binarize_settings([{TxID, Patch}|Rest]) ->
+  [{TxID, pack_patch(Patch)}|binarize_settings(Rest)].
 
+pack_patch(#{ patch:=_LPatch }=OldTX) ->
+  tx:pack(OldTX);
+%  tx:pack(tx:construct_tx(#{patches=>P, kind=>patch, ver=>2}));
+
+pack_patch(#{ kind:=patch, ver:=2, patches:=_, body:=_ }=Patch) ->
+  tx:pack(Patch);
+pack_patch(#{ kind:=patch, ver:=2, patches:=_ }=Patch) ->
+  tx:pack(tx:construct_tx(Patch)).
 
 mkblock2(#{ txs:=Txs, parent:=Parent,
             height:=H, bals:=Bals0,

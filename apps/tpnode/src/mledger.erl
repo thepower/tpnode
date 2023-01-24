@@ -7,6 +7,7 @@
 -export([dbmtfun/3]).
 -export([mb2item/1]).
 -export([get_kv/1]).
+-export([get_kpv/3, get_kpvs/3]).
 -export([addr_proof/1, bi_decode/1]).
 -export([rollback/2]).
 -export([apply_backup/1]).
@@ -133,6 +134,34 @@ get_vers(Address, trans) ->
 
 mb2item( #mb{ address=A, key=K, path=P, value=V, version=Ver, introduced=Int }) ->
   bi_create(A,Ver,K,P,Int,V).
+
+get_kpvs(Address, Key, Path) ->
+  case rockstable:get(mledger,
+                      undefined,
+                      #bal_items{address=Address,
+                                 version=latest,
+                                 key=Key,
+                                 path=Path,
+                                 _='_'}) of
+    not_found -> [];
+    [] -> [];
+    List ->
+      [ {K, P, V} || #bal_items{key=K,path=P,value=V} <- List]
+  end.
+
+get_kpv(Address, Key, Path) ->
+  case rockstable:get(mledger,
+                      undefined,
+                      #bal_items{address=Address,
+                                 version=latest,
+                                 key=Key,
+                                 path=Path,
+                                 _='_'}) of
+    not_found -> undefined;
+    [] -> undefined;
+    [#bal_items{value=V}] ->
+      {ok, V}
+  end.
 
 get(Address) -> 
   get(Address,trans).

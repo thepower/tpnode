@@ -561,11 +561,20 @@ mychain1() ->
   {MyChain, MyName, ChainNodes}.
 
 mychain(State) ->
-  {MyChain, MyName, ChainNodes}=mychain(),
-  ?LOG_INFO("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
-  maps:merge(State,
-             #{myname=>MyName,
-               chainnodes=>ChainNodes,
-               mychain=>MyChain
-              }).
+  New={MyChain, MyName, ChainNodes}=mychain(),
+  Pre={
+    maps:get(mychain, State, undefined),
+    maps:get(myname, State, undefined),
+    maps:get(chainnodes, State, undefined)
+   },
+  if Pre =/= New ->
+       ?LOG_INFO("My name ~p chain ~p ournodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
+       maps:merge(State,
+                  #{myname=>MyName,
+                    chainnodes=>ChainNodes,
+                    mychain=>MyChain
+                   });
+     true ->
+       State
+  end.
 

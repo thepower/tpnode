@@ -5,7 +5,7 @@ wrfile(Filename, Data) ->
   file:write_file(Filename, io_lib:format("~p.~n",[Data])).
 
 make_example(ChainNo, NodesCnt) ->
-  PrivKeys=[{N,tpecdsa:generate_priv()} || N<- lists:seq(1,NodesCnt) ],
+  PrivKeys=[{N,tpecdsa:generate_priv(ed25519)} || N<- lists:seq(1,NodesCnt) ],
   PrivKeys2File=[ {N,hex:encode(Key)} || {N,Key} <- PrivKeys],
   wrfile("easy_chain"++(integer_to_list(ChainNo))++"_keys.txt", PrivKeys2File),
   PubKeysPatch=[
@@ -14,7 +14,7 @@ make_example(ChainNo, NodesCnt) ->
                 [
                 #{<<"p">> => [<<"keys">>,CN],
                   <<"t">> => <<"set">>,
-                  <<"v">> =>tpecdsa:calc_pub(Key,true)},
+                  <<"v">> =>tpecdsa:calc_pub(Key)},
                  #{<<"p">> => [<<"nodechain">>,CN],<<"t">> => <<"set">>,<<"v">> => ChainNo}
                 ] 
                 end

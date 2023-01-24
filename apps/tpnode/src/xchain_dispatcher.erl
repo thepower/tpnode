@@ -43,15 +43,19 @@ init(_) ->
 handle_call(peers, _From, #{pid_info:=PidInfo} = State) ->
     {reply, get_peers(PidInfo), State};
 
+handle_call(pids, _From, #{pid_info:=PidInfo} = State) ->
+    {reply, PidInfo, State};
 
 handle_call(state, _From, State) ->
     {reply, State, State};
-
 
 handle_call({publish, Channel, Data}, _From, State) ->
     SentCount = publish(Channel, Data, State),
     {reply, SentCount, State};
 
+handle_call({multicast, Predicate, Data}, _From, State) ->
+    SentCount = multicast(Predicate, Data, State),
+    {reply, SentCount, State};
 
 handle_call(_Request, _From, State) ->
     ?LOG_ERROR("xchain dispatcher got unknown call ~p", [_Request]),
@@ -141,4 +145,33 @@ publish(Channel, Data, #{chan_subs:=Chans}=_State) ->
             Counter+1
         end,
     maps:fold(Publisher, 0, Subscribers).
+
+multicast(Predicate, Data, #{pid_info:=PidInfo}=_State) ->
+  Publisher =
+        fun(ClientPid, Nodes, Counter) ->
+            case Predicate(Nodes) of
+                true ->
+                    erlang:send(ClientPid, {message, Data}),
+                    Counter+1;
+                false ->
+                    Counter
+            end
+        end,
+    maps:fold(Publisher, 0, PidInfo).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

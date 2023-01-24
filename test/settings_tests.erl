@@ -23,20 +23,23 @@ patch_sign_test() ->
                62, 9, 86, 147, 15, 193, 9, 244, 229, 208, 76, 222, 83, 208>>,
   TestPriv2= <<183, 31, 13, 74, 198, 72, 211, 62, 196, 207, 92, 98, 28, 31, 136, 0, 127, 128,
                189, 172, 129, 122, 6, 39, 221, 242, 157, 21, 164, 81, 236, 181>>,
-  Patch1=#{patch =>
-           [#{p => [chain, 0, blocktime], t => set, v => 1},
-            #{p => [chain, 0, <<"allowempty">>], t => set, v => 0}]
-          },
-  Patch2=#{patch =>
-           [#{p => [chain, 0, blocktime], t => set, v => 2},
-            #{p => [chain, 0, <<"allowempty">>], t => set, v => 0}]
-          },
-  TwoSig= settings:sign(
-            settings:sign(Patch1, TestPriv1),
+  Patch1=tx:construct_tx(#{ver=>2, kind=>patch,
+                           patches =>
+                           [#{p => [chain, 0, blocktime], t => set, v => 1},
+                            #{p => [chain, 0, <<"allowempty">>], t => set, v => 0}]
+                          }),
+  Patch2=tx:construct_tx(#{ver=>2, kind=>patch,
+                           patches =>
+                           [#{p => [chain, 0, blocktime], t => set, v => 2},
+                            #{p => [chain, 0, <<"allowempty">>], t => set, v => 0}]
+                          }),
+  TwoSig= tx:sign(
+            tx:sign(Patch1, TestPriv1),
             TestPriv2),
   RePack=tx:unpack(tx:pack(TwoSig)),
+  ?assertEqual(TwoSig#{txext=>#{}}, RePack),
   BadSig=maps:merge(TwoSig, Patch2),
-  ReSig=settings:sign(
+  ReSig=tx:sign(
           BadSig,
           TestPriv2),
   TstGenesis=settings:dmp(settings:mp([
@@ -54,27 +57,27 @@ patch_sign_test() ->
                                       ])),
 
   Genesis=settings:patch(TstGenesis, #{}),
-  Patched=settings:patch(settings:verify(RePack), Genesis),
+  Patched=settings:patch(tx:verify(RePack,[nocheck_keys]), Genesis),
   [
    ?assertMatch({ok, #{
                    sigverify:=#{
                      invalid:=0,
-                     valid:=[_, _]
+                     pubkeys:=[_, _]
                     }}
-                }, settings:verify(TwoSig)), %simple check
+                }, tx:verify(TwoSig,[nocheck_keys])), %simple check
    ?assertMatch({ok, #{
                    sigverify:=#{
                      invalid:=0,
-                     valid:=[_, _]
+                     pubkeys:=[_, _]
                     }}
-                }, settings:verify(RePack)), %check after packing and unpacking
-   ?assertEqual(bad_sig, settings:verify(BadSig)), %broken patch
+                }, tx:verify(RePack,[nocheck_keys])), %check after packing and unpacking
+   ?assertEqual(bad_sig, tx:verify(BadSig,[nocheck_keys])), %broken patch
    ?assertMatch({ok, #{
                    sigverify:=#{
-                     invalid:=2,
-                     valid:=[_]
+                     invalid:=_,
+                     pubkeys:=[_]
                     }}
-                }, settings:verify(ReSig)), %resig broken patch
+                }, tx:verify(ReSig,[nocheck_keys])), %resig broken patch
    ?assertMatch([_|_], TstGenesis),
    ?assertMatch(#{}, Genesis),
    ?assertMatch(5, settings:get([chain, 0, blocktime], Genesis)),

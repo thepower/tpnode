@@ -162,7 +162,9 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
     end,
     LastBlock=case sync_get_decode(Pid, "/api/binblock/last") of
                 {200, _, V2} -> maps:with([hash,header],V2);
-                _ -> throw('cant_get_last')
+                Error1 ->
+                  ?LOG_ERROR("Can't get last block ~p",[Error1]),
+                  throw('cant_get_last')
               end,
     ?LOG_INFO("Their lastblk: ~s",[blkinfo(LastBlock)]),
 
@@ -236,7 +238,7 @@ ws_mode(#{pid:=Pid, parent:=Parent}=Sub) ->
       Cmd = msgpack:pack(Payload),
       gun:ws_send(Pid, {binary, Cmd}),
       ?MODULE:ws_mode(Sub);
-    {gun_ws, Pid, {binary, Bin}} ->
+    {gun_ws, Pid, _Ref, {binary, Bin}} ->
       {ok,Cmd} = msgpack:unpack(Bin),
       ?LOG_DEBUG("repl client got ~p",[Cmd]),
       Sub1=handle_msg(Cmd, Sub),
@@ -263,7 +265,7 @@ ws_mode(#{pid:=Pid, parent:=Parent}=Sub) ->
       ?LOG_NOTICE("repl client unknown msg ~p",[Any]),
       ?MODULE:ws_mode(Sub)
   after 5000 ->
-          ?LOG_ERROR("Sending PING"),
+          ?LOG_DEBUG("Sending PING"),
           %ok=gun:ws_send(Pid, {binary, msgpack:pack(#{null=><<"ping">>})}),
           ok=gun:ws_send(Pid, {binary, <<129,192,196,4,"ping">>}),
           ?MODULE:ws_mode(Sub)
@@ -401,8 +403,8 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
 upgrade(Pid) ->
   gun:ws_upgrade(Pid, "/api/ws",
                  [ {<<"sec-websocket-protocol">>, <<"thepower-nodesync-v1">>} ]),
-  receive {gun_ws_upgrade,Pid,Status,Headers} ->
-            {Status, Headers};
+  receive {gun_upgrade,Pid,_Ref,[<<"websocket">>],Headers} ->
+            {ok, Headers};
           {gun_response, Pid, _Ref,_Fin,Code,_Hdr} ->
             {error, Code}
   after 10000 ->

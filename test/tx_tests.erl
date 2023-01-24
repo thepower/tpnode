@@ -125,13 +125,18 @@ deploy_test() ->
   PubKey=tpecdsa:calc_pub(Priv, true),
   From=(naddress:construct_public(0, 0, 1)),
   Test=fun(LedgerPID) ->
-           TestTx2=#{ from=>From,
-                      deploy=><<"chainfee">>,
-                      code=><<"code">>,
-                      state=><<"state">>,
-                      timestamp => os:system_time(millisecond),
-                      seq=>1
-                    },
+           TestTx2=tx:construct_tx(
+                     #{ ver=>2,
+                        kind=>deploy,
+                        from=>From,
+                        payload => [],
+                        txext =>  #{
+                           "code" => <<"code">>,
+                           "vm" => "chainfee"
+                          },
+                        t=> os:system_time(millisecond),
+                        seq=>1
+                      }),
            BinTx2=tx:sign(TestTx2, Priv),
            BinTx2r=tx:pack(tx:unpack(BinTx2)),
            {ok, CheckTx2}=tx:verify(BinTx2,[{ledger, LedgerPID}]),

@@ -46,7 +46,7 @@
   0},
  {<<"msgpack">>,
   {git,"https://github.com/cleverfox/msgpack-erlang",
-       {ref,"a0f026c803a66da925ae3cbb3198a1c5ca83162a"}},
+       {ref,"40e758e9a1c6b538ca4ca0522a711ce4380b6860"}},
   0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.8.0">>},1},
  {<<"rocksdb">>,{pkg,<<"rocksdb">>,<<"1.7.0">>},1},

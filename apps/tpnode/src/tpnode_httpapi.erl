@@ -9,6 +9,7 @@
          postbatch/1,
          packer/2,
          mp2json/2,
+         get_nodes/1,
          binjson/1]).
 
 -export([answer/0, answer/1, answer/2, err/1, err/2, err/3, err/4]).
@@ -123,7 +124,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
   #{hash:=Hash,
     header:=Header1}=Blk=blockchain:last_meta(),
   Temp=maps:get(temporary,Blk,false),
-  BinPacker=packer(_Req,hex),
+  BinPacker=packer(_Req),
   Header=maps:map(
            fun(roots, V) ->
                [ if is_binary(RV) ->
@@ -215,7 +216,7 @@ h(<<"GET">>, [<<"node">>, <<"tpicpeers">>], _Req) ->
 h(<<"GET">>, [<<"node">>, <<"chainstate">>], _Req) ->
   R=maps:fold(
       fun({H,B1,B2,Tmp},Cnt,A) ->
-          [[H,hex:encode(B1),hex:encode(B2),Tmp,Cnt]|A]
+          [[H,hex:encode(B1),hex:encode(B2),Tmp,length(Cnt),Cnt]|A]
       end,
       [],
       blockchain_sync:chainstate()),
@@ -314,7 +315,8 @@ h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
       )
   end;
 
-h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
+h(<<"GET">>, [<<"where">>, TAddr], Req) ->
+  BinPacker=packer(Req),
   try
     Addr=case TAddr of
            <<"0x", Hex/binary>> ->
@@ -339,7 +341,7 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
                         #{
                             result => <<"found">>,
                             chain => Blk,
-                            chain_nodes => get_nodes(Blk)
+                            chain_nodes => get_nodes(Blk,BinPacker)
                         },
                         #{address => Addr}
                     )
@@ -349,7 +351,7 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
                 #{
                     result => <<"other_chain">>,
                     chain => Blk,
-                    chain_nodes => get_nodes(Blk)
+                    chain_nodes => get_nodes(Blk,BinPacker)
                 },
                 #{ address => Addr }
             )
@@ -370,40 +372,91 @@ h(<<"GET">>, [<<"where">>, TAddr], _Req) ->
             )
   end;
 
-h(<<"GET">>, [<<"nodes">>, Chain], _Req) ->
-    answer(#{
-        chain_nodes => get_nodes(binary_to_integer(Chain, 10))
-    });
+h(<<"GET">>, [<<"nodes">>, Chain], Req) ->
+  BinPacker=packer(Req),
+  answer(#{
+           chain_nodes => get_nodes(binary_to_integer(Chain, 10), BinPacker)
+          });
 
-h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], _Req) ->
+h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], Req) ->
   try
     Addr=case TAddr of
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    Ledger=mledger:get(Addr),
-    case Ledger =/= undefined of
-      false ->
-          err(
-              10003,
-              <<"Not found">>,
-              #{result => <<"not_found">>},
-              #{http_code => 404}
-          );
-      true ->
-        State=maps:get(state, Ledger, #{}),
-        S1=maps:fold(
-             fun(K,_,Acc) ->
-                [<<"0x",(hex:encode(K))/binary>>|Acc]
-             end, [], State),
+    case mledger:get_kpv(Addr,vm,'_') of
+      undefined ->
+        err(
+          10003,
+          <<"Not found">>,
+          #{result => <<"not_found">>},
+          #{http_code => 404}
+         );
+      {ok,_VM} ->
+        RawKeys=mledger:get_kpvs(Addr,state,'_'),
+
+        S1=case maps:get(req_format,Req) of
+             <<"mp">> ->
+               lists:foldl(
+                 fun({state,K,_},Acc) ->
+                     [K|Acc]
+                 end, [], RawKeys);
+             _ -> %default hex encode
+               lists:foldl(
+                 fun({state,K,_},Acc) ->
+                     [<<"0x",(hex:encode(K))/binary>>|Acc]
+                 end, [], RawKeys)
+           end,
         {200, [{"Content-Type","application/json"}],
          #{
            notice => <<"Only for debugging. Do not use it in scripts!!!">>,
            keys => S1
           }
         }
-
     end
+  catch
+    throw:{error, address_crc} ->
+      err(
+                  10004,
+                  <<"Invalid address">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              );
+          throw:bad_addr ->
+              err(
+                  10005,
+                  <<"Invalid address (2)">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              )
+  end;
+
+
+h(<<"GET">>, [<<"address">>, TAddr, <<"lstore">>|Path], _Req) ->
+  try
+    Addr=case TAddr of
+           <<"0x", Hex/binary>> -> hex:parse(Hex);
+           _ -> naddress:decode(TAddr)
+         end,
+        RawKeys=mledger:get_kpvs(Addr,lstore,'_'),
+        MatchPath=fun M([],P) -> P;
+                      M([E1|R1],[E2|R2]) when E1==E2 ->
+                        M(R1,R2);
+                      M(_,_) -> false
+                  end,
+
+        S1=lists:foldl(
+             fun({lstore,K,V},Acc) ->
+                 case MatchPath(Path,K) of
+                   false ->
+                     Acc;
+                   P ->
+                     settings:patch([#{<<"t">> => <<"set">>,
+                                       <<"p">> =>P,
+                                       <<"v">> =>V}],Acc)
+                 end
+             end, #{}, RawKeys),
+        {200, [{"Content-Type","application/json"}], S1}
   catch
     throw:{error, address_crc} ->
               err(
@@ -421,40 +474,42 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], _Req) ->
               )
   end;
 
-
 h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
   try
     Addr=case TAddr of
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    Ledger=mledger:get(Addr),
-    case Ledger =/= undefined of
-      false ->
+    case mledger:get_kpv(Addr,vm,'_') of
+      undefined ->
           err(
               10003,
               <<"Not found">>,
               #{result => <<"not_found">>},
               #{http_code => 404}
           );
-      true ->
-        State=maps:get(state, Ledger, #{}),
+      {ok,_VM} ->
         case Path of
           [] ->
-            ?LOG_INFO("F ~p",[F]),
+            RawKeys=mledger:get_kpvs(Addr,state,'_'),
             case F of <<>> ->
-                        S1=msgpack:pack(State),
+                        KVs=lists:foldl(
+                              fun({state,K,V}, A) ->
+                                  maps:put(K,V,A)
+                              end,#{},RawKeys
+                             ),
+                        S1=msgpack:pack(KVs),
                         {200, [{"Content-Type","binary/octet-stream"}], S1};
                       <<"json">> ->
-                        S1=maps:fold(
-                          fun(K,V,Acc) ->
-                              maps:put(
-                                base64:encode(K),
-                                base64:encode(V),
-                                Acc)
-                          end, #{
-                            notice => <<"Only for Sasha">>
-                           }, State),
+                        S1=lists:foldl(
+                             fun({state,K,V},Acc) ->
+                                 maps:put(
+                                   base64:encode(K),
+                                   base64:encode(V),
+                                   Acc)
+                             end, #{
+                                    notice => <<"Only for Sasha">>
+                                   }, RawKeys),
                         {200, [{"Content-Type","application/json"}], S1}
             end;
           [Key] ->
@@ -462,7 +517,10 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
                    <<"0x", HexK/binary>> -> hex:parse(HexK);
                    _ -> base64:decode(Key)
                  end,
-            Val=maps:get(K,State,<<>>),
+            Val=case mledger:get_kpv(Addr,state,K) of
+                  undefined -> <<>>;
+                  {ok,V1} -> V1
+                end,
             {200, [{"Content-Type","binary/octet-stream"}], Val}
         end
     end
@@ -490,17 +548,16 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    Ledger=mledger:get(Addr),
-    case Ledger =/= undefined of
-      false ->
+    Ledger=mledger:get_kpv(Addr, code, []),
+    case Ledger of
+      undefined ->
           err(
               10003,
               <<"Not found">>,
               #{result => <<"not_found">>},
               #{http_code => 404}
           );
-      true ->
-        Code=maps:get(code, Ledger, <<>>),
+      {ok, Code} ->
         {200, [{"Content-Type","binary/octet-stream"}], Code}
     end
   catch
@@ -522,7 +579,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
 
 h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
   try
-    BinPacker=packer(Req,hex),
+    BinPacker=packer(Req),
     Addr=case TAddr of
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
@@ -594,7 +651,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
 h(<<"GET">>, [<<"address">>, TAddr], Req) ->
   QS=cowboy_req:parse_qs(Req),
   try
-    BinPacker=packer(Req,hex),
+    BinPacker=packer(Req),
     Addr=case TAddr of
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
@@ -690,7 +747,7 @@ h(<<"GET">>, [<<"address">>, TAddr], Req) ->
   end;
 
 h(<<"GET">>, [<<"blockhash">>, BHeight], _Req) ->
-  BinPacker=packer(_Req,hex),
+  BinPacker=packer(_Req),
   Height=binary_to_integer(BHeight),
   case gen_server:call(blockchain_reader,{get_hash,Height}) of
     {ok, Hash} ->
@@ -711,7 +768,7 @@ h(<<"GET">>, [<<"blockhash">>, BHeight], _Req) ->
 
 
 h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
-  BinPacker=packer(_Req,hex),
+  BinPacker=packer(_Req),
   BlockHash0=if(BlockId == <<"last">>) -> last;
                (BlockId == <<"genesis">>) -> genesis;
                true -> hex:parse(BlockId)
@@ -744,7 +801,7 @@ h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
   end;
 
 h(<<"GET">>, [<<"block_candidates">>], _Req) ->
-  BinPacker=packer(_Req,hex),
+  BinPacker=packer(_Req),
   Blocks=gen_server:call(blockvote, candidates),
   if is_map(Blocks) ->
        EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
@@ -771,7 +828,6 @@ h(<<"GET">>, [<<"block_candidates">>], _Req) ->
          #{http_code => 500}
         )
   end;
-
 
 h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
   BlockHash0=if(BlockId == <<"last">>) -> last;
@@ -817,7 +873,7 @@ h(<<"GET">>, [<<"txtblock">>, BlockId], _Req) ->
 
 h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
-  BinPacker=packer(_Req,hex),
+  BinPacker=packer(_Req),
   Address=case proplists:get_value(<<"addr">>, QS) of
             undefined -> undefined;
             Addr -> naddress:decode(Addr)
@@ -858,11 +914,19 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
        )
   end;
 
-h(<<"GET">>, [<<"settings">>], _Req) ->
-  Settings=settings:clean_meta(chainsettings:by_path([])),
+h(<<"GET">>, [<<"settings">>|Path], Req) ->
+  BinPacker=packer(Req),
+  Settings=case chainsettings:by_path(
+                  settings:b2pc(Path)
+                 ) of
+             M when is_map(M) ->
+               settings:clean_meta(M);
+             Any ->
+               Any
+           end,
   EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
           Conf1=jsx_config:list_to_config(Conf),
-          jsx_parser:resume([{Type, base64:encode(Str)}|Tokens],
+          jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
                             State, Handler, Stack, Conf1)
       end,
   answer(
@@ -872,11 +936,14 @@ h(<<"GET">>, [<<"settings">>], _Req) ->
     #{jsx=>[ strict, {error_handler, EHF} ]}
    );
 
-h(<<"GET">>, [<<"settings_all">>], _Req) ->
-  Settings=chainsettings:by_path([]),
+h(<<"GET">>, [<<"settings_all">>|Path], Req) ->
+  BinPacker=packer(Req),
+  Settings=chainsettings:by_path(
+             settings:b2pc(Path)
+            ),
   EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
           Conf1=jsx_config:list_to_config(Conf),
-          jsx_parser:resume([{Type, base64:encode(Str)}|Tokens],
+          jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
                             State, Handler, Stack, Conf1)
       end,
   answer(
@@ -946,7 +1013,7 @@ h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
   end;
 
 h(<<"GET">>, [<<"logs">>, BlockId], _Req) ->
-  BinPacker=packer(_Req,hex),
+  BinPacker=packer(_Req),
   BlockHash=hex:parse(BlockId),
   case logs_db:get(BlockHash) of
     undefined ->
@@ -971,7 +1038,7 @@ h(<<"GET">>, [<<"logs">>, BlockId], _Req) ->
   end;
 
 h(<<"GET">>, [<<"logs_height">>, BHeight], _Req) ->
-  BinPacker=packer(_Req,hex),
+  BinPacker=packer(_Req),
   Height=binary_to_integer(BHeight),
   case logs_db:get(Height) of
     undefined ->
@@ -1284,8 +1351,11 @@ show_signs(Signs, BinPacker, IsNode) ->
 % ----------------------------------------------------------------------
 
 get_nodes(Chain) when is_integer(Chain) ->
-    Nodes = discovery:lookup(<<"apipeer">>, Chain),
-    NodesHttps = discovery:lookup(<<"apispeer">>, Chain),
+  get_nodes(Chain, fun(X) -> X end).
+
+get_nodes(Chain, BinPacker) when is_integer(Chain) ->
+  Nodes = discovery:lookup(<<"apipeer">>, Chain),
+  NodesHttps = discovery:lookup(<<"apispeer">>, Chain),
 
 %%    io:format("Nodes: ~p~n", [Nodes]),
 %%    io:format("NodesHttps: ~p~n", [NodesHttps]),
@@ -1335,7 +1405,15 @@ get_nodes(Chain) when is_integer(Chain) ->
             Host = add_proto(Host0, Proto),
             Ip = add_proto(Ip0, Proto),
 
-            case maps:get(nodeid, Addr, unknown) of
+            Extradata=maps:map(
+                        fun(pubkey,Bin) ->
+                            BinPacker(Bin);
+                           (_,V) ->
+                            V
+                        end, maps:with([pubkey], Addr)
+                       ),
+            ID=maps:get(node_name, Addr, maps:get(nodeid, Addr, unknown)),
+            case ID of
                 unknown -> NodeMap;
                 NodeId ->
                     NodeRecord = maps:get(NodeId, NodeMap, #{}),
@@ -1351,7 +1429,7 @@ get_nodes(Chain) when is_integer(Chain) ->
                         AddToList(Ips, Ip),
                         NodeRecord1
                     ),
-                    maps:put(NodeId, NodeRecord2, NodeMap)
+                    maps:put(NodeId, maps:merge(NodeRecord2,Extradata), NodeMap)
             end;
             (Invalid, NodeMap) ->
                 ?LOG_ERROR("invalid address: ~p", Invalid),
@@ -1421,6 +1499,11 @@ add_proto(Ip, Proto) ->
 
 % ----------------------------------------------------------------------
 
+packer(#{req_format := <<"mp">>}=Req) ->
+  packer(Req, raw);
+packer(Req) ->
+  packer(Req, hex).
+
 packer(Req,Default) ->
   QS=cowboy_req:parse_qs(Req),
   case proplists:get_value(<<"bin">>, QS) of
@@ -1429,7 +1512,8 @@ packer(Req,Default) ->
     <<"raw">> -> fun(Bin) -> Bin end;
     _ -> case Default of
            hex -> fun(Bin) -> hex:encode(Bin) end;
-           b64 -> fun(Bin) -> base64:encode(Bin) end
+           b64 -> fun(Bin) -> base64:encode(Bin) end;
+           raw -> fun(Bin) -> Bin end
          end
   end.
 

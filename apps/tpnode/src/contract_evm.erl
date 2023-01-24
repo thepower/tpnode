@@ -69,8 +69,19 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
                       0
                   end
               end,
+  ACD=try
+        case Tx of
+          #{call:=#{function:="ABI",args:=CArgs}} ->
+            encode_simple(CArgs);
+          _ ->
+            <<>>
+        end
+      catch Ec:Ee:S ->
+              ?LOG_ERROR("ABI encode error: ~p:~p @~p",[Ec,Ee,hd(S)]),
+              <<>>
+      end,
 
-  EvalRes = eevm:eval(Code,
+  EvalRes = eevm:eval(<<Code/binary,ACD/binary>>,
                       State,
                       #{
                         extra=>Opaque,
@@ -134,6 +145,39 @@ encode_arg(<<Arg:64/big>>,Acc) ->
   <<Acc/binary,Arg:256/big>>;
 encode_arg(_,_) ->
   throw(arg_encoding_error).
+
+encode_simple(Elements) ->
+  HdLen=length(Elements)*32,
+  {H,B,_}=lists:foldl(
+            fun(E, {Hdr,Body,BOff}) when is_integer(E) ->
+                {<<Hdr/binary,E:256/big>>,
+                 Body,
+                 BOff};
+               (<<E:64/big>>, {Hdr,Body,BOff}) -> %the power address
+                {<<Hdr/binary,E:256/big>>,
+                 Body,
+                 BOff};
+               (<<E:256/big>>, {Hdr,Body,BOff}) ->
+                {<<Hdr/binary,E:256/big>>,
+                 Body,
+                 BOff};
+               (E, {Hdr,Body,BOff}) when is_list(E) ->
+                EncStr=encode_str(list_to_binary(E)),
+                {
+                 <<Hdr/binary,BOff:256/big>>,
+                 <<Body/binary,EncStr/binary>>,
+                 BOff+size(EncStr)
+                }
+            end, {<<>>, <<>>, HdLen}, Elements),
+  HdLen=size(H),
+  <<H/binary,B/binary>>.
+
+encode_str(Bin) ->
+  Pad = case (size(Bin) rem 32) of
+          0 -> 0;
+          N -> 32 - N
+        end*8,
+  <<(size(Bin)):256/big,Bin/binary,0:Pad/big>>.
 
 
 handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,

@@ -58,7 +58,7 @@ run(#{parent:=Parent, address:=Ip, port:=Port} = Sub, GetFun) ->
     end,
     Proto=case sync_get_decode(Pid, "/xchain/api/compat.mp") of
             {200, _, #{<<"ok">>:=true,<<"version">>:=Ver}} -> Ver;
-            {404, _, _} -> 0;
+            {404, _, _} -> throw('xchain_protocol_does_not_supported');
             _ -> 0
           end,
     {[<<"websocket">>],UpgradeHdrs}=upgrade(Pid,Proto),
@@ -147,9 +147,10 @@ ws_mode(Pid, #{parent:=Parent, proto:=Proto}=Sub, GetFun) ->
       done;
     {send_msg, Payload} ->
       Cmd = xchain:pack(Payload, Proto),
+      ?LOG_DEBUG("Sending msg ~p",[Payload]),
       gun:ws_send(Pid, {binary, Cmd}),
       ?MODULE:ws_mode(Pid, Sub, GetFun);
-    {gun_ws, Pid, {binary, Bin}} ->
+    {gun_ws, Pid, _Ref, {binary, Bin}} ->
       Cmd = xchain:unpack(Bin, Proto),
       ?LOG_DEBUG("XChain client got ~p",[Cmd]),
       Sub1=xchain_client_handler:handle_xchain(Cmd, Pid, Sub),
@@ -172,6 +173,7 @@ reg(Pid, Proto, GetFun) ->
   make_ws_req(Pid, Proto, #{
                      null=><<"node_id">>,
                      node_id=>MyNodeId,
+                     pubkey=>nodekey:get_pub(),
                      chain=>Chain
                     }).
 
@@ -224,9 +226,9 @@ block_list(Pid, Proto, Chain, Last, Known, Acc) ->
     #{null := N,
       <<"ok">> := true,
       <<"pointers">> := #{<<"height">> := H,
-                          <<"hash">> := P}} 
-      when is_binary(P) 
-           andalso 
+                          <<"hash">> := P}}
+      when is_binary(P)
+           andalso
            (N==<<"last_ptr">> orelse N==<<"pre_ptr">>) ->
       [{H,P}|Acc];
     Any ->
@@ -236,13 +238,13 @@ block_list(Pid, Proto, Chain, Last, Known, Acc) ->
   end.
 
 make_ws_req(Pid, Proto, Request) ->
-  receive {gun_ws,Pid, _, {binary, _}} ->
+  receive {gun_ws, Pid, _, {binary, _}} ->
             throw('unexpected_data')
   after 0 -> ok
   end,
   Cmd = xchain:pack(Request, Proto),
   ok=gun:ws_send(Pid, {binary, Cmd}),
-  receive {gun_ws,Pid, _Ref, {binary, Payload}}->
+  receive {gun_ws, Pid, _Ref, {binary, Payload}}->
             {ok, Res} = msgpack:unpack(Payload),
             Res
   after 5000 ->

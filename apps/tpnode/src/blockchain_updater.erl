@@ -111,6 +111,7 @@ init(_Args) ->
     _ ->
       erlang:send_after(6000, self(), runsync)
   end,
+  erlang:send_after(60000, self(), start_cleanup),
   notify_settings(),
   gen_server:cast(blockchain_reader,update),
   erlang:spawn(fun() ->
@@ -189,7 +190,8 @@ handle_call(rollback, _From, #{
   end;
 
 handle_call({new_block, #{hash:=BlockHash,
-                          header:=#{height:=Hei}=Header}=Blk, PID}=_Message,
+                          header:=#{height:=Hei}=Header,
+                          sign:=Signatures}=Blk, PID}=_Message,
             _From,
             #{candidates:=Candidates, ldb:=LDB0,
               settings:=Sets,
@@ -201,11 +203,9 @@ handle_call({new_block, #{hash:=BlockHash,
               is_tuple(PID) -> PID;
               true -> emulator
            end,
-  ?LOG_INFO("Arrived block from ~p Verify block with ~p",
-             [FromNode, maps:keys(Blk)]),
-
-  ?LOG_INFO("New block (~p/~p) hash ~s (~s/~s)",
+  ?LOG_INFO("New block from ~p (~p/~p) hash ~s (~s/~s)",
              [
+              FromNode,
               Hei,
               maps:get(height, maps:get(header, LastBlock)),
               blkid(BlockHash),
@@ -248,8 +248,8 @@ handle_call({new_block, #{hash:=BlockHash,
         Txs=maps:get(txs, Blk, []),
         Txsl=length(Txs),
         if LenSucc>0 ->
-             ?LOG_INFO("from ~p New block ~w arrived ~s, txs ~b, verify ~w sig (~.3f ms)",
-                        [FromNode, maps:get(height, maps:get(header, Blk)),
+             ?LOG_INFO("Block ~w verified ~s, txs ~b, verify ~w sig (~.3f ms)",
+                        [maps:get(height, maps:get(header, Blk)),
                          blkid(BlockHash), Txsl, length(Success), (T1-T0)/1000000]),
              ok;
            true ->
@@ -270,7 +270,6 @@ handle_call({new_block, #{hash:=BlockHash,
         SigLen=length(maps:get(sign, MBlk)),
         ?LOG_DEBUG("Signs ~p", [Success]),
         MinSig=getset(minsig,State),
-        ?LOG_INFO("Sig ~p ~p", [SigLen, MinSig]),
         if SigLen>=MinSig ->
              IsTemp=maps:get(temporary,Blk,false) =/= false,
              Header=maps:get(header, Blk),
@@ -318,6 +317,19 @@ handle_call({new_block, #{hash:=BlockHash,
                             ]),
 
                   lastblock2ets(BTable, MBlk),
+                  CastAllSigs=msgpack:pack(
+                             #{null=><<"blockvote">>,
+                               <<"n">>=>node(),
+                               <<"hash">>=>BlockHash,
+                               <<"sign">>=> lists:map(
+                                              fun(SignatureMap) ->
+                                                  bsig:packsig(SignatureMap)
+                                              end, Signatures),
+                               <<"chain">>=>MyChain
+                              }
+                            ),
+                  tpic2:cast(<<"blockvote">>, CastAllSigs),
+
                   tpic2:cast(<<"blockchain">>,
                             {<<"chainkeeper">>,
                              msgpack:pack(
@@ -539,6 +551,7 @@ handle_call({new_block, #{hash:=BlockHash,
              end;
            true ->
              %not enough
+             ?LOG_NOTICE("Block arrived to updater, but insufficient signature ~p, required ~p", [SigLen, MinSig]),
              {reply, {ok, no_enough_sig}, State#{
                                             candidates=>
                                             maps:put(BlockHash,
@@ -583,7 +596,7 @@ handle_cast({new_block, #{hash:=_}, _PID}=Message, State) ->
   {noreply, NewState};
 
 handle_cast({signature, BlockHash, Sigs},
-            #{ldb:=LDB,
+            #{%ldb:=LDB,
               tmpblock:=#{
                 hash:=LastBlockHash,
                 sign:=OldSigs
@@ -599,7 +612,7 @@ handle_cast({signature, BlockHash, Sigs},
                   length(NewSigs)
                  ]),
       NewLastBlk=LastBlk#{sign=>NewSigs},
-      save_block(LDB, NewLastBlk, false),
+      %save_block(LDB, NewLastBlk, false),
       {noreply, State#{tmpblock=>NewLastBlk}};
     true ->
       ?LOG_INFO("Extra confirm not changed ~w/~w",
@@ -668,11 +681,52 @@ handle_info({backup, Path, From, LH, Cnt}, #{ldb:=LDB}=State) ->
   end,
   {noreply, State};
 
+handle_info(start_cleanup, #{ldb:=LDB}=State) ->
+  case maps:is_key(clean_iterator,State) of
+    true ->
+      Iterator0=maps:get(clean_iterator,State),
+      rocksdb:iterator_close(Iterator0);
+    false ->
+      ok
+  end,
+  {ok, Iterator}=rocksdb:iterator(LDB, []),
+  case rocksdb:iterator_move(Iterator,first) of
+    {ok, Key, Value} ->
+      D=case check_delete(LDB, Key, Value) of
+          delete ->
+            1;
+          _ -> 0
+        end,
+      erlang:send_after(100, self(), {continue_cleanup,D}),
+      {noreply, State#{clean_iterator=>Iterator}};
+    {error, _} ->
+      rocksdb:iterator_close(Iterator),
+      erlang:send_after(60000, self(), start_cleanup),
+      {noreply, maps:without([clean_iterator], State)}
+  end;
+
+handle_info({continue_cleanup,N}, #{ldb:=LDB,clean_iterator:=Iterator}=State) ->
+  case rocksdb:iterator_move(Iterator,next) of
+    {ok, Key, Value} ->
+      D=case check_delete(LDB, Key, Value) of
+          delete ->
+            N+1;
+          _ -> N
+        end,
+      erlang:send_after(100, self(), {continue_cleanup, D}),
+      {noreply, State};
+    {error, invalid_iterator} ->
+      ?LOG_NOTICE("Cleanup done, deleted ~p",[N]),
+      rocksdb:iterator_close(Iterator),
+      {noreply, maps:without([clean_iterator], State)}
+  end;
+
 handle_info(_Info, State) ->
-  ?LOG_INFO("BC unhandled info ~p", [_Info]),
+  ?LOG_NOTICE("BC unhandled info ~p", [_Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
+  ldb:close(utils:dbpath(db)),
   ?LOG_ERROR("Terminate blockchain ~p", [_Reason]),
   ok.
 
@@ -924,3 +978,18 @@ lastblock2ets(TableID, #{header:=Hdr,hash:=Hash,sign:=Sign}) ->
                         }
                       }
                      ]).
+
+check_delete(LDB, Key = <<"block:",Hash/binary>>, Value) ->
+  Block=binary_to_term(Value),
+  case Block of
+    #{temporary:=_} ->
+      ?LOG_NOTICE("Delete tmp block ~p~n~p~n",[hex:encode(Hash),maps:get(header,Block)]),
+      ldb:del_key(LDB, Key),
+      delete;
+    _ ->
+      ok
+  end;
+
+check_delete(_LDB, _Key, _Value) ->
+  ok.
+

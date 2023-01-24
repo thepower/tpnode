@@ -30,10 +30,16 @@ websocket_handle({binary, Bin}, #{proto:=P}=State) ->
     %%?LOG_DEBUG("ws server got binary msg: ~p", [Bin]),
     Cmd = xchain:unpack(Bin, P),
     ?LOG_DEBUG("ws server got term: ~p", [Cmd]),
-    Result = xchain_server_handler:handle_xchain(Cmd),
+    Result = xchain_server_handler:handle_xchain(Cmd,State),
     case Result of
       ok ->
         {ok, State};
+      {ok, NewState} ->
+        {ok, NewState};
+      {reply, Answer, NewState} ->
+        {reply, {binary, xchain:pack(Answer, P)}, NewState};
+      {reply, Answer} ->
+        {reply, {binary, xchain:pack(Answer, P)}, State};
       Answer ->
         {reply, {binary, xchain:pack(Answer, P)}, State}
     end

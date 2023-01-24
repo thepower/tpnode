@@ -6,9 +6,17 @@
 -export([get_setting/1,
          is_our_node/1,
          is_our_node/2,
+         is_net_node/1,
          settings_to_ets/1,
          all/0, by_path/1]).
+-export([contacts/1,contacts/2]).
 -export([checksum/0]).
+
+is_net_node(PubKey) ->
+  case ets:match(blockchain,{[keys,'$1'],'_',<<"set">>,PubKey}) of
+    [] -> false;
+    [[Name]] -> {true, Name}
+  end.
 
 is_our_node(PubKey, Settings) ->
   KeyDB=maps:get(keys, Settings, #{}),
@@ -93,6 +101,42 @@ settings_to_ets(NewSettings) ->
   blockchain_updater:store_mychain(MyName, ChainNodes, MyChain),
   NewSettings.
 
+contacts(Name, Protocol) when is_binary(Protocol) ->
+  contacts(Name, [Protocol]);
+
+contacts(Name, Protocols) when is_list(Protocols) ->
+  C=contacts(Name),
+  lists:foldl(
+    fun(URL,A) ->
+        try
+          #{scheme:=P}=uri_string:parse(URL),
+          case lists:member(P,Protocols) of
+            true ->
+              [URL|A];
+            false ->
+              A
+          end
+        catch _:_ ->
+                A
+        end
+    end, [], C).
+
+contacts(Name) ->
+  Config = application:get_env(tpnode, contacts, #{}),
+  R=case maps:get(Name, Config, undefined) of
+    Value when is_list(Value) ->
+      Value;
+    undefined ->
+      chainsettings:by_path([<<"contacts">>,<<"default">>,Name]);
+    Any ->
+      logger:notice("Error value for contact ~p in config: ~p",[Name,Any]),
+      chainsettings:by_path([<<"contacts">>,<<"default">>,Name])
+  end,
+  if R==#{} ->
+       [];
+     true ->
+       R
+  end.
 
 get_val(Name) ->
   get_val(Name, undefined).

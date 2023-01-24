@@ -133,13 +133,13 @@ jsonfy1({true,#{address:=Addr}}) ->
     address=>naddress:encode(Addr)
    };
 
-jsonfy1({true,#{retval:=RV}}) when is_integer(RV)->
+jsonfy1({true,#{<<"retval">>:=RV}}) when is_integer(RV)->
   #{ok=>true,
     res=>ok,
     retval=>RV
    };
 
-jsonfy1({true,#{retval:=RV}}) when is_binary(RV)->
+jsonfy1({true,#{<<"retval">>:=RV}}) when is_binary(RV)->
   #{ok=>true,
     res=>ok,
     retval=>list_to_binary(["0x,",hex:encode(RV)])

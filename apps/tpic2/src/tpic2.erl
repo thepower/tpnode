@@ -336,7 +336,6 @@ extract_cert_info(
 
 verfun(PCert,{bad_cert, _} = Reason, _) ->
   ?LOG_DEBUG("Peer Cert ~p: ~p~n",[Reason,extract_cert_info(PCert)]),
-  ?LOG_NOTICE("TODO: check peer cert ~p~n",[Reason]),
   {valid, Reason};
 verfun(_, Reason, _) ->
   ?LOG_NOTICE("Bad cert. Reason ~p~n",[Reason]),

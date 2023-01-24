@@ -1,6 +1,9 @@
 -module(vm).
 -include("include/tplog.hrl").
--export([run/4, test_erl/0, test_wasm/0]).
+-export([run/4]).
+
+-ifdef(TEST).
+-export([test_erl/0, test_wasm/0]).
 
 test_erl() ->
   SPid=vm_erltest:run("127.0.0.1",5555),
@@ -95,6 +98,7 @@ test_wasm() ->
    msgpack:unpack(S2),
    R2
   }.
+-endif.
 
 run(Fun, VmType, VmVer, Opts) ->
   Timeout=proplists:get_value(run_timeout, Opts, 1000),
