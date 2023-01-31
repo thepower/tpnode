@@ -721,10 +721,17 @@ try_process([{TxID, #{ver:=2,
     ?LOG_INFO("Expected diff ~p ~p",[Diff,Inv]),
     ?LOG_INFO("tx ~p",[Tx]),
 
-    if Inv==1 ->
+    if Inv=/=0 ->
          Invite=maps:get(inv,Tx,<<>>),
          Invites=maps:get(<<"invites">>,RegSettings,[]),
-         HI=crypto:hash(md5,Invite),
+         HI=case Inv of
+              1 ->
+                crypto:hash(md5,Invite);
+              2 ->
+                crypto:hash(sha256,Invite);
+              _ ->
+                throw('bad_invite_mode')
+            end,
          InvFound=lists:member(HI,Invites),
          ?LOG_INFO("Inv ~p ~p",[Invite,InvFound]),
          if InvFound ->
@@ -918,7 +925,7 @@ try_process_inbound([{TxID,
                     )
     end
 
-    catch 
+    catch
       throw:insufficient_gas ->
         try_process(Rest,
                     savegas(Gas, all,
@@ -1259,7 +1266,7 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
         global_acc:=Acc2,
         log:=EmitLog0
        }=OpaqueState2,
-      
+
       EmitLog = [ msgpack:pack([TxID|LL]) || LL <- EmitLog0 ],
       #{table:=Addresses1}=Acc2,
       EmitTxs=lists:map(
