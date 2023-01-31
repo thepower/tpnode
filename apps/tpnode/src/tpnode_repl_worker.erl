@@ -114,7 +114,9 @@ genesis(#{protocol:=_, address:=_, port:=_, pid:=Pid} = Sub) ->
 
 genesis(#{protocol:=_, address:=_, port:=_} = Sub) ->
   Pid=connect(Sub),
-  genesis(Sub, Pid);
+  Res=genesis(Sub, Pid),
+  gun:close(Pid),
+  Res;
 
 genesis(#{uri:=URI} = Sub) ->
   genesis(maps:merge(Sub,uri_parse(URI))).
@@ -384,7 +386,7 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
                          }=Blk} ->
           ?LOG_INFO("Has block h=~w 0x~s parent 0x~s",
                      [Hei, hex:encode(Hash), hex:encode(ParentHash)]),
-          LBH=maps:get(last,Sub,#{}),
+          LBH=maps:get(last,Sub,undefined),
           case Blk of
             #{hash:=BH,header:=_,child:=Child} ->
               T0=erlang:system_time(microsecond),
@@ -520,6 +522,6 @@ blkinfo(#{hash:=H,header:=#{height:=Hei,chain:=Ch},temporary:=T}) ->
   io_lib:format("~s h=~w ch=~w tmp=~w",[blockchain:blkid(H),Hei,Ch,T]);
 blkinfo(#{hash:=H,header:=#{height:=Hei,chain:=Ch}}) ->
   io_lib:format("~s h=~w ch=~w",[blockchain:blkid(H),Hei,Ch]);
-blkinfo(H) ->
+blkinfo(<<H:32/binary>>) ->
   io_lib:format("~s",[blockchain:blkid(H)]).
 

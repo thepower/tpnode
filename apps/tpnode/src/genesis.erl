@@ -5,7 +5,7 @@ genesis() ->
   case file:consult(application:get_env(tpnode,genesis,"genesis.txt")) of
     {ok, [Genesis]} ->
       Genesis;
-    {error,enonent} ->
+    {error,enoent} ->
       case file:read_file("genesis.bin") of
         {ok, Bin} ->
           block:unpack(Bin);
