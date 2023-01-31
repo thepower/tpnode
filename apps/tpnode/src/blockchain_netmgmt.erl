@@ -41,16 +41,26 @@ init([ServiceName, #{}=Args]) when is_atom(ServiceName) ->
   {ok, LDB}=ldb:open(utils:dbpath(ServiceName)),
   LastBlockHash=ldb:read_key(LDB, <<"lastblock">>, <<0, 0, 0, 0, 0, 0, 0, 0>>),
 
+  LastBlock=case LastBlockHash of
+              <<0:64/big>> ->
+                #{ header => #{}, hash => LastBlockHash };
+              _ ->
+                ldb:read_key(LDB, <<"block:", LastBlockHash/binary>>,#{ header => #{}, hash => LastBlockHash })
+            end,
+
+  MyChain=maps:get(chain, maps:get(header, LastBlock), 0),
   %Conf=load_sets(LDB, LastBlock),
   ?LOG_INFO("My last block hash ~s", [bin2hex:dbin2hex(LastBlockHash)]),
   Res=Args#{
         service=>ServiceName,
         ldb=>LDB,
         %settings=>chainsettings:settings_to_ets(Conf),
-        lastblock => #{ header => #{}, hash => LastBlockHash },
+        lastblock => LastBlock,
+        mychain=>MyChain,
         lastblockhash => LastBlockHash
        },
   erlang:send_after(6000, self(), runsync),
+  self() ! set_fix,
   {ok, Res}.
 
 handle_call(get_dbh, _From, #{ldb:=LDB}=State) ->
@@ -68,18 +78,14 @@ handle_call(settings, _From, #{ldb:=LDB}=State) ->
   end,
   {reply, R, State};
 
-handle_call(set_fix, _From, #{ldb:=LDB, service:=ServiceName}=State) ->
-  Blk=#{ header => #{}, hash => <<0:64>> },
-  Conf=load_sets(LDB, Blk),
-  {reply, Conf, State#{
-                  settings=>chainsettings:settings_to_ets(Conf,ServiceName)
-                 }};
-
 %% first block
 handle_call({new_block, #{hash:=BlockHash,
                           header:=#{height:=0, chain:=Chain}=_Header}=Blk},
             _From,
-            #{ldb:=LDB, genesis:=GenesisHash, service:=ServiceName }=State) ->
+            #{ldb:=LDB,
+              genesis:=GenesisHash,
+              service:=ServiceName
+             }=State) ->
   if BlockHash=/=GenesisHash ->
        {reply, {error, bad_genesis}, State};
      true ->
@@ -93,6 +99,11 @@ handle_call({new_block, #{hash:=BlockHash,
   end;
 
 %% next blocks
+handle_call({new_block, #{hash:=BlockHash, header:=#{}}},
+            _From,
+            #{lastblock:=#{header:=#{}, hash:=LBlockHash}}=State) when BlockHash == LBlockHash ->
+  {reply, {ok, ignore}, State};
+
 handle_call({new_block, #{hash:=BlockHash,
                           header:=#{chain:=Chain,height:=Hei}=Header}=Blk},
             _From,
@@ -103,21 +114,23 @@ handle_call({new_block, #{hash:=BlockHash,
               mychain:=MyChain
              }=State) ->
 
-  ?LOG_INFO("Arrived netmgmt block Verify block with ~p",
-             [maps:keys(Blk)]),
-
-  ?LOG_INFO("New netmgmt block (~p/~p) hash ~s (~s)",
-             [
-              Hei,
-              maps:get(height, maps:get(header, LastBlock)),
-              blkid(BlockHash),
-              blkid(LBlockHash)
-             ]),
   try
     if(MyChain =/= Chain) ->
         throw('wrong_chain');
       true ->
-        ok
+        case maps:is_key(temporary, Blk) of
+          true ->
+            throw('ignore');
+          false ->
+            ?LOG_INFO("Netmgmt block (~p/~p) hash ~s (~s) with ~p",
+             [
+              Hei,
+              maps:get(height, maps:get(header, LastBlock)),
+              blkid(BlockHash),
+              blkid(LBlockHash),
+              maps:keys(Blk)
+             ])
+        end
     end,
     case block:verify(Blk) of
       false ->
@@ -180,10 +193,14 @@ handle_call({new_block, #{hash:=BlockHash,
                        child=>BlockHash
                       },
 
-        save_block(LDB, NewLastBlock, false),
-        save_block(LDB, Blk, true),
-
-        save_sets(LDB, Blk, Sets, Sets1),
+        case maps:is_key(temporary, Blk) of
+          true ->
+            ok;
+          false ->
+            save_block(LDB, NewLastBlock, false),
+            save_block(LDB, Blk, true),
+            save_sets(LDB, Blk, Sets, Sets1)
+        end,
 
         %Settings=maps:get(settings, MBlk, []),
 
@@ -229,6 +246,13 @@ handle_cast(_Msg, State) ->
   file:write_file("tmp/unknown_cast_msg.txt", io_lib:format("~p.~n", [_Msg])),
   file:write_file("tmp/unknown_cast_state.txt", io_lib:format("~p.~n", [State])),
   {noreply, State}.
+
+handle_info(set_fix, #{ldb:=LDB, service:=ServiceName}=State) ->
+  Blk=#{ header => #{}, hash => <<0:64>> },
+  Conf=load_sets(LDB, Blk),
+  {noreply, State#{
+              settings=>chainsettings:settings_to_ets(Conf,ServiceName)
+             }};
 
 handle_info(_Info, State) ->
   ?LOG_INFO("BC unhandled info ~p", [_Info]),

@@ -79,7 +79,7 @@ state_init({call, Caller}, _Msg, Data) ->
   ?LOG_INFO("Got unhandled call: ~p",[_Msg]),
   {keep_state, Data, [{reply, Caller, unhandled}]};
 
-state_init(cast, {new_block,{Height, Hash, _Parent}, Origin}, #{loaders:=PIDs}=Data) ->
+state_init(cast, {new_block_notify,{Height, Hash, _Parent}, Origin}, #{loaders:=PIDs}=Data) ->
   Ptr=hex:encode(Hash),
   Query= <<"/api/binblock/",Ptr/binary>>,
 

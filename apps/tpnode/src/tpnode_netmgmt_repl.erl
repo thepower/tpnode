@@ -34,7 +34,7 @@
 %% @end
 %%--------------------------------------------------------------------
 start_link(Worker,Opts) ->
-    gen_statem:start_link(?MODULE, [Worker, Opts], []).
+    gen_statem:start_link({global,{nm,Worker}}, ?MODULE, [Worker, Opts], []).
 
 %%%===================================================================
 %%% gen_statem callbacks
@@ -78,7 +78,7 @@ state_init({call, Caller}, _Msg, Data) ->
   ?LOG_INFO("Got unhandled call: ~p",[_Msg]),
   {keep_state, Data, [{reply, Caller, unhandled}]};
 
-state_init(cast, {new_block,{Height, Hash, _Parent}, Origin}, #{worker:=Wrk, loaders:=PIDs}=Data) ->
+state_init(cast, {new_block_notify,{Height, Hash, _Parent}, Origin}, #{worker:=Wrk, loaders:=PIDs}=Data) ->
   Ptr=hex:encode(Hash),
   Query= <<"/api/binblock/",Ptr/binary>>,
 
@@ -104,34 +104,6 @@ state_init(info, {gun_down,Pid,_,closed,_,_}, #{loaders:=PidList}=Data) ->
     {Pid, _} = E ->
       {keep_state, Data#{loaders=>PidList -- [E]}}
   end;
-
-state_init(info, run_workers, _Data) ->
-  Chld=supervisor:which_children(repl_sup),
-  Config=config(),
-  Active=lists:map(fun({_,PID,_,_}) ->
-                       {PID,gen_server:call(PID,uri)}
-                   end, Chld),
-  Al=[ URI || {_,URI} <- Active ],
-  ToStop = Al -- Config,
-  ToRun = Config -- Al,
-  ?LOG_DEBUG("Run workers ~p",[ToRun]),
-  ?LOG_DEBUG("Stop workers ~p",[ToStop]),
-  lists:foreach(
-    fun(URI) ->
-        supervisor:start_child(
-          repl_sup,
-          [
-           [{parent,self()},{uri, URI}]
-          ]
-         )
-    end, ToRun),
-  lists:foreach(
-    fun(URI) ->
-        {Pid,_} = lists:keyfind(URI, 2, Active),
-        supervisor:terminate_child(repl_sup,Pid)
-    end, ToStop),
-  %tpnode_repl_worker:run_worker([{uri,"http://127.0.0.1:43381"}]).
-  keep_state_and_data;
 
 state_init(info, {wrk_up,_Pid,_}, _Data) ->
   keep_state_and_data;
@@ -232,9 +204,5 @@ httpget(Server, Query, PidList) ->
           {error, PidList1}
       end
   end.
-
-config() ->
-  L = application:get_env(tpnode,upstream,[]),
-  L.
 
 

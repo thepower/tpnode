@@ -93,7 +93,7 @@ by_path(GetPath, default) ->
                            _ -> false
                          end
                      end},
-                    {mgt,
+                    {mgmt,
                      fun([Path|_]) ->
                          case Path of
                            [<<"current">>|_] -> false;
