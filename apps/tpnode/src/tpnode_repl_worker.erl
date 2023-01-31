@@ -53,20 +53,12 @@ start_link(Sub0) when is_map(Sub0) ->
   GetFun=fun({apply_block,#{hash:=_H}=Block}) ->
              gen_server:call(blockchain_updater,{new_block, Block, self()});
             (last_known_block) ->
-             blockchain:last_permanent_meta()
+             maps:get(hash,blockchain:last_permanent_meta())
              %blockchain:last_meta()
          end,
   Sub=case Sub0 of
         #{uri:=URL} ->
-          maps:fold(
-            fun(host,V,A)    -> A#{address => V};
-               (scheme,V,A)  -> A#{protocol => list_to_atom(V)};
-               (port,V,A)    -> A#{port => V};
-               (_,_,A)       -> A
-            end,
-            Sub0,
-            uri_string:parse(URL)
-           );
+          maps:merge(Sub0,uri_parse(URL));
         #{protocol:=_,address:=_,port:=_} ->
           Sub0
       end,
@@ -75,30 +67,66 @@ start_link(Sub0) when is_map(Sub0) ->
   link(Pid),
   {ok, Pid}.
 
+uri_parse(URI) when is_list(URI) ->
+  maps:fold(
+    fun(host,V,A)    -> A#{address => V};
+       (scheme,V,A)  -> A#{protocol => list_to_existing_atom(V)};
+       (port,V,A)    -> A#{port => V};
+       (path,V,A)    -> A#{uri_path => V};
+       (query,V,A)   -> A#{uri_query => uri_string:dissect_query(V)};
+       (_,_,A)       -> A
+    end,
+    #{},
+    uri_string:parse(URI)
+   ).
+
 genesis(#{protocol:=_, address:=_, port:=_, pid:=Pid} = Sub) ->
   genesis(Sub, Pid);
 
 genesis(#{protocol:=_, address:=_, port:=_} = Sub) ->
   Pid=connect(Sub),
-  genesis(Sub, Pid).
+  Res=genesis(Sub, Pid),
+  gun:close(Pid),
+  Res;
 
-genesis(#{} = _Sub, Pid) ->
+genesis(#{uri:=URI} = Sub) ->
+  genesis(maps:merge(Sub,uri_parse(URI))).
+
+genesis(#{} = Sub, Pid) ->
   case sync_get_decode(Pid, "/api/binblock/genesis") of
-    {200, _, V1} when is_map(V1)-> V1;
-    _ -> throw('not matched')
+    {200, _, #{hash:=GHash}=V1} when is_map(V1) ->
+      QS=maps:get(uri_query,Sub,[]),
+      case lists:keyfind("genesis",1,QS) of
+        {"genesis", B64} ->
+          DstHash=base64url:decode(B64),
+          if DstHash =/= GHash ->
+               throw("got wrong genesis hash");
+             true ->
+               ok
+          end;
+        false -> ok
+      end,
+      V1;
+    _ -> throw("can't get genesis")
   end.
 
-connect(#{protocol:=http, address:=Ip, port:=Port, parent:=Parent}) ->
+connect(#{protocol:=http, address:=Ip, port:=Port}=Sub) ->
   {ok, Pid} = gun:open(Ip, Port),
   receive
     {gun_up, Pid, http} -> Pid
   after 20000 ->
-          Parent ! {wrk_down, self(), up_timeout},
+          case maps:is_key(parent,Sub) of
+            true ->
+              Parent=maps:get(parent,Sub),
+              Parent ! {wrk_down, self(), up_timeout};
+            false ->
+              ok
+          end,
           gun:close(Pid),
           throw('up_timeout')
   end;
 
-connect(#{protocol:=https, address:=Ip, port:=Port, parent:=Parent}) ->
+connect(#{protocol:=https, address:=Ip, port:=Port}=Sub) ->
   %CaCerts = certifi:cacerts(),
 
   CHC=[
@@ -114,7 +142,13 @@ connect(#{protocol:=https, address:=Ip, port:=Port, parent:=Parent}) ->
   receive
     {gun_up, Pid, http} -> Pid
   after 20000 ->
-          Parent ! {wrk_down, self(), up_timeout},
+          case maps:is_key(parent,Sub) of
+            true ->
+              Parent=maps:get(parent,Sub),
+              Parent ! {wrk_down, self(), up_timeout};
+            false ->
+              ok
+          end,
           gun:close(Pid),
           throw('up_timeout')
   end;
@@ -123,7 +157,6 @@ connect(#{protocol:=Proto, parent:=Parent}) ->
   ?LOG_ERROR("replica protocol ~p does not supported",[Proto]),
   Parent ! {wrk_down, self(), {error,badproto}},
   throw(badproto).
-
 
 run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) ->
   ?LOG_INFO("repl client connecting to ~p ~p", [Ip, Port]),
@@ -148,6 +181,7 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
       _ ->
         throw('unexpected_genesis')
     end,
+
     LastBlock=case sync_get_decode(Pid, "/api/binblock/last") of
                 {200, _, V2} -> maps:with([hash,header],V2);
                 Error1 ->
@@ -159,9 +193,14 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
     KnownBlock=GetFun(last_known_block),
     ?LOG_INFO("My lastblk: ~s",[blkinfo(KnownBlock)]),
     Parent ! {wrk_presync, self(), start},
-    {ok,Sub1}=presync(Sub#{pid=>Pid,getfun=>GetFun,
-                           last=>maps:with([hash,header],KnownBlock)},
-                      hex:encode(maps:get(hash,KnownBlock))),
+    {ok,Sub1}=presync(Sub#{pid=>Pid,
+                           getfun=>GetFun,
+                           last=>KnownBlock},
+                      if KnownBlock==<<0:64>> ->
+                           <<"genesis">>;
+                         true ->
+                           hex:encode(KnownBlock)
+                      end),
 
     {ok,UpgradeHdrs}=upgrade(Pid),
     ?LOG_INFO("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
@@ -277,7 +316,11 @@ handle_msg(#{null := <<"new_block">>,
     true ->
       F({apply_block, Block});
     false ->
-      gen_server:cast(tpnode_repl,{new_block,{Height,Hash,Parent},maps:get(uri,Sub,undefined)})
+      %Necesito descargar todo un bloque usando tpnode_repl
+      gen_server:cast(
+        maps:get(repl,Sub,tpnode_repl),
+        {new_block_notify,{Height,Hash,Parent},maps:get(uri,Sub,undefined)}
+       )
   end,
   Sub;
 
@@ -307,7 +350,7 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
                          }=Blk} ->
           ?LOG_INFO("Has block h=~w 0x~s parent 0x~s",
                      [Hei, hex:encode(Hash), hex:encode(ParentHash)]),
-          LBH=maps:get(hash,maps:get(last,Sub,#{}),undefined),
+          LBH=maps:get(last,Sub,undefined),
           case Blk of
             #{hash:=BH,header:=_,child:=Child} ->
               T0=erlang:system_time(microsecond),
@@ -442,5 +485,7 @@ sync_get_continue(Pid, Ref, {PCode,PHdr,PBody}) ->
 blkinfo(#{hash:=H,header:=#{height:=Hei,chain:=Ch},temporary:=T}) ->
   io_lib:format("~s h=~w ch=~w tmp=~w",[blockchain:blkid(H),Hei,Ch,T]);
 blkinfo(#{hash:=H,header:=#{height:=Hei,chain:=Ch}}) ->
-  io_lib:format("~s h=~w ch=~w",[blockchain:blkid(H),Hei,Ch]).
+  io_lib:format("~s h=~w ch=~w",[blockchain:blkid(H),Hei,Ch]);
+blkinfo(<<H:32/binary>>) ->
+  io_lib:format("~s",[blockchain:blkid(H)]).
 

@@ -2,8 +2,26 @@
 -export([genesis/0, new/2, new/1, settings/0, settings/1]).
 
 genesis() ->
-    {ok, [Genesis]}=file:consult(application:get_env(tpnode,genesis,"genesis.txt")),
-    Genesis.
+  case file:consult(application:get_env(tpnode,genesis,"genesis.txt")) of
+    {ok, [Genesis]} ->
+      Genesis;
+    {error,enoent} ->
+      case file:read_file("genesis.bin") of
+        {ok, Bin} ->
+          block:unpack(Bin);
+        {error, enoent} ->
+          case application:get_env(tpnode,replica,false) of
+            true ->
+              case application:get_env(tpnode,upstream,[]) of
+                [Ups|_] -> %URL of file, to download
+                  tpnode_repl_worker:genesis(#{uri=>Ups});
+                false ->
+                  throw({error, "genesis file not found"})
+              end
+          end
+      end
+  end.
+
 
 new(HPrivKey) ->
   PrivKeys=case HPrivKey of
