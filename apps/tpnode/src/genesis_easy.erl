@@ -56,6 +56,10 @@ make_example(ChainNo, NodesCnt) ->
   wrfile("easy_chain"++(integer_to_list(ChainNo))++"_settings.txt", settings:patch(LP,#{})).
 
 make_genesis(ChainNo) ->
+ Bals= case file:consult("easy_chain"++(integer_to_list(ChainNo))++"_bals.txt") of
+         {ok,Bals0} -> maps:from_list(Bals0);
+         {error,enoent} -> #{}
+       end,
   {ok,[HexPrivKeys]}=file:consult("easy_chain"++(integer_to_list(ChainNo))++"_keys.txt"),
   Privs=[ hex:decode(X) || {_,X} <- HexPrivKeys ],
   %{ok,[Patch]}=file:consult("easy_chain"++(integer_to_list(ChainNo))++"_patch.txt"),
@@ -73,9 +77,10 @@ make_genesis(ChainNo) ->
          #{ parent=><<0, 0, 0, 0, 0, 0, 0, 0>>,
             height=>0,
             txs=>[],
-            bals=>#{},
+            bals=>Bals,
             mychain=>ChainNo,
             settings=>Settings,
+            extra_roots=>[],
             sign=>[]
           }),
   Genesis=lists:foldl(
