@@ -90,7 +90,7 @@ init([]) ->
                    X;
                  _ ->
                    case utils:read_cfg(mgmt_cfg,[]) of
-                     {ok, Cfg} ->
+                     Cfg when is_list(Cfg) ->
                        proplists:get_value(management,Cfg,undefined);
                      {error, _} ->
                        undefined

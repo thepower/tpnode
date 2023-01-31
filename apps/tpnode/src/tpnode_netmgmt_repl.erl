@@ -81,17 +81,29 @@ state_init({call, Caller}, _Msg, Data) ->
 state_init(cast, {new_block_notify,{Height, Hash, _Parent}, Origin}, #{worker:=Wrk, loaders:=PIDs}=Data) ->
   Ptr=hex:encode(Hash),
   Query= <<"/api/binblock/",Ptr/binary>>,
-
-  ?LOG_INFO("Got new block, should sync ~p: ~p",[Height,blockchain:blkid(Hash)]),
-  R=httpget(Origin, Query, PIDs),
-  ?LOG_DEBUG("httpget ~p",[R]),
-  case R of
-    {ok, {200, _Headers, Body}, PidList1} ->
-      Block=block:unpack(Body),
-      gen_server:call(Wrk, {new_block, Block}),
-      {keep_state, Data#{loaders=>PidList1}};
-    {error, PidList1} ->
-      {keep_state, Data#{loaders=>PidList1}}
+  LH0=maps:get(lasthash, Data, []),
+  case lists:member(Hash, LH0) of
+    true ->
+      {keep_state, Data};
+    false ->
+      ?LOG_INFO("Got new block, h=~p, hash=~p",[Height,blockchain:blkid(Hash)]),
+      R=httpget(Origin, Query, PIDs),
+      ?LOG_DEBUG("httpget ~p",[R]),
+      case R of
+        {ok, {200, _Headers, Body}, PidList1} ->
+          Block=block:unpack(Body),
+          gen_server:call(Wrk, {new_block, Block}),
+          LH=case LH0 of
+               List when length(List) > 10 ->
+                 {L1,_}=lists:split(10,List),
+                 [Hash|L1];
+               List when is_list(List) ->
+                 [Hash|List]
+             end,
+          {keep_state, Data#{loaders=>PidList1,lasthash=>LH}};
+        {error, PidList1} ->
+          {keep_state, Data#{loaders=>PidList1}}
+      end
   end;
 
 state_init(info, {gun_up,_Pid,_Http}, Data) ->
