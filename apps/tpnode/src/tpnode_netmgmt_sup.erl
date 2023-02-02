@@ -56,7 +56,7 @@ init([Name, URI0]) ->
             Cfg when is_list(Cfg) ->
              lists:sort(
                fun(_,_) -> rand:uniform()>0.5 end,
-               proplists:get_value(http, Cfg, Nodes)
+               proplists:get_value(http, Cfg, [])++Nodes
               );
             {error, _} ->
              lists:sort(

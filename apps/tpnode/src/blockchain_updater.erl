@@ -744,7 +744,7 @@ handle_info(check_mgmt, #{settings:=Sets}=State) ->
             {noreply, State};
           is_list(MgmtCfg) -> % OVERRIDE MANAGEMENT URL IN CONFIG
             ?LOG_INFO("Check mgmt ~p ~p",[InCfg,InChain]),
-            utils:update_cfg(mgmt_cfg,[{management,InChain1},{peers,[]}]),
+            utils:update_cfg(mgmt_cfg,[{management,InChain1},{http,[]},{https,[]}]),
             {noreply, State};
           true -> % no config
             ?LOG_INFO("Check mgmt ~p ~p",[InCfg,InChain]),
