@@ -30,7 +30,7 @@ update_cfg(DbName,Replacements) ->
   Filename=dbpath(DbName),
   New=case file:consult(Filename) of
         {ok,[L]} when is_list(L) ->
-          lists:foldl(
+          lists:foldr(
             fun({K,V},Acc) ->
                 [{K,V}|proplists:delete(K,Acc)]
             end,

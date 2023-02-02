@@ -114,6 +114,7 @@ init(_Args) ->
   erlang:send_after(60000, self(), start_cleanup),
   notify_settings(),
   gen_server:cast(blockchain_reader,update),
+  self() ! check_mgmt,
   erlang:spawn(fun() ->
                    timer:sleep(200),
                    notify_settings()
@@ -535,6 +536,7 @@ handle_call({new_block, #{hash:=BlockHash,
 
                   S1=maps:remove(tmpblock, State),
 
+                  self() ! check_mgmt,
                   {reply, ok, S1#{
                                 prevblock=> NewLastBlock,
                                 lastblock=> MBlk,
@@ -719,6 +721,38 @@ handle_info({continue_cleanup,N}, #{ldb:=LDB,clean_iterator:=Iterator}=State) ->
       ?LOG_NOTICE("Cleanup done, deleted ~p",[N]),
       rocksdb:iterator_close(Iterator),
       {noreply, maps:without([clean_iterator], State)}
+  end;
+
+handle_info(check_mgmt, #{settings:=Sets}=State) ->
+  InChain=settings:get(
+            [<<"current">>,<<"management">>,<<"uri">>],
+            Sets,
+            undefined
+           ),
+  if InChain == undefined ->
+       {noreply, State};
+     is_binary(InChain) ->
+       InChain1=binary_to_list(InChain),
+       MgmtCfg=utils:read_cfg(mgmt_cfg,undefined),
+       InCfg=case MgmtCfg of
+               Cfg when is_list(Cfg) ->
+                 proplists:get_value(management,Cfg,undefined);
+               _ ->
+                 undefined
+             end,
+       if InChain1 == InCfg ->
+            {noreply, State};
+          is_list(MgmtCfg) -> % OVERRIDE MANAGEMENT URL IN CONFIG
+            ?LOG_INFO("Check mgmt ~p ~p",[InCfg,InChain]),
+            utils:update_cfg(mgmt_cfg,[{management,InChain1},{peers,[]}]),
+            {noreply, State};
+          true -> % no config
+            ?LOG_INFO("Check mgmt ~p ~p",[InCfg,InChain]),
+            utils:update_cfg(mgmt_cfg,[{management,InChain1}]),
+            {noreply, State}
+       end;
+     true ->
+       {noreply, State}
   end;
 
 handle_info(_Info, State) ->

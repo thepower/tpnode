@@ -44,11 +44,33 @@ init([Name, URI0]) ->
   Period = 5,
 
   #{genesis:=Genesis,
-   nodes:=Nodes}=parse_uri(if is_list(URI0) ->
-                 list_to_binary(URI0);
-               is_binary(URI0) ->
-                 URI0
-            end),
+    nodes:=NodesBin}=parse_uri(
+                    if is_list(URI0) ->
+                         list_to_binary(URI0);
+                       is_binary(URI0) ->
+                         URI0
+                    end),
+  Nodes=[ binary_to_list(N) || N <- NodesBin],
+
+  Nodes1=case utils:read_cfg(mgmt_cfg,[]) of
+            Cfg when is_list(Cfg) ->
+             lists:sort(
+               fun(_,_) -> rand:uniform()>0.5 end,
+               proplists:get_value(http, Cfg, Nodes)
+              );
+            {error, _} ->
+             lists:sort(
+               fun(_,_) -> rand:uniform()>0.5 end,
+               Nodes
+              )
+          end,
+
+  Nodes2=if length(Nodes1) > 2 -> % Engendra como máximo 2 trabajadores
+              {N1,_ } = lists:split(2, Nodes1),
+              N1;
+            true ->
+              Nodes1
+         end,
 
   GetFun=fun({apply_block,#{hash:=_H}=Block}) ->
              gen_server:call(Name,{new_block, Block});
@@ -65,14 +87,14 @@ init([Name, URI0]) ->
                     [{ {replicator,Node},
                        { tpnode_repl_worker, start_link,
                          [#{
-                            uri=>binary_to_list(Node),
+                            uri=>Node,
                             check_genesis=>false,
                             getfun => GetFun,
                             repl => {global, {nm, Name}}
                            }]},
                        permanent, 5000, worker, []
                      }|Acc]
-                end, [], Nodes),
+                end, [], Nodes2),
 
   Procs = [
            {blockchain2,

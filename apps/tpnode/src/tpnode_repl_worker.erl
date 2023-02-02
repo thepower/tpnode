@@ -12,7 +12,7 @@
 %% ------------------------------------------------------------------
 -export([start_link/1,run/2,ws_mode/1,genesis/1]).
 -export([run_worker/1]).
--export([run4test/0,run4test_mgmt/0]).
+-export([run4test/0,run4test_mgmt/0,node_status/1,his_nodes/1]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -105,7 +105,7 @@ uri_parse(URI) when is_list(URI) ->
        (query,V,A)   -> A#{uri_query => uri_string:dissect_query(V)};
        (_,_,A)       -> A
     end,
-    #{},
+    #{uri=>URI},
     uri_string:parse(URI)
    ).
 
@@ -139,6 +139,34 @@ genesis(#{} = Sub, Pid) ->
     _ -> throw("can't get genesis")
   end.
 
+node_status(URI) ->
+  Pid=connect(uri_parse(URI)),
+  Res=node_status(Pid,[]),
+  gun:close(Pid),
+  Res.
+
+his_nodes(URI) ->
+  Pid=connect(uri_parse(URI)),
+  Chain=node_status(Pid,[<<"blockchain">>,<<"chain">>]),
+  Res=chain_nodes(Pid,Chain),
+  gun:close(Pid),
+  Res.
+
+
+chain_nodes(Pid,Chain) ->
+  case sync_get_decode(Pid, "/api/nodes/"++integer_to_list(Chain)) of
+    {200, _, #{<<"ok">>:=true, <<"chain_nodes">>:=R}} ->
+      R;
+    _R -> throw({"can't get node status",_R})
+  end.
+
+node_status(Pid,Path) ->
+  case sync_get_decode(Pid, "/api/node/status") of
+    {200, _, #{<<"ok">>:=true, <<"status">>:=R}} ->
+      settings:get(Path, R);
+    _R -> throw({"can't get node status",_R})
+  end.
+
 connect(#{protocol:=http, address:=Ip, port:=Port}=Sub) ->
   {ok, Pid} = gun:open(Ip, Port),
   receive
@@ -155,8 +183,8 @@ connect(#{protocol:=http, address:=Ip, port:=Port}=Sub) ->
           throw('up_timeout')
   end;
 
-connect(#{protocol:=https, address:=Ip, port:=Port}=Sub) ->
-  %CaCerts = certifi:cacerts(),
+connect(#{protocol:=https, address:=Ip, port:=Port, uri:=URI}=Sub) ->
+  CaCerts = certifi:cacerts(),
 
   CHC=[
        {match_fun, public_key:pkix_verify_hostname_match_fun(https)}
@@ -164,13 +192,16 @@ connect(#{protocol:=https, address:=Ip, port:=Port}=Sub) ->
   Opts=#{ transport=>tls,
           protocols => [http],
           transport_opts => [{verify, verify_peer},
-                             %{cacerts, CaCerts},
+                             {cacerts, CaCerts},
                              {customize_hostname_check, CHC}
                             ]},
-  {ok, Pid} = gun:open(Ip, Port, Opts),
-  receive
-    {gun_up, Pid, http} -> Pid
-  after 20000 ->
+  case gun:open(Ip,Port,Opts) of
+    {ok, ConnPid} ->
+      case gun:await_up(ConnPid,5000) of
+        {ok, _} ->
+          ConnPid;
+        Reason ->
+          ?LOG_NOTICE("Can't connect to ~s: ~p",[URI,Reason]),
           case maps:is_key(parent,Sub) of
             true ->
               Parent=maps:get(parent,Sub),
@@ -178,9 +209,30 @@ connect(#{protocol:=https, address:=Ip, port:=Port}=Sub) ->
             false ->
               ok
           end,
-          gun:close(Pid),
-          throw('up_timeout')
+
+          gun:close(ConnPid),
+          throw('up_error')
+      end;
+    {error, Err} ->
+      ?LOG_ERROR("Error connecting to ~s: ~p",[URI,Err]),
+      throw('up_error')
   end;
+
+  %{ok, Pid} = gun:open(Ip, Port, Opts),
+  %receive
+  %  {gun_up, Pid, http} -> Pid;
+  %  Any -> Any
+  %after 20000 ->
+  %        case maps:is_key(parent,Sub) of
+  %          true ->
+  %            Parent=maps:get(parent,Sub),
+  %            Parent ! {wrk_down, self(), up_timeout};
+  %          false ->
+  %            ok
+  %        end,
+  %        gun:close(Pid),
+  %        throw('up_timeout')
+  %end;
 
 connect(#{protocol:=Proto, parent:=Parent}) ->
   ?LOG_ERROR("replica protocol ~p does not supported",[Proto]),
@@ -245,6 +297,17 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
     ok=gun:ws_send(Pid, {binary, Cmd}),
     Parent ! {wrk_up, self(), undefined},
     self() ! alive,
+
+    case maps:is_key(repl,Sub) of
+      true ->
+        gen_server:cast(
+        maps:get(repl,Sub,tpnode_repl),
+        {wrk_up,maps:get(uri,Sub,undefined)}
+       );
+      false ->
+        ok
+    end,
+
     ws_mode(Sub1),
     gun:close(Pid),
     done
@@ -479,7 +542,9 @@ upgrade(Pid) ->
   end.
 
 sync_get_decode(Pid, Url) ->
+  ?LOG_DEBUG("sync_get_decode ~s",[Url]),
   {Code,Header, Body}=sync_get(Pid, Url),
+  ?LOG_NOTICE("sync_get_decode ~s res: ~p:~p",[Url, Code, Header]),
   case proplists:get_value(<<"content-type">>,Header) of
     <<"application/json">> ->
       {Code, Header, jsx:decode(iolist_to_binary(Body), [return_maps])};
