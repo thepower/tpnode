@@ -12,7 +12,7 @@
 %% ------------------------------------------------------------------
 -export([start_link/1,run/2,ws_mode/1,genesis/1]).
 -export([run_worker/1]).
--export([run4test/0,run4test_mgmt/0,node_status/1,his_nodes/1]).
+-export([run4test/0,run4test_mgmt/0,node_status/1,his_nodes/1,his_nodes/2]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -148,6 +148,12 @@ node_status(URI) ->
 his_nodes(URI) ->
   Pid=connect(uri_parse(URI)),
   Chain=node_status(Pid,[<<"blockchain">>,<<"chain">>]),
+  Res=chain_nodes(Pid,Chain),
+  gun:close(Pid),
+  Res.
+
+his_nodes(URI, Chain) ->
+  Pid=connect(uri_parse(URI)),
   Res=chain_nodes(Pid,Chain),
   gun:close(Pid),
   Res.
