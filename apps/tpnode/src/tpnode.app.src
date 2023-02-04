@@ -10,6 +10,7 @@
       jsx,
       cowboy,
       certifi,
+      base64url,
       rocksdb,
       gb_merkle_trees,
       msgpack,
