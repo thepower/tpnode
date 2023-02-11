@@ -936,6 +936,70 @@ h(<<"GET">>, [<<"settings">>|Path], Req) ->
     #{jsx=>[ strict, {error_handler, EHF} ]}
    );
 
+h(<<"POST">>, [<<"debug">>,<<"bcupdater_reloadset">>], Req) ->
+  BinPacker=packer(Req),
+  EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+          Conf1=jsx_config:list_to_config(Conf),
+          jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                            State, Handler, Stack, Conf1)
+      end,
+  R=gen_server:call(blockchain_updater, reload_conf),
+  answer(
+    #{ result => <<"ok">>,
+       reload => R
+     },
+    #{jsx=>[ strict, {error_handler, EHF} ]}
+   );
+
+h(<<"GET">>, [<<"debug">>,<<"bcupdater">>], Req) ->
+  BinPacker=packer(Req),
+  EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+          Conf1=jsx_config:list_to_config(Conf),
+          jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                            State, Handler, Stack, Conf1)
+      end,
+  answer(
+    #{ result => <<"ok">>,
+       data => term_to_binary(sys:get_state(blockchain_updater))
+     },
+    #{jsx=>[ strict, {error_handler, EHF} ]}
+   );
+
+
+h(<<"GET">>, [<<"debug">>,<<"settings_raw">>], Req) ->
+  BinPacker=packer(Req),
+  Settings=ets:match(blockchain,{'$1','_','$3','$2'}),
+  EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+          Conf1=jsx_config:list_to_config(Conf),
+          jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                            State, Handler, Stack, Conf1)
+      end,
+  answer(
+    #{ result => <<"ok">>,
+       settings => Settings
+     },
+    #{jsx=>[ strict, {error_handler, EHF} ]}
+   );
+
+h(<<"GET">>, [<<"debug">>|_], _Req) ->
+  {404, [], <<"Not found">>};
+
+h(<<"GET">>, [<<"settings_raw">>], Req) ->
+  BinPacker=packer(Req),
+  Settings=ets:match(blockchain,{'$1','_','$3','$2'}),
+  EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+          Conf1=jsx_config:list_to_config(Conf),
+          jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                            State, Handler, Stack, Conf1)
+      end,
+  answer(
+    #{ result => <<"ok">>,
+       settings => Settings
+     },
+    #{jsx=>[ strict, {error_handler, EHF} ]}
+   );
+
+
 h(<<"GET">>, [<<"settings_all">>|Path], Req) ->
   BinPacker=packer(Req),
   Settings=chainsettings:by_path(

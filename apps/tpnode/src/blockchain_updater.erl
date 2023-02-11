@@ -120,6 +120,13 @@ init(_Args) ->
                end),
   {ok, Res}.
 
+handle_call(reload_conf, _From, #{ldb:=LDB,
+                              lastblock:=LastBlock
+                              }=State) ->
+  Conf=settings:dmp(settings:mp( load_sets(LDB, LastBlock)) ),
+  State1=State#{settings=>chainsettings:settings_to_ets(Conf)},
+  {reply, ok, State1};
+
 handle_call(get_dbh, _From, #{ldb:=LDB}=State) ->
   {reply, {ok, LDB}, State};
 
