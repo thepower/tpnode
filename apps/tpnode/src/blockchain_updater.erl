@@ -349,8 +349,9 @@ handle_call({new_block, #{hash:=BlockHash,
                                        })
                               })
                             }),
-                  gen_server:cast(blockchain_reader,update),
+                  gen_server:cast(blockchain_reader,{update,MBlk}),
                   gen_server:cast(tpnode_ws_dispatcher, {new_block, MBlk}),
+
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
@@ -657,7 +658,7 @@ handle_cast({signature, BlockHash, _Sigs}, State) ->
              [blkid(BlockHash) ]),
   T=maps:get(unksig,State,0),
   if(T>=2) ->
-      self() ! checksync,
+      blockchain_sync ! checksync,
       {noreply, State};
     true ->
       {noreply, State#{unksig=>T+1}}
@@ -726,6 +727,43 @@ handle_info({continue_cleanup,N}, #{ldb:=LDB,clean_iterator:=Iterator}=State) ->
       ?LOG_NOTICE("Cleanup done, deleted ~p",[N]),
       rocksdb:iterator_close(Iterator),
       {noreply, maps:without([clean_iterator], State)}
+  end;
+
+handle_info(check_mgmt, #{settings:=Sets}=State) ->
+  InChain=try
+            settings:get(
+            [<<"current">>,<<"management">>,<<"uri">>],
+            Sets,
+            undefined
+           )
+          catch Ec:Ee:S ->
+                  ?LOG_ERROR("~p:~p @ ~p...",[Ec,Ee,hd(S)]),
+                  undefined
+          end,
+  if InChain == undefined ->
+       {noreply, State};
+     is_binary(InChain) ->
+       InChain1=binary_to_list(InChain),
+       MgmtCfg=utils:read_cfg(mgmt_cfg,undefined),
+       InCfg=case MgmtCfg of
+               Cfg when is_list(Cfg) ->
+                 proplists:get_value(management,Cfg,undefined);
+               _ ->
+                 undefined
+             end,
+       if InChain1 == InCfg ->
+            {noreply, State};
+          is_list(MgmtCfg) -> % OVERRIDE MANAGEMENT URL IN CONFIG
+            ?LOG_INFO("Check mgmt ~p ~p",[InCfg,InChain]),
+            utils:update_cfg(mgmt_cfg,[{management,InChain1},{http,[]},{https,[]}]),
+            {noreply, State};
+          true -> % no config
+            ?LOG_INFO("Check mgmt ~p ~p",[InCfg,InChain]),
+            utils:update_cfg(mgmt_cfg,[{management,InChain1}]),
+            {noreply, State}
+       end;
+     true ->
+       {noreply, State}
   end;
 
 handle_info(_Info, State) ->

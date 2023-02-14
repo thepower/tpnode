@@ -119,12 +119,12 @@ h(Method, [<<"playground">>|Path], Req) ->
 h(Method, [<<"api">>|Path], Req) ->
   h(Method, Path, Req);
 
-h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
+h(<<"GET">>, [<<"node">>, <<"status">>], Req) ->
   Chain=chainsettings:get_val(mychain),
   #{hash:=Hash,
     header:=Header1}=Blk=blockchain:last_meta(),
   Temp=maps:get(temporary,Blk,false),
-  BinPacker=packer(_Req),
+  BinPacker=packer(Req),
   Header=maps:map(
            fun(roots, V) ->
                [ if is_binary(RV) ->
@@ -173,6 +173,41 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
                    []
            end,
   {Ver, _BuildTime}=tpnode:ver(),
+  BRLB = begin
+           QS=cowboy_req:parse_qs(Req),
+           case proplists:get_value(<<"brlb">>, QS) of
+             undefined -> undefined;
+             _ ->
+               try
+                 #{hash:=BVHas,
+                   header:=#{chain := BVCh,
+                             height := BVHei,
+                             parent := BVPar,
+                             roots := BVRoots}
+                  }=BVB=gen_server:call(blockchain_reader,last_block),
+                 maps:merge(
+                   #{hash=>BinPacker(BVHas),
+                     header=>#{
+                               chain=>BVCh,
+                               height=>BVHei,
+                               parent=>BinPacker(BVPar),
+                               roots=>[ if is_binary(RV) ->
+                                             [N, BinPacker(RV)];
+                                           true ->
+                                             [N, RV]
+                                        end || {N,RV} <- BVRoots ]
+                              }
+                    },
+                   maps:with([temporary],BVB)
+                  )
+               catch Ec1:Ee1:S1 ->
+                       ?LOG_ERROR("blockchain_reader last_block error: ~p:~p~n~p",
+                                  [Ec1, Ee1, hd(S1)]),
+                       #{ error => true }
+               end
+           end
+         end,
+
   answer(
     #{ result => <<"ok">>,
       status => #{
@@ -193,6 +228,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], _Req) ->
                        gen_server:call(blockvote, status)
                      catch _:_ -> #{ error => true }
                      end,
+        blockchain_reader_lastblock => BRLB,
         xchain_inbound => try
                             gen_server:call(xchain_dispatcher, peers)
                           catch _:_ -> #{ error => true }
@@ -226,8 +262,15 @@ h(<<"GET">>, [<<"node">>, <<"chainstate">>], _Req) ->
      });
 
 h(<<"POST">>, [<<"node">>, <<"runsync">>], _Req) ->
-  blockchain_sync ! runsync,
-  answer(#{ result => <<"ok">> });
+  R=list_to_binary(
+      [ io_lib:format("~p~n",
+                     [ gen_server:call(blockchain_sync, {runsync_h, any}) ]
+                    ) ]
+     ),
+  answer(#{
+           result => <<"ok">>,
+           candidates => R
+          });
 
 h(<<"POST">>, [<<"node">>, <<"new_peer">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
@@ -935,6 +978,58 @@ h(<<"GET">>, [<<"settings">>|Path], Req) ->
      },
     #{jsx=>[ strict, {error_handler, EHF} ]}
    );
+
+
+h(<<"POST">>, [<<"debug">>, <<"runsync">>|N], _Req) ->
+  Q = case N of
+        [NN] ->
+          {runsync_h, binary_to_integer(NN)};
+        [NN,TT] ->
+          {runsync_h, {binary_to_integer(NN),binary_to_integer(TT)}};
+        [] ->
+          {runsync_h, any}
+      end,
+  try
+    R=case gen_server:call(blockchain_sync, Q) of
+        {ok, RR} when is_list(RR)->
+          lists:foldl(
+            fun({{PubKey,Service, _}, Map},A) ->
+                Node=case chainsettings:is_net_node(PubKey) of
+                     {ok, NNN} -> NNN;
+                     _ -> PubKey
+                   end,
+                [ [ [Node, Service], Map ] | A ];
+               ({Key,Map},A) ->
+                [[list_to_binary( [ io_lib:format("~p", [ [Key] ]) ]),
+                  list_to_binary( [ io_lib:format("~p", [ [Map] ]) ]) ]|A];
+               (Other,A) ->
+                [list_to_binary( [ io_lib:format("( (~p) )", [ [Other] ]) ])|A]
+            end, [], RR);
+        {ok, RR} ->
+          list_to_binary( [ io_lib:format("d:~p", [ RR ]) ]);
+        Other ->
+          list_to_binary( [ io_lib:format("o:~p", [ Other ]) ])
+      end,
+    answer(#{
+             result => <<"ok">>,
+             res => R
+            })
+  catch Ec:Ee:S ->
+          err(
+            10008,
+            iolist_to_binary(io_lib:format("Error: ~p:~p at ~p", [Ec,Ee,S])),
+            #{},
+            #{http_code=>500}
+           )
+  end;
+
+h(<<"POST">>, [<<"debug">>, <<"last_sync_res">>], _Req) ->
+  R0=gen_server:call(blockchain_sync, last_res),
+  R=list_to_binary( [ io_lib:format("~p", [ R0 ]) ]),
+  answer(#{
+           result => <<"ok">>,
+           res => R
+          });
 
 h(<<"POST">>, [<<"debug">>,<<"bcupdater_reloadset">>], Req) ->
   BinPacker=packer(Req),
