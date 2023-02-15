@@ -121,6 +121,13 @@ init(_Args) ->
                end),
   {ok, Res}.
 
+handle_call(reload_conf, _From, #{ldb:=LDB,
+                              lastblock:=LastBlock
+                              }=State) ->
+  Conf=settings:dmp(settings:mp( load_sets(LDB, LastBlock)) ),
+  State1=State#{settings=>chainsettings:settings_to_ets(Conf)},
+  {reply, ok, State1};
+
 handle_call(get_dbh, _From, #{ldb:=LDB}=State) ->
   {reply, {ok, LDB}, State};
 
@@ -343,8 +350,9 @@ handle_call({new_block, #{hash:=BlockHash,
                                        })
                               })
                             }),
-                  gen_server:cast(blockchain_reader,update),
+                  gen_server:cast(blockchain_reader,{update,MBlk}),
                   gen_server:cast(tpnode_ws_dispatcher, {new_block, MBlk}),
+
                   {reply, ok, State#{
                                 tmpblock=>MBlk
                                }};
@@ -652,7 +660,7 @@ handle_cast({signature, BlockHash, _Sigs}, State) ->
              [blkid(BlockHash) ]),
   T=maps:get(unksig,State,0),
   if(T>=2) ->
-      self() ! checksync,
+      blockchain_sync ! checksync,
       {noreply, State};
     true ->
       {noreply, State#{unksig=>T+1}}

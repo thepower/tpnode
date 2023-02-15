@@ -76,8 +76,43 @@ chainstate() ->
 init(_Args) ->
   {ok, LDB}=ldb:open(utils:dbpath(db)),
   {ok, get_last(#{
-         ldb=>LDB
+         ldb=>LDB,
+         last_res=>undefined
         })}.
+
+handle_call(last_res, _From, State) ->
+  {reply, maps:get(last_res,State,not_found), State};
+
+handle_call({runsync_h,N}, _From, State) ->
+  #{header:=#{height:=MyHeight}, hash:=MyLastHash}=blockchain:last_meta(),
+  stout:log(runsync, [ {node, nodekey:node_name()}, {where, got_info} ]),
+  ?LOG_DEBUG("got runsync, myHeight: ~p, myLastHash: ~p", [MyHeight, blkid(MyLastHash)]),
+  {H,T} = case N of
+            any -> {any, any};
+            I when is_integer(I) ->
+              {I, any};
+            {I, J} when is_integer(I), is_integer(J) ->
+              {I, J}
+          end,
+
+  ?LOG_DEBUG("use default list of candidates"),
+  Candidates = sort_rnd(
+                 lists:filter(
+                   fun(_) when H==any, T==any -> true;
+                      ({_, #{last_height:=CH}}) when CH==H, T==any -> true;
+                      ({_, #{last_height:=CH,last_temp:=CT}}) when CH==H, CT==T -> true;
+                      (_) -> false
+                   end,
+                   tpiccall(
+                     <<"blockchain">>,
+                     #{null=><<"sync_request">>},
+                     [last_hash, last_height, chain, last_temp]
+                    )
+                  )
+                ),
+  self() ! {runsync, Candidates},
+  {reply, {ok, Candidates}, State};
+
 
 handle_call({runsync, NewChain}, _From, State) ->
   stout:log(runsync, [ {node, nodekey:node_name()}, {where, call} ]),
@@ -180,31 +215,35 @@ handle_info({bbyb_sync, Hash},
   ?LOG_DEBUG("run bbyb sync res ~p",[BBRes]),
   case BBRes of
     sync_cont ->
-      {noreply, State};
+      {noreply, State#{last_res => {erlang:system_time(),sync_cont}}};
     done ->
       synchronizer ! imready,
       {noreply,
-       maps:without([sync, syncblock, sync_peer, sync_candidates, bbsync_pid], State)
+       maps:without([sync, syncblock, sync_peer, sync_candidates, bbsync_pid],
+                    State#{last_res => {erlang:system_time(),done}})
       };
     {broken_block, C1} ->
       {noreply,
        maps:without([sync, syncblock, sync_peer, sync_candidates, bbsync_pid],
                     State#{
-                      sync_candidates => C1
+                      sync_candidates => C1,
+                      last_res => {erlang:system_time(),broken_block}
                      })
       };
     {broken_sync, C1} ->
       {noreply,
        maps:without([sync, syncblock, sync_peer, sync_candidates, bbsync_pid],
                     State#{
-                      sync_candidates => C1
+                      sync_candidates => C1,
+                      last_res => {erlang:system_time(), broken_sync}
                      })
       };
     {noresponse, C1} ->
       {noreply,
        maps:without([sync, syncblock, sync_peer, sync_candidates, bbsync_pid],
                     State#{
-                      sync_candidates => C1
+                      sync_candidates => C1,
+                      last_res => {erlang:system_time(),noresponse}
                      })
       }
   end;

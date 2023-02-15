@@ -341,6 +341,22 @@ handle_cast({tpic, From, #{
                                       })),
   {noreply, State};
 
+handle_cast({update,#{temporary:=_,header:=#{height:=H1, parent:=Par}=Hdr,hash:=Hash1}=NewTmp},
+            #{lastblock:=#{header:=#{height:=H0}, hash:=Hash0 }}=State) ->
+  if(H1==H0+1 andalso Par==Hash0) ->
+      {noreply, State#{tmpblock=>NewTmp}};
+    true ->
+      ?LOG_NOTICE("Incompatible tmp block ~s arrived to RDR: ~p", [blkid(Hash1),Hdr]),
+      if(H1=/=H0+1) ->
+          ?LOG_NOTICE("Height mismatch ~p =/= ~p",[H1,H0+1]);
+        (Par=/=Hash1) ->
+          ?LOG_NOTICE("Parent hash mismatch ~p =/= ~p",[Hash0,Hash1]);
+        true ->
+          ?LOG_NOTICE("Can't understand what is wrong",[])
+      end,
+      {noreply, get_last(State)}
+  end;
+
 handle_cast(update, State) ->
   {noreply, get_last(State)};
 
