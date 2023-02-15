@@ -122,7 +122,16 @@ h(Method, [<<"api">>|Path], Req) ->
 h(<<"GET">>, [<<"node">>, <<"status">>], Req) ->
   Chain=chainsettings:get_val(mychain),
   #{hash:=Hash,
+    sign:=Signatures,
     header:=Header1}=Blk=blockchain:last_meta(),
+  BlSig=[ begin
+            V=proplists:get_value(pubkey,maps:get(extra,E)),
+            case chainsettings:is_net_node(V) of
+              {true, N} -> N;
+              _ -> hex:encode(V)
+            end
+          end || E<-Signatures ],
+
   Temp=maps:get(temporary,Blk,false),
   BinPacker=packer(Req),
   Header=maps:map(
@@ -218,6 +227,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], Req) ->
           chain=>Chain,
           hash=>BinPacker(Hash),
           header=>Header,
+          signatures=> BlSig,
           temporary=>Temp
          },
         is_sync => try
