@@ -586,9 +586,16 @@ receive_block(Handler, BlockPart, Acc) ->
       Response = tpiccall(Handler,  #{null => <<"pick_next_part">>}, [block]),
       ?LOG_INFO("R ~p",[Response]),
       case Response of
-        [{_, R}] ->
-          #{block := NewBlockPart} = R,
+        [{_, #{block := NewBlockPart}}] ->
           receive_block(Handler, NewBlockPart, NewAcc);
+        [{_, #{<<"error">> := Err}}] ->
+          ?LOG_ERROR("Error while receiving block part ~p", [Err]),
+          stout:log(runsync,
+                    [
+                     {node, nodekey:node_name()},
+                     {error, broken_sync}
+                    ]),
+          throw(broken_sync);
         [] ->
           ?LOG_NOTICE("Broken sync"),
           stout:log(runsync,

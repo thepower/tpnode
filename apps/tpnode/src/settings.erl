@@ -1,7 +1,7 @@
 -module(settings).
 -include("include/tplog.hrl").
 
--export([new/0, set/3, patch/2, mp/1, dmp/1, get/2]).
+-export([new/0, set/3, patch/2, mp/1, dmp/1, get/2, get/3]).
 -export([get_patches/1, get_patches/2]).
 -export([b2pc/1]).
 %-export([sign/2, verify/2]).
@@ -155,6 +155,14 @@ b2pc([Element|Rest]) when
 b2pc([Element|Rest]) ->
   [Element|b2pc(Rest)].
 
+get([], M, _D) -> M;
+get([Hd], M, D) ->
+    maps:get(Hd, M, D);
+get([Hd|Path], M, D) when is_list(Path) ->
+    H1=maps:get(Hd, M, #{}),
+    get(Path, H1, D).
+
+
 get([], M) -> M;
 get([Hd|Path], M) when is_list(Path) ->
     H1=maps:get(Hd, M, #{}),
@@ -276,6 +284,7 @@ change(set, [Path], Value, M, FPath) -> %set or replace
     if is_map(M) ->
            PrevValue=maps:get(Path, M, undefined),
            if is_list(PrevValue) orelse is_map(PrevValue) ->
+                io:format("change(set,[~p],~p,~p,~p)~n",[Path,Value,M,FPath]),
                   throw({'non_value', FPath});
               true ->
                   maps:put(Path, Value, M)

@@ -85,6 +85,27 @@ init([]) ->
     filelib:ensure_dir([DBPath,"/"]),
     ok=mledger:start_db(),
     ok=logs_db:start_db(),
+    Management=case application:get_env(tpnode,management,undefined) of
+                 X when is_list(X) ->
+                   X;
+                 _ ->
+                   case utils:read_cfg(mgmt_cfg,[]) of
+                     Cfg when is_list(Cfg) ->
+                       proplists:get_value(management,Cfg,undefined);
+                     {error, _} ->
+                       undefined
+                   end
+               end,
+
+    MgChildren=case Management of
+                  undefined ->
+                    [];
+                  _ ->
+                    [
+                     { mgmt_sup, {tpnode_netmgmt_sup, start_link, [mgmt, Management]},
+                       permanent, 5000, worker, []}
+                    ]
+                end,
 
     Discovery=#{name=>discovery, services=>MandatoryServices},
 
@@ -117,6 +138,7 @@ init([]) ->
                  ++ tpic2:childspec()
                  ++ tpnode_vmproto:childspec(VMHost, VMPort)
              end,
+
 
     Childs=[
             { rdb_dispatcher, {rdb_dispatcher, start_link, []},
@@ -161,6 +183,7 @@ init([]) ->
 
            ]
             ++ Services
+            ++ MgChildren
             ++ tpnode_http:childspec_ssl()
             ++ tpnode_http:childspec(),
     {ok, { {one_for_one, 5, 10}, Childs } }.

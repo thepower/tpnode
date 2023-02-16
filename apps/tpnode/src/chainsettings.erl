@@ -8,7 +8,13 @@
          is_our_node/2,
          is_net_node/1,
          settings_to_ets/1,
-         all/0, by_path/1]).
+         settings_to_ets/2,
+         all/0,
+         as_map/1,
+         select_by_path/2,
+         by_path/1,
+         by_path/2
+        ]).
 -export([contacts/1,contacts/2]).
 -export([checksum/0]).
 
@@ -55,8 +61,52 @@ all() ->
     R
    ).
 
+select_by_path(GetPath, [_|_]=Tables) ->
+  lists:foldl(fun({Tab,Fun}, A) when is_function(Fun,1) ->
+                  TR=ets:match(Tab,{GetPath++'$1','_','$3','$2'}),
+                  lists:foldl(
+                    fun(Arr,A1) ->
+                        case Fun(Arr) of
+                          true ->
+                            [Arr|A1];
+                          false ->
+                            A1
+                        end
+                    end, A, TR);
+                 (Tab, A) ->
+                  TR=ets:match(Tab,{GetPath++'$1','_','$3','$2'}),
+                  A++TR
+              end, [], Tables).
+
+
 by_path(GetPath) ->
-  R=ets:match(blockchain,{GetPath++'$1','_','$3','$2'}),
+  by_path(GetPath, [blockchain]).
+
+by_path(GetPath, default) ->
+  as_map(
+    select_by_path(GetPath,
+                   [
+                    {blockchain,
+                     fun([Path|_]) ->
+                         case Path of
+                           [<<"current">>|_] -> true;
+                           _ -> false
+                         end
+                     end},
+                    {mgmt,
+                     fun([Path|_]) ->
+                         case Path of
+                           [<<"current">>|_] -> false;
+                           _ -> true
+                         end
+                     end}
+                   ]));
+
+by_path(GetPath, [_|_]=Tables) ->
+  R=select_by_path(GetPath, Tables),
+  as_map(R).
+
+as_map(R) ->
   case R of
     [[[],Val,<<"set">>]] ->
       Val;
@@ -71,6 +121,9 @@ by_path(GetPath) ->
   end.
 
 settings_to_ets(NewSettings) ->
+settings_to_ets(NewSettings, blockchain).
+
+settings_to_ets(NewSettings, Table) ->
   ?LOG_DEBUG("Settings2ets ~p",[maps:with([<<"current">>],settings:clean_meta(NewSettings))]),
   Patches=settings:get_patches(NewSettings,ets),
   Ver=erlang:system_time(),
@@ -80,8 +133,8 @@ settings_to_ets(NewSettings) ->
               end,  Patches),
   %ets:match(blockchain,{[<<"current">>,<<"fee">>|'$1'],'_','$2'})
   %-- ets:fun2ms( fun({_,T,_}=M) when T < Ver -> M end)
-  ets:insert(blockchain,SetApply),
-  ets:select_delete(blockchain,
+  ets:insert(Table,SetApply),
+  ets:select_delete(Table,
                     [{{'_','$1','_','_'},[{'<','$1',Ver}],[true]}]
                    ),
 
@@ -98,7 +151,11 @@ settings_to_ets(NewSettings) ->
                fun(_PubKey, Name) ->
                    maps:get(Name, NodeChain, 0) == MyChain
                end, ChainNodes0),
-  blockchain_updater:store_mychain(MyName, ChainNodes, MyChain),
+  if Table == blockchain ->
+       blockchain_updater:store_mychain(MyName, ChainNodes, MyChain);
+     true ->
+       ok
+  end,
   NewSettings.
 
 contacts(Name, Protocol) when is_binary(Protocol) ->

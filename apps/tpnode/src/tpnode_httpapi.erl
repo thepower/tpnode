@@ -1041,6 +1041,21 @@ h(<<"POST">>, [<<"debug">>, <<"last_sync_res">>], _Req) ->
            res => R
           });
 
+h(<<"POST">>, [<<"debug">>,<<"bcreader_update">>], Req) ->
+  BinPacker=packer(Req),
+  EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+          Conf1=jsx_config:list_to_config(Conf),
+          jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                            State, Handler, Stack, Conf1)
+      end,
+  R=gen_server:cast(blockchain_reader, update),
+  answer(
+    #{ result => <<"ok">>,
+       reload => R
+     },
+    #{jsx=>[ strict, {error_handler, EHF} ]}
+   );
+
 h(<<"POST">>, [<<"debug">>,<<"bcupdater_reloadset">>], Req) ->
   BinPacker=packer(Req),
   EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->

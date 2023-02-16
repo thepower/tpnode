@@ -3,14 +3,14 @@
 %% @doc tpnode_repl gen_server
 %% @end
 %%%-------------------------------------------------------------------
--module(tpnode_repl).
+-module(tpnode_netmgmt_repl).
 -author("cleverfox <devel@viruzzz.org>").
--create_date("2022-07-12").
+-create_date("2022-11-12").
 
 -behaviour(gen_statem).
 
 %% API
--export([start_link/0]).
+-export([start_link/2]).
 
 %% gen_statem callbacks
 -export([
@@ -22,7 +22,8 @@
         ]).
 
 -export([
-         state_init/3
+         state_init/3,
+         actual_nodes/1
         ]).
 %%--------------------------------------------------------------------
 %% @doc
@@ -33,18 +34,17 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link() ->
-    gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
+start_link(Worker,Opts) ->
+    gen_statem:start_link({global,{nm,Worker}}, ?MODULE, [Worker, Opts], []).
 
 %%%===================================================================
 %%% gen_statem callbacks
 %%%===================================================================
 callback_mode() -> state_functions.
 
-init([]) ->
-  erlang:send_after(2000, self(), run_workers),
-  %self() ! run_workers,
-  {ok, state_init, #{loaders=>[]}}.
+init([Worker, Opts]) ->
+  self() ! init,
+  {ok, state_init, #{worker=>Worker, opts=>Opts, loaders=>[]}}.
 
 format_status(_Opt, [_PDict, State, Data]) ->
     [{data, [{"State", {State, Data}}]}].
@@ -79,20 +79,72 @@ state_init({call, Caller}, _Msg, Data) ->
   ?LOG_INFO("Got unhandled call: ~p",[_Msg]),
   {keep_state, Data, [{reply, Caller, unhandled}]};
 
-state_init(cast, {new_block_notify,{Height, Hash, _Parent}, Origin}, #{loaders:=PIDs}=Data) ->
+state_init(cast, {wrk_up,URI}, #{worker:=Wrk}=Data) when is_list(URI) ->
+  ?LOG_INFO("Got wrk_up: ~p, ~p",[URI, Wrk]),
+  try
+    Wrk=mgmt, %it will crash if other worker
+    Nodes=maps:to_list(tpnode_netmgmt_repl:actual_nodes(URI)),
+    ?LOG_INFO("Got nodes: ~p", [Nodes]),
+    utils:update_cfg(mgmt_cfg,Nodes)
+  catch _Ec:_Ee:_S ->
+    ?LOG_INFO("Got nodes error ~p: ~p", [{_Ec,_Ee},_S]),
+    ignore
+  end,
+  {keep_state, Data};
+
+%  Ptr=hex:encode(Hash),
+%  Query= <<"/api/binblock/",Ptr/binary>>,
+%  LH0=maps:get(lasthash, Data, []),
+%  case lists:member(Hash, LH0) of
+%    true ->
+%      {keep_state, Data};
+%    false ->
+%      ?LOG_INFO("Got new block, h=~p, hash=~p",[Height,blockchain:blkid(Hash)]),
+%      R=httpget(Origin, Query, PIDs),
+%      ?LOG_DEBUG("httpget ~p",[R]),
+%      case R of
+%        {ok, {200, _Headers, Body}, PidList1} ->
+%          Block=block:unpack(Body),
+%          gen_server:call(Wrk, {new_block, Block}),
+%          LH=case LH0 of
+%               List when length(List) > 10 ->
+%                 {L1,_}=lists:split(10,List),
+%                 [Hash|L1];
+%               List when is_list(List) ->
+%                 [Hash|List]
+%             end,
+%          {keep_state, Data#{loaders=>PidList1,lasthash=>LH}};
+%        {error, PidList1} ->
+%          {keep_state, Data#{loaders=>PidList1}}
+%      end
+%  end;
+
+state_init(cast, {new_block_notify,{Height, Hash, _Parent}, Origin}, #{worker:=Wrk, loaders:=PIDs}=Data) ->
   Ptr=hex:encode(Hash),
   Query= <<"/api/binblock/",Ptr/binary>>,
-
-  ?LOG_INFO("Got new block, should sync ~p: ~p",[Height,blockchain:blkid(Hash)]),
-  R=httpget(Origin, Query, PIDs),
-  ?LOG_DEBUG("httpget ~p",[R]),
-  case R of
-    {ok, {200, _Headers, Body}, PidList1} ->
-      Block=block:unpack(Body),
-      gen_server:call(blockchain_updater,{new_block, Block, self()}),
-      {keep_state, Data#{loaders=>PidList1}};
-    {error, PidList1} ->
-      {keep_state, Data#{loaders=>PidList1}}
+  LH0=maps:get(lasthash, Data, []),
+  case lists:member(Hash, LH0) of
+    true ->
+      {keep_state, Data};
+    false ->
+      ?LOG_INFO("Got new block, h=~p, hash=~p",[Height,blockchain:blkid(Hash)]),
+      R=httpget(Origin, Query, PIDs),
+      ?LOG_DEBUG("httpget ~p",[R]),
+      case R of
+        {ok, {200, _Headers, Body}, PidList1} ->
+          Block=block:unpack(Body),
+          gen_server:call(Wrk, {new_block, Block}),
+          LH=case LH0 of
+               List when length(List) > 10 ->
+                 {L1,_}=lists:split(10,List),
+                 [Hash|L1];
+               List when is_list(List) ->
+                 [Hash|List]
+             end,
+          {keep_state, Data#{loaders=>PidList1,lasthash=>LH}};
+        {error, PidList1} ->
+          {keep_state, Data#{loaders=>PidList1}}
+      end
   end;
 
 state_init(info, {gun_up,_Pid,_Http}, Data) ->
@@ -106,38 +158,7 @@ state_init(info, {gun_down,Pid,_,closed,_,_}, #{loaders:=PidList}=Data) ->
       {keep_state, Data#{loaders=>PidList -- [E]}}
   end;
 
-state_init(info, run_workers, _Data) ->
-  Chld=supervisor:which_children(repl_sup),
-  Config=config(),
-  Active=lists:map(fun({_,PID,_,_}) ->
-                       {PID,gen_server:call(PID,uri)}
-                   end, Chld),
-  Al=[ URI || {_,URI} <- Active ],
-  ToStop = Al -- Config,
-  ToRun = Config -- Al,
-  ?LOG_DEBUG("Run workers ~p",[ToRun]),
-  ?LOG_DEBUG("Stop workers ~p",[ToStop]),
-  lists:foreach(
-    fun(URI) ->
-        supervisor:start_child(
-          repl_sup,
-          [
-           [{parent,self()},{uri, URI}]
-          ]
-         )
-    end, ToRun),
-  lists:foreach(
-    fun(URI) ->
-        {Pid,_} = lists:keyfind(URI, 2, Active),
-        supervisor:terminate_child(repl_sup,Pid)
-    end, ToStop),
-  %tpnode_repl_worker:run_worker([{uri,"http://127.0.0.1:43381"}]).
-  keep_state_and_data;
-
 state_init(info, {wrk_up,_Pid,_}, _Data) ->
-  keep_state_and_data;
-
-state_init(info, {wrk_presync,_Pid,start}, _Data) ->
   keep_state_and_data;
 
 state_init(Kind, Msg, _Data) ->
@@ -162,19 +183,20 @@ do_connect(URL) ->
   Opts=case Sch of
          "http" -> #{};
          "https" -> 
-           %CaCerts = certifi:cacerts(),
+           CaCerts = certifi:cacerts(),
            CHC=[
                 {match_fun, public_key:pkix_verify_hostname_match_fun(https)}
                ],
            #{ transport=>tls,
               protocols => [http],
               transport_opts => [{verify, verify_peer},
-                                 %{cacerts, CaCerts},
+                                 {cacerts, CaCerts},
                                  {customize_hostname_check, CHC}
                                 ]}
        end,
   case gun:open(H,P,Opts) of
     {ok, ConnPid} ->
+      io:format("Connected to ~p~n",[ConnPid]),
       case gun:await_up(ConnPid,5000) of
         {ok, _} ->
           {ok, ConnPid};
@@ -237,8 +259,40 @@ httpget(Server, Query, PidList) ->
       end
   end.
 
-config() ->
-  L = application:get_env(tpnode,upstream,[]),
-  L.
+actual_nodes(URI) ->
+  maps:fold(
+    fun(_Host,M,Acc) ->
+        P1=maps:fold(fun(<<"host">>,L,A) ->
+                          A#{https=>[ URL || URL=#{scheme:=<<"https">>} <- [ uri_string:parse(Li) || Li <- L]  ]};
+                         (<<"ip">>,L,A) ->
+                          A#{http=>[ URL || URL=#{scheme:=<<"http">>} <- [ uri_string:parse(Li) || Li <- L]  ]};
+                         (<<"pubkey">>,L,A) ->
+                          A#{pubkey=>L};
+                         (_,_L,A) -> A
+                      end, 
+                      #{},
+                      M),
+        PK=maps:get(pubkey,P1,undefined),
+        Merge = fun(#{scheme:=_,query:=Q}=CURL) when is_binary(PK) ->
+                    uri_string:recompose(CURL#{query=>[Q,"&","pubkey=0x",PK]});
+                   (#{scheme:=_}=CURL) when is_binary(PK) ->
+                    uri_string:recompose(CURL#{query=>["pubkey=0x",PK]});
+                   (CURL) ->
+                    uri_string:recompose(CURL)
+                end,
 
+
+        maps:fold(
+          fun(H,URIs,O) when H==https; H==http ->
+              maps:put(H,
+                       maps:get(H,O,[]) ++
+                       [ Merge(U) || U <- URIs ],
+                       O);
+             (_,_,O) -> O
+          end,
+          Acc,P1)
+    end,
+    #{},
+    tpnode_repl_worker:his_nodes(URI)
+   ).
 

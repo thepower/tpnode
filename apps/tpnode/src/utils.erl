@@ -7,6 +7,44 @@
 -export([logger/1, logger/2]).
 
 -export([dbpath/1]).
+-export([update_cfg/2]).
+-export([read_cfg/2,read_cfg/1]).
+
+read_cfg(DbName) ->
+  read_cfg(DbName,[]).
+
+read_cfg(DbName, Default) ->
+  Filename=dbpath(DbName),
+  case file:consult(Filename) of
+    {ok,[L]} when is_list(L) ->
+      L;
+    {ok,_} ->
+      {error, badfile};
+    {error,enoent} ->
+      Default;
+    {error,Any} ->
+      {error, Any}
+  end.
+
+update_cfg(DbName,Replacements) ->
+  Filename=dbpath(DbName),
+  New=case file:consult(Filename) of
+        {ok,[L]} when is_list(L) ->
+          lists:foldr(
+            fun({K,V},Acc) ->
+                [{K,V}|proplists:delete(K,Acc)]
+            end,
+            L,
+            Replacements);
+        {ok,_} ->
+          throw({error, badfile});
+        {error,enoent} ->
+          Replacements;
+        {error,Any} ->
+          throw({error, Any})
+      end,
+  file:write_file(Filename,io_lib:format("~p.~n",[New])).
+
 
 dbpath(cert) ->
   DBPath=application:get_env(tpnode,dbpath,"db"),

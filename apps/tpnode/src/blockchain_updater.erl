@@ -114,6 +114,7 @@ init(_Args) ->
   erlang:send_after(60000, self(), start_cleanup),
   notify_settings(),
   gen_server:cast(blockchain_reader,update),
+  self() ! check_mgmt,
   erlang:spawn(fun() ->
                    timer:sleep(200),
                    notify_settings()
@@ -543,6 +544,7 @@ handle_call({new_block, #{hash:=BlockHash,
 
                   S1=maps:remove(tmpblock, State),
 
+                  self() ! check_mgmt,
                   {reply, ok, S1#{
                                 prevblock=> NewLastBlock,
                                 lastblock=> MBlk,
@@ -730,16 +732,11 @@ handle_info({continue_cleanup,N}, #{ldb:=LDB,clean_iterator:=Iterator}=State) ->
   end;
 
 handle_info(check_mgmt, #{settings:=Sets}=State) ->
-  InChain=try
-            settings:get(
+  InChain=settings:get(
             [<<"current">>,<<"management">>,<<"uri">>],
             Sets,
             undefined
-           )
-          catch Ec:Ee:S ->
-                  ?LOG_ERROR("~p:~p @ ~p...",[Ec,Ee,hd(S)]),
-                  undefined
-          end,
+           ),
   if InChain == undefined ->
        {noreply, State};
      is_binary(InChain) ->
