@@ -9,6 +9,7 @@
 -export([dbpath/1]).
 -export([update_cfg/2]).
 -export([read_cfg/2,read_cfg/1]).
+-export([is_printable/1,textize_binary/1]).
 
 read_cfg(DbName) ->
   read_cfg(DbName,[]).
@@ -81,6 +82,20 @@ check_tcp_port(Port) ->
 
 
 %% -------------------------------------------------------------------------------------
+textize_binary(Bin) ->
+  case is_printable(Bin) of
+    true ->
+      Bin;
+    false ->
+      list_to_binary(["0x",hex:encode(Bin)])
+  end.
+
+is_printable(<<>>) ->
+  true;
+is_printable(<<B0,Bin/binary>>) when B0>=32 andalso B0<127 ->
+  is_printable(Bin);
+is_printable(_) ->
+  false.
 
 make_binary(Arg) when is_integer(Arg) ->
   integer_to_binary(Arg, 10);
