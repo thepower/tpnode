@@ -72,7 +72,7 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
   ACD=try
         case Tx of
           #{call:=#{function:="ABI",args:=CArgs}} ->
-            encode_simple(CArgs);
+            abi_encode_simple(CArgs);
           _ ->
             <<>>
         end
@@ -137,16 +137,7 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
     %{done,{revert,Data},#{gas:=G}=S2};
   end.
 
-encode_arg(Arg,Acc) when is_integer(Arg) ->
-  <<Acc/binary,Arg:256/big>>;
-encode_arg(<<Arg:256/big>>,Acc) ->
-  <<Acc/binary,Arg:256/big>>;
-encode_arg(<<Arg:64/big>>,Acc) ->
-  <<Acc/binary,Arg:256/big>>;
-encode_arg(_,_) ->
-  throw(arg_encoding_error).
-
-encode_simple(Elements) ->
+abi_encode_simple(Elements) ->
   HdLen=length(Elements)*32,
   {H,B,_}=lists:foldl(
             fun(E, {Hdr,Body,BOff}) when is_integer(E) ->
@@ -204,11 +195,15 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
          Arg1;
        #{call:=#{function:="0x"++FunID,args:=CArgs}} ->
          FunHex=hex:decode(FunID),
-         lists:foldl(fun encode_arg/2, <<FunHex:4/binary>>, CArgs);
+         %lists:foldl(fun encode_arg/2, <<FunHex:4/binary>>, CArgs);
+         BArgs=abi_encode_simple(CArgs),
+         <<FunHex:4/binary,BArgs/binary>>;
        #{call:=#{function:=FunNameID,args:=CArgs}} when is_list(FunNameID) ->
          {ok,E}=ksha3:hash(256, list_to_binary(FunNameID)),
          <<X:4/binary,_/binary>> = E,
-         lists:foldl(fun encode_arg/2, <<X:4/binary>>, CArgs);
+         %lists:foldl(fun encode_arg/2, <<X:4/binary>>, CArgs);
+         BArgs=abi_encode_simple(CArgs),
+         <<X:4/binary,BArgs/binary>>;
        _ ->
          <<>>
      end,
@@ -423,11 +418,15 @@ call(#{state:=State,code:=Code}=_Ledger,Method,Args) ->
   CD=case Method of
        "0x"++FunID ->
          FunHex=hex:decode(FunID),
-         lists:foldl(fun encode_arg/2, <<FunHex:4/binary>>, Args);
+         BArgs=abi_encode_simple(Args),
+         %lists:foldl(fun encode_arg/2, <<FunHex:4/binary>>, Args);
+         <<FunHex:4/binary,BArgs/binary>>;
        FunNameID when is_list(FunNameID) ->
          {ok,E}=ksha3:hash(256, list_to_binary(FunNameID)),
          <<X:4/binary,_/binary>> = E,
-         lists:foldl(fun encode_arg/2, <<X:4/binary>>, Args)
+         BArgs=abi_encode_simple(Args),
+         %lists:foldl(fun encode_arg/2, <<X:4/binary>>, Args)
+         <<X:4/binary,BArgs/binary>>
      end,
 
   Result = eevm:eval(Code,
