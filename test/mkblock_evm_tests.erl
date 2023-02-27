@@ -100,21 +100,21 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                           (mean_time) -> MeanTime;
                           ({get_block, Back}) when 20>=Back ->
                            FindBlock=fun FB(H, N) ->
-                           case blockchain:rel(H, self) of
-                             undefined ->
-                               undefined;
-                             #{header:=#{parent:=P}}=Blk ->
-                               if N==0 ->
-                                    maps:without([bals, txs], Blk);
-                                  true ->
-                                    FB(P, N-1)
-                               end
-                           end
+                                         case blockchain:rel(H, self) of
+                                           undefined ->
+                                             undefined;
+                                           #{header:=#{parent:=P}}=Blk ->
+                                             if N==0 ->
+                                                  maps:without([bals, txs], Blk);
+                                                true ->
+                                                  FB(P, N-1)
+                                             end
+                                         end
+                                     end,
+                           FindBlock(last, Back);
+                          (Other) ->
+                           error({bad_setting, Other})
                        end,
-           FindBlock(last, Back);
-          (Other) ->
-           error({bad_setting, Other})
-       end,
        GetAddr=fun({storage,Addr,Key}) ->
                    Res=case mledger:get(Addr) of
                      #{state:=State} -> maps:get(Key,State,<<>>);
@@ -870,6 +870,78 @@ return
        ?assertMatch(#{state:=#{<<1>>:=_T,<<2>>:=<<_Rnd:256/big>>}},maps:get(SC1,L1))
       ].
 
+state_cleanup_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 10),
+
+      SC2=naddress:construct_public(1, OurChain, 2),
+
+      Code=eevm_asm:assemble(<<"
+PUSH1 1
+PUSH1 0
+SSTORE
+PUSH1 0
+PUSH1 1
+SSTORE
+">>),
+
+      TX2=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SC2,
+              payload=>[
+                        #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+      TxList1=[
+               {<<"2xfer">>, maps:put(sigverify,#{valid=>1},TX2)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    emit:=_Emit,
+                    failed:=Failed}) ->
+                  ?assertMatch([],Failed),
+                  Bals=maps:get(bals, Block),
+                  Hdr=maps:get(header, Block),
+                  {ok,Bals,Hdr}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+              },
+              {SC2,
+               #{amount => #{},
+                 code => Code,
+                 %ublk => <<1,2,3>>,
+                 vm => <<"evm">>,
+                 state => #{ <<0>> => <<0>>, <<1>> => <<1>>, <<2>> => <<1>> }
+                }
+              }
+             ],
+      %register(eevm_tracer,self()),
+      {ok,L1,H1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      io:format("H1 ~p~n",[maps:get(roots,H1)]),
+      %unregister(eevm_tracer),
+      ContractLedger=maps:get(SC2,L1),
+      io:format("State1 ~p~n",[L1]),
+      %CallRet=recv_callret(),
+      %io:format("CallRet ~p~n",[CallRet]),
+
+      LSt=mbal:get(state,ContractLedger),
+      [
+       ?assertEqual(#{<<0>> => <<1>>, <<1>> => <<>>},LSt),
+       %?assertMatch([{<<0>>,invalid},{<<1>>,eof}],CallRet),
+       ?assertEqual(true,true)
+      ].
+
+
 
 callcode_test() ->
       OurChain=150,
@@ -1003,6 +1075,7 @@ tether_test() ->
               from=>Addr1,
               seq=>2,
               t=>os:system_time(millisecond),
+              %call => #{function=>"ABI",args=>[131072,<<"Coin1">>,<<"CoinSym">>,3]},
               payload=>[
                         #{purpose=>transfer, amount=>0, cur=><<"FTT">>},
                         #{purpose=>srcfee, amount=>1100, cur=><<"FTT">>},

@@ -247,14 +247,14 @@ bals2patch([{A,Bal}|Rest], PRes) ->
                 <<"erltest">> ->
                   [bi_create(A, latest, state, <<>>, here, BState)|Acc];
                 _ when is_binary(BState) ->
-                  %                io:format("BS ~p~n",[BState]),
+                  % io:format("BS ~p~n",[BState]),
                   {ok, State} = msgpack:unpack(BState),
                   maps:fold(
                     fun(K,V,Ac) ->
                         [bi_create(A, latest, state, K, here, V)|Ac]
                     end, Acc, State);
                 _ when is_map(BState) ->
-                  %                io:format("BS ~p~n",[BState]),
+                  % io:format("BS ~p~n",[BState]),
                   maps:fold(
                     fun(K,V,Ac) ->
                         [bi_create(A, latest, state, K, here, V)|Ac]
@@ -278,6 +278,7 @@ bals2patch([{A,Bal}|Rest], PRes) ->
                 end, Acc, Patches);
               (Key,_,Acc) ->
               io:format("Unhandled field ~p~n",[Key]),
+              throw({'bad_field',Key}),
               Acc
           end,
   Res=maps:fold(FoldFun, PRes, Bal),
@@ -311,9 +312,11 @@ do_apply([E1|_]=Patches, HeiHash) when is_record(E1, bal_items) ->
                      [#bal_items{introduced=_OVer, value=OVal}=OldBal]  ->
                        if(OVal == NewVal) ->
                            ok;
+                         NewVal == <<>> ->
+                           rockstable:put(mledger, env, bi_set_ver(OldBal,Height)),
+                           rockstable:del(mledger, env, OldBal);
                          true ->
-                           OldBal1=bi_set_ver(OldBal,Height),
-                           rockstable:put(mledger, env, OldBal1),
+                           rockstable:put(mledger, env, bi_set_ver(OldBal,Height)),
                            rockstable:put(mledger, env, BalItem#bal_items{introduced=Height})
                        end
                    end

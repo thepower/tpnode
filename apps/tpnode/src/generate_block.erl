@@ -169,7 +169,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            fun(_,Bal) ->
                mbal:prepare(Bal)
            end,
-           cleanup_bals(NewBal0)
+           cleanup_bals(NewBal0, Addrs)
           ),
   ?LOG_DEBUG("Bals after clean and prepare ~p",[NewBal]),
   ExtraPatch=maps:fold(
@@ -286,31 +286,36 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
    }.
 
 
-cleanup_bals(NewBal0) ->
+cleanup_bals(NewBal0, Prev) ->
   maps:fold(
-    fun(K, V, BA) ->
-        ?LOG_DEBUG("Bal cleanup ~p ~p",[K,V]),
+    fun(Addr, V, BA) ->
+        ?LOG_DEBUG("Bal cleanup ~p ~p",[Addr,V]),
         case maps:get(keep, V, true) of
           false ->
             BA;
           true ->
-            Item=case maps:is_key(ublk, V) of
-                   false ->
-                     maps:put(K, V, BA);
-                   true ->
-                     C1=mbal:changes(V),
-                     case (maps:size(C1)>0) of
-                       true ->
-                         maps:put(K,
-                                  maps:put(lastblk,
-                                           maps:get(ublk, V),
-                                           C1),
-                                  BA);
-                       false ->
-                         BA
-                     end
-                 end,
-            maps:remove(changes,Item)
+            C1=mbal:changes(maps:remove(ublk,V)),
+            PreAddr=maps:get(Addr,Prev,mbal:new()),
+            case (maps:size(C1)>0) of
+              true ->
+                CC1=maps:fold(
+                      fun
+                        (ublk,LV,LA) ->
+                          maps:put(lastblk,LV,LA);
+                        (state,Mapa,LA) when is_map(Mapa)->
+                          PreMap=maps:get(state,PreAddr,#{}),
+                          Mapa1=maps:filter(
+                                  fun(MK,MV) ->
+                                      MV=/=maps:get(MK,PreMap,undefined)
+                                  end, Mapa),
+                          maps:put(state,Mapa1,LA);
+                        (LK,LV,LA) ->
+                          maps:put(LK,LV,LA)
+                      end, #{}, maps:merge(C1,maps:with([ublk],PreAddr))),
+                maps:put(Addr, CC1, BA);
+              false ->
+                BA
+            end
         end
     end, #{}, NewBal0).
 
