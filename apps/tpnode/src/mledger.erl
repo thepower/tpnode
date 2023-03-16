@@ -215,6 +215,8 @@ hashl(BIs) when is_list(BIs) ->
          fun
            (#bal_items{key=ublk},Acc) ->
              Acc;
+           (#bal_items{key=K,path=P,value= <<>>},Acc) ->
+             Acc;
            (#bal_items{key=K,path=P,value=V},Acc) ->
              gb_merkle_trees:enter(sext:encode({K,P}),sext:encode(V),Acc)
          end, gb_merkle_trees:empty(), BIs)
