@@ -488,6 +488,9 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
                   {ok, maps:remove(last,Sub)};
                 {ok, ignore} ->
                   {ok, maps:remove(last,Sub)};
+                {error,need_sync} ->
+                  timer:sleep(30000),
+                  presync(maps:remove(last,Sub), hex:encode(F(last_known_block)));
                 Other ->
                   ?LOG_ERROR("presync stop, returned ~p",[Other]),
                   {error, Other}
