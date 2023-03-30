@@ -562,11 +562,15 @@ mychain1() ->
   PubKey=nodekey:get_pub(),
   ?LOG_NOTICE("My key ~p", [(PubKey)]),
   ChainNodes0=maps:fold(
-                fun(Name, XPubKey, Acc) ->
-                    maps:put(tpecdsa:upgrade_pubkey(XPubKey), Name, Acc)
+                fun(<<".">>, _, Acc) ->
+                    Acc;
+                   (Name, XPubKey, Acc) when is_binary(XPubKey) ->
+                    maps:put(tpecdsa:upgrade_pubkey(XPubKey), Name, Acc);
+                   (Key, Val, Acc) ->
+                    ?LOG_ERROR("Can't parse node key ~p -> ~p",[Key, Val]),
+                    Acc
                 end, #{}, KeyDB),
-
-  ?LOG_NOTICE("Nodes ~p", [KeyDB]),
+  ?LOG_NOTICE("NodesDB ~p", [KeyDB]),
   ?LOG_NOTICE("Nodes ~p", [ChainNodes0]),
   MyName=maps:get(PubKey, ChainNodes0, undefined),
   MyChain=maps:get(MyName, NodeChain, 0),
