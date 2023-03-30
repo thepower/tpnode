@@ -139,8 +139,8 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
      true ->
        if Txs==[] -> ok;
         true ->
-          ?LOG_INFO("Prepare TXs from node ~s: ~p time ~p",
-               [ Origin, length(Txs), Timestamp ])
+          ?LOG_INFO("Prepare TXs from node ~s: ~p time ~p hh ~p entropy ~p",
+               [ Origin, length(Txs), Timestamp, HeiHash, Entropy])
        end,
        MarkTx =
          fun({TxID, TxBody}) ->

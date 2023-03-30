@@ -1085,21 +1085,34 @@ h(<<"GET">>, [<<"debug">>,<<"bcupdater">>], Req) ->
     #{jsx=>[ strict, {error_handler, EHF} ]}
    );
 
+h(<<"POST">>, [<<"debug">>, <<"seed_resync">>|N], _Req) ->
+  Workers=supervisor:which_children(repl_sup),
+  {ToRestart,_}=lists:split(min(N,length(Workers)),Workers),
+  try
+    L=length(lists:map(
+               fun({_,Pid,worker,_}) ->
+                   exit(Pid,restart)
+               end, ToRestart)),
+      answer(#{
+             result => <<"ok">>,
+             res => L
+            })
+  catch Ec:Ee:S ->
+          err(
+            10008,
+            iolist_to_binary(io_lib:format("Error: ~p:~p at ~p", [Ec,Ee,S])),
+            #{},
+            #{http_code=>500}
+           )
+  end;
 
-h(<<"GET">>, [<<"debug">>,<<"settings_raw">>], Req) ->
-  BinPacker=packer(Req),
+h(<<"GET">>, [<<"debug">>,<<"settings_txt">>], _Req) ->
   Settings=ets:match(blockchain,{'$1','_','$3','$2'}),
-  EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
-          Conf1=jsx_config:list_to_config(Conf),
-          jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
-                            State, Handler, Stack, Conf1)
-      end,
-  answer(
-    #{ result => <<"ok">>,
-       settings => Settings
-     },
-    #{jsx=>[ strict, {error_handler, EHF} ]}
-   );
+    {200,
+     list_to_binary([
+                     io_lib:format("~p~n",[Settings])
+                    ])
+    };
 
 h(<<"GET">>, [<<"debug">>|_], _Req) ->
   {404, [], <<"Not found">>};

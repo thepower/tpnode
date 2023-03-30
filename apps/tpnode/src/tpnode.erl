@@ -25,19 +25,43 @@ stop(_State) ->
     ok.
 
 reload() ->
-    ConfigFile=application:get_env(tpnode, config, "node.config"),
-    case file:consult(ConfigFile) of
-        {ok, Config} ->
-            lists:foreach(
-              fun({K, V}) ->
-                      application:set_env(tpnode, K, V)
-              end, Config),
-            logger_reconfig(),
-            application:unset_env(tpnode, pubkey),
-            application:unset_env(tpnode,privkey_dec);
-        {error, Any} ->
-            {error, Any}
-    end.
+  ConfigFile=application:get_env(tpnode, config, "node.config"),
+  case file:consult(ConfigFile) of
+    {ok, Config} ->
+      Config2=case file:consult(utils:dbpath('config_override')) of
+                {ok, Overrides} ->
+                  logger:info("Applying config overrides: ~p", [Overrides]),
+                  lists:foldl(
+                    fun({keyfile, Value}, Acc) ->
+                        [{keyfile, Value} | lists:keydelete(privkey,1,Acc)];
+                       ({Key, Value}, Acc) ->
+                        [{Key, Value} | lists:keydelete(Key,1,Acc)]
+                    end,
+                    Config,
+                    Overrides);
+                _ ->
+                  Config
+              end,
+      lists:foreach(
+        fun({keyfile, Filename}) ->
+            try
+              {ok, PrivKeyFile}=file:consult(Filename),
+              {privkey,Key} = lists:keyfind(privkey,1,PrivKeyFile),
+              application:set_env(tpnode, privkey, Key)
+            catch Ec:Ee ->
+                    logger:error("Failed to load ext privkey from ~s: ~p:~p", [Filename, Ec, Ee]),
+                    throw('failed_to_load_ext_privkey')
+            end;
+           ({K, V}) ->
+            application:set_env(tpnode, K, V)
+        end, Config2),
+
+      logger_reconfig(),
+      application:unset_env(tpnode, pubkey),
+      application:unset_env(tpnode,privkey_dec);
+    {error, Any} ->
+      {error, Any}
+  end.
 
 logger_reconfig() ->
 

@@ -468,7 +468,7 @@ runsync() ->
     {action, runsync_no_list},
     {node, nodekey:node_name()}
   ]),
-
+  ?LOG_NOTICE("ask for runsync"),
   blockchain_sync ! runsync.
 
 runsync([]) ->
@@ -488,6 +488,7 @@ runsync(AssocList) when is_list(AssocList) ->
       end,
       AssocList
     ),
+  ?LOG_NOTICE("ask for runsync with ~p",[ConvertedAssocList]),
   blockchain_sync ! {runsync, ConvertedAssocList}.
 
 
@@ -730,8 +731,7 @@ check_and_sync(TPIC, Options) ->
 
     MyPermHash = get_permanent_hash(MyMeta),
 
-
-    MyPermHash = get_permanent_hash(MyMeta),
+    ?LOG_INFO("My perm hash: ~p", [blockchain:blkid(MyPermHash)]),
 
     log_last_block(MyMeta, Options),
 

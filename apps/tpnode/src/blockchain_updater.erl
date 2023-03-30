@@ -897,7 +897,7 @@ replace(Field, Value) ->
   case ets:lookup(blockchain,Field) of
     [] ->
       ets:insert(blockchain,[{Field,Value}]);
-    [{myname, V1}] when V1==Value ->
+    [{Field, V1}] when V1==Value ->
       ignore;
     _ ->
       ets:delete(blockchain,Field),
