@@ -2,7 +2,7 @@
 -include("include/tplog.hrl").
 
 -export([del_ext/2, get_ext/2, set_ext/3]).
--export([sign/2, verify/1, verify/2, pack/1, pack/2, unpack/1, unpack/2]).
+-export([sign/2, sign/3, verify/1, verify/2, pack/1, pack/2, unpack/1, unpack/2]).
 -export([txlist_hash/1, rate/2, mergesig/2]).
 -export([encode_purpose/1, decode_purpose/1, encode_kind/2, decode_kind/1]).
 -export([construct_tx/1,construct_tx/2, get_payload/2, get_payloads/2]).
@@ -581,17 +581,19 @@ unpack_body(#{ver:=Ver, kind:=Kind},_Unpacked) ->
 
 sign(#{kind:=_Kind,
        body:=Body,
-       sig:=PS}=Tx, PrivKey) ->
-  Sig=bsig:signhash(Body,[],PrivKey),
+       sig:=PS}=Tx, PrivKey, ED) when is_binary(PrivKey), is_list(ED) ->
+  Sig=bsig:signhash(Body,ED,PrivKey),
   Tx#{sig=>[Sig|PS]};
 
-sign(#{patch:=Patch}, PrivKey) ->
-  tx:sign(tx:construct_tx(#{patches=>Patch, kind=>patch, ver=>2}), PrivKey);
+sign(#{patch:=Patch}, PrivKey, ED) ->
+  sign(tx:construct_tx(#{patches=>Patch, kind=>patch, ver=>2}), PrivKey, ED);
 
-sign(Any, _PrivKey) ->
+sign(Any, _PrivKey, _ED) ->
   throw({not_a_tx,Any}).
   %tx1:sign(Any, PrivKey).
 
+sign(Tx, PrivKey) when is_binary(PrivKey) ->
+  sign(Tx, PrivKey, []).
 
 -type tx() :: tx2() | tx1().
 -type tx2() :: #{
@@ -649,8 +651,26 @@ verify(#{
                                   From),
                      case LedgerInfo of
                        #{pubkey:=PK} when is_binary(PK) ->
-                         fun(PubKey, _) ->
-                             tpecdsa:cmp_pubkey(PK)==tpecdsa:cmp_pubkey(PubKey)
+                         fun(PubKey, Constraints, _) ->
+                             %io:format("Constraints ~p~n",[Constraints]),
+                             %io:format("Pubkey ~p~n PK ~p~n",[PubKey,PK]),
+                             case tpecdsa:cmp_pubkey(PK)==tpecdsa:cmp_pubkey(PubKey) of
+                               false ->
+                                 false;
+                               true ->
+                                 maps:fold(
+                                   fun(_,_,false) ->
+                                       false;
+                                      (tmin,Timestamp,true) ->
+                                       Timestamp<os:system_time(millisecond);
+                                      (tmax,Expire,true) ->
+                                       Expire>os:system_time(millisecond);
+                                      (Key,Val,true) ->
+                                       logger:notice("Can't check constraint ~p:~p~n",[Key,Val]),
+                                       false
+                                   end, true, Constraints)
+                             end
+
                          end;
                        _ ->
                          throw({ledger_err, From})

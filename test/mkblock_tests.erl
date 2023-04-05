@@ -1867,3 +1867,46 @@ tstore_test() ->
   Ledger=[ {From, mbal:put(pubkey, PubKey, mbal:new()) } ],
   mledger:deploy4test(Ledger, Test).
 
+bsig_poa_test() ->
+  OurChain=5,
+  Priv1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+          248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+  Pub1=tpecdsa:calc_pub(Priv1),
+  From=naddress:construct_public(1, OurChain, 3),
+  Test=fun(_) ->
+
+           Priv2=tpecdsa:generate_priv(ed25519),
+           Pub2=tpecdsa:calc_pub(Priv2),
+           T1=os:system_time(millisecond)-10000,
+           PoA1=bsig:signhash(Pub2,[{timestamp,T1},
+                                    {expire,T1+3600000}
+                                   ],Priv1),
+           TX0=tx:sign(
+                 tx:construct_tx(
+                   #{
+                   ver=>2,
+                   kind=>generic,
+                   from=>From,
+                   to=>naddress:construct_public(1, OurChain, 4),
+                   payload=>[
+                             #{purpose=>transfer, amount=>10, cur=><<"FTT">>},
+                             #{purpose=>srcfee, amount=>2, cur=><<"FTT">> }
+                            ],
+                   seq=>2,
+                   t=>os:system_time(millisecond)
+                  }), Priv2, [{poa, PoA1}]),
+           {ok,TX01}=tx:verify(TX0),
+           io:format("TX0: ~p~n", [TX01]),
+
+           [
+            ?assertMatch(#{sigverify:=#{
+                                        valid:=1,
+                                        pubkeys:=[Pub1]
+                                       }
+                          }, TX01)
+           ]
+       end,
+  Ledger=[ {From, mbal:put(pubkey, Pub1, mbal:new()) } ],
+  mledger:deploy4test(Ledger, Test).
+
+
