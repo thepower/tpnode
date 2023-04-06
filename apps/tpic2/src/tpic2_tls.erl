@@ -14,26 +14,74 @@ start_link(Ref, Socket, Transport, Opts) ->
 -spec connection_process(pid(), ranch:ref(), ssl:sslsocket(), module(), cowboy:opts()) -> ok.
 connection_process(Parent, Ref, Socket, Transport, Opts) ->
   ok = ranch:accept_ack(Ref),
+  PeerPK=case ssl:peercert(Socket) of
+    {ok, PC} ->
+      DCert=tpic2:extract_cert_info(public_key:pkix_decode_cert(PC,otp)),
+      case DCert of
+        #{pubkey:=Der} ->
+          Der;
+        _ ->
+          ?LOG_NOTICE("Unknown cert ~p",[DCert]),
+          undefined
+      end;
+    {error, no_peercert} ->
+      undefined
+  end,
 
-  Proto=case ssl:negotiated_protocol(Socket) of
-          {ok, <<"tpic2">>} ->
-            tpic2;
-          {ok, Name} ->
-            Name;
-          _ ->
-            undefined
-        end,
+  ?LOG_DEBUG("tpic2_tls accept ~p",[PeerPK]),
 
-  ?LOG_INFO("tpic2_tls protocol ~p",[Proto]),
+  case ssl:negotiated_protocol(Socket) of
+    {ok, Proto} ->
+      ?LOG_DEBUG("tpic2_tls protocol ~s",[Proto]),
+      conn_proto(Parent, Ref, Socket, Transport, Opts, Proto, PeerPK);
+    _ ->
+      ssl:send(Socket,msgpack:pack(#{null=><<"no_protocol">>})),
+      Transport:close(Socket)
+  end.
+
+conn_proto(Parent, Ref, Socket, Transport, Opts, <<"h2">>,undefined) ->
+  cowboy_http2:init(Parent, Ref, Socket, Transport, undefined, Opts);
+conn_proto(Parent, Ref, Socket, Transport, Opts, <<"http/1.1">>, undefined) ->
+  cowboy_http:init(Parent, Ref, Socket, Transport, undefined, Opts);
+
+conn_proto(Parent, Ref, Socket, Transport, Opts, <<"h2">>, PubKey) ->
+  IsOurNode=chainsettings:is_our_node(PubKey),
+  if(IsOurNode==false) ->
+      ssl:send(Socket,<<"unknown_node">>),
+      ?LOG_NOTICE("tpic2_tls h2 connection unknwon key ~p",[PubKey]),
+      Transport:close(Socket);
+    true ->
+      cowboy_http2:init(Parent, Ref, Socket, Transport, undefined, Opts)
+  end;
+
+conn_proto(Parent, Ref, Socket, Transport, Opts, <<"http/1.1">>, PubKey) ->
+  IsOurNode=chainsettings:is_our_node(PubKey),
+  if(IsOurNode==false) ->
+      ssl:send(Socket,<<"unknown_node">>),
+      ?LOG_NOTICE("tpic2_tls http/1.1 connection unknown key ~p",[PubKey]),
+      Transport:close(Socket);
+    true ->
+      cowboy_http:init(Parent, Ref, Socket, Transport, undefined, Opts)
+  end;
+
+conn_proto(_Parent, _Ref, Socket, Transport, _Opts, <<"tpic2">>, undefined) ->
+  ssl:send(Socket,msgpack:pack(#{null=><<"unknown_node">>})),
+  timer:sleep(1000),
+  Transport:close(Socket),
+  done;
+
+conn_proto(Parent, Ref, Socket, Transport, Opts, <<"tpic2">>, PeerPK) ->
   {ok,PeerInfo}=ssl:connection_information(Socket),
   Transport:setopts(Socket, [{active, once},{packet,4}]),
-  State=#{parent=>Parent,
+  State=#{
+          parent=>Parent,
           ref=>Ref,
           socket=>Socket,
           peerinfo=>PeerInfo,
           timer=>undefined,
           transport=>Transport,
-          protocol => Proto,
+          protocol => tpic2,
+          peerpk => PeerPK,
           nodeid=> try
                      nodekey:get_pub()
                    catch _:_ -> atom_to_binary(node(),utf8)
@@ -41,30 +89,36 @@ connection_process(Parent, Ref, Socket, Transport, Opts) ->
           role=>server,
           opts=>Opts
          },
-  tpic2_tls:send_msg(hello, State),
-  ?MODULE:loop1(State).
+  ?MODULE:loop1(State);
 
-loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
-  {ok,PC}=ssl:peercert(Socket),
-  DCert=tpic2:extract_cert_info(public_key:pkix_decode_cert(PC,otp)),
-  Pubkey=case DCert of
-           #{pubkey:=Der} ->
-             Der;
-           _ ->
-             ?LOG_NOTICE("Unknown cert ~p",[DCert]),
-             undefined
-         end,
+conn_proto(_Parent, _Ref, Socket, Transport, _Opts, _, _) ->
+  ssl:send(Socket,msgpack:pack(#{null=><<"error">>,error=><<"bad protocol">>})),
+  Transport:close(Socket).
+
+loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,
+              transport:=Transport,peerpk:=Pubkey}) ->
+  %{ok,PC}=ssl:peercert(Socket),
+  %DCert=tpic2:extract_cert_info(public_key:pkix_decode_cert(PC,otp)),
+  %Pubkey=case DCert of
+  %         #{pubkey:=Der} ->
+  %           Der;
+  %         _ ->
+  %           ?LOG_NOTICE("Unknown cert ~p",[DCert]),
+  %           undefined
+  %       end,
   IsItMe=tpecdsa:cmp_pubkey(Pubkey)==tpecdsa:cmp_pubkey(nodekey:get_pub()),
   IsOurNode=chainsettings:is_our_node(Pubkey),
-  ?LOG_INFO("Peer PubKey ~s ~p",[hex:encode(Pubkey),
-                                  try IsOurNode catch _:_ -> unkn0wn end]),
+  ?LOG_INFO("Peer PubKey ~s ~p",[hex:encode(Pubkey), IsOurNode]),
+
   if IsItMe andalso Role==server ->
+      tpic2_tls:send_msg(hello, State),
       ?LOG_NOTICE("I received connection from myself, dropping session"),
       timer:sleep(1000),
       Transport:close(Socket),
       done;
 
      IsItMe ->
+      tpic2_tls:send_msg(hello, State),
       ?LOG_NOTICE("I connected to myself, dropping session"),
       timer:sleep(1000),
       Transport:close(Socket),
@@ -77,10 +131,12 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
       done;
 
      Role == server -> %server, known peer
+      tpic2_tls:send_msg(hello, State),
       {ok,PPID}=gen_server:call(tpic2_cmgr, {peer,Pubkey, {register, undefined, in, self()}}),
       ?MODULE:loop(State#{pubkey=>Pubkey,peerpid=>PPID});
 
      IsOurNode == false -> %client unknown node
+      tpic2_tls:send_msg(unknown_node, State),
       {IP, Port} = maps:get(address, State),
       gen_server:call(tpic2_cmgr,{peer, Pubkey, {del, IP, Port}, unknown_node}),
       timer:sleep(5000),
@@ -88,6 +144,7 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,transport:=Transport}) ->
       done;
 
     true -> %client, known node
+      tpic2_tls:send_msg(hello, State),
       Stream=maps:get(stream, Opts, 0),
       {IP, Port} = maps:get(address, State),
       gen_server:call(tpic2_cmgr,{peer, Pubkey, {add, IP, Port}}),
@@ -220,6 +277,7 @@ send_msg(hello, #{socket:=Socket, opts:=Opts}) ->
           addrs=>tpic2:node_addresses(),
           port=>Port,
           sid=>Stream,
+          v=>2,
           services=>Announce
          },
   ?LOG_DEBUG("Hello ~p",[Hello]),

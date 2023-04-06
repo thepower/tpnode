@@ -9,6 +9,7 @@
 
 -export([start_link/1]).
 -export([get_tx/1, get_tx/2, get_unpacked/1, exists/1]).
+-export([get_txm/1, get_txm/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -48,6 +49,22 @@ init(Args) ->
     ets_ttl_sec => maps:get(ets_ttl_sec, Args, 20*60)  % default: 20 min
   }}.
 
+handle_call(#{ null := <<"txsync_refresh">>, <<"txid">> := TxID}, _From, State) ->
+  case refresh_tx(TxID, State) of
+    {ok, State2} ->
+      {reply, ok, State2};
+    not_found ->
+      {reply, {error,not_found}, State}
+  end;
+
+handle_call(#{from:=FromPubKey, null := <<"txsync_push">>, <<"txid">> := TxID, <<"body">> := TxBin}, _From, State) ->
+  case store_tx(TxID, TxBin, FromPubKey, State) of
+    {ok, State2} ->
+      {reply, ok, State2};
+    {error, body_mismatch} ->
+      {reply, {error,body_mismatch}, State}
+  end;
+
 handle_call(state, _From, State) ->
   {reply, State, State};
 
@@ -71,7 +88,7 @@ handle_cast({tpic, FromPubKey, Peer, PayloadBin}, State) ->
   ?LOG_DEBUG( "txstorage got txbatch from ~p payload ~p", [ FromPubKey, PayloadBin]),
   case msgpack:unpack(PayloadBin, [ {unpack_str, as_binary} ]) of
     {ok, MAP} ->
-      case handle_tpic(MAP, FromPubKey, Peer, State) of
+      case handle_tpic(MAP, FromPubKey, State) of
         {noreply, State1} ->
           {noreply, State1};
         {reply, Reply, State1} ->
@@ -137,7 +154,7 @@ handle_info(_Info, State) ->
   ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
   {noreply, State}.
 
-handle_tpic(#{ null := <<"txsync_refresh">>, <<"txid">> := TxID}, _, _From, State) ->
+handle_tpic(#{ null := <<"txsync_refresh">>, <<"txid">> := TxID}, _FromPubKey, State) ->
   case refresh_tx(TxID, State) of
     {ok, State2} ->
       {reply, #{
@@ -153,24 +170,17 @@ handle_tpic(#{ null := <<"txsync_refresh">>, <<"txid">> := TxID}, _, _From, Stat
         }, State}
   end;
 
-handle_tpic(#{ null := <<"txsync_push">>, <<"txid">> := TxID, <<"body">> := TxBin}, FromPubKey, _Peer, State) ->
+handle_tpic(#{ null := <<"txsync_push">>, <<"txid">> := TxID, <<"body">> := TxBin}, FromPubKey, State) ->
   case store_tx(TxID, TxBin, FromPubKey, State) of
     {ok, State2} ->
       {reply, #{
          null => <<"txsync_res">>,
          <<"res">> => <<"ok">>,
          <<"txid">> => TxID
-        }, State2};
-    {error, Reason} ->
-      {reply, #{
-         null => <<"txsync_res">>,
-         <<"txid">> => TxID,
-         <<"res">> => <<"error">>,
-         <<"reason">> => Reason
-        }, State}
+        }, State2}
   end;
 
-handle_tpic(_, _, _, State) ->
+handle_tpic(_, _, State) ->
   {reply, #{ null => <<"unknown_command">> }, State}.
 
 terminate(_Reason, _State) ->
@@ -224,13 +234,17 @@ store_tx(TxID, TxBody, FromPeer, #{ets_ttl_sec:=TTL, ets_name:=Table} = State) -
   ValidUntil = os:system_time(second) + TTL,
   case ets:lookup(Table, TxID) of
     [] ->
-      ets:insert(Table, {TxID, TxBody, FromPeer, [], ValidUntil});
-    [{TxID, Tx, me, Nodes, _ValidUntil1}] ->
-      ets:insert(Table, {TxID, Tx, me, Nodes, ValidUntil});
-    [{TxID, _Tx, _Origin, _Nodes, _ValidUntil1}] ->
-      ets:insert(Table, {TxID, TxBody, FromPeer, [], ValidUntil})
-  end,
-  {ok, State}.
+      ets:insert(Table, {TxID, TxBody, FromPeer, [], ValidUntil}),
+      {ok, State};
+    [{TxID, TxBody1, _, _, _}] when TxBody1 =/= TxBody ->
+      {error, body_mismatch};
+    [{TxID, _TxBody, me, Nodes, _ValidUntil1}] ->
+      ets:insert(Table, {TxID, TxBody, me, Nodes, ValidUntil}),
+      {ok, State};
+    [{TxID, _TxBody, _Origin, _Nodes, _ValidUntil1}] ->
+      ets:insert(Table, {TxID, TxBody, FromPeer, [], ValidUntil}),
+      {ok, State}
+  end.
 
 get_unpacked(TxID) ->
   case ets:lookup(txstorage, TxID) of
@@ -244,6 +258,9 @@ get_unpacked(TxID) ->
     [] ->
       error
   end.
+
+get_txm(TxID) ->
+  get_txm(TxID, txstorage).
 
 get_tx(TxID) ->
   get_tx(TxID, txstorage).
@@ -265,6 +282,18 @@ get_tx(TxID, Table) ->
   case ets:lookup(Table, TxID) of
     [{TxID, Tx, _Origin, Nodes, _ValidUntil}] ->
       {ok, {TxID, Tx, Nodes}};
+    [] ->
+      error
+  end.
+
+get_txm(TxID, Table) ->
+  case ets:lookup(Table, TxID) of
+    [{TxID, Tx, Origin, Nodes, ValidUntil}] ->
+      {ok, #{id=>TxID,
+            body=>Tx,
+            origin=>Origin,
+            nodes=>Nodes,
+            valid=>ValidUntil}};
     [] ->
       error
   end.

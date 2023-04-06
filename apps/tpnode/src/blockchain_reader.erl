@@ -104,6 +104,11 @@ handle_call({get_block, BlockHash}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}=L
         end,
   {reply, Block, State};
 
+handle_call({get_block, last, Rel}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}}=State)
+  when is_atom(Rel) ->
+  Res=block_rel(LDB, LBH, Rel),
+  {reply, Res, State};
+
 handle_call({get_block, BlockHash, Rel}, _From, #{ldb:=LDB, lastblock:=#{hash:=LBH}}=State)
   when is_binary(BlockHash) andalso is_atom(Rel) ->
   %?LOG_DEBUG("Get block ~p", [BlockHash]),

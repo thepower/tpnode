@@ -13,6 +13,7 @@ get_http_conn_type() ->
       {'_', [
         {"/api/ws", tpnode_ws, []},
         {"/api/[...]", apixiom, {tpnode_httpapi, #{}}},
+        {"/tpic2/[...]", tpnode_tpicapi, #{}},
         {"/xchain/ws", xchain_server, []},
         {"/xchain/api/[...]", apixiom, {xchain_api, #{}}},
         {"/", cowboy_static, {priv_file, tpnode, "index.html"}},
@@ -80,16 +81,25 @@ childspec_ssl(CertFile, KeyFile) ->
       case ensure_cert(CertFile, KeyFile) of
         true ->
           CaFile = utils:make_list(CertFile)++".ca.crt",
+          {pub,ed25519,Pub} = tpecdsa:rawkey(nodekey:get_pub()),
+          PH=binary_to_list(hex:encode(Pub)),
           SslOpts = [
+                     {sni_fun,fun(Hostname) when Hostname==PH ->
+                                  tpic2:certificate();
+                                 ("tpnode") ->
+                                  tpic2:certificate();
+                                 (_) ->
+                                  []
+                              end},
                      {certfile, utils:make_list(CertFile)},
-                     {keyfile, utils:make_list(KeyFile)}] ++
-          case file:read_file_info(CaFile) of
-            {ok,_} ->
-              [{cacertfile, CaFile}];
-            _ ->
-              []
-          end,
-
+                     {keyfile, utils:make_list(KeyFile)} |
+                     case file:read_file_info(CaFile) of
+                       {ok,_} ->
+                         [{cacertfile, CaFile}];
+                       _ ->
+                         []
+                     end
+                    ],
           HTTPConnType = get_http_conn_type(),
           [
            ranch:child_spec(

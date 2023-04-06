@@ -205,8 +205,8 @@ certificate() ->
    {cert, DerCert},
    {cacerts, [DerCert]},
    {verify_fun, {fun tpic2:verfun/3, []}},
-   {fail_if_no_peer_cert, true},
-  % {key, {'ECPrivateKey', DERKey}}
+%   {fail_if_no_peer_cert, true},
+%   {key, {'ECPrivateKey', DERKey}}
    {key, {'PrivateKeyInfo', DERKey}}
   ].
 
@@ -216,8 +216,8 @@ childspec() ->
   HTTPOpts = fun(E) -> #{
                          connection_type => supervisor,
                          socket_opts => [{port,Port},
-                                         {next_protocols_advertised, [<<"tpic2">>]},
-                                         {alpn_preferred_protocols, [<<"tpic2">>]}
+                                         {next_protocols_advertised, [<<"tpic2">>, <<"h2">>, <<"http/1.1">>]},
+                                         {alpn_preferred_protocols, [<<"tpic2">>, <<"h2">>, <<"http/1.1">>]}
                                         ] ++ E ++ certificate()
                         }
              end,
@@ -232,16 +232,31 @@ childspec() ->
      ranch_ssl,
      HTTPOpts([]),
      tpic2_tls,
-     #{}
+     http_routing()
     ),
    ranch:child_spec(
      tpic_tls6,
      ranch_ssl,
      HTTPOpts([inet6, {ipv6_v6only, true}]),
      tpic2_tls,
-     #{}
+     http_routing()
     )
   ].
+
+http_routing() ->
+  HTTPDispatch = cowboy_router:compile(
+    [
+      {'_', [
+             {"/tpic2/[...]", tpnode_tpicapi, #{}}
+      ]}
+    ]),
+  #{
+    connection_type => supervisor,
+    env => #{
+      dispatch => HTTPDispatch
+    }
+  }.
+
 
 node_addresses() ->
   {ok,IA}=inet:getifaddrs(),
