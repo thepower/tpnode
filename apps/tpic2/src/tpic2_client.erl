@@ -74,10 +74,25 @@ connection_process(Parent, Host, Port, Opts) ->
         {ok, Socket} = ssl:connect(TCPSocket, SSLOpts),
         ssl:setopts(Socket, [{active, once}]),
         {ok,PeerInfo}=ssl:connection_information(Socket),
+        PeerPK=case ssl:peercert(Socket) of
+                 {ok, PC} ->
+                   DCert=tpic2:extract_cert_info(public_key:pkix_decode_cert(PC,otp)),
+                   case DCert of
+                     #{pubkey:=Der} ->
+                       Der;
+                     _ ->
+                       ?LOG_NOTICE("Unknown cert ~p",[DCert]),
+                       undefined
+                   end;
+                 {error, no_peercert} ->
+                   undefined
+               end,
+
         State=#{
                 ref=>maps:get(ref, Opts, undefined),
                 socket=>Socket,
                 peerinfo=>PeerInfo,
+                pubkey=>PeerPK,
                 timer=>undefined,
                 transport=>ranch_ssl,
                 parent=>Parent,

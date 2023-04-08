@@ -29,7 +29,12 @@
 %% ------------------------------------------------------------------
 
 new_tx(BinTX) ->
-    gen_server:call(txpool, {new_tx, BinTX}).
+  case tx:verify(BinTX) of
+    {ok, _Tx} ->
+      gen_server:call(txpool, {new_tx, BinTX});
+    {error, Reason} ->
+      {error, Reason}
+  end.
 
 inbound_block(Blk) ->
   gen_server:cast(txpool, {inbound_block, Blk}).

@@ -824,7 +824,12 @@ verify(Bin, Opts) when is_binary(Bin) ->
       tx_too_big;
     _ ->
       Tx = unpack(Bin),
-      verify(Tx, Opts)
+      case Tx of
+        {error, Any} ->
+          {error, Any};
+        #{} ->
+          verify(Tx, Opts)
+      end
   end;
 
 
@@ -911,24 +916,28 @@ unpack(BinTx) when is_binary(BinTx) ->
   unpack(BinTx,[]).
 
 unpack(BinTx,Opts) when is_binary(BinTx), is_list(Opts) ->
-  {ok, Tx0} = msgpack:unpack(BinTx, [{known_atoms,
+  case msgpack:unpack(BinTx, [{known_atoms,
                                       [type, sig, tx, patch, register,
                                        register, address, block ] },
-                                     {unpack_str, as_binary}] ),
-  Trusted=lists:member(trusted, Opts),
-  case Tx0 of
-    #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv} ->
-      unpack_body( #{
-        ver=>2,
-        sig=>Sign,
-        body=>TxBody,
-        inv=>Inv
-       });
-    #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody} ->
-      unpack_generic(Trusted, Tx0, TxBody, Sign);
-    _ ->
-      ?LOG_INFO("FIXME isTXv1: ~p", [Tx0]),
-      tx1:unpack_mp(Tx0)
+                                     {unpack_str, as_binary}] ) of
+    {ok, Tx0}  ->
+      Trusted=lists:member(trusted, Opts),
+      case Tx0 of
+        #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv} ->
+          unpack_body( #{
+                         ver=>2,
+                         sig=>Sign,
+                         body=>TxBody,
+                         inv=>Inv
+                        });
+        #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody} ->
+          unpack_generic(Trusted, Tx0, TxBody, Sign);
+        _ ->
+          ?LOG_INFO("FIXME isTXv1: ~p", [Tx0]),
+          tx1:unpack_mp(Tx0)
+      end;
+    {error, Err} ->
+      {error, Err}
   end.
 
 unpack_generic(Trusted, Tx0, TxBody, Sign) ->

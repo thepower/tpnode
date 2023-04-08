@@ -81,7 +81,7 @@ conn_proto(Parent, Ref, Socket, Transport, Opts, <<"tpic2">>, PeerPK) ->
           timer=>undefined,
           transport=>Transport,
           protocol => tpic2,
-          peerpk => PeerPK,
+          pubkey => PeerPK,
           nodeid=> try
                      nodekey:get_pub()
                    catch _:_ -> atom_to_binary(node(),utf8)
@@ -96,7 +96,7 @@ conn_proto(_Parent, _Ref, Socket, Transport, _Opts, _, _) ->
   Transport:close(Socket).
 
 loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,
-              transport:=Transport,peerpk:=Pubkey}) ->
+              transport:=Transport,pubkey:=Pubkey}) ->
   %{ok,PC}=ssl:peercert(Socket),
   %DCert=tpic2:extract_cert_info(public_key:pkix_decode_cert(PC,otp)),
   %Pubkey=case DCert of
@@ -166,7 +166,7 @@ loop1(State=#{socket:=Socket,role:=Role,opts:=Opts,
       if WhatToDo==shutdown ->
            done;
          true ->
-           ?MODULE:loop(State#{pubkey=>Pubkey})
+           ?MODULE:loop(State)
       end
   end.
 
@@ -318,7 +318,9 @@ handle_msg(#{null:=<<"hello">>,
                   OldSID
                  }
       end,
-  {ok, PPID}=gen_server:call(tpic2_cmgr, {peer,PK, Reg}),
+  {_OkOrExists,PPID}=gen_server:call(tpic2_cmgr, {peer,PK, Reg}),
+  %logger:notice("RegRes ~p ~p: ~p",[PK, Reg, RegRes]),
+  %{ok, PPID}=RegRes,
   lists:foreach(fun(Addr) ->
                     gen_server:call(PPID, {add, binary_to_list(Addr), Port})
                 end,

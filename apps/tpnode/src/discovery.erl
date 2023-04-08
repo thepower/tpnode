@@ -165,15 +165,15 @@ handle_call({get_pid, Name}, _From, #{local_services:=Dict} = State) when is_bin
             end,
     {reply, Reply, State};
 
-handle_call({lookup, Pred}, _From, State) when is_function(Pred) ->
-    {reply, query(Pred, State), State};
-
 %% get list of ip and port for service with name Name (local and remote)
 handle_call({lookup, Name}, _From, State) ->
     {reply, query(Name, State), State};
 
 handle_call({lookup, Name, Chain}, _From, State) ->
     {reply, query(Name, Chain, State), State};
+
+handle_call({lookup_raw, Name, Chain}, _From, State) ->
+    {reply, query_raw(Name, Chain, State), State};
 
 handle_call({lookup_remote, Name}, _From, #{remote_services := RemoteDict} = State) ->
   {reply, query_remote(Name, RemoteDict, blockchain:chain()), State};
@@ -331,7 +331,7 @@ get_local_addresses(State) ->
 
 
 % --------------------------------------------------------
-announce_one_service(Name, TranslatedAddress, Ttl, Scopes) ->
+prepare_announce_one_service(Name, TranslatedAddress, Ttl, Scopes) ->
     try
 %%        TranslatedAddress = add_hostname(translate_address(Address), Hostname),
 
@@ -350,15 +350,25 @@ announce_one_service(Name, TranslatedAddress, Ttl, Scopes) ->
             scopes => Scopes,
             chain => blockchain:chain()
         },
-        AnnounceBin = pack(Announce),
-        send_service_announce(AnnounceBin)
+        {ok, pack(Announce)}
     catch
         Err:Reason ->
             ?LOG_ERROR(
                 "Announce with name ~p and address ~p and scopes ~p hasn't made because ~p ~p",
                 [Name, TranslatedAddress, Scopes, Err, Reason]
-            )
+            ),
+            error
     end.
+
+%announce_one_service(Name, TranslatedAddress, Ttl, Scopes) ->
+%  case prepare_announce_one_service(Name, TranslatedAddress, Ttl, Scopes) of
+%    {ok, AnnounceBin} ->
+%        send_service_announce(AnnounceBin),
+%        ok;
+%    error ->
+%      error
+%  end.
+
 
 % ------------------------------------------------------------
 -spec is_local_service(Announce :: #{ 'nodeid' := _, _ := _ }) -> boolean().
@@ -418,49 +428,60 @@ get_local_names(Names) ->
 % --------------------------------------------------------
 
 % make announce of our local services with tpic scope
-make_announce(#{names:=Names} = _Dict, State) ->
-  ?LOG_DEBUG("Announcing our local services"),
+prepare_announce(#{names:=Names} = _Dict, State) ->
   Ttl = max(get_config(intrachain_ttl, 300, State), 30),
   Hostname = application:get_env(tpnode, hostname, unknown),
-%%    ValidUntil = os:system_time(seconds) + get_config(intrachain_ttl, 120, State),
   Addresses = get_config(addresses, get_default_addresses(), State),
   AllScopesCfg = get_config(scope, ?DEFAULT_SCOPE_CONFIG, State),
   MacroDict = get_config(macro_dict, #{}, State),
   LocalNames = get_local_names(Names),
-  Announcer = fun(Name, Counter) ->
-    Counter + lists:foldl(
-      % #{address => local4, port => 53221, proto => tpic}
-      fun(#{proto := Proto} = Address, AddrCounter) ->
-        Scopes = get_scopes(Proto, AllScopesCfg),
-        IsAdvertisable = in_scope(Proto, tpic, AllScopesCfg),
-        IsRightProto = is_right_proto(Name, Proto),
-%%        ?LOG_DEBUG("ann dbg ~p ~p ~p ~p", [Name, IsAdvertisable, IsRightProto, Address]),
-
-        if
-          IsRightProto == true andalso IsAdvertisable == true ->
-            try
-              TranslatedAddress =
-                add_hostname(substitute_macro(Address, MacroDict), Hostname),
-              announce_one_service(Name, TranslatedAddress, Ttl, Scopes),
-              AddrCounter + 1
-            catch
-              pass ->
-                ?LOG_DEBUG("skip address (can't substitute macro?): ~p", [Address]),
-                AddrCounter
-            end;
-
-          true ->
-%%            ?LOG_DEBUG("skip announce for address ~p ~p", [Name, Address]),
-            AddrCounter
-        end;
-        (Address, AddrCounter) ->
-          ?LOG_DEBUG("skip announce for invalid address ~p ~p", [Name, Address]),
-          AddrCounter
-      end,
-      0,
-      Addresses)
+  Announcer = fun(Name, ListAcc) ->
+                  lists:foldl(
+                    % #{address => local4, port => 53221, proto => tpic}
+                    fun(#{proto := Proto} = Address, Acc) ->
+                        Scopes = get_scopes(Proto, AllScopesCfg),
+                        IsAdvertisable = in_scope(Proto, tpic, AllScopesCfg),
+                        IsRightProto = is_right_proto(Name, Proto),
+                        if IsRightProto == true andalso IsAdvertisable == true ->
+                            try
+                              TranslatedAddress =
+                              add_hostname(substitute_macro(Address, MacroDict), Hostname),
+                              case prepare_announce_one_service(
+                                     Name,
+                                     TranslatedAddress,
+                                     Ttl,
+                                     Scopes) of
+                                {ok, Bin} ->
+                                  [Bin|Acc];
+                                error ->
+                                  Acc
+                              end
+                            catch
+                              pass ->
+                                ?LOG_DEBUG("skip address (can't substitute macro?): ~p", [Address]),
+                                Acc
+                            end;
+                          true ->
+                            Acc
+                        end;
+                       (Address, Acc) ->
+                        ?LOG_DEBUG("skip announce for invalid address ~p ~p", [Name, Address]),
+                        Acc
+                    end,
+                    ListAcc,
+                    Addresses)
               end,
-  ServicesCount = lists:foldl(Announcer, 0, LocalNames),
+  lists:foldl(Announcer, [], LocalNames).
+
+
+make_announce(Dict, State) ->
+  ?LOG_DEBUG("Announcing our local services"),
+  List2Announce = prepare_announce(Dict, State),
+  Announcer = fun(Bin, Cnt) ->
+                  send_service_announce(Bin),
+                  Cnt+1
+              end,
+  ServicesCount = lists:foldl(Announcer, 0, List2Announce),
   ?LOG_DEBUG("Announced ~p of our services", [ServicesCount]),
   ok.
 
@@ -756,11 +777,42 @@ query_remote(Name, _Dict, Chain) ->
 
 % --------------------------------------------------------
 
+query_raw(Name0, Chain0, State) ->
+    Name = convert_to_binary(Name0),
+    LC=blockchain:chain(),
+    #{local_services := #{names:=LocalDict}, remote_services := RemoteDict} = State,
+    {Chain,Local} = if is_integer(Chain0) andalso Chain0>0 andalso Chain0=/=LC ->
+                         {Chain0,[]};
+                       true ->
+                         {LC, 
+                          prepare_announce(
+                            #{names=>
+                              maps:with([Name0],LocalDict)
+                             }, State)
+                         }
+                    end,
+    RQR=fun(RName0, Dict) ->
+            Name1 = add_chain_to_name(RName0, Chain),
+            Nodes = maps:get(Name1, Dict, #{}),
+            Announces = maps:values(Nodes),
+            lists:map(
+              fun(#{bin:=B}) ->
+                  %maps:merge(Address, maps:with([nodeid,node_name,pubkey],A))
+                  B
+              end, Announces
+             )
+        end,
+
+    lists:merge(Local, RQR(Name,RemoteDict)).
+
+
 query(Name0, Chain, State) ->
     Name = convert_to_binary(Name0),
     LocalChain = blockchain:chain(),
     #{local_services := LocalDict, remote_services := RemoteDict} = State,
     Local = case Chain of
+        0 ->
+            query_local(Name, LocalDict, State);
         LocalChain ->
             query_local(Name, LocalDict, State);
         _ ->
@@ -774,11 +826,6 @@ query(Name0, Chain, State) ->
 
 % --------------------------------------------------------
 
-query(Pred, _State) when is_function(Pred) ->
-    ?LOG_ERROR("Not inmplemented"),
-    not_implemented;
-
-% find service by name
 query(Name, State) ->
     query(Name, blockchain:chain(), State).
 
@@ -870,7 +917,7 @@ process_announce(
     try
         Key = address2key(Address),
         Name = add_chain_to_name(Name0, Chain),
-        Announce = add_valid_until(Announce0, MaxTtl),
+        Announce = add_valid_until(Announce0#{bin=>AnnounceBin}, MaxTtl),
         Nodes = maps:get(Name, Dict, #{}),
         PrevAnnounce = maps:get(Key, Nodes, #{created => 0, ttl=> 0, sent_xchain => 0}),
         SentXchain = relay_announce(PrevAnnounce, Announce, AnnounceBin, XChainThrottle),

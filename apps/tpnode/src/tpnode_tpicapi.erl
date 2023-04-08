@@ -30,7 +30,9 @@ init(Req0, _) ->
         throw:{return,RCode,RBody} ->
           {ok, cowboy_req:reply(RCode, #{}, RBody, Req0), #{} }
   end.
-  
+
+%% -- [ pick_block ] --
+
 handle(<<"GET">>, [<<"pick_block">>,Hash], _Req) ->
   handle(<<"GET">>, [<<"pick_block">>,Hash,<<"self">>], _Req);
 
@@ -56,13 +58,36 @@ handle(<<"GET">>, [<<"pick_block">>,THash,TRel], _Req) ->
       {404, <<"not found">>}
   end;
 
+%% -- [ sync ] --
+
 handle(<<"GET">>,[<<"sync">>,<<"request">>], _Req) ->
   {200,
-   #{<<"content-type">> =><<"binary/msgpack">>},
+   #{<<"content-type">> =><<"application/msgpack">>},
    msgpack:pack(gen_server:call(blockchain_reader,sync_req))
   };
 
-handle(<<"GET">>,[<<"txpool">>,TxID], _Req) ->
+%% -- [ discovery ] --
+
+handle(<<"GET">>,[<<"discovery">>,<<"tpicpeer">>,_BChain]=Path,Req) ->
+  case Req of
+    #{cert:=Cert} when is_binary(Cert) ->
+      handle(get, Path ,Req);
+    _ ->
+      {403, <<"unauth">>}
+  end;
+
+handle(<<"GET">>,[<<"discovery">>,Service,BChain], Req) ->
+  handle(get,[<<"discovery">>,Service,BChain], Req);
+
+handle(get,[<<"discovery">>,Service,BChain], _Req) ->
+  Chain=binary_to_integer(BChain),
+  List=gen_server:call(discovery,{lookup_raw,Service,Chain}),
+  Body=msgpack:pack(List),
+  {200, #{ <<"content-type">> => <<"application/msgpack">> }, Body};
+
+%% -- [ txstorage ] --
+
+handle(<<"GET">>,[<<"txstorage">>,TxID], _Req) ->
   case tpnode_txstorage:get_txm(TxID) of
     {ok, #{body:=Body,
            origin:=Origin,
@@ -79,7 +104,7 @@ handle(<<"GET">>,[<<"txpool">>,TxID], _Req) ->
       {404, <<"not found">>}
   end;
 
-handle(<<"PATCH">>,[<<"txpool">>,TxID], #{cert:=Cert}=_Req) when is_binary(Cert) ->
+handle(<<"PATCH">>,[<<"txstorage">>,TxID], #{cert:=Cert}=_Req) when is_binary(Cert) ->
   #{pubkey:=PubKey}=tpic2:extract_cert_info(public_key:pkix_decode_cert(Cert,otp)),
   case tpnode_txstorage:get_txm(TxID) of
     {ok, #{origin:=Origin, valid:=_Valid}} when Origin==PubKey ->
@@ -100,8 +125,7 @@ handle(<<"PATCH">>,[<<"txpool">>,TxID], #{cert:=Cert}=_Req) when is_binary(Cert)
       {404, <<"not found">>}
   end;
 
-
-handle(<<"PUT">>,[<<"txpool">>, TxID], #{cert:=Cert,has_body:=true}=Req) when is_binary(Cert) ->
+handle(<<"PUT">>,[<<"txstorage">>, TxID], #{cert:=Cert,has_body:=true}=Req) when is_binary(Cert) ->
   {ok, Body, Req1} = cowboy_req:read_body(Req),
   #{pubkey:=PubKey}=tpic2:extract_cert_info(public_key:pkix_decode_cert(Cert,otp)),
   case gen_server:call(txstorage,
@@ -116,6 +140,46 @@ handle(<<"PUT">>,[<<"txpool">>, TxID], #{cert:=Cert,has_body:=true}=Req) when is
     {error, body_mismatch} ->
       {{400, <<"body_mismatch">>},Req1}
   end;
+
+% -- [ tx ] --
+
+handle(<<"PUT">>, [<<"tx">>,<<"multi">>], #{has_body := true} = Req) ->
+  {ok, Body, Req1} = cowboy_req:read_body(Req),
+  { case maps:get(<<"content-type">>,Req1,undefined) of
+      <<"application/msgpack">> ->
+        {ok,Lst} = msgpack:unpack(Body),
+        if(is_list(Lst)) -> ok;
+          true -> throw({return,400,<<"nolist">>})
+        end,
+        Res=lists:map(
+              fun(Bin) when is_binary(Bin) ->
+                  case txpool:new_tx(Bin) of
+                    {ok, TxID} ->
+                      TxID;
+                    {error, Err} ->
+                      [<<"error">>,
+                       iolist_to_binary(io_lib:format("~p", [Err]))
+                      ]
+                  end
+              end, Lst),
+        {200, #{<<"content-type">> =><<"application/msgpack">>}, msgpack:pack(Res) };
+      _ ->
+        {400, <<"unexpected content-type">>}
+    end, Req};
+
+%
+handle(<<"PUT">>, [<<"tx">>], #{has_body := true} = Req) ->
+  {ok, Body, Req1} = cowboy_req:read_body(Req),
+  { case txpool:new_tx(Body) of
+      {ok, TxID} ->
+        {200,TxID};
+      {error, Err} ->
+        {500,
+         iolist_to_binary(io_lib:format("~p", [Err]))
+        }
+    end, Req1};
+
+% -- [ status ] --
 
 handle(<<"GET">>,[<<"status">>], #{cert:=Cert}) when is_binary(Cert) ->
   #{pubkey:=PubKey}=tpic2:extract_cert_info(public_key:pkix_decode_cert(Cert,otp)),
