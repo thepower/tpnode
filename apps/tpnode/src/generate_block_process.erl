@@ -1216,14 +1216,16 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                     log=>[]
                    },
 
-      GetFun1 = fun({addr,ReqAddr,code}) ->
+      GetFun1 = fun ({settings, Path}) ->
+                    settings:get(Path, SetState);
+                    ({addr,ReqAddr,code}) ->
                     case maps:is_key(ReqAddr,Addresses) of
                       true ->
                         mbal:get(code,maps:get(ReqAddr, Addresses));
                       false ->
                         mbal:get(code,GetAddr(ReqAddr))
                     end;
-                   ({addr,ReqAddr,storage,Key}=Request) ->
+                    ({addr,ReqAddr,storage,Key}=Request) ->
                     case maps:is_key(ReqAddr,Addresses) of
                       true ->
                         AddrStor=mbal:get(state,maps:get(ReqAddr, Addresses)),
@@ -1231,9 +1233,9 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                       false ->
                         GetFun(Request)
                     end;
-                  (Other) ->
-                   GetFun(Other)
-               end,
+                    (Other) ->
+                    GetFun(Other)
+                end,
 
       {LedgerPatches, TXs, GasLeft, OpaqueState2} =
       if FreeGas > 0 ->

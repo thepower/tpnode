@@ -25,6 +25,12 @@ return">>),
   Code.
 
 extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
+  Node1Pk= <<48,46,2,1,0,48,5,6,3,43,101,112,4,34,4,32,22,128,239,248,8,82,125,208,68,96,
+  97,109,94,119,85,167,252,119,1,162,89,59,80,48,100,163,212,254,246,123,208, 154>>,
+  Node2Pk= <<48,46,2,1,0,48,5,6,3,43,101,112,4,34,4,32,22,128,239,248,8,82,125,208,68,96,
+  97,109,94,119,85,167,252,119,1,162,89,59,80,48,100,163,212,254,246,123,208, 155>>,
+  Node3Pk= <<48,46,2,1,0,48,5,6,3,43,101,112,4,34,4,32,22,128,239,248,8,82,125,208,68,96,
+  97,109,94,119,85,167,252,119,1,162,89,59,80,48,100,163,212,254,246,123,208, 156>>,
   try
   Test=fun(LedgerPID) ->
            MeanTime=os:system_time(millisecond),
@@ -36,9 +42,9 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                              chains => [OurChain],
                              keys =>
                              #{
-                               <<"node1">> => crypto:hash(sha256, <<"node1">>),
-                               <<"node2">> => crypto:hash(sha256, <<"node2">>),
-                               <<"node3">> => crypto:hash(sha256, <<"node3">>)
+                               <<"node1">> => tpecdsa:calc_pub(Node1Pk),
+                               <<"node2">> => tpecdsa:calc_pub(Node2Pk),
+                               <<"node3">> => tpecdsa:calc_pub(Node3Pk)
                               },
                              nodechain =>
                              #{
@@ -1497,3 +1503,5 @@ return
                     ], ReadableLog),
        ?assertMatch(true,true)
       ].
+
+

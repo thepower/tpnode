@@ -111,7 +111,7 @@ cover: ctruncheck cleantest buildtest rebar prepare_cover eunit
 	 		  -cover test/tpnode.coverspec \
 	 		  -logdir $(LOG_DIR) \
 	 		  -cover_stop false \
-	 		  -suite basic_SUITE \
+	 		  -suite basic_SUITE -suite evm_SUITE \
 	 		  -noshell
 	@$(TESTNET) stop
 
@@ -120,7 +120,7 @@ nocover: ctruncheck cleantest buildtest rebar
 	@$(CT_RUN) -pa _build/test/lib/*/ebin \
 	 		  -logdir $(LOG_DIR) \
 	 		  -cover_stop false \
-	 		  -suite basic_SUITE \
+	 		  -suite basic_SUITE -suite evm_SUITE \
 	 		  -noshell
 	@$(TESTNET) stop
 

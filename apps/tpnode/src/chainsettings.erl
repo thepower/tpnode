@@ -11,6 +11,7 @@
          settings_to_ets/2,
          all/0,
          as_map/1,
+         nodechain/2,
          select_by_path/2,
          by_path/1,
          by_path/2
@@ -23,6 +24,15 @@ is_net_node(PubKey) ->
     [] -> false;
     [[Name]] -> {true, Name}
   end.
+
+nodechain(PubKey, Settings) ->
+  KeyDB=maps:get(keys, Settings, #{}),
+  NodeChain=maps:get(nodechain, Settings, #{}),
+  AllNodes=maps:fold(
+             fun(Name, XPubKey, Acc) ->
+                 maps:put(tpecdsa:cmp_pubkey(XPubKey), {Name,maps:get(Name,NodeChain,0)}, Acc)
+             end, #{}, KeyDB),
+  maps:get(tpecdsa:cmp_pubkey(PubKey), AllNodes, false).
 
 is_our_node(PubKey, Settings) ->
   KeyDB=maps:get(keys, Settings, #{}),

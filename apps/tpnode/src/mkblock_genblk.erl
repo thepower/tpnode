@@ -119,6 +119,8 @@ run_generate(
                  MyChain;
                 (settings) ->
                  chainsettings:by_path([]);
+                (parent_block) ->
+                 #{height=>PHeight, hash=>PHash};
                 ({valid_timestamp, TS}) ->
                  abs(os:system_time(millisecond)-TS)<3600000;
                 ({endless, From, Cur}) ->
@@ -126,7 +128,7 @@ run_generate(
                  chainsettings:by_path(EndlessPath)==true;
                 (entropy) -> Entropy;
                 (mean_time) -> MeanTime;
-                 ({get_block, Back}) when 32>=Back ->
+                ({get_block, Back}) when 64>=Back ->
                  FindBlock(last, Back)
              end,
     AddrFun=fun({storage,Addr,Key}) ->

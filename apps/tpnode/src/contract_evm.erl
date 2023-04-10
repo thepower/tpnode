@@ -3,6 +3,7 @@
 -behaviour(smartcontract2).
 
 -export([deploy/5, handle_tx/5, getters/0, get/3, info/0, call/3]).
+-export([encode_tx/2]).
 -export([transform_extra/1]).
 
 info() ->
@@ -201,7 +202,6 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
        #{call:=#{function:=FunNameID,args:=CArgs}} when is_list(FunNameID) ->
          {ok,E}=ksha3:hash(256, list_to_binary(FunNameID)),
          <<X:4/binary,_/binary>> = E,
-         %lists:foldl(fun encode_arg/2, <<X:4/binary>>, CArgs);
          BArgs=abi_encode_simple(CArgs),
          <<X:4/binary,BArgs/binary>>;
        _ ->
@@ -226,24 +226,103 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
              )
         end,
   Functions=#{
-              16#AFFFFFFFFF000000 => fun(_) ->
-                                         MT=maps:get(mean_time,Opaque,0),
-                                         Ent=case maps:get(entropy,Opaque,<<>>) of
-                                               Ent1 when is_binary(Ent1) ->
-                                                 Ent1;
-                                               _ ->
-                                                 <<>>
-                                             end,
-                                         {1,<<MT:256/big,Ent/binary>>}
-                                     end,
-              16#AFFFFFFFFF000001 => fun(Bin) ->
-                                         {1,list_to_binary(
-                                              lists:reverse(
-                                                binary_to_list(Bin)
-                                               )
-                                             )}
-                                     end
-            },
+              16#AFFFFFFFFF000000 => 
+              fun(_) ->
+                  MT=maps:get(mean_time,Opaque,0),
+                  Ent=case maps:get(entropy,Opaque,<<>>) of
+                        Ent1 when is_binary(Ent1) ->
+                          Ent1;
+                        _ ->
+                          <<>>
+                      end,
+                  {1,<<MT:256/big,Ent/binary>>}
+              end,
+              16#AFFFFFFFFF000001 =>
+              fun(Bin) ->
+                  {1,list_to_binary(
+                       lists:reverse(
+                         binary_to_list(Bin)
+                        )
+                      )}
+              end,
+              16#AFFFFFFFFF000002 => %getTx()
+              fun(_,XAcc) ->
+                  RBin= encode_tx(Tx,[]),
+                  {1,RBin,XAcc}
+              end,
+              16#AFFFFFFFFF000003 =>
+              fun(<<3410561484:32/big,Bin/binary>>,XAcc) -> %byPath(string[])
+                  try
+                    [{<<"key">>,Path}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,{array,string}}]),
+                    FABI=[{<<"settings">>,uint256},
+                          {<<"res_bin">>,bytes},
+                          {<<"res_int">>,uint256},
+                          {<<"keys">>,{array,string}}],
+                    SRes=GetFun({settings,Path}),
+                    RStr=case SRes of
+                           #{} = Mapa ->
+                             [3, <<>>, maps:size(Mapa),
+                              [ if is_atom(A) ->
+                                     atom_to_binary(A);
+                                   is_binary(A) ->
+                                     A
+                                end || A <-  maps:keys(Mapa)]
+                             ];
+                           I when is_integer(I) ->
+                             [1,<<>>,I,[]];
+                           B when is_binary(B) ->
+                             [2,B,size(B),[]];
+                           L when is_list(L) ->
+                             [4,<<>>,length(L),[]]
+                         end,
+                    RBin=contract_evm_abi:encode_abi([RStr], [{<<>>, {tuple, FABI}}]),
+                    {1,RBin,XAcc}
+                  catch Ec:Ee ->
+                          logger:info("decode_abi error: ~p:~p~n",[Ec,Ee]),
+                          {0, <<"badarg">>, XAcc}
+                  end;
+                 (<<3802961955:32/big,Bin/binary>>,XAcc) ->% isNodeKnown(bytes)
+                  try
+                    [{<<"key">>,PubKey}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,bytes}]),
+                    FABI=[{<<"known">>,uint8},
+                          {<<"chain">>,uint256},
+                          {<<"name">>,bytes}],
+                    NC=chainsettings:nodechain(PubKey,GetFun({settings,[]})),
+                    RStr=case NC of
+                           false ->
+                             [0,0,<<>>];
+                           {NodeName,Chain} ->
+                             [1,Chain,NodeName]
+                         end,
+                    RBin=contract_evm_abi:encode_abi(RStr, FABI),
+                    {1,RBin,XAcc}
+                  catch Ec:Ee:S ->
+                          ?LOG_ERROR("decode_abi error: ~p:~p@~p~n",[Ec,Ee,hd(S)]),
+                          {0, <<"badarg">>, XAcc}
+                  end;
+                 (<<Sig:32/big,_/binary>>,XAcc) ->
+                  ?LOG_NOTICE("Address ~p unknown sig: ~p~n",[16#AFFFFFFFFF000003,Sig]),
+                  {0, <<"badarg">>, XAcc}
+              end,
+              16#AFFFFFFFFF000004 => %block service
+              fun(<<1489993744:32/big,Bin/binary>>,XAcc) -> %get_signatures(uint256 height)
+                  io:format("=== get_signatures: ~p~n",[Bin]),
+                  try
+                    [{<<"key">>,N}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,uint256}]),
+                    SRes=GetFun({get_block, 1}),
+                    io:format("=== get_block: ~p~n",[SRes]),
+                    RBin=contract_evm_abi:encode_abi([[<<1,2,3>>,<<2,3,4>>,<<3,4,5>>]], [{<<>>, {array,bytes}}]),
+                    io:format("get_signatures ~p -> : ~p~n",[N,RBin]),
+                    {1,RBin,XAcc}
+                  catch Ec:Ee ->
+                          logger:info("decode_abi error: ~p:~p~n",[Ec,Ee]),
+                          {0, <<"badarg">>, XAcc}
+                  end;
+                 (<<Sig:32/big,_/binary>>,XAcc) ->
+                  ?LOG_NOTICE("Address ~p unknown sig: ~p~n",[16#AFFFFFFFFF000004,Sig]),
+                  {0, <<"badarg">>, XAcc}
+              end
+             },
 
   FinFun = fun(_,_,#{data:=#{address:=Addr}, storage:=Stor, extra:=Xtra} = FinState) ->
                NewS=maps:merge(
@@ -299,7 +378,14 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                         Xtra
                    end
                end,
-
+  BI=fun
+       (number,#{stack:=BIStack}=BIState) ->
+         #{height:=PHei} = GetFun(parent_block),
+         BIState#{stack=>[PHei+1|BIStack]};
+       (BIInstr,BIState) ->
+         logger:error("Bad instruction ~p~n",[BIInstr]),
+         {error,{bad_instruction,BIInstr},BIState}
+     end,
   CreateFun = fun(Value1, Code1, #{aalloc:=AAlloc}=Ex0) ->
                   %io:format("Ex0 ~p~n",[Ex0]),
                   {ok, Addr0, AAlloc1}=generate_block_process:aalloc(AAlloc),
@@ -312,6 +398,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                                                extra=>Ex1,
                                                sload=>SLoad,
                                                finfun=>FinFun,
+                                               bad_instruction=>BI,
                                                get=>#{
                                                       code => GetCodeFun,
                                                       balance => GetBalFun
@@ -353,6 +440,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                    gas=>GasLimit,
                    sload=>SLoad,
                    extra=>Opaque,
+                   bad_instruction=>BI,
                    get=>#{
                           code => GetCodeFun,
                           balance => GetBalFun
@@ -373,7 +461,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                    trace=>whereis(eevm_tracer)
                   }),
 
-  io:format("Call ~p -> {~p,~p,...}~n",[CD, element(1,Result),element(2,Result)]),
+  io:format("Call (~s) -> {~p,~p,...}~n",[hex:encode(CD), element(1,Result),element(2,Result)]),
   case Result of
     {done, {return,RetVal}, RetState} ->
       returndata(RetState,#{"return"=>RetVal});
@@ -533,4 +621,47 @@ getters() ->
 
 get(_,_,_Ledger) ->
   throw("unknown method").
+
+encode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig}=Tx,_Opts) ->
+  FABI=[{<<>>,
+       {tuple,[{<<"kind">>,uint256},
+               {<<"from">>,address},
+               {<<"to">>,address},
+               {<<"t">>,uint256},
+               {<<"seq">>,uint256},
+               {<<"call">>,
+                {array,{tuple,[{<<"func">>,string},
+                               {<<"args">>,{array,uint256}}]}}},
+               {<<"signatures">>,
+                {array,{tuple,[{<<"timestamp">>,uint256},
+                               {<<"pubkey">>,bytes},
+                               {<<"rawkey">>,bytes},
+                               {<<"signature">>,bytes}]}}}]}}],
+  K=tx:encode_kind(Ver,Kind),
+  Call=case Tx of
+         #{call:=#{function:=F, args:=A}} ->
+           [[F,A]];
+         _ ->
+           []
+       end,
+  Signatures=lists:foldl(
+        fun(E,S) ->
+            #{signature:=SigS,extra:=Xt}=bsig:unpacksig(E),
+            PK=proplists:get_value(pubkey,Xt,<<>>),
+            {_,RPK}=tpecdsa:cmp_pubkey(PK),
+            [[
+              proplists:get_value(timestamp,Xt,0),
+              PK,
+              RPK,
+              SigS
+             ]
+             |S]
+        end, [], Sig),
+  %R=tx:verify(Tx,[nocheck_ledger]),
+  %io:format("~p~n",[R]),
+  %contract_evm_abi:decode_abi(Bin,FABI).
+  contract_evm_abi:encode_abi([[K, From, To, T, Seq, Call, Signatures]],FABI).
+
+
+
 
