@@ -180,7 +180,6 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
                              <<"rel">>:=Rel
                             }},
             #{ldb:=LDB} = State) ->
-  ?LOG_INFO("Pick block ~p ~p",[blkid(Hash),Rel]),
   MyRel = case Rel of
             <<"pre", _/binary>> -> prev;
             <<"child">> -> child;
@@ -189,11 +188,12 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
           end,
   R=case block_rel(LDB, Hash, MyRel) of
       Error when is_atom(Error) ->
+        ?LOG_INFO("Request for ~s for blk ~s: error ~p",[MyRel,blkid(Hash),Error]),
         #{error=> Error};
       Blk when is_map(Blk) ->
+        ?LOG_INFO("Request for ~s for blk ~s: ok",[MyRel,blkid(Hash)]),
         #{block => block:pack(Blk)}
     end,
-  ?LOG_INFO("I was asked for ~s for blk ~s: ~p",[MyRel,blkid(Hash),R]),
 
   case maps:is_key(block, R) of
     false ->
