@@ -1,9 +1,10 @@
 -module(tpecdsa).
 -export([generate_priv/0, minify/1, calc_pub/2, sign/2, verify/3]).
--export([export/2, export/3, import/1, import/2 ]).
+-export([export/2, export/3, import/1, import/2, import/3 ]).
 -export([generate_priv/1,import_der/2, calc_pub/1, upgrade_pubkey/1]).
 -export([keytype/1, rawkey/1, wrap_pubkey/2]).
--export([cmp_pubkey/1]).
+-export([cmp_pubkey/1, decipher/2
+]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -376,8 +377,73 @@ rawkey(Key) ->
 
 import(PEM) -> import(PEM, undefined).
 
+import(PEM, Password, _Opts) ->
+  DR=case erlang:function_exported(tpecdsa_pem,decode,1) of
+       true ->
+         tpecdsa_pem:decode(PEM);
+       false ->
+         public_key:pem_decode(PEM)
+     end,
+  import_proc(DR,
+              if Password == undefined ->
+                   #{};
+                 is_binary(Password) ->
+                   #{pw=>Password}
+              end).
+
+import_proc([{'ECPrivateKey', 
+              <<48,62,2,1,0,48,16,6,
+                7,42,134,72,206,61,2,1,
+                6,5,43,129,4,0,10,4,
+                39,48,37,2,1,1,4,32,PrivKey/binary>>,
+              not_encrypted}|T],A) ->
+  Priv=public_key:der_encode('PrivateKeyInfo',
+                                #'ECPrivateKey'{
+                                   version = 1,
+                                   privateKey = PrivKey,
+                                   parameters = {
+                                     namedCurve,
+                                     pubkey_cert_records:namedCurves(secp256k1)
+                                    },
+                                   publicKey = asn1_NOVALUE,
+                                   attributes = asn1_NOVALUE
+                                  }
+                               ),
+  import_proc(T,A#{priv => Priv});
+
+import_proc([{'ExtraData', 
+              <<48,20,12,8,80,87,82,95,65,68,68,82,4,8,Addr:8/binary>>,
+              not_encrypted}|T],A) ->
+    import_proc(T,A#{addr => Addr});
+
+import_proc([{KeyType, DerKey, not_encrypted}|T],A) ->
+  import_proc(T,A#{priv => import_der(KeyType, DerKey)});
+
+import_proc([{_KeyType, _Payload, {_Algo, _Params}}=E0|T], A) ->
+  case maps:is_key(pw,A) of
+    false ->
+      throw('password_needed');
+    true ->
+      Dst={_,_, not_encrypted}=decipher(E0, maps:get(pw,A)),
+      import_proc([Dst|T],A)
+      %A#{KeyType => import_der(KeyType, DerKey)}
+  end;
+
+import_proc([Other|T],A) ->
+  io:format("Ignore ~p~n",[Other]),
+  import_proc(T,A);
+
+import_proc([],A) -> A.
+
 import(PEM, Password) ->
-  case public_key:pem_decode(PEM) of
+  DR=case erlang:function_exported(tpecdsa_pem,decode,1) of
+       true ->
+         tpecdsa_pem:decode(PEM);
+       false ->
+         public_key:pem_decode(PEM)
+     end,
+
+  case DR of
     [{KeyType, DerKey, not_encrypted}|_] ->
       import_der(KeyType, DerKey);
     [{KeyType, _Payload, {_Algo, _Params}}=E0|_] ->
@@ -399,6 +465,7 @@ import_der(pub, DerKey) ->
   import_der('SubjectPublicKeyInfo', DerKey);
 
 import_der(KeyType, DerKey) ->
+  io:format("~p ~p~n",[KeyType, DerKey]),
   case public_key:der_decode(KeyType, DerKey) of
     #'ECPrivateKey'{
        version = 1,
@@ -450,7 +517,7 @@ decipher({KeyType, Payload, {"AES-128-CBC"=Cipher, IV}}, Password) ->
 %pubkey_pem:decipher({KeyType, Payload, {"AES-128-CBC", IV}}, Password).
   <<Salt:8/binary,_/binary>> = IV,
   Key = password_to_key(Password, Cipher, Salt, 16),
-  Val=crypto:crypto_one_time(aes_128_cbc, Key, IV, Payload, false),
+  Val=crypto:crypto_one_time(aes_128_cbc, Key, IV, Payload, [{encrypt,false},{padding,pkcs_padding}]),
   {KeyType,
    Val,
   not_encrypted
