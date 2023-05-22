@@ -161,7 +161,12 @@ wait_for_testnet(Trys) ->
             NodeName = get_node(Name),
             case net_adm:ping(NodeName) of
                 pong ->
-                    ReadyNodes + 1;
+                    case rpc:call(NodeName,blockchain,ready,[]) of
+                      true ->
+                        ReadyNodes + 1;
+                      _ ->
+                        ReadyNodes
+                    end;
                 _Answer ->
                     io:fwrite("Node ~p answered ~p~n", [NodeName, _Answer]),
                     ReadyNodes
@@ -903,7 +908,7 @@ check_blocks_test(_Config) ->
     fun(Node) ->
         RF=rpc:call(get_node(list_to_binary(Node)), erlang, whereis, [blockchain_reader]),
         R=test_blocks_verify(RF, last,0),
-        io:format("Node ~p block verify ok, verified blocks ~p~n",[RF,R])
+        io:format("Node ~p pid ~p block verify ok, verified blocks ~p~n",[Node, RF,R])
     end, ?TESTNET_NODES),
   ok.
 

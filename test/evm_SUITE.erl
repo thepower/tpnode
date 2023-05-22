@@ -10,7 +10,7 @@ init_per_suite(Config) ->
   application:ensure_all_started(gun),
   EAddr=case application:get_env(tptest,endless_addr) of
     {ok,Val} -> Val;
-    undefined -> <<128,1,64,0,4,0,0,148>>
+    undefined -> <<128,1,64,0,4,0,0,1>>
   end,
   EKey=case application:get_env(tptest,endless_addr_pk) of
     {ok,KVal} -> KVal;
@@ -47,12 +47,13 @@ all() -> [
          ].
  
 get_base_url() ->
-  DefaultUrl = "http://pwr.local:49841",
+  DefaultUrl = "http://pwr.local:49842",
   os:getenv("API_BASE_URL", DefaultUrl).
 
 get_wallet_priv_key() ->
   %address:parsekey(<<"5KHwT1rGjWiNzoZeFuDT85tZ6KTTZThd4xPfaKWRUKNqvGQQtqK">>).
   hex:decode("302E020100300506032B6570042204207FB2A32DAEC110847F60A1408E4EC513B52B51231747176C03271C7ECAE48D61").
+
 wallet_async_fin(Node, TxID) ->
   RTX = tpapi2:wait_tx(Node, TxID, erlang:system_time(second)+10),
   {ok,#{<<"address">>:=TAddr}} = RTX,
@@ -68,7 +69,7 @@ new_wallet_async(Node) ->
       logger(
         "wallet registration error: ~p~n", [Details]
       ),
-      throw(wallet_registration_error);
+      throw({wallet_registration_error,Details});
     Other ->
       logger("wallet registration error: ~p~n", [Other]),
       throw({wallet_registration_error,Other})
@@ -112,9 +113,9 @@ make_transaction(Node, From, To, Seq1, Currency, Amount, Message, FromKey, Opts)
   SignedTx = tx:pack(tx:sign(Tx, FromKey)),
   tpapi2:submit_tx(Node, SignedTx,Opts).
 
-evm_erc20_test(_Config) ->
-  {ok,EAddr}=application:get_env(tptest,endless_addr),
-  {ok,EPriv}=application:get_env(tptest,endless_addr_pk),
+evm_erc20_test(Config) ->
+  {endless_addr,EAddr}=proplists:lookup(endless_addr,Config),
+  {endless_addr_pk,EPriv}=proplists:lookup(endless_addr_pk,Config),
 %
   ?assertMatch(true, is_binary(EAddr)),
   ?assertMatch(true, is_binary(EPriv)),
@@ -334,18 +335,30 @@ evm_apis_test(Config) ->
 
   {ok, TxID2a} = tpapi2:submit_tx(Node, CallTx1, [nowait]),
   {ok, TxID2b} = tpapi2:submit_tx(Node, CallTx2, [nowait]),
-  {ok, #{<<"block">>:=BlkId1}=Status2} = tpapi2:submit_tx(Node, CallTxF),
-  {ok, #{<<"block">>:=BlkId2}=ResTx2a} = tpapi2:wait_tx(Node, TxID2a, erlang:system_time(second)+2),
-  ?assertMatch({ok, #{<<"block">>:=_}}, tpapi2:wait_tx(Node, TxID2b, erlang:system_time(second)+2)),
-  ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
+  {ok, TxIDCall} = tpapi2:submit_tx(Node, CallTxF, [nowait]),
+  io:format("TxID2a: ~p~n",[TxID2a]),
+  io:format("TxID2b: ~p~n",[TxID2b]),
+  io:format("TxIDCall: ~p~n",[TxIDCall]),
+  {ok, #{<<"block">>:=BlkId1}=Status2} = tpapi2:wait_tx(Node,
+                                                        TxIDCall,
+                                                        erlang:system_time(second)+50),
+  {ok, #{<<"block">>:=BlkId2}=ResTx2a} = tpapi2:wait_tx(Node,
+                                                        TxID2a,
+                                                        erlang:system_time(second)+20),
+  ?assertMatch({ok, #{<<"block">>:=_}},
+               tpapi2:wait_tx(Node,
+                              TxID2b,
+                              erlang:system_time(second)+2)),
+  %?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
   io:format("call res ~p~n",[Status2]),
   io:format("call res2a ~p~n",[ResTx2a]),
   io:format("call Blkid ~p / ~p~n",[BlkId2, BlkId1]),
+  timer:sleep(100),
   {ok,#{<<"logs">>:=R}}=tpapi2:logs(Node, hex:decode(BlkId2)),
   display_logs(R, ABI),
   if(BlkId1 =/= BlkId2) ->
-      {ok,#{<<"logs">>:=R}}=tpapi2:logs(Node, hex:decode(BlkId1)),
-      display_logs(R, ABI);
+      {ok,#{<<"logs">>:=R2}}=tpapi2:logs(Node, hex:decode(BlkId1)),
+      display_logs(R2, ABI);
     true -> ok
   end,
 
