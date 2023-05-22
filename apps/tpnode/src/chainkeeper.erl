@@ -112,54 +112,70 @@ handle_cast({possible_fork, #{mymeta := LastMeta, hash := MissingHash}}, State) 
 
   {noreply, State};
 
-handle_cast({tpic, _NodeName, _From, _Payload}, #{lookaround_timer := _Timer} = State) ->
-  {noreply, State};
+%handle_cast({tpic, _NodeName, _From, Payload}, #{lookaround_timer := _Timer} = State) ->
+%  {ok, Msg} = msgpack:unpack(Payload),
+%  case Msg of
+%    #{null := <<"block_installed">>,<<"blk">> := BlMp} ->
+%      Blk = block:unpack(BlMp),
+%      logger:info("cahinkeeper from ~p got block_installed ~p",[_From,Blk]),
+%      {noreply, State};
+%    _ ->
+%      logger:info("cahinkeeper got tpic ~p",[Msg]),
+%      {noreply, State}
+%  end;
 
-%%handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = State) ->
-%%  catch erlang:cancel_timer(Timer),
-%%  Blk =
-%%    try
-%%      case msgpack:unpack(Payload, [{known_atoms, []}]) of
-%%        {ok, Decode} when is_map(Decode) ->
-%%          case Decode of
-%%            #{null := <<"block_installed">>,<<"blk">> := ReceivedBlk} ->
-%%              ?LOG_INFO("got ck_beacon from ~s, block: ~p", [NodeName, Payload]),
-%%              block:unpack(ReceivedBlk);
-%%            _ ->
-%%              ?LOG_INFO("got ck_beacon from ~s, unpacked payload: ~p", [NodeName, Decode]),
-%%              #{}
-%%          end;
-%%        _ ->
-%%          ?LOG_ERROR("can't decode msgpack: ~p", [Payload]),
-%%          #{}
-%%      end
-%%    catch
-%%      Ec:Ee ->
-%%        utils:print_error(
-%%          "msgpack decode error/can't unpack block", Ec, Ee, erlang:get_stacktrace()),
-%%        #{}
-%%    end,
-%%
-%%  ?LOG_INFO("Blk: ~p", [Blk]),
-%%
-%%  stout:log(ck_beacon,
-%%    [
-%%      {node, NodeName},
-%%      {block, Blk}
-%%    ]
+handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = State) ->
+  catch erlang:cancel_timer(Timer),
+  Blk =
+    try
+      case msgpack:unpack(Payload, [{known_atoms, []}]) of
+        {ok, Decode} when is_map(Decode) ->
+          case Decode of
+            #{null := <<"block_installed">>,<<"blk">> := ReceivedBlk} ->
+              ?LOG_INFO("got ck_beacon from ~s, block: ~p", [NodeName, Payload]),
+              block:unpack(ReceivedBlk);
+            _ ->
+              ?LOG_INFO("got ck_beacon from ~s, unpacked payload: ~p", [NodeName, Decode]),
+              #{}
+          end;
+        _ ->
+          ?LOG_ERROR("can't decode msgpack: ~p", [Payload]),
+          #{}
+      end
+    catch
+      Ec:Ee:S ->
+        utils:print_error(
+          "msgpack decode error/can't unpack block", Ec, Ee, S),
+        #{}
+    end,
+
+  ?LOG_INFO("Blk: ~p", [Blk]),
+  case Blk of
+    #{hash:=H} ->
+      Sig=gen_server:call(blockvote,{signatures, H}),
+      ?LOG_INFO("got signatures: ~p", [Sig]);
+    _ -> ok
+  end,
+
+
+  stout:log(ck_beacon,
+    [
+      {node, NodeName},
+      {block, Blk}
+    ]
+  ),
+
+%%  check_block(
+%%    Blk,
+%%    #{
+%%      theirnode => NodeName,
+%%      mynode => nodekey:node_name()
+%%    }
 %%  ),
-%%
-%%%%  check_block(
-%%%%    Blk,
-%%%%    #{
-%%%%      theirnode => NodeName,
-%%%%      mynode => nodekey:node_name()
-%%%%    }
-%%%%  ),
-%%
-%%  {noreply, State#{
-%%    lookaround_timer => setup_timer(lookaround_timer)
-%%  }};
+
+  {noreply, State#{
+    lookaround_timer => setup_timer(lookaround_timer)
+  }};
 
 
 % we update timer on new block setup
@@ -506,7 +522,9 @@ end.
 
 is_block_valid(Blk, MinSigns) ->
   CheckFun =
-    fun(PubKey, _) ->
+    fun(PubKey, D) ->
+        ?LOG_INFO("check sign ~p", [PubKey]),
+        ?LOG_INFO("check  ~p", [D]),
       chainsettings:is_our_node(PubKey) =/= false
     end,
 
@@ -529,32 +547,6 @@ check_and_sync_runner(TPIC, Options) ->
   Pid = erlang:spawn(?MODULE, check_and_sync, [TPIC, Options]),
   erlang:monitor(process, Pid),
   Pid.
-
-%% ------------------------------------------------------------------
-
-%%get_hashes() ->
-%%  MyMeta = blockchain:last_meta(),
-%%  case maps:get(temporary, MyMeta, false) of
-%%    Wei when is_number(Wei) ->
-%%      % we have tmp block
-%%      #{header := #{parent := MyHash}} = MyMeta,
-%%      MyParent =
-%%        case blockchain:rel(MyHash, prev) of
-%%          #{hash := PrevHash} -> PrevHash;
-%%          Err -> Err
-%%        end,
-%%      {MyHash, MyParent, MyMeta};
-%%
-%%    _ ->
-%%      % we have permanent block
-%%      #{hash:= Hash1, header := #{parent := Parent1}} = MyMeta,
-%%      #{hash := Hash1,
-%%        header := #{parent := Parent1}
-%%      } = MyMeta = blockchain:last_meta(),
-%%
-%%      {Hash1, Parent1, MyMeta}
-%%  end.
-%%
 
 %% ------------------------------------------------------------------
 
@@ -610,8 +602,8 @@ assoc_mapper(Answers, MinSig, Options) ->
                   {push_assoc(Hash, Assoc, PermHashes), TmpWeis}
               end;
 
-            _ -> % skip invalid block
-              ?LOG_INFO("skip invalid block"),
+            Any -> % skip invalid block
+              ?LOG_INFO("skip invalid block ~p ms ~p", [Any, MinSig]),
 
               Acc
           end

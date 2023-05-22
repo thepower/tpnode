@@ -138,12 +138,12 @@ after
 eabi_test() ->
   Self=self(),
   Pid=erlang:spawn(fun() -> timer:sleep(10000), exit(Self,stop) end),
-  ABI=tp_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
-  [{_,_,FABI}]=tp_abi:find_function(<<"retcl">>,ABI),
-  Bin=tp_abi:encode_abi([[["test",[1,3,5]], ["",[]]]],FABI),
+  ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
+  [{_,_,FABI}]=contract_evm_abi:find_function(<<"retcl">>,ABI),
+  Bin=contract_evm_abi:encode_abi([[["test",[1,3,5]], ["",[]]]],FABI),
   io:format("FABI ~p~n",[FABI]),
-  tp_abi:hexdump(Bin),
-  D=tp_abi:decode_abi(Bin,FABI),
+  hex:hexdump(Bin),
+  D=contract_evm_abi:decode_abi(Bin,FABI),
   exit(Pid,stop),
   D.
 
@@ -151,8 +151,8 @@ eabi_test() ->
 eabi2_test() ->
   %Self=self(),
   %Pid=erlang:spawn(fun() -> timer:sleep(10000), exit(Self,stop) end),
-  %ABI=tp_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
-  %[{_,_,FABI}]=tp_abi:find_function(<<"rettx">>,ABI),
+  %ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
+  %[{_,_,FABI}]=contract_evm_abi:find_function(<<"rettx">>,ABI),
   FABI=[{<<>>,
        {tuple,[{<<"kind">>,uint256},
                {<<"from">>,address},
@@ -167,8 +167,8 @@ eabi2_test() ->
                                {<<"pubkey">>,bytes},
                                {<<"rawkey">>,bytes},
                                {<<"signature">>,bytes}]}}}]}}],
-  %Bin=tp_abi:encode_abi([[123,345,456,1,2,[["asd",[1,2,3]]],[]]],FABI),
-  Bin=tp_abi:encode_abi([[
+  %Bin=contract_evm_abi:encode_abi([[123,345,456,1,2,[["asd",[1,2,3]]],[]]],FABI),
+  Bin=contract_evm_abi:encode_abi([[
                           4100,
                           <<128,0,32,0,150,0,0,1>>,
                           <<128,0,32,0,150,0,0,1>>,
@@ -178,7 +178,7 @@ eabi2_test() ->
                           [[1234,<<"0123456">>,<<"123456">>,<<"123456">>]]
                          ]],FABI),
   %io:format("FABI ~p~n",[FABI]),
-  D=tp_abi:decode_abi(Bin,FABI),
+  D=contract_evm_abi:decode_abi(Bin,FABI),
   %exit(Pid,stop),
   [
    ?assertMatch(
@@ -266,10 +266,10 @@ evm_embedded_abicall_test() ->
       register(eevm_tracer,self()),
       {ok,Log}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       unregister(eevm_tracer),
-      ABI=tp_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
-      [{_,_,FABI}]=tp_abi:find_function(<<"getTxs()">>,ABI),
+      ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
+      [{_,_,FABI}]=contract_evm_abi:find_function(<<"getTxs()">>,ABI),
       D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> <<>> end end(),
-      tp_abi:hexdump(D),
+      hex:hexdump(D),
       fun FT() ->
           receive 
             {trace,{stack,_,_}} ->
@@ -281,8 +281,8 @@ evm_embedded_abicall_test() ->
           end
       end(),
 
-      io:format("dec ~p~n",[tp_abi:decode_abi(D,FABI)]),
-      Events=tp_abi:sigevents(ABI),
+      io:format("dec ~p~n",[contract_evm_abi:decode_abi(D,FABI)]),
+      Events=contract_evm_abi:sig_events(ABI),
 
       DoLog = fun (BBin) ->
                   {ok,[_,<<"evm">>,_,_,DABI,[Arg]]} = msgpack:unpack(BBin),
@@ -290,7 +290,7 @@ evm_embedded_abicall_test() ->
                     false ->
                       {DABI,Arg};
                     {EvName,_,EvABI}->
-                      {EvName,tp_abi:decode_abi(DABI,EvABI)}
+                      {EvName,contract_evm_abi:decode_abi(DABI,EvABI)}
                   end
               end,
 
@@ -307,7 +307,7 @@ evm_embedded_gets_test() ->
       Addr1=naddress:construct_public(1, OurChain, 1),
 
       {ok,Bin} = file:read_file("examples/evm_builtin/build/checkSig.hex"),
-      ABI=tp_abi:parse_abifile("examples/evm_builtin/build/checkSig.abi"),
+      ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/checkSig.abi"),
 
       Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
 
@@ -393,10 +393,10 @@ evm_embedded_gets_test() ->
       io:format("st ~p~n",[[ maps:with([call,extdata],Body) || {_,Body} <- Tx]]),
       io:format("Block ~p~n",[block:minify(Blk)]),
       unregister(eevm_tracer),
-      [{_,_,FABI}]=tp_abi:find_function(<<"setAddr()">>,ABI),
+      [{_,_,FABI}]=contract_evm_abi:find_function(<<"setAddr()">>,ABI),
       _D=fun() -> receive {trace,{return,Data}} ->
-                           tp_abi:hexdump(Data),
-                           io:format("dec ~p~n",[tp_abi:decode_abi(Data,FABI)]),
+                           hex:hexdump(Data),
+                           io:format("dec ~p~n",[contract_evm_abi:decode_abi(Data,FABI)]),
                            Data
                  after 0 ->
                          <<>>
@@ -412,7 +412,7 @@ evm_embedded_gets_test() ->
           end
       end(),
 
-      Events=tp_abi:sigevents(ABI),
+      Events=contract_evm_abi:sig_events(ABI),
 
       DoLog = fun (BBin) ->
                   case msgpack:unpack(BBin) of
@@ -421,7 +421,7 @@ evm_embedded_gets_test() ->
                         false ->
                           {DABI,Arg};
                         {EvName,_,EvABI}->
-                          {EvName,tp_abi:decode_abi(DABI,EvABI)}
+                          {EvName,contract_evm_abi:decode_abi(DABI,EvABI)}
                       end;
                     {ok,[<<"tx1">>,<<"evm">>,<<"revert">>,Sig]} ->
                       [<<"tx1">>,<<"evm">>,<<"revert">>,Sig]

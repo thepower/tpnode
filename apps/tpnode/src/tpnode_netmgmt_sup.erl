@@ -27,14 +27,19 @@ parse_uri(URI) when is_binary(URI) ->
   Name=binary_to_atom(Scheme, utf8),
   Genesis=base64:decode(Path),
   QP=uri_string:dissect_query(Query),
-  Nodes=lists:foldl(fun({<<"n">>, N}, Acc) ->
-                        [N|Acc];
-                       (_, Acc) ->
-                        Acc
-                    end, [], QP),
-  #{name => Name,
-    genesis => Genesis,
-    nodes => Nodes}.
+  case QP of
+    {error, Atom, _Term} ->
+      throw({uri_string_parse_error,Atom});
+    _ ->
+      Nodes=lists:foldl(fun({<<"n">>, N}, Acc) ->
+                            [N|Acc];
+                           (_, Acc) ->
+                            Acc
+                        end, [], QP),
+      #{name => Name,
+        genesis => Genesis,
+        nodes => Nodes}
+  end.
 
 start_link(Name, Url) ->
   supervisor:start_link(?MODULE, [Name, Url]).

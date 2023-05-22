@@ -260,6 +260,7 @@ handle_info({bbyb_sync, Hash}, State) ->
 handle_info(checksync, State) ->
   stout:log(runsync, [ {node, nodekey:node_name()}, {where, checksync} ]),
   flush_checksync(),
+  ?LOG_ERROR("ignore checksync"),
   %%  self() ! runsync,
   {noreply, State};
 

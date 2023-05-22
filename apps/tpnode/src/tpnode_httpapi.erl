@@ -425,6 +425,13 @@ h(<<"GET">>, [<<"where">>, TAddr], Req) ->
             )
   end;
 
+h(<<"GET">>, [<<"discovery">>, Service, Chain], _Req) ->
+  Res=discovery:lookup(Service, binary_to_integer(Chain,10)),
+  {200,
+   [{"Content-Type","binary/octet-stream"}],
+   msgpack:pack(Res)
+  };
+
 h(<<"GET">>, [<<"nodes">>, Chain], Req) ->
   BinPacker=packer(Req),
   answer(#{
@@ -969,9 +976,7 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
 
 h(<<"GET">>, [<<"settings">>|Path], Req) ->
   BinPacker=packer(Req),
-  Settings=case chainsettings:by_path(
-                  settings:b2pc(Path)
-                 ) of
+  Settings=case chainsettings:by_path(Path) of
              M when is_map(M) ->
                settings:clean_meta(M);
              Any ->
@@ -989,6 +994,11 @@ h(<<"GET">>, [<<"settings">>|Path], Req) ->
     #{jsx=>[ strict, {error_handler, EHF} ]}
    );
 
+h(<<"GET">>, [<<"debug">>, <<"logzip">>,_N], _Req) ->
+  {ok,{_,Bin}}=zip:create("test.zip",
+                          [ X || #{config:=#{file:=X}}<-logger:get_handler_config() ],
+                          [memory]),
+  {200, [{"Content-Type","binary/octet-stream"}], Bin};
 
 h(<<"POST">>, [<<"debug">>, <<"runsync">>|N], _Req) ->
   Q = case N of
@@ -1054,6 +1064,14 @@ h(<<"POST">>, [<<"debug">>,<<"bcreader_update">>], Req) ->
        reload => R
      },
     #{jsx=>[ strict, {error_handler, EHF} ]}
+   );
+
+h(<<"POST">>, [<<"debug">>,<<"bcupdater_reset">>], _Req) ->
+  R=exit(whereis(blockchain_updater),stop),
+  answer(
+    #{ result => <<"ok">>,
+       reload => list_to_binary(io_lib:format("~p",[R]))
+     }
    );
 
 h(<<"POST">>, [<<"debug">>,<<"bcupdater_reloadset">>], Req) ->
@@ -1135,9 +1153,7 @@ h(<<"GET">>, [<<"settings_raw">>], Req) ->
 
 h(<<"GET">>, [<<"settings_all">>|Path], Req) ->
   BinPacker=packer(Req),
-  Settings=chainsettings:by_path(
-             settings:b2pc(Path)
-            ),
+  Settings=chainsettings:by_path(Path),
   EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
           Conf1=jsx_config:list_to_config(Conf),
           jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],

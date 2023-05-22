@@ -517,7 +517,11 @@ decipher({KeyType, Payload, {"AES-128-CBC"=Cipher, IV}}, Password) ->
 %pubkey_pem:decipher({KeyType, Payload, {"AES-128-CBC", IV}}, Password).
   <<Salt:8/binary,_/binary>> = IV,
   Key = password_to_key(Password, Cipher, Salt, 16),
-  Val=crypto:crypto_one_time(aes_128_cbc, Key, IV, Payload, [{encrypt,false},{padding,pkcs_padding}]),
+  Val=try
+        crypto:crypto_one_time(aes_128_cbc, Key, IV, Payload, [{encrypt,false},{padding,pkcs_padding}])
+      catch error:{error,_,_} ->
+        crypto:crypto_one_time(aes_128_cbc, Key, IV, Payload, [{encrypt,false}])
+      end,
   {KeyType,
    Val,
   not_encrypted

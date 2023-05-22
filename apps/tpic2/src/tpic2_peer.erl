@@ -164,7 +164,7 @@ handle_info(try_connect, #{streams:=Str,peer_ipport:=[{Host,Port}|RestIPP]}=Stat
     _ ->
       ok
   end,
-  ?LOG_NOTICE("Try connect payload streams ~p",[Str]),
+  ?LOG_NOTICE("Try connect to ~s:~p payload streams ~p",[Host,Port,Str]),
   lists:foreach(
     fun({SID, Dir, undefined}) when Dir==undefined orelse Dir==out ->
         tpic2_client:start(Host,Port, #{stream=>SID});

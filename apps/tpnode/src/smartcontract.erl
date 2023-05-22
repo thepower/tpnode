@@ -208,7 +208,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,{GNum,GDen}=GRate}, GetFun, Opaq
     Ec:Ee:S when Ec=/=throw ->
           ?LOG_INFO("Can't run contract ~p:~p @ ~p~n",
                       [Ec, Ee, hd(S)]),
-          io:format("Can't run contract ~p:~p @ ~p/~p~n",
+          io:format("Can't run contract~n~p:~n~p~n @ ~p/~p~n",
                       [Ec, Ee, hd(S),hd(tl(S))]),
           throw({'contract_error', [Ec, Ee]})
   end.

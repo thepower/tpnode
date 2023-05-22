@@ -2,6 +2,17 @@
 -export([encode/1, decode/1]).
 -export([parse/1]).
 
+-export([hexdump/1]).
+
+hexdump(Bin) ->
+  dump(Bin,0).
+
+dump(<<Bin:32/binary,Rest/binary>>,Off) ->
+  io:format("~6.16B: ~s~n",[Off, hex:encode(Bin)]),
+  dump(Rest,Off+32);
+dump(Bin,Off) ->
+  io:format("~6.16B: ~s~n",[Off,hex:encode(Bin)]).
+
 parse(B) -> decode(B).
 
 decode(B) when is_binary(B) ->

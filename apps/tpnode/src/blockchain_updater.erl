@@ -131,6 +131,10 @@ handle_call(reload_conf, _From, #{ldb:=LDB,
 handle_call(get_dbh, _From, #{ldb:=LDB}=State) ->
   {reply, {ok, LDB}, State};
 
+handle_call(mychain, _From, State) ->
+  S2=mychain(State),
+  {reply, maps:get(mychain,S2) , S2};
+
 handle_call(ready, _From, State) ->
     {reply, not maps:is_key(sync, State), State};
 
@@ -201,7 +205,8 @@ handle_call({new_block, #{hash:=BlockHash,
                           header:=#{height:=Hei}=Header,
                           sign:=Signatures}=Blk, PID}=_Message,
             _From,
-            #{candidates:=Candidates, ldb:=LDB0,
+            #{candidates:=Candidates,
+              ldb:=LDB0,
               settings:=Sets,
               btable:=BTable,
               lastblock:=#{header:=#{parent:=Parent}, hash:=LBlockHash}=LastBlock,
@@ -277,7 +282,7 @@ handle_call({new_block, #{hash:=BlockHash,
              end,
         SigLen=length(maps:get(sign, MBlk)),
         ?LOG_DEBUG("Signs ~p", [Success]),
-        MinSig=getset(minsig,State),
+        MinSig=getset(<<"minsig">>,State),
         if SigLen>=MinSig ->
              IsTemp=maps:get(temporary,Blk,false) =/= false,
              Header=maps:get(header, Blk),
@@ -545,20 +550,22 @@ handle_call({new_block, #{hash:=BlockHash,
 
                   S1=maps:remove(tmpblock, State),
 
+                  S2=S1#{
+                       prevblock=> NewLastBlock,
+                       lastblock=> MBlk,
+                       unksig => 0,
+                       pre_settings => Sets,
+                       settings => Sets,
+                       candidates=>#{}
+                      },
                   self() ! check_mgmt,
-                  {reply, ok, S1#{
-                                prevblock=> NewLastBlock,
-                                lastblock=> MBlk,
-                                unksig => 0,
-                                pre_settings => Sets,
-                                settings=>if Sets==Sets1 ->
-                                               Sets;
-                                             true ->
-                                               chainsettings:settings_to_ets(Sets1)
-                                          end,
-                                candidates=>#{}
-                               }
-                  }
+                  if Sets==Sets1 ->
+                       {reply, ok, S2};
+                     true ->
+                       {reply, ok, mychain(S2#{
+                                             settings=>chainsettings:settings_to_ets(Sets1)
+                                            })}
+                   end
              end;
            true ->
              %not enough
@@ -586,8 +593,29 @@ handle_call({new_block, #{hash:=BlockHash,
           {reply, {error, unknown}, State}
   end;
 
+handle_call({new_block, #{hash:=_BlockHash,
+                          header:=#{height:=_Hei}=_Header,
+                          sign:=_Signatures}=_Blk, _PID}=_Message,
+            _From,
+            State ) ->
+
+  Req=[
+       candidates,
+       ldb,
+       settings,
+       btable,
+       lastblock,
+       mychain
+      ],
+  StK=[ {T,maps:is_key(T,State)} || T <- Req ],
+
+  ?LOG_ERROR("new_block ignore ~p", [StK]),
+  ?LOG_ERROR("State ~p", [State]),
+  {reply, unhandled_call, State};
+
+
 handle_call(_Request, _From, State) ->
-  ?LOG_INFO("Unhandled ~p",[_Request]),
+  ?LOG_ERROR("Unhandled ~p",[_Request]),
   {reply, unhandled_call, State}.
 
 handle_cast({new_block, #{hash:=BlockHash}=Blk,  PID},
@@ -661,6 +689,7 @@ handle_cast({signature, BlockHash, _Sigs}, State) ->
              [blkid(BlockHash) ]),
   T=maps:get(unksig,State,0),
   if(T>=2) ->
+      ?LOG_ERROR("checksync?"),
       blockchain_sync ! checksync,
       {noreply, State};
     true ->
@@ -807,7 +836,7 @@ load_sets(LDB, LastBlock) ->
     undefined ->
       apply_block_conf(LastBlock, settings:new());
     Bin ->
-      binary_to_term(Bin)
+      settings:upgrade(binary_to_term(Bin))
   end.
 
 apply_ledger(Action, #{bals:=S, hash:=BlockHash, header:=#{height:=Height}}) ->
@@ -884,14 +913,39 @@ notify_settings() ->
   gen_server:cast(synchronizer, settings),
   gen_server:cast(xchain_client, settings).
 
-mychain(State) ->
-  {MyChain, MyName, ChainNodes}=blockchain_reader:mychain(),
+mychain(#{lastblock:=#{header:=#{chain:=MyChain}}, settings:=Sets}=State) ->
+  %{MyChain, MyName, ChainNodes}=blockchain_reader:mychain(),
+  ChainNodes=chainsettings:all_nodes(Sets, MyChain),
+  MyName=maps:get(tpecdsa:cmp_pubkey(nodekey:get_pub()), Sets, nodekey:node_id()),
   store_mychain(MyName, ChainNodes, MyChain),
-  maps:merge(State,
+  S1=maps:merge(State,
              #{myname=>MyName,
                chainnodes=>ChainNodes,
                mychain=>MyChain
-              }).
+              }),
+  SK=fun(SS) ->
+         Req=[ candidates, ldb, settings, btable, lastblock, mychain ],
+         [ {T,maps:is_key(T,SS)} || T <- Req ]
+     end,
+  %logger:error("MYCHAIN old ~p new ~p",[SK(State), SK(S1)]),
+  S1;
+
+mychain(#{lastblock:=#{header:=_ChainLess}, settings:=Sets}=State) ->
+  %{MyChain, MyName, ChainNodes}=blockchain_reader:mychain(),
+  ChainNodes=chainsettings:all_nodes(Sets, 0),
+  MyName=maps:get(tpecdsa:cmp_pubkey(nodekey:get_pub()), Sets, nodekey:node_id()),
+  store_mychain(MyName, ChainNodes, 0),
+  S1=maps:merge(State,
+             #{myname=>MyName,
+               chainnodes=>ChainNodes,
+               mychain=>0
+              }),
+  SK=fun(SS) ->
+         Req=[ candidates, ldb, settings, btable, lastblock, mychain ],
+         [ {T,maps:is_key(T,SS)} || T <- Req ]
+     end,
+  %logger:error("MYCHAIN old ~p new ~p",[SK(State), SK(S1)]),
+  S1.
 
 replace(Field, Value) ->
   case ets:lookup(blockchain,Field) of
@@ -951,7 +1005,6 @@ restore(Dir, N, Prev, C) ->
     {error, enoent} -> {done,N-1,C};
     {ok, [#{header:=#{height:=Hei,parent:=Parent},hash:=Hash}=Blk]} when Hei==N,
                                                                          Prev==Parent ->
-
       ok=gen_server:call(blockchain_updater,{new_block, Blk, self()}),
       restore(Dir, N+1, Hash, C+1);
     {ok, [#{header:=Header}]} ->

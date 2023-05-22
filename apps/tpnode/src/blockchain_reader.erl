@@ -11,7 +11,7 @@
 -export([blkid/1,
          mychain/0,
          send_block_real/4]).
--export([mychain1/0]).
+%-export([mychain0/0]).
 
 
 %% ------------------------------------------------------------------
@@ -539,38 +539,41 @@ get_last(#{ldb:=LDB}=State) ->
        )
   end.
 
+%mychain() ->
+%  KeyDB=chainsettings:by_path([<<"keys">>]),
+%  NodeChain=chainsettings:by_path([<<"nodechain">>]),
+%  PubKey=tpecdsa:cmp_pubkey(nodekey:get_pub()),
+%  ?LOG_NOTICE("My key ~p", [(PubKey)]),
+%  ChainNodes0=maps:fold(
+%                fun(<<".">>, _, Acc) ->
+%                    Acc;
+%                   (Name, XPubKey, Acc) when is_binary(XPubKey) ->
+%                    maps:put(tpecdsa:cmp_pubkey(XPubKey), Name, Acc);
+%                   (Key, Val, Acc) ->
+%                    ?LOG_ERROR("Can't parse node key ~p -> ~p",[Key, Val]),
+%                    Acc
+%                end, #{}, KeyDB),
+%  ?LOG_NOTICE("NodesDB ~p", [KeyDB]),
+%  ?LOG_NOTICE("Nodes ~p", [ChainNodes0]),
+%  MyName=maps:get(PubKey, ChainNodes0, undefined),
+%  MyChain=maps:get(MyName, NodeChain, 0),
+%  ChainNodes=maps:filter(
+%               fun(_PubKey, Name) ->
+%                   maps:get(Name, NodeChain, 0) == MyChain
+%               end, ChainNodes0),
+%  {MyChain, MyName, ChainNodes}.
+
+
 mychain() ->
-  KeyDB=chainsettings:by_path([keys]),
-  NodeChain=chainsettings:by_path([nodechain]),
-  PubKey=tpecdsa:upgrade_pubkey(nodekey:get_pub()),
-  ChainNodes0=maps:fold(
-                fun(<<".">>, _, Acc) ->
-                    Acc;
-                   (Name, XPubKey, Acc) when is_binary(XPubKey) ->
-                    maps:put(tpecdsa:upgrade_pubkey(XPubKey), Name, Acc);
-                   (Key, Val, Acc) ->
-                    ?LOG_ERROR("Can't parse node key ~p -> ~p",[Key, Val]),
-                    Acc
-                end, #{}, KeyDB),
-  MyName=maps:get(PubKey, ChainNodes0, undefined),
-  MyChain=maps:get(MyName, NodeChain, 0),
-  ChainNodes=maps:filter(
-               fun(_PubKey, Name) ->
-                   maps:get(Name, NodeChain, 0) == MyChain
-               end, ChainNodes0),
-  {MyChain, MyName, ChainNodes}.
-
-
-mychain1() ->
-  KeyDB=chainsettings:by_path([keys]),
-  NodeChain=chainsettings:by_path([nodechain]),
-  PubKey=nodekey:get_pub(),
+  KeyDB=chainsettings:by_path([<<"keys">>]),
+  NodeChain=chainsettings:by_path([<<"nodechain">>]),
+  PubKey=tpecdsa:cmp_pubkey(nodekey:get_pub()),
   ?LOG_NOTICE("My key ~p", [(PubKey)]),
   ChainNodes0=maps:fold(
                 fun(<<".">>, _, Acc) ->
                     Acc;
                    (Name, XPubKey, Acc) when is_binary(XPubKey) ->
-                    maps:put(tpecdsa:upgrade_pubkey(XPubKey), Name, Acc);
+                    maps:put(tpecdsa:cmp_pubkey(XPubKey), Name, Acc);
                    (Key, Val, Acc) ->
                     ?LOG_ERROR("Can't parse node key ~p -> ~p",[Key, Val]),
                     Acc

@@ -79,7 +79,6 @@ prepack(Block) ->
             end, Blocks)
          );
        (outbound, Txp) ->
-        ?LOG_NOTICE("FIXME: save outbound flag in tx"),
         lists:map(
           fun({TxID, Cid}) ->
               [TxID, Cid]
@@ -100,7 +99,6 @@ prepack(Block) ->
           end, ED
          );
        (extdata, ED) ->
-        ?LOG_NOTICE("TODO: there is maps here sometimes. Find out problem in unpacker ~p",[ED]),
         lists:map(
           fun({Key, Val}) ->
               [Key, Val]

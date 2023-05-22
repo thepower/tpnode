@@ -284,7 +284,10 @@ node_addresses() ->
                   ({addr, {10,_,_,_}}, Acc1) when not AllowLocal ->
                    Acc1;
                   ({addr, ADDR}, Acc1) ->
-                   [list_to_binary(inet:ntoa(ADDR)) | Acc1];
+                   case inet:ntoa(ADDR) of
+                     TxtAddr when is_list(TxtAddr) ->
+                       [list_to_binary(TxtAddr) | Acc1]
+                   end;
                   (_,Acc1) -> Acc1
                end,
                Acc,

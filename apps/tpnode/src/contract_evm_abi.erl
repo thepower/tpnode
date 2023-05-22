@@ -7,6 +7,7 @@
 -export([decode_abi/2]).
 -export([decode_abi_map/2]).
 -export([encode_simple/1]).
+-export([parse_signature/1]).
 -export([encode_abi/2]).
 
 -export([pack/1,unpack/1]).
@@ -140,6 +141,10 @@ mk_sig({{EventOrFunction,Name},CS,_}) when EventOrFunction == event;
                   ")"
                  ]).
 
+mk_sig_type({_,{array,uint256}}) ->
+  <<"uint256[]">>;
+mk_sig_type({_,{array,bytes}}) ->
+  <<"bytes[]">>;
 mk_sig_type({_,{tuple,_Type}}) ->
   <<"tuple">>;
 
@@ -230,7 +235,7 @@ convert_type(<<"uint256">>) -> uint256;
 convert_type(<<"string[]">>) -> {array,string};
 convert_type(<<"uint256[]">>) -> {array,uint256};
 convert_type(<<"uint8[]">>) -> {array,uint8};
-
+convert_type(<<"bytes[]">>) -> {array,bytes};
 convert_type(<<"bool">>) -> bool.
 
 encode_type(<<Input:256/big>>, uint256) ->
@@ -324,6 +329,21 @@ encode_typed([Val|RVal],[{_Name,Type}|RType], Hdr, Body, BOff) ->
                <<Body/binary,Bin/binary>>,
                BOff+size(Bin))
   end.
+
+parse_signature(Bin) ->
+  case binary:split(Bin,[<<"(">>,<<")">>],[global]) of
+    [Name,<<>>,<<>>] ->
+      {ok, {{function, Name}, [], undefined}};
+    [Name,Args,<<>>] ->
+      {ok,
+       {
+        {function, Name},
+        [ { <<>>, convert_type(T) } || T <- binary:split(Args,[<<",">>],[global]) ],
+        undefined
+       }
+      }
+  end.
+
 
 encode_simple(Elements) ->
   HdLen=length(Elements)*32,

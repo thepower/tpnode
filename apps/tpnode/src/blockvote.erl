@@ -63,6 +63,9 @@ handle_call(status, _From, #{candidatesig:=Candidatesig, candidates:=Candidates}
 handle_call({candidate, Hash}, _From, #{candidates:=Cand}=State) ->
     {reply, maps:get(Hash,Cand,undefined), State};
 
+handle_call({signatures, Hash}, _From, #{candidatesig:=Cand}=State) ->
+    {reply, maps:get(Hash,Cand,#{}), State};
+
 handle_call(candidates, _From, #{candidates:=Cand}=State) ->
     {reply, Cand, State};
 
@@ -100,12 +103,14 @@ handle_cast({tpic, _From, #{
 handle_cast({tpic, _From, #{
                      null:=<<"blockvote">>,
                      <<"chain">>:=MsgChain,
-                     <<"hash">> := _BlockHash,
+                     <<"hash">> := BlockHash,
                      %<<"n">> := _OriginNode,
                      <<"sign">> := _Sigs
-                    }},
+                    }=Msg},
             #{mychain:=MyChain}=State) when MyChain=/=MsgChain ->
-    ?LOG_INFO("BV sig from other chain"),
+    ?LOG_INFO("BV ~p",[Msg]),
+    ?LOG_INFO("BV sig for blk ~s from other chain ~p, my ~p origin ~s",
+              [blockchain:blkid(BlockHash),MsgChain, MyChain, maps:get(<<"n">>,Msg,<<"unkn0wn">>)]),
     {noreply, State};
 
 handle_cast({signature, BlockHash, Sigs}=WholeSig,
@@ -141,7 +146,7 @@ handle_cast({signature, BlockHash, Sigs},
 handle_cast({new_block, Blk, PID}, State) ->
   handle_cast({new_block, Blk, PID, #{}}, State);
 
-handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID, Extra},
+handle_cast({new_block, #{hash:=BlockHash, header:=#{chain:=Chain}, sign:=Sigs, txs:=Txs}=Blk, _PID, Extra},
             #{ candidates:=Candidates,
                candidatesig:=Candidatesig,
                candidatets := CandidateTS,
@@ -178,6 +183,7 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID, Extr
       State#{
         candidatesig=>maps:put(BlockHash, CSig, Candidatesig),
         candidates => maps:put(BlockHash, Blk, Candidates),
+        mychain => Chain,
         candidatets => maps:put(os:system_time(microsecond), BlockHash, CandidateTS),
         extras => maps:put(BlockHash, Extra, Extras)
       },
@@ -186,6 +192,20 @@ handle_cast({new_block, #{hash:=BlockHash, sign:=Sigs, txs:=Txs}=Blk, _PID, Extr
 handle_cast(_Msg, State) ->
     ?LOG_INFO("BV Unknown cast ~p", [_Msg]),
     {noreply, State}.
+
+handle_info({check,BlockHash},
+            #{lastblock:=#{hash:=LBH}}=State) when LBH==BlockHash->
+  {noreply, State};
+
+handle_info({check,BlockHash}, State) ->
+  case maps:is_key(BlockHash, maps:get(candidates, State)) of
+    false ->
+      ?LOG_INFO("Probably peers went ahead, block ~s not found. checksync",[blkid(BlockHash)]),
+      blockchain_sync ! checksync;
+    true ->
+      ignore
+  end,
+  {noreply, State};
 
 handle_info(cleanup, State) ->
     ets_cleanup(0),
@@ -283,14 +303,12 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
        catch _:_ ->
              throw({notready, nosig})
        end,
-    case maps:is_key(BlockHash, maps:get(candidates, State)) of
+      case maps:is_key(BlockHash, maps:get(candidates, State)) of
       false ->
         case maps:size(Sigs) >= MinSig of
           true ->
-            %throw({notready, nocand1}),
-            ?LOG_INFO("Probably they went ahead"),
-            blockchain_sync ! checksync,
-            State;
+            erlang:send_after(300,self(),{check,BlockHash}),
+            throw({notready, nocand1});
           false ->
             throw({notready, {nocand, maps:size(Sigs), MinSig}})
         end;

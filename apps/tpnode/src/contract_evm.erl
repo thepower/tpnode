@@ -284,35 +284,39 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                  (<<3802961955:32/big,Bin/binary>>,XAcc) ->% isNodeKnown(bytes)
                   try
                     [{<<"key">>,PubKey}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,bytes}]),
-                    FABI=[{<<"known">>,uint8},
-                          {<<"chain">>,uint256},
-                          {<<"name">>,bytes}],
-                    NC=chainsettings:nodechain(PubKey,GetFun({settings,[]})),
+                    true=is_binary(PubKey),
+                    Sets=settings:clean_meta(GetFun({settings,[]})),
+                    NC=chainsettings:nodechain(PubKey,Sets),
                     RStr=case NC of
                            false ->
                              [0,0,<<>>];
                            {NodeName,Chain} ->
                              [1,Chain,NodeName]
                          end,
+                    FABI=[{<<"known">>,uint8},
+                          {<<"chain">>,uint256},
+                          {<<"name">>,bytes}],
                     RBin=contract_evm_abi:encode_abi(RStr, FABI),
                     {1,RBin,XAcc}
                   catch Ec:Ee:S ->
-                          ?LOG_ERROR("decode_abi error: ~p:~p@~p~n",[Ec,Ee,hd(S)]),
+                          ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
                           {0, <<"badarg">>, XAcc}
                   end;
                  (<<Sig:32/big,_/binary>>,XAcc) ->
                   ?LOG_NOTICE("Address ~p unknown sig: ~p~n",[16#AFFFFFFFFF000003,Sig]),
-                  {0, <<"badarg">>, XAcc}
+                  {0, <<"badsig">>, XAcc}
               end,
               16#AFFFFFFFFF000004 => %block service
               fun(<<1489993744:32/big,Bin/binary>>,XAcc) -> %get_signatures(uint256 height)
                   io:format("=== get_signatures: ~p~n",[Bin]),
                   try
                     [{<<"key">>,N}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,uint256}]),
-                    SRes=GetFun({get_block, 1}),
-                    io:format("=== get_block: ~p~n",[SRes]),
-                    RBin=contract_evm_abi:encode_abi([[<<1,2,3>>,<<2,3,4>>,<<3,4,5>>]], [{<<>>, {array,bytes}}]),
-                    io:format("get_signatures ~p -> : ~p~n",[N,RBin]),
+                    #{sign:=Signatures}=GetFun({get_block, N}),
+
+                    Data=lists:sort([ PubKey || #{beneficiary :=  PubKey } <- Signatures]),
+
+                    logger:notice("=== get_block: ~p",[Data]),
+                    RBin=contract_evm_abi:encode_abi([Data], [{<<>>, {array,bytes}}]),
                     {1,RBin,XAcc}
                   catch Ec:Ee ->
                           logger:info("decode_abi error: ~p:~p~n",[Ec,Ee]),

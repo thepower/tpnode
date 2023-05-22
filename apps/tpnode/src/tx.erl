@@ -611,13 +611,13 @@ sign(Tx, PrivKey) when is_binary(PrivKey) ->
 | #{ from := binary(), sig := map(), timestamp := integer() }.
 
 -spec verify(tx()|binary()) ->
-  {ok, tx()} | 'bad_sig'.
+  {ok, tx()} | 'bad_sig' | 'bad_keys'.
 
 verify(Tx) ->
   verify(Tx, []).
 
 -spec verify(tx()|binary(), ['nocheck_ledger'| {ledger, pid()}]) ->
-  {ok, tx()} | 'bad_sig'.
+  {ok, tx()} | 'bad_sig' | 'bad_keys'.
 
 verify(#{
   kind:=GenericOrDeploy,

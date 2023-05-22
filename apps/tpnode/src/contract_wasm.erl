@@ -25,7 +25,11 @@ handle_tx(Tx, Ledger, GasLimit, GetFun, _Opaque) ->
                       XtraFields
                      }
          end, "wasm", 2, [
-                          {run_timeout, chainsettings:get(blocktime,Settings)*1000}
+                          {run_timeout, chainsettings:get(
+                                          <<"blocktime">>,
+                                          Settings,
+                                          fun() -> GetFun(mychain) end
+                                         )*1000}
                          ]).
 
 getters() ->

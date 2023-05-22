@@ -142,7 +142,7 @@ jsonfy1({true,#{retval:=RV}}) when is_integer(RV)->
 jsonfy1({true,#{retval:=RV}}) when is_binary(RV)->
   #{ok=>true,
     res=>ok,
-    retval=>list_to_binary(["0x,",hex:encode(RV)])
+    retval=>list_to_binary(["0x",hex:encode(RV)])
    };
 
 jsonfy1({true,#{revert:=RV}}) when is_binary(RV)->

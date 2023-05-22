@@ -33,7 +33,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                         mbal:fetch(BinAddr, <<"ANY">>, true, mbal:new(), GetAddr),
                         Acc);
               (Type, Acc) ->
-               case settings:get([<<"current">>, <<"fee">>, params, Type], XSettings) of
+               case settings:get([<<"current">>, <<"fee">>, <<"params">>, Type], XSettings) of
                  BinAddr when is_binary(BinAddr) ->
                    maps:put(BinAddr,
                             mbal:fetch(BinAddr, <<"ANY">>, true, mbal:new(), GetAddr),
@@ -260,6 +260,10 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
                 C
             end, EmitTXs0),
 
+  if(Parent_Height>10 andalso LedgerHash==undefined) ->
+      throw(no_ledger_hash);
+    true -> ok
+  end,
   _T6=erlang:system_time(),
   ?LOG_INFO("Created block ~w ~s: txs: ~w, bals: ~w, LH: ~s, chain ~p temp ~p",
              [
@@ -267,7 +271,11 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
               block:blkid(maps:get(hash, Blk)),
               length(Success),
               maps:size(NewBal),
-              hex:encode(LedgerHash),
+              if LedgerHash==undefined ->
+                   "undefined";
+                 true ->
+                   hex:encode(LedgerHash)
+              end,
               GetSettings(mychain),
               proplists:get_value(temporary,Options)
              ]),
@@ -353,7 +361,7 @@ save_fee(#{fee:=FeeBal,
            table:=Addresses}=Acc) ->
   try
     GetFeeFun=fun (Parameter) ->
-                  settings:get([<<"current">>, <<"fee">>, params, Parameter], Settings)
+                  settings:get([<<"current">>, <<"fee">>, <<"params">>, Parameter], Settings)
               end,
     ?LOG_DEBUG("fee ~p tip ~p", [FeeBal, TipBal]),
     {Addresses2, NewEmit}=lists:foldl(

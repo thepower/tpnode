@@ -586,7 +586,7 @@ delete_service(Name, #{pids:=PidsDict, names:=NamesDict} = Dict) when is_binary(
             Dict#{
                 names => maps:without([Name], NamesDict)
             };
-        {ok, #{pid := Pid, monitor := Ref}} ->
+        {ok, #{pid := Pid, monitor := Ref}} when is_reference(Ref) ->
             demonitor(Ref),
             Dict#{
                 pids => maps:without([Pid], PidsDict),

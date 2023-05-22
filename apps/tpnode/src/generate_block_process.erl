@@ -1404,7 +1404,7 @@ withdraw(FBal0,
                                        ({params, Parameter}) ->
                                        settings:get([<<"current">>,
                                                      <<"fee">>,
-                                                     params,
+                                                     <<"params">>,
                                                      Parameter], Settings)
                                    end,
                          {FeeOK,Rate}=tx:rate(Tx, GetFeeFun),
@@ -1552,7 +1552,7 @@ addrcheck(Addr, Set, OC) ->
         {ok, Chain} when Chain==OC->
               {true, {chain, Chain}};
         {ok, Chain} ->
-          Valid=maps:get(chains,Set,[]),
+          Valid=maps:get(<<"chains">>,Set,[]),
           case lists:member(Chain,Valid) of
             true ->
               {true, {chain, Chain}};

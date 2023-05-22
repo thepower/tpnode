@@ -10,6 +10,13 @@
 
 pkey_2_nodename(PubKey) ->
   Map = #{
+          <<48,42,48,5,6,3,43,101,112,3,33,0,111,49,12,89,227,77,112,93,167,70,98,105,
+  107,241,240,233,137,16,46,32,134,186,127,92,229,144,7,129,30,54,143,26>> => <<"c4n1">>,
+          <<48,42,48,5,6,3,43,101,112,3,33,0,242,65,15,226,124,78,51,23,168,168,251,114,
+  33,188,61,95,2,170,220,73,203,184,150,204,48,171,181,28,119,188,149,212>> => <<"c4n2">>,
+          <<48,42,48,5,6,3,43,101,112,3,33,0,36,77,58,79,2,250,52,58,240,222,140,234,199,
+  113,161,171,65,45,81,215,148,39,171,69,138,78,198,40,10,165,80,8>> => <<"c4n3">>,
+          
         <<3,65,219,169,25,115,185,116,113,161,0,156,223,129,25,9,61,27,234,23,83,
       17,228,94,241,233,210,123,164,162,130,156,237>> => <<"c1n1">> ,
         <<2,251,28,114,92,35,34,203,58,8,252,29,42,144,44,222,58,13,64,154,47,63,
@@ -60,6 +67,9 @@ pkey_2_nodename(PubKey) ->
 
 node_map(NodeName) when is_binary(NodeName) ->
   Map = #{
+          <<"log/uml_test_c4n1@knuth.blog">> => <<"c4n1">>,
+          <<"log/uml_test_c4n2@knuth.blog">> => <<"c4n2">>,
+          <<"log/uml_test_c4n3@knuth.blog">> => <<"c4n3">>,
     <<"node_287nRpYV">> => <<"c4n1">>,
     <<"node_3NBx74Ed">> => <<"c4n2">>,
     <<"node_28AFpshz">> => <<"c4n3">>,
@@ -79,7 +89,17 @@ node_map(NodeName) when is_binary(NodeName) ->
   },
   
   CleanNodeName = iolist_to_binary(re:replace(NodeName, "blog\.[01-9]+$","blog")),
-  maps:get(CleanNodeName, Map, CleanNodeName);
+  %case maps:is_key(CleanNodeName, Map) of
+  %  false ->
+  %    pkey_2_nodename(NodeName);
+  %  true ->
+      maps:get(CleanNodeName, Map, CleanNodeName);
+
+node_map([{NodeName,_,_}]) ->
+  [pkey_2_nodename(NodeName)];
+
+node_map({NodeName,_,_}) ->
+  pkey_2_nodename(NodeName);
 
 node_map(NodeName) ->
   node_map(utils:make_binary(NodeName)).
@@ -729,6 +749,7 @@ bv(BLog, T1, T2) ->
 %%  Comp = testz(Text),
 %%  file:write_file("x.link", ["http://www.plantuml.com/plantuml/png/", Comp]).
 
+%java -jar ~/Projects/BC/blochchaintest2/plantuml.jar -tsvg x_0.uml
 % --------------------------------------------------------------------------------
 write_events_to_file(FormatedEvents, Filename) ->
   Text = [
@@ -748,7 +769,12 @@ events_writer(FormatedEvents, FileNo) ->
       write_events_to_file(Events1, "x_" ++ integer_to_list(FileNo) ++ ".uml"),
       events_writer(EventsTail, FileNo+1);
     _ ->
-      write_events_to_file(FormatedEvents, "x_" ++ integer_to_list(FileNo) ++ ".uml")
+      ok=write_events_to_file(FormatedEvents, "x_" ++ integer_to_list(FileNo) ++ ".uml"),
+      io:format("wrote ~w events to x_~w.uml~nProcessing...", [length(FormatedEvents), FileNo]),
+      os:cmd("java -jar plantuml.jar -tsvg x_" ++ integer_to_list(FileNo) ++ ".uml"),
+      io:format("done~n"),
+      %java -jar ~/Projects/BC/blochchaintest2/plantuml.jar -tsvg x_0.uml
+      ok
   end.
 
 

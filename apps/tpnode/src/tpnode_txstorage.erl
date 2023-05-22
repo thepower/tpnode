@@ -220,7 +220,8 @@ new_tx(TxID, TxBody, nosync, #{my_ttl:=TTL, ets_name:=Table} = State) ->
 new_tx(TxID, TxBody, sync, #{my_ttl:=TTL, ets_name:=Table} = State) ->
   ValidUntil = os:system_time(second) + TTL,
   ets:insert(Table, {TxID, TxBody, me, [], ValidUntil}),
-  MS=chainsettings:by_path([<<"current">>,chain,minsig]),
+  MS=chainsettings:get_val(minsig,30),
+  %chainsettings:by_path([<<"current">>,<<"chain">>,<<"minsig">>]),
   true=is_integer(MS),
   case length(nodekey:get_privs()) >= MS of
     true ->

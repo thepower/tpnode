@@ -14,44 +14,58 @@
          nodechain/2,
          select_by_path/2,
          by_path/1,
-         by_path/2
+         by_path/2,
+         all_nodes/2
         ]).
 -export([contacts/1,contacts/2]).
 -export([checksum/0]).
 
 is_net_node(PubKey) ->
-  case ets:match(blockchain,{[keys,'$1'],'_',<<"set">>,PubKey}) of
+  case ets:match(blockchain,{[<<"keys">>,'$1'],'_',<<"set">>,PubKey}) of
     [] -> false;
     [[Name]] -> {true, Name}
   end.
 
 nodechain(PubKey, Settings) ->
-  KeyDB=maps:get(keys, Settings, #{}),
-  NodeChain=maps:get(nodechain, Settings, #{}),
+  KeyDB=maps:get(<<"keys">>, Settings, #{}),
+  NodeChain=maps:get(<<"nodechain">>, Settings, #{}),
   AllNodes=maps:fold(
              fun(Name, XPubKey, Acc) ->
                  maps:put(tpecdsa:cmp_pubkey(XPubKey), {Name,maps:get(Name,NodeChain,0)}, Acc)
              end, #{}, KeyDB),
   maps:get(tpecdsa:cmp_pubkey(PubKey), AllNodes, false).
 
+all_nodes(Settings,Chain) ->
+  KeyDB=maps:get(<<"keys">>, Settings, #{}),
+  NodeChain=maps:get(<<"nodechain">>, Settings, #{}),
+  maps:fold(
+    fun(<<".">>,_,Acc) ->
+        Acc;
+       (Name, XPubKey, Acc) when Chain==undefined ->
+        maps:put(tpecdsa:cmp_pubkey(XPubKey), Name, Acc);
+       (Name, XPubKey, Acc) ->
+        UC=maps:get(Name,NodeChain,0),
+        if(UC==Chain) ->
+            maps:put(tpecdsa:cmp_pubkey(XPubKey), Name, Acc);
+          true ->
+            Acc
+        end
+    end, #{}, KeyDB).
+
 is_our_node(PubKey, Settings) ->
-  KeyDB=maps:get(keys, Settings, #{}),
-  NodeChain=maps:get(nodechain, Settings, #{}),
-  ChainNodes0=maps:fold(
-                fun(Name, XPubKey, Acc) ->
-                    maps:put(tpecdsa:cmp_pubkey(XPubKey), Name, Acc)
-                end, #{}, KeyDB),
+  ChainNodes0=all_nodes(Settings,0),
+  NodeChain=maps:get(<<"nodechain">>, Settings, #{}),
   MyName=maps:get(tpecdsa:cmp_pubkey(nodekey:get_pub()), ChainNodes0, undefined),
   MyChain=maps:get(MyName, NodeChain, 0),
   ChainNodes=maps:filter(
                fun(_PubKey, Name) ->
                    maps:get(Name, NodeChain, 0) == MyChain
                end, ChainNodes0),
-  maps:get(tpecdsa:cmp_pubkey(PubKey), ChainNodes, false).
+  maps:get(tpecdsa:cmp_pubkey(tpecdsa:upgrade_pubkey(PubKey)), ChainNodes, false).
 
-is_our_node(PubKey) ->
+is_our_node(PubKey) when is_binary(PubKey) ->
   {ok, NMap} = chainsettings:get_setting(chainnodes),
-  maps:get(tpecdsa:upgrade_pubkey(PubKey), NMap, false).
+  maps:get(tpecdsa:cmp_pubkey(tpecdsa:upgrade_pubkey(PubKey)), NMap, false).
 
 get_setting(Named) ->
   case ets:lookup(blockchain,Named) of
@@ -118,6 +132,8 @@ by_path(GetPath, [_|_]=Tables) ->
 
 as_map(R) ->
   case R of
+    [] ->
+      #{};
     [[[],Val,<<"set">>]] ->
       Val;
     Any ->
@@ -148,8 +164,8 @@ settings_to_ets(NewSettings, Table) ->
                     [{{'_','$1','_','_'},[{'<','$1',Ver}],[true]}]
                    ),
 
-  KeyDB=maps:get(keys, NewSettings, #{}),
-  NodeChain=maps:get(nodechain, NewSettings, #{}),
+  KeyDB=maps:get(<<"keys">>, NewSettings, #{}),
+  NodeChain=maps:get(<<"nodechain">>, NewSettings, #{}),
   PubKey=nodekey:get_pub(),
   ChainNodes0=maps:fold(
                 fun(Name, XPubKey, Acc) ->
@@ -201,6 +217,8 @@ contacts(Name) ->
   end,
   if R==#{} ->
        [];
+     R==undefined ->
+       [];
      true ->
        R
   end.
@@ -208,14 +226,8 @@ contacts(Name) ->
 get_val(Name) ->
   get_val(Name, undefined).
 
-get_val(mychain, Def) ->
-  case ets:lookup(blockchain,mychain) of
-    [{mychain,X}] -> X;
-    _ -> Def
-  end;
-
 get_val(Name, Default) when Name==minsig; Name==patchsig ->
-  Val=by_path([<<"current">>,chain,Name]),
+  Val=by_path([<<"current">>,<<"chain">>,atom_to_binary(Name,utf8)]),
   if is_integer(Val) -> Val;
      true ->
        case ets:lookup(blockchain,chainnodes) of
@@ -227,8 +239,15 @@ get_val(Name, Default) when Name==minsig; Name==patchsig ->
        end
   end;
 
+get_val(Name, Default) when Name==blocktime ->
+  Val=by_path([<<"current">>,<<"chain">>,atom_to_binary(Name,utf8)]),
+  if is_integer(Val) -> Val;
+     true -> Default
+  end;
+
+
 get_val(Name,Default) ->
-  Val=by_path([<<"current">>,chain,Name]),
+  Val=by_path([<<"current">>,<<"chain">>,Name]),
   if is_integer(Val) -> Val;
      true -> Default
   end.
@@ -245,17 +264,17 @@ get(allowempty, Settings, GetChain) ->
   get(<<"allowempty">>, Settings, GetChain);
 
 get(patchsig, Settings, GetChain) ->
-  case settings:get([<<"current">>,chain,patchsig],Settings) of
+  case settings:get([<<"current">>,<<"chain">>,<<"patchsig">>],Settings) of
     I when is_integer(I) ->
       I;
     _ ->
-      case settings:get([<<"current">>,chain,minsig],Settings) of
+      case settings:get([<<"current">>,<<"chain">>,<<"minsig">>],Settings) of
         I when is_integer(I) ->
           I;
         _ ->
           try
             Chain=GetChain(),
-            R=settings:get([chain,Chain,minsig],Settings),
+            R=settings:get([<<"chain">>,Chain,<<"minsig">>],Settings),
             true=is_integer(R),
             R
           catch _:_ ->
@@ -266,10 +285,10 @@ get(patchsig, Settings, GetChain) ->
 
 
 get(Name, Sets, GetChain) ->
-  MinSig=settings:get([<<"current">>,chain,Name], Sets),
+  MinSig=settings:get([<<"current">>,<<"chain">>,Name], Sets),
   if is_integer(MinSig) -> MinSig;
      true ->
-       MinSig_old=settings:get([chain,GetChain(),Name], Sets),
+       MinSig_old=settings:get([<<"chain">>,GetChain(),Name], Sets),
        if is_integer(MinSig_old) ->
             ?LOG_INFO("Got setting ~p from deprecated place",[Name]),
             MinSig_old;

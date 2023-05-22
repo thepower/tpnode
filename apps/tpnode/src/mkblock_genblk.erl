@@ -9,11 +9,13 @@ spawn_generate(MySet, PreTXM, PreSig, MT, Ent) ->
   PID.
 
 run_generate(
-  #{mychain:=MyChain, nodename:=NodeName}=MySet,
+  #{mychain:=_MyChain, nodename:=_NodeName}=MySet,
   PreTXM,
   PreSig,
   MT,
   Ent) ->
+  MyChain=blockchain:chain(),
+  NodeName=nodekey:node_name(),
   BestHeiHash=case lists:sort(maps:keys(PreTXM)) of
                 [undefined] -> undefined;
                 [undefined,H0|_] -> H0;
@@ -251,14 +253,20 @@ run_generate(
                 [
                  maps:get(sign, SignedBlock)
                 ]),
-    HBlk=msgpack:pack(
-           #{null=><<"blockvote">>,
+    Msg=#{null=><<"blockvote">>,
              <<"n">>=>node(),
              <<"hash">>=>maps:get(hash, SignedBlock),
              <<"sign">>=>maps:get(sign, SignedBlock),
-             <<"chain">>=>MyChain
-            }
-          ),
+             <<"chain">>=>MyChain,
+             <<"height">>=>NewH
+            },
+    HBlk=msgpack:pack(Msg),
+    ?LOG_INFO("MB send blockvote ~p", [Msg]),
+    ?LOG_INFO("MB send blockvote My sign for block ~p chain ~p",
+                [
+                 blockchain:blkid(maps:get(hash,SignedBlock)),
+                 MyChain
+                ]),
     tpic2:cast(<<"blockvote">>, HBlk),
 
     done
