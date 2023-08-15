@@ -219,7 +219,7 @@ process_response({Status, Body}, <<"msgpack">> = Format, Req)
     }, Format, Req);
 
 process_response({Status, {Body,PackerOpts}}, <<"msgpack">> = Format, Req)
-    when is_integer(Status) andalso is_map(Body) ->
+    when is_integer(Status) ->
     process_response({Status,
         [{<<"Content-Type">>, <<"application/msgpack">>}],
         case msgpack:pack(Body,maps:get(msgpack,PackerOpts,[])) of
@@ -237,7 +237,7 @@ process_response({Status, Body}, Format, Req)
     }, Format, Req);
 
 process_response({Status, {Body,PackerOpts}}, Format, Req)
-    when is_integer(Status) andalso is_map(Body) ->
+    when is_integer(Status) ->
     process_response({Status,
         [{<<"Content-Type">>, <<"application/json">>}],
         jsx:encode(Body,maps:get(jsx,PackerOpts,[]))

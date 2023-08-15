@@ -10,6 +10,8 @@
          packer/2,
          mp2json/2,
          get_nodes/1,
+         encode_recursive/2,
+         xpacker/2,
          binjson/1]).
 
 -export([answer/0, answer/1, answer/2, err/1, err/2, err/3, err/4]).
@@ -492,31 +494,46 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], Req) ->
   end;
 
 
-h(<<"GET">>, [<<"address">>, TAddr, <<"lstore">>|Path], _Req) ->
+h(<<"GET">>, [<<"address">>, TAddr, <<"lstore">>|Path0], Req) ->
   try
     Addr=case TAddr of
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-        RawKeys=mledger:get_kpvs(Addr,lstore,'_'),
-        MatchPath=fun M([],P) -> P;
-                      M([E1|R1],[E2|R2]) when E1==E2 ->
-                        M(R1,R2);
-                      M(_,_) -> false
-                  end,
+    Path=lists:map(fun(<<"0x",HexBin/binary>>) ->
+                       hex:decode(HexBin);
+                      (Any) ->
+                       Any
+                   end,
+                   Path0),
+    RawKeys=mledger:get_kpvs(Addr,lstore,'_'),
+    MatchPath=fun M([],P) -> P;
+                  M([E1|R1],[E2|R2]) when E1==E2 ->
+                  M(R1,R2);
+                  M(_,_) -> false
+              end,
 
-        S1=lists:foldl(
-             fun({lstore,K,V},Acc) ->
-                 case MatchPath(Path,K) of
-                   false ->
-                     Acc;
-                   P ->
-                     settings:patch([#{<<"t">> => <<"set">>,
-                                       <<"p">> =>P,
-                                       <<"v">> =>V}],Acc)
-                 end
-             end, #{}, RawKeys),
-        {200, [{"Content-Type","application/json"}], S1}
+    S1=lists:foldl(
+         fun({lstore,K,V},Acc) ->
+             case MatchPath(Path,K) of
+               false ->
+                 Acc;
+               [] ->
+                 V;
+               P ->
+                 settings:patch([#{<<"t">> => <<"set">>,
+                                   <<"p">> =>P,
+                                   <<"v">> =>V}],Acc)
+             end
+         end, #{}, RawKeys),
+        %if is_binary(S1) ->
+        %     {200, [{"Content-Type","application/octet-stream"}], S1};
+        %   true ->
+        %     {200, [], S1}
+        %end
+    BinPacker=xpacker(Req),
+    S2=encode_recursive(S1,BinPacker),
+    {200, [], {S2, #{} }}
   catch
     throw:{error, address_crc} ->
               err(
@@ -744,13 +761,7 @@ h(<<"GET">>, [<<"address">>, TAddr], Req) ->
                 false ->
                   InfoU;
                 true ->
-                  LStoreData=maps:get(lstore, Info),
-                  case maps:get(req_format,Req) of
-                    <<"mp">> ->
-                      InfoU#{lstore=>settings:mp(LStoreData)};
-                    _ ->
-                      InfoU
-                  end
+                   InfoU#{lstore=>true}
               end,
         Info1=maps:merge(maps:remove(ublk, Info), InfoLS),
         Info2=maps:map(
@@ -1712,6 +1723,26 @@ add_proto(Ip, Proto) ->
 
 % ----------------------------------------------------------------------
 
+xpacker(#{req_format := <<"mp">>}=Req) ->
+ xpacker(Req, raw);
+xpacker(Req) ->
+  xpacker(Req, hex).
+
+xpacker(Req,Default) ->
+  QS=cowboy_req:parse_qs(Req),
+  case proplists:get_value(<<"bin">>, QS) of
+    <<"b64">> -> fun(Bin) -> <<"0b",(base64:encode(Bin))/binary>> end;
+    <<"hex">> -> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
+    <<"0xhex">> -> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
+    <<"raw">> -> fun(Bin) -> Bin end;
+    _ -> case Default of
+           hex -> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
+           b64 -> fun(Bin) -> base64:encode(Bin) end;
+           raw -> fun(Bin) -> Bin end
+         end
+  end.
+
+
 packer(#{req_format := <<"mp">>}=Req) ->
   packer(Req, raw);
 packer(Req) ->
@@ -1722,6 +1753,7 @@ packer(Req,Default) ->
   case proplists:get_value(<<"bin">>, QS) of
     <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
     <<"hex">> -> fun(Bin) -> hex:encode(Bin) end;
+    <<"0xhex">> -> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
     <<"raw">> -> fun(Bin) -> Bin end;
     _ -> case Default of
            hex -> fun(Bin) -> hex:encode(Bin) end;
@@ -1779,4 +1811,25 @@ mp2json({Hash1,Hash2},BP) ->
    mp2json_element(Hash1, BP),
    mp2json_element(Hash2, BP)
   ].
+
+encode_recursive(Bin, BinPacker) when is_binary(Bin) ->
+  case utils:is_printable(Bin) of
+    true ->
+      Bin;
+    false ->
+      BinPacker(Bin)
+  end;
+encode_recursive(List, BinPacker) when is_list(List) ->
+  lists:map(fun(E) ->
+                encode_recursive(E,BinPacker)
+            end, List);
+encode_recursive(Map, BinPacker) when is_map(Map) ->
+  maps:fold(
+    fun(K,V,A) ->
+        maps:put(encode_recursive(K,BinPacker),
+                 encode_recursive(V,BinPacker),
+                 A)
+    end, #{}, Map);
+
+encode_recursive(Any, _) -> Any.
 
