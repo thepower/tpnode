@@ -110,6 +110,7 @@ make_binary(Arg) when is_atom(Arg) ->
   atom_to_binary(Arg, utf8);
 
 make_binary(_Arg) ->
+  logger:error("make_binary: unsupported type ~p",[_Arg]),
   throw(badarg).
 
 
