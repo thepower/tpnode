@@ -128,11 +128,11 @@ send(Seq, Payload, #{socket:=Socket, transport:=Transport}=State) when is_map(Pa
   if is_binary(Data) ->
        %F=lists:flatten(io_lib:format("log/vmproto_req_~w.bin",[Seq])),
        %file:write_file(F,Data),
+       Transport:send(Socket, <<Seq:32/big,Data/binary>>),
        ok;
      true ->
        ?LOG_ERROR("Can't encode ~p",[Payload]),
        throw('badarg')
   end,
-  Transport:send(Socket, <<Seq:32/big,Data/binary>>),
   State.
 
