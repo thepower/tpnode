@@ -6,7 +6,7 @@
 -export([start_link/0]).
 
 %% Supervisor callbacks
--export([init/1, check_key/0]).
+-export([init/1, check_key/0, try_restore_db/0]).
 
 %% Helper macro for declaring children of supervisor
 -define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
@@ -43,6 +43,60 @@ check_key() ->
       {error,"privkey broken"}
   end.
 
+try_restore_db() ->
+  ExistsDBPath=filelib:is_dir(utils:dbpath(db)),
+  ExistsLedgerPath=filelib:is_dir(utils:dbpath(mledger)),
+
+  if(ExistsDBPath =/= false) ->
+      {ignore, db_exists};
+    (ExistsLedgerPath =/= false) ->
+      {ignore, mledger_exists};
+    true ->
+      DBPath=application:get_env(tpnode,dbpath,"db"),
+      RPath=DBPath++"/restore",
+      DelAfter=case filelib:is_dir(RPath) of
+        true ->
+          false;
+        false ->
+          case filelib:is_file(DBPath++"/backup.zip") of
+            false ->
+              false;
+            true ->
+              zip:extract(DBPath++"/backup.zip", [{cwd,RPath}]),
+              true
+          end
+      end,
+      Res=case file:consult(RPath++"/backup.txt") of
+        {ok, [#{dir:=Dir}=_Map]} ->
+          DP=RPath++"/"++Dir,
+          BlDir=filelib:is_dir(DP++".blocks"),
+          MLDir=filelib:is_dir(DP++".mledger"),
+          if(BlDir==false) ->
+              {error, no_blocks_db};
+            (MLDir==false) ->
+              {error, no_mledger_db};
+            true ->
+              rockstable:restore(DP++".mledger",utils:dbpath(mledger)),
+              rockstable:restore(DP++".blocks",utils:dbpath(db)),
+              spawn(
+                fun() ->
+                    timer:sleep(10000),
+                    try blockchain_sync ! runsync catch _:_ -> ok end,
+                    timer:sleep(10000+trunc(rand:uniform()*90000)),
+                    try blockchain_sync ! runsync catch _:_ -> ok end
+                end),
+              {ok, DP}
+          end;
+        {error, E} ->
+          {error, E}
+      end,
+      if DelAfter ->
+           file:del_dir_r(RPath);
+         true ->
+           ignore
+      end,
+      Res
+  end.
 
 init([repl_sup]) ->
   Sup={_SupFlags = {simple_one_for_one, 5, 10},
@@ -80,11 +134,15 @@ init([]) ->
                application:set_env(tpnode,vmport,XPort),
                XPort
            end,
+    RestRes=try_restore_db(),
+    logger:info("Restore result ~p",[RestRes]),
 
-    DBPath=application:get_env(tpnode,dbpath,"db"),
-    filelib:ensure_dir([DBPath,"/"]),
+    filelib:ensure_dir( utils:dbpath(db) ),
+    %DBPath=application:get_env(tpnode,dbpath,"db"),
+    %filelib:ensure_dir([DBPath,"/"]),
     ok=mledger:start_db(),
     ok=logs_db:start_db(),
+
     Management=case application:get_env(tpnode,management,undefined) of
                  X when is_list(X) ->
                    X;

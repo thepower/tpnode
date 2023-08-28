@@ -255,6 +255,18 @@ h(<<"GET">>, [<<"node">>, <<"status">>], Req) ->
        }
     });
 
+h(<<"GET">>, [<<"node">>, <<"backup">>], _Req) ->
+  case tpnode_backup:make_backup() of
+    {OkIg, _} when OkIg==ok orelse OkIg==ignore ->
+      {ok, Bin} = tpnode_backup:get_backup(),
+      {200,
+       [{<<"content-type">>,<<"application/zip">>}],
+       Bin
+      };
+    _ ->
+      {400, [], #{error=>"backup returned unexpected result"}}
+  end;
+
 h(<<"GET">>, [<<"node">>, <<"tpicpeers">>], _Req) ->
   {200,
    [{<<"content-type">>,<<"text/plain">>}],

@@ -62,6 +62,22 @@ handle_call({open, DBPath, Args}, _Form, #{dbs:=DBS}=State) ->
       end
   end;
 
+handle_call({backup, DBPath, BackupPath}, _From, #{dbs:=DBS}=State) ->
+  case maps:is_key(DBPath, DBS) of
+    true ->
+      {ok, Handler} = maps:get(DBPath, DBS),
+      {ok, Bck1} = rocksdb:open_backup_engine(BackupPath),
+      Res = try
+              rocksdb:create_new_backup(Bck1, Handler)
+            catch Ec:Ee ->
+                    {error, {Ec,Ee}}
+            end,
+      ok=rocksdb:close_backup_engine(Bck1),
+      {reply, Res, State};
+    false ->
+      {reply, {error, db_is_not_opened}, State}
+  end;
+
 handle_call({close, DBPath}, _Form, #{dbs:=DBS}=State) ->
     case maps:is_key(DBPath, DBS) of
         true ->
