@@ -208,7 +208,7 @@ evm_embedded_abicall_test() ->
               248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
       Addr1=naddress:construct_public(1, OurChain, 1),
 
-      {ok,Bin} = file:read_file("examples/evm_builtin/build/builtinFunc.hex"),
+      {ok,Bin} = file:read_file("examples/evm_builtin/build/builtinFunc.bin"),
       Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
 
       {done,{return,Code2},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
@@ -281,7 +281,9 @@ evm_embedded_abicall_test() ->
           end
       end(),
 
-      io:format("dec ~p~n",[contract_evm_abi:decode_abi(D,FABI)]),
+      io:format("2dec ~p~n",[D]),
+      io:format("ABI ~p~n",[FABI]),
+      io:format("dec ~p~n",[catch contract_evm_abi:decode_abi(D,FABI)]),
       Events=contract_evm_abi:sig_events(ABI),
 
       DoLog = fun (BBin) ->

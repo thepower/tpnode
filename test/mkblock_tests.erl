@@ -24,23 +24,25 @@ tx2_patch_test() ->
            fun(mychain) ->
                2;
               (settings) ->
-               #{
-                 chains => [2],
-                 globals => #{<<"patchsigs">> => 2},
-                 keys =>
-                 #{ <<"node1">> => tpecdsa:calc_pub(Pvt1,true),
-                    <<"node2">> => tpecdsa:calc_pub(Pvt2,true),
-                    <<"node3">> => tpecdsa:calc_pub(Pvt3,true),
-                    <<"node4">> => tpecdsa:calc_pub(Pvt4,true)
-                  },
-                 nodechain => #{<<"node1">> => 0,
-                                <<"node2">> => 0,
-                                <<"node3">> => 0},
-                 <<"current">> => #{
-                     <<"allocblock">> =>
-                     #{<<"block">> => 2, <<"group">> => 10, <<"last">> => 0}
-                    }
-                };
+               settings:upgrade(
+                 #{
+                   chains => [2],
+                   globals => #{<<"patchsigs">> => 2},
+                   keys =>
+                   #{ <<"node1">> => tpecdsa:calc_pub(Pvt1,true),
+                      <<"node2">> => tpecdsa:calc_pub(Pvt2,true),
+                      <<"node3">> => tpecdsa:calc_pub(Pvt3,true),
+                      <<"node4">> => tpecdsa:calc_pub(Pvt4,true)
+                    },
+                   nodechain => #{<<"node1">> => 0,
+                                  <<"node2">> => 0,
+                                  <<"node3">> => 0},
+                   <<"current">> => #{
+                                      <<"allocblock">> =>
+                                      #{<<"block">> => 2, <<"group">> => 10, <<"last">> => 0}
+                                     }
+                  }
+                );
               ({valid_timestamp, TS}) ->
                abs(os:system_time(millisecond)-TS)<3600000
                orelse
@@ -116,23 +118,24 @@ tx2_test() ->
            fun(mychain) ->
                2;
               (settings) ->
-               #{
-                 chains => [2],
-                 globals => #{<<"patchsigs">> => 2},
-                 keys =>
-                 #{ <<"node1">> => crypto:hash(sha256, <<"node1">>),
-                    <<"node2">> => crypto:hash(sha256, <<"node2">>),
-                    <<"node3">> => crypto:hash(sha256, <<"node3">>),
-                    <<"node4">> => crypto:hash(sha256, <<"node4">>)
-                  },
-                 nodechain => #{<<"node1">> => 0,
-                                <<"node2">> => 0,
-                                <<"node3">> => 0},
-                 <<"current">> => #{
-                     <<"allocblock">> =>
-                     #{<<"block">> => 2, <<"group">> => 10, <<"last">> => 0}
-                    }
-                };
+               settings:upgrade(
+                 #{
+                   chains => [2],
+                   globals => #{<<"patchsigs">> => 2},
+                   keys =>
+                   #{ <<"node1">> => crypto:hash(sha256, <<"node1">>),
+                      <<"node2">> => crypto:hash(sha256, <<"node2">>),
+                      <<"node3">> => crypto:hash(sha256, <<"node3">>),
+                      <<"node4">> => crypto:hash(sha256, <<"node4">>)
+                    },
+                   nodechain => #{<<"node1">> => 0,
+                                  <<"node2">> => 0,
+                                  <<"node3">> => 0},
+                   <<"current">> => #{
+                                      <<"allocblock">> =>
+                                      #{<<"block">> => 2, <<"group">> => 10, <<"last">> => 0}
+                                     }
+                  });
               ({valid_timestamp, TS}) ->
                abs(os:system_time(millisecond)-TS)<3600000
                orelse
@@ -189,6 +192,7 @@ alloc_addr2_test() ->
            fun(mychain) ->
                0;
               (settings) ->
+               settings:upgrade(
                #{chain => #{0 =>
                             #{blocktime => 10,
                               minsig => 2,
@@ -210,7 +214,7 @@ alloc_addr2_test() ->
                      <<"allocblock">> =>
                      #{<<"block">> => 2, <<"group">> => 10, <<"last">> => 0}
                     }
-                };
+                });
               ({endless, _Address, _Cur}) ->
                false;
               (Other) ->
@@ -257,13 +261,8 @@ alloc_addr_test() ->
            fun(mychain) ->
                0;
               (settings) ->
-               #{chain => #{0 =>
-                            #{blocktime => 10,
-                              minsig => 2,
-                              nodes => [<<"node1">>, <<"node2">>, <<"node3">>],
-                              <<"allowempty">> => 0}
-                           },
-                 chains => [0],
+               settings:upgrade(
+               #{chains => [0],
                  globals => #{<<"patchsigs">> => 2},
                  keys =>
                  #{ <<"node1">> => crypto:hash(sha256, <<"node1">>),
@@ -278,7 +277,7 @@ alloc_addr_test() ->
                      <<"allocblock">> =>
                      #{<<"block">> => 2, <<"group">> => 10, <<"last">> => 0}
                     }
-                };
+                });
               ({endless, _Address, _Cur}) ->
                false;
               (Other) ->
@@ -326,6 +325,7 @@ contract_test() ->
            OurChain=150,
            GetSettings=fun(mychain) -> OurChain;
                           (settings) ->
+                           settings:upgrade(
                            #{
                              chains => [OurChain],
                              chain =>
@@ -371,7 +371,7 @@ contract_test() ->
                                      <<"node3">>=><<128, 1, 64, 0, OurChain, 0, 0, 103>>
                                     }
                                 }
-                            };
+                            });
                           ({endless, _Address, _Cur}) ->
                            false;
                           ({valid_timestamp, TS}) ->
@@ -493,14 +493,9 @@ mkblock_tx2_self_test() ->
            GetSettings=fun(mychain) ->
                            OurChain;
                           (settings) ->
+                           settings:upgrade(
                            #{
                              chains => [0, 1],
-                             chain =>
-                             #{0 =>
-                               #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
-                               1 =>
-                               #{blocktime => 10, minsig => 1}
-                              },
                              globals => #{<<"patchsigs">> => 2},
                              keys =>
                              #{
@@ -528,7 +523,7 @@ mkblock_tx2_self_test() ->
                                         }
                                     }
                                 }
-                            };
+                            });
                           ({endless, _Address, _Cur}) ->
                            false;
                           ({valid_timestamp, TS}) ->
@@ -601,8 +596,17 @@ mkblock_tx2_self_test() ->
             },
            maps:fold(
              fun(Addr, Bal, Acc) ->
-                 io:format("Addr ~p~n   expected ~p~n    actual ~p~n",
-                           [Addr,Bal,maps:get(amount,maps:get(Addr,NewBals))]),
+                 case Bal==maps:get(amount,maps:get(Addr,NewBals,#{amount=>#{}})) of
+                   true ->
+                     io:format("Addr ~p~n   expected = actual ~p~n",
+                               [Addr,maps:get(amount,maps:get(Addr,NewBals))]);
+                   false ->
+                     io:format("Addr ~p~n   expected ~p~n    actual ~p~n",
+                               [Addr,Bal,maps:get(amount,maps:get(Addr,NewBals,#{amount=>#{}}))])
+                 end,Acc
+             end,[], FinalBals),
+           maps:fold(
+             fun(Addr, Bal, Acc) ->
                  [?assertMatch(#{Addr := #{amount:=Bal}}, maps:with([Addr],NewBals))|Acc]
              end, [], FinalBals)
        end,
@@ -619,14 +623,9 @@ mkblock_tx2_test() ->
            GetSettings=fun(mychain) ->
                            OurChain;
                           (settings) ->
+                           settings:upgrade(
                            #{
-                             chains => [0, 1, OurChain+2],
-                             chain =>
-                             #{0 =>
-                               #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
-                               1 =>
-                               #{blocktime => 10, minsig => 1}
-                              },
+                             chains => [0, 1, OurChain+2, OurChain],
                              globals => #{<<"patchsigs">> => 2},
                              keys =>
                              #{
@@ -660,7 +659,7 @@ mkblock_tx2_test() ->
                                         }
                                     }
                                 }
-                            };
+                            });
                           ({endless, _Address, _Cur}) ->
                            false;
                           ({valid_timestamp, TS}) ->
@@ -885,6 +884,7 @@ mkblock_test() ->
            GetSettings=fun(mychain) ->
                            OurChain;
                           (settings) ->
+                           settings:upgrade(
                            #{
                              chains => [0, 1, OurChain, OurChain+2],
                              chain =>
@@ -926,7 +926,7 @@ mkblock_test() ->
                                         }
                                     }
                                 }
-                            };
+                            });
                           ({endless, _Address, _Cur}) ->
                            false;
                           ({valid_timestamp, TS}) ->
@@ -1189,8 +1189,8 @@ xchain_test() ->
                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>>,
            C2N2= <<2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
                    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2>>,
-           InitSet=#{
-             chains => [5, 6],
+           InitSet=settings:upgrade(#{
+             chains => [5, 6, OurChain, OurChain+1],
              chain =>
              #{5 => #{blocktime => 5, minsig => 2, <<"allowempty">> => 0},
                6 => #{blocktime => 10, minsig => 1}
@@ -1228,7 +1228,7 @@ xchain_test() ->
                         }
                     }
                 }
-            },
+            }),
            put(ch5set,InitSet),
            put(ch6set,InitSet),
            GetSettings5=fun(mychain) -> OurChain;
@@ -1657,6 +1657,7 @@ free_fee_test() ->
            GetSettings=fun(mychain) ->
                            OurChain;
                           (settings) ->
+                           settings:upgrade(
                            #{
                              chains => [0, 1],
                              chain =>
@@ -1703,7 +1704,7 @@ free_fee_test() ->
                                         }
                                     }
                                 }
-                            };
+                            });
                           ({endless, _Address, _Cur}) ->
                            false;
                           ({valid_timestamp, TS}) ->

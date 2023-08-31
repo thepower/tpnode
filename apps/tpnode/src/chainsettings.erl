@@ -210,10 +210,10 @@ contacts(Name) ->
     Value when is_list(Value) ->
       Value;
     undefined ->
-      chainsettings:by_path([<<"contacts">>,<<"default">>,Name]);
+      chainsettings:by_path([<<"contacts">>,<<"default">>,Name],default);
     Any ->
       logger:notice("Error value for contact ~p in config: ~p",[Name,Any]),
-      chainsettings:by_path([<<"contacts">>,<<"default">>,Name])
+      chainsettings:by_path([<<"contacts">>,<<"default">>,Name],default)
   end,
   if R==#{} ->
        [];

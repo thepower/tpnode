@@ -97,6 +97,10 @@ make_meta1(Patch, MetaInfo, Acc) when is_binary(Patch) ->
 make_meta1([], _, Acc) ->
   Acc;
 
+make_meta1([#{"t":=T,"p":=P,"v":=V}|Rest], MetaInfo, Acc) ->
+  make_meta1([#{<<"t">>=>T,<<"p">>=>P,<<"v">>=>V}|Rest], MetaInfo, Acc);
+
+
 make_meta1([#{<<"t">>:=<<"list_",_/binary>>,<<"p">>:=Path,<<"v">>:=_}|Rest], MetaInfo, Acc) ->
   Acc2=maps:fold(
          fun(K,V,Acc1) ->
@@ -313,6 +317,10 @@ change(Action, Path, Value, M) when is_list(Path) ->
     change(Action, Path, Value, M, Path).
 
 patch1([], M) -> M;
+
+patch1([#{"t":=Action, "p":=K, "v":=V}|Settings], M) ->
+    M1=change(action(Action), K, V, M),
+    patch1(Settings, M1);
 
 patch1([#{<<"t">>:=Action, <<"p">>:=K, <<"v">>:=V}|Settings], M) ->
     M1=change(action(Action), K, V, M),

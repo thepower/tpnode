@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0, pick/1, send/2, lookup_trans/1, add_trans/2, peers/0,
+-export([start_link/0, start_link/1, pick/1, send/2, lookup_trans/1, add_trans/2, peers/0,
         inc_usage/2,add_peers/1]).
 
 %% ------------------------------------------------------------------
@@ -20,8 +20,11 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
+start_link(Opts) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
+
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [#{}], []).
 
 pick(PubKey) ->
   gen_server:call(?MODULE, {pick, PubKey}).
@@ -61,15 +64,16 @@ inc_usage(Stream, Service) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init(_Args) ->
+init([Opts]) ->
   erlang:send_after(1000,self(), init_peers),
   erlang:send_after(3000,self(), init_peers),
   ets:new(tpic2_trans,[set,public,named_table]),
   ets:new(tpic2_usage,[set,public,named_table]),
   {ok, #{
-     peers=>#{},
-     cleanup=>erlang:send_after(30000,self(), cleanup)
-    }
+         opts=>Opts,
+         peers=>#{},
+         cleanup=>erlang:send_after(30000,self(), cleanup)
+        }
   }.
 
 handle_call({peer, PubKey, Msg}, From, State) ->
@@ -108,6 +112,30 @@ handle_info(cleanup, #{cleanup:=ClTmr,peers:=P}=State) ->
      cleanup=>erlang:send_after(30000,self(), cleanup)
     }
   };
+
+handle_info(init_peers, State=#{opts:=#{get_peers:=GP}=Opts}) when is_function(GP,1) ->
+  try
+    GPeers=GP(Opts),
+    MyKey=nodekey:get_pub(),
+    State1=lists:foldl(
+             fun({PubKey,_},Acc) when MyKey==PubKey ->
+                 Acc;
+                ({PubKey,IPS},Acc) ->
+                 {PID, Acc1}=get_conn(PubKey, Acc),
+                 lists:foreach(fun({IP,Port}) ->
+                                   gen_server:call(PID,{add,IP,Port})
+                               end, IPS),
+                 Acc1
+             end, State, GPeers),
+    {noreply, State1}
+  catch _:_ ->
+          Peers=maps:get(peers,application:get_env(tpnode,tpic,#{}),[]),
+          lists:foreach(fun({Host,Port}) ->
+                            tpic2_client:start(Host,Port,#{})
+                        end, Peers),
+          {noreply, State}
+  end;
+
 
 handle_info(init_peers, State) ->
   try

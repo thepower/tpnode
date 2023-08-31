@@ -1,5 +1,5 @@
 -module(tpic2).
--export([childspec/0,certificate/0,cert/2,extract_cert_info/1, verfun/3,
+-export([childspec/1,childspec/0,certificate/0,cert/2,extract_cert_info/1, verfun/3,
         node_addresses/0, alloc_id/0]).
 -export([peers/0,peerstreams/0,cast/2,cast/3,call/2,call/3,cast_prepare/1]).
 -include_lib("public_key/include/public_key.hrl").
@@ -211,7 +211,10 @@ certificate() ->
   ].
 
 childspec() ->
-  Cfg=application:get_env(tpnode,tpic,#{}),
+  childspec(#{}).
+
+childspec(Opts) ->
+  Cfg=application:get_env(tpnode,tpic,maps:with([port],Opts)),
   Port=maps:get(port,Cfg,40000),
   HTTPOpts = fun(E) -> #{
                          connection_type => supervisor,
@@ -224,7 +227,7 @@ childspec() ->
   tpic2_client:childspec() ++
   [
    {tpic2_cmgr,
-    {tpic2_cmgr,start_link, []},
+    {tpic2_cmgr,start_link, [Opts]},
     permanent,20000,worker,[]
    },
    ranch:child_spec(

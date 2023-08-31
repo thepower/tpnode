@@ -53,6 +53,7 @@ init_per_suite(Config) ->
 %%    io:fwrite("w ~p", [os:cmd("which erl")]),
     file:make_symlink("../../../../db", "db"),
     application:ensure_all_started(inets),
+    application:ensure_all_started(gun),
     ok = wait_for_testnet(60),
     %cover_start(),
 %%    Config ++ [{processes, Pids}].
@@ -981,6 +982,28 @@ transaction_test(_Config) ->
     ?assertMatch(#{<<"res">> := <<"ok">>}, LStatus),
     logger("lstore transaction status: ~p ~n", [LStatus]),
 
+    fun(P,E) ->
+        {ok,LStore}=tpapi2:get_lstore(get_base_url(),naddress:decode(Wallet),P),
+        logger("lstore read ~p~n",[LStore]),
+        LStore=E
+    end([<<"a">>,<<"b">>],98),
+
+
+    LdTxId = make_lstore_del_transaction(Wallet),
+    logger("lstore del txid: ~p ~n", [LdTxId]),
+    {ok, LdStatus, _} = api_get_tx_status(LdTxId),
+    ?assertMatch(#{<<"res">> := <<"ok">>}, LdStatus),
+    logger("lstore del transaction status: ~p ~n", [LdStatus]),
+
+    fun(P) ->
+        {ok,LStore}=tpapi2:get_lstore(get_base_url(),naddress:decode(Wallet),P),
+        logger("lstore read ~p~n",[LStore])
+    end([<<"a">>]),
+    fun(P) ->
+        {ok,LStore}=tpapi2:get_lstore(get_base_url(),naddress:decode(Wallet),P),
+        logger("lstore read ~p~n",[LStore])
+    end([<<"b">>]),
+
     % send money from endless to Wallet2
     Message = <<"preved from common test">>,
     TxId3 = make_transaction(Wallet, Wallet2, Cur, Amount, Message),
@@ -1044,6 +1067,29 @@ transaction_test(_Config) ->
 
     dump_testnet_state().
 
+make_lstore_del_transaction(From) ->
+  Node = get_node(get_default_nodename()),
+  Seq = get_sequence(Node, From),
+  logger("seq for wallet ~p is ~p ~n", [From, Seq]),
+  Tx = tx:construct_tx(
+         #{
+         kind => lstore,
+         payload => [ ],
+         patches => [
+                     #{<<"t">>=><<"delete">>, <<"p">>=>[<<"b">>,<<"bin">>], <<"v">> =>null},
+                     #{<<"t">>=><<"delete">>, <<"p">>=>[<<"a">>], <<"v">> =>null}
+                    ],
+         ver => 2,
+         t => os:system_time(millisecond),
+         seq=> Seq + 1,
+         from => naddress:decode(From)
+        }
+  ),
+  SignedTx = tx:sign(Tx, get_wallet_priv_key()),
+  Res = api_post_transaction(tx:pack(SignedTx)),
+  maps:get(<<"txid">>, Res, unknown).
+
+
 make_lstore_transaction(From) ->
   Node = get_node(get_default_nodename()),
   Seq = get_sequence(Node, From),
@@ -1053,6 +1099,15 @@ make_lstore_transaction(From) ->
          kind => lstore,
          payload => [ ],
          patches => [
+                     #{<<"t">>=><<"set">>, <<"p">>=>[<<"b">>,<<"bin">>], <<"v">>=><<1,2,3>>},
+                     #{<<"t">>=><<"set">>, <<"p">>=>[<<"b">>,<<"txtbin">>], <<"v">>=><<"123">>},
+                     #{<<"t">>=><<"set">>, <<"p">>=>[<<"b">>,<<"integer">>], <<"v">>=>123},
+                     #{<<"t">>=><<"set">>, <<"p">>=>[<<"b">>,<<"true">>], <<"v">>=>true},
+                     #{<<"t">>=><<"set">>, <<"p">>=>[<<"b">>,<<"false">>], <<"v">>=>false},
+                     #{<<"t">>=><<"set">>, <<"p">>=>[<<"b">>,<<"null">>], <<"v">>=>null},
+                     #{<<"t">>=><<"list_add">>, <<"p">>=>[<<"b">>,<<"list">>], <<"v">>=><<"item1">>},
+                     #{<<"t">>=><<"list_add">>, <<"p">>=>[<<"b">>,<<"list">>], <<"v">>=><<"item2">>},
+                     #{<<"t">>=><<"list_add">>, <<"p">>=>[<<"b">>,<<"list">>], <<"v">>=><<"item3">>},
                      #{<<"t">>=><<"set">>, <<"p">>=>[<<"a">>,<<"b">>], <<"v">>=>$b},
                      #{<<"t">>=><<"set">>, <<"p">>=>[<<"a">>,<<"c">>], <<"v">>=>$c}
                     ],

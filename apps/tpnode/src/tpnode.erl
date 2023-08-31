@@ -56,6 +56,41 @@ reload() ->
             application:set_env(tpnode, K, V)
         end, Config2),
 
+      Proc=fun(EEnv,OEnv,Fun) ->
+               case application:get_env(tpnode, EEnv) of
+                 {ok, _} ->
+                   ok;
+                 undefined ->
+                   case os:getenv(OEnv) of
+                     false ->
+                       ignore;
+                     MVal ->
+                       case Fun(MVal) of
+                         {ok, Val1} ->
+                           application:set_env(tpnode, EEnv, Val1);
+                         Any ->
+                           {error, Any}
+                       end
+                   end
+               end
+           end,
+      Proc(hostname, "TPNODE_HOSTNAME", fun(H) -> {ok, H} end),
+      Proc(connect_chain, "TPNODE_CONNECT_CHAIN",
+           fun(Val) ->
+               {ok, list_to_integer(Val)}
+           end),
+      Proc(tpic, "TPNODE_TPIC_PORT",
+           fun(Val) ->
+               {ok, #{peers => [],port => list_to_integer(Val)}}
+           end),
+      Proc(privkey, "TPNODE_PRIVKEY",
+           fun(Val) ->
+               case tpecdsa:keytype(hex:decode(Val)) of
+                 {priv,ed25519} -> {ok, Val};
+                 _ -> badkey
+               end
+           end),
+
       logger_reconfig(),
       application:unset_env(tpnode, pubkey),
       application:unset_env(tpnode,privkey_dec);

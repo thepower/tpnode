@@ -30,6 +30,7 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun, _Workers) ->
     Test=fun(LedgerPID) ->
              GetSettings=fun(mychain) -> OurChain;
                             (settings) ->
+                             settings:upgrade(
                              #{
                                chains => [OurChain],
                                keys =>
@@ -79,7 +80,7 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun, _Workers) ->
                                        <<"node3">>=><<128, 1, 64, 0, OurChain, 0, 0, 103>>
                                       }
                                   }
-                              };
+                              });
                             ({endless, _Address, _Cur}) ->
                              false;
                             (entropy) -> crypto:hash(sha256,<<1,2,3>>);
@@ -234,6 +235,7 @@ xchain_test_callingblock() ->
   Test=fun(LedgerPID) ->
            GetSettings=fun(mychain) -> Chain2;
                           (settings) ->
+                           settings:upgrade(
                            #{
                              chains => [Chain1,Chain2],
                              keys =>
@@ -283,7 +285,7 @@ xchain_test_callingblock() ->
                                      <<"node3">>=><<128, 1, 64, 0, Chain2, 0, 0, 103>>
                                     }
                                 }
-                            };
+                            });
                           ({endless, _Address, _Cur}) ->
                            false;
                           ({valid_timestamp, TS}) ->

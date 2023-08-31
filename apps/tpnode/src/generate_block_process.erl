@@ -441,6 +441,8 @@ try_process([{TxID, #{
                     created=>[],
                     changed=>[],
                     get_addr=>GetAddr,
+                    global_acc=>Acc,
+                    log=>[],
                     entropy=>maps:get(entropy,Acc,<<>>),
                     mean_time=>maps:get(mean_time,Acc,0)
                    },

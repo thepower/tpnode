@@ -165,10 +165,22 @@ init([]) ->
                     ]
                 end,
 
+
+
     Discovery=#{name=>discovery, services=>MandatoryServices},
 
     Services=case application:get_env(tpnode,replica,false) of
                true -> %slave node
+                 case application:get_env(tpnode,upstream, undefined) of
+                   undefined ->
+                     case application:get_env(tpnode,connect_chain) of
+                       {ok, Number} ->
+                         Upstream=tpnode_peerfinder:check_peers(tpnode_peerfinder:propose_seed(Number,[]),2),
+                         application:set_env(tpnode,upstream,Upstream);
+                       _ -> ok
+                     end;
+                   _ -> ok
+                 end,
                  [
                   { tpnode_repl, {tpnode_repl, start_link, []}, permanent, 5000, worker, []},
                   { repl_sup,
@@ -183,6 +195,26 @@ init([]) ->
                          _ ->
                            []
                        end,
+                 GetTPICPeers=fun(_) ->
+                                  SP=try
+                                       {ok,[DBPeers]}=file:consult(utils:dbpath(peers)),
+                                       DBPeers
+                                     catch _:_ ->
+                                             []
+                                     end,
+                                  if(SP==[]) ->
+                                      case application:get_env(tpnode,connect_chain,undefined) of
+                                        I when is_integer(I) ->
+                                          TPIC_Port=maps:get(port,application:get_env(tpnode,tpic,#{}),1800),
+                                          tpnode_peerfinder:propose_tpic(I,TPIC_Port);
+                                        _ ->
+                                          []
+                                      end;
+                                    true ->
+                                      SP
+                                  end
+                              end,
+                 TpicOpts=#{get_peers=>GetTPICPeers},
                  [
                   { blockchain_sync, {blockchain_sync, start_link, []}, permanent, 5000, worker, []},
                   { synchronizer, {synchronizer, start_link, []}, permanent, 5000, worker, []},
@@ -193,7 +225,7 @@ init([]) ->
                   { chainkeeper, {chainkeeper, start_link, []}, permanent, 5000, worker, []}
                   |VM_CS]
                  ++ xchain:childspec()
-                 ++ tpic2:childspec()
+                 ++ tpic2:childspec(TpicOpts)
                  ++ tpnode_vmproto:childspec(VMHost, VMPort)
              end,
 

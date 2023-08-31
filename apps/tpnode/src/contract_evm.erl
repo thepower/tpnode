@@ -3,7 +3,8 @@
 -behaviour(smartcontract2).
 
 -export([deploy/5, handle_tx/5, getters/0, get/3, info/0, call/3]).
--export([encode_tx/2]).
+-export([encode_tx/2,decode_tx/2]).
+-export([tx_abi/0]).
 -export([transform_extra/1]).
 
 info() ->
@@ -59,7 +60,11 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
                        maps:get({Addr,code},Ex0,<<>>);
                      false ->
                        GotCode=GetFun({addr,binary:encode_unsigned(Addr),code}),
-                       {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)}
+                       if is_binary(GotCode) ->
+                            {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)};
+                          GotCode==undefined ->
+                            {ok, <<>>, maps:put({Addr,code},<<>>,Ex0)}
+                       end
                    end
                end,
   GetBalFun = fun(Addr,Ex0) ->
@@ -343,7 +348,11 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                        maps:get({Addr,code},Ex0,<<>>);
                      false ->
                        GotCode=GetFun({addr,binary:encode_unsigned(Addr),code}),
-                       {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)}
+                       if is_binary(GotCode) ->
+                            {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)};
+                          GotCode==undefined ->
+                            {ok, <<>>, maps:put({Addr,code},<<>>,Ex0)}
+                       end
                    end
                end,
   GetBalFun = fun(Addr,Ex0) ->
@@ -383,6 +392,8 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                    end
                end,
   BI=fun
+       (chainid, #{stack:=Stack}=BIState) ->
+         BIState#{stack=>[16#c0de00000000|Stack]};
        (number,#{stack:=BIStack}=BIState) ->
          #{height:=PHei} = GetFun(parent_block),
          BIState#{stack=>[PHei+1|BIStack]};
@@ -626,21 +637,88 @@ getters() ->
 get(_,_,_Ledger) ->
   throw("unknown method").
 
-encode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig}=Tx,_Opts) ->
-  FABI=[{<<>>,
-       {tuple,[{<<"kind">>,uint256},
-               {<<"from">>,address},
-               {<<"to">>,address},
-               {<<"t">>,uint256},
-               {<<"seq">>,uint256},
-               {<<"call">>,
-                {array,{tuple,[{<<"func">>,string},
-                               {<<"args">>,{array,uint256}}]}}},
-               {<<"signatures">>,
-                {array,{tuple,[{<<"timestamp">>,uint256},
-                               {<<"pubkey">>,bytes},
-                               {<<"rawkey">>,bytes},
-                               {<<"signature">>,bytes}]}}}]}}],
+tx_abi() ->
+  [{<<"tx">>,
+    {tuple,[{<<"kind">>,uint256},
+            {<<"from">>,address},
+            {<<"to">>,address},
+            {<<"t">>,uint256},
+            {<<"seq">>,uint256},
+            {<<"call">>,
+             {array,{tuple,[{<<"func">>,string},
+                            {<<"args">>,{array,uint256}}]}}},
+            {<<"payload">>,
+             {array,{tuple, [
+                             {<<"purpose">>,uint256},
+                             {<<"cur">>,string},
+                             {<<"amount">>,uint256}
+                            ]}}},
+            {<<"signatures">>,
+             {array,{tuple,[{<<"raw">>,bytes},
+                            {<<"timestamp">>,uint256},
+                            {<<"pubkey">>,bytes},
+                            {<<"rawkey">>,bytes},
+                            {<<"signature">>,bytes}
+                           ]}}}
+           ]}
+   }].
+
+decode_tx(BinTx,_Opts) ->
+  FABI=tx_abi(),
+  Dec=contract_evm_abi:decode_abi(BinTx,FABI),
+  case Dec of
+    [{_,Proplist}] ->
+      {Ver,K}=tx:decode_kind(proplists:get_value(<<"kind">>,Proplist)),
+      From=proplists:get_value(<<"from">>,Proplist),
+      To=proplists:get_value(<<"to">>,Proplist),
+      T=proplists:get_value(<<"t">>,Proplist),
+      Seq=proplists:get_value(<<"seq">>,Proplist),
+      Call=proplists:get_value(<<"call">>,Proplist),
+      Payload0=proplists:get_value(<<"payload">>,Proplist),
+      Signatures0=proplists:get_value(<<"signatures">>,Proplist),
+
+      Payload=lists:map(
+                fun([{<<"purpose">>,Purp},{<<"cur">>,Token},{<<"amount">>,Am}]) ->
+                    #{amount => Am, cur => Token, purpose => tx:decode_purpose(Purp)}
+                end,Payload0),
+      Signatures=lists:foldl(
+                   fun(PL,S) ->
+                       case proplists:get_value(<<"raw">>,PL) of
+                         X when is_binary(X) ->
+                           [X|S];
+                         _ ->
+                           S
+                       end
+                   end, [], Signatures0),
+      T0=#{
+           ver=>Ver,
+           kind=>K,
+           from=>From,
+           to=>To,
+           t=>T,
+           seq=>Seq,
+           payload=>Payload
+          },
+
+      T1=case Call of
+           [[{<<"func">>,F},{<<"args">>,A}]] ->
+             T0#{call=>#{function=>binary_to_list(F), args=>A}};
+           _ ->
+             T0
+         end,
+
+      io:format("Call1 ~p~n",[T1]),
+      TC=tx:construct_tx(T1),
+      io:format("Call1 ~p~n",[TC]),
+      TC#{'sig' => Signatures};
+    _ ->
+      error
+  end.
+
+
+
+encode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig,payload:=RPayload}=Tx,_Opts) ->
+  FABI=tx_abi(),
   K=tx:encode_kind(Ver,Kind),
   Call=case Tx of
          #{call:=#{function:=F, args:=A}} ->
@@ -648,12 +726,17 @@ encode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig}=Tx,_Op
          _ ->
            []
        end,
+  Payload=lists:map(
+            fun(#{amount := Am, cur := Token, purpose := Purp}) ->
+                [tx:encode_purpose(Purp),Token,Am]
+            end,RPayload),
   Signatures=lists:foldl(
         fun(E,S) ->
             #{signature:=SigS,extra:=Xt}=bsig:unpacksig(E),
             PK=proplists:get_value(pubkey,Xt,<<>>),
             {_,RPK}=tpecdsa:cmp_pubkey(PK),
             [[
+              E,
               proplists:get_value(timestamp,Xt,0),
               PK,
               RPK,
@@ -664,7 +747,7 @@ encode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig}=Tx,_Op
   %R=tx:verify(Tx,[nocheck_ledger]),
   %io:format("~p~n",[R]),
   %contract_evm_abi:decode_abi(Bin,FABI).
-  contract_evm_abi:encode_abi([[K, From, To, T, Seq, Call, Signatures]],FABI).
+  contract_evm_abi:encode_abi([[K, From, To, T, Seq, Call, Payload, Signatures]],FABI).
 
 
 
