@@ -270,6 +270,7 @@ try_process([{TxID, #{
               new_settings:=SetState,
               get_settings:=GetFun,
               success:=Success}=Acc) ->
+  ?LOG_INFO("Processing local ls =====[ ~s ]=======",[TxID]),
   try
     Verify=try
              #{sigverify:=#{valid:=SigValid}}=Tx,
@@ -288,7 +289,6 @@ try_process([{TxID, #{
 
     NewF4=maps:remove(keep, NewF),
     Set1=mbal:get(lstore, NewF4),
-
     Set2=settings:patch({TxID, Tx}, Set1),
     NewF5=mbal:put(lstore, Set2, NewF4),
 
@@ -1219,24 +1219,33 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                    },
 
       GetFun1 = fun ({settings, Path}) ->
-                    settings:get(Path, SetState);
+                      settings:get(Path, SetState);
+                    ({lstore,ReqAddr,Path}) ->
+                      UBal=case maps:is_key(ReqAddr,Addresses) of
+                             true ->
+                               maps:get(ReqAddr, Addresses);
+                             false ->
+                               GetAddr(ReqAddr)
+                           end,
+                      LStore=mbal:get(lstore,UBal),
+                      settings:get(Path, LStore);
                     ({addr,ReqAddr,code}) ->
-                    case maps:is_key(ReqAddr,Addresses) of
-                      true ->
-                        mbal:get(code,maps:get(ReqAddr, Addresses));
-                      false ->
-                        mbal:get(code,GetAddr(ReqAddr))
-                    end;
+                      case maps:is_key(ReqAddr,Addresses) of
+                        true ->
+                          mbal:get(code,maps:get(ReqAddr, Addresses));
+                        false ->
+                          mbal:get(code,GetAddr(ReqAddr))
+                      end;
                     ({addr,ReqAddr,storage,Key}=Request) ->
-                    case maps:is_key(ReqAddr,Addresses) of
-                      true ->
-                        AddrStor=mbal:get(state,maps:get(ReqAddr, Addresses)),
-                        maps:get(Key,AddrStor,<<>>);
-                      false ->
-                        GetFun(Request)
-                    end;
+                      case maps:is_key(ReqAddr,Addresses) of
+                        true ->
+                          AddrStor=mbal:get(state,maps:get(ReqAddr, Addresses)),
+                          maps:get(Key,AddrStor,<<>>);
+                        false ->
+                          GetFun(Request)
+                      end;
                     (Other) ->
-                    GetFun(Other)
+                      GetFun(Other)
                 end,
 
       {LedgerPatches, TXs, GasLeft, OpaqueState2} =

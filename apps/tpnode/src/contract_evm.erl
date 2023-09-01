@@ -5,6 +5,7 @@
 -export([deploy/5, handle_tx/5, getters/0, get/3, info/0, call/3]).
 -export([encode_tx/2,decode_tx/2]).
 -export([tx_abi/0]).
+-export([enc_settings1/1]).
 -export([transform_extra/1]).
 
 info() ->
@@ -34,25 +35,6 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
           Map when is_map(Map) -> Map;
           _ -> #{}
         end,
-  Functions=#{
-              16#AFFFFFFFFF000000 => fun(_) ->
-                                         MT=maps:get(mean_time,Opaque,0),
-                                         Ent=case maps:get(entropy,Opaque,<<>>) of
-                                               Ent1 when is_binary(Ent1) ->
-                                                 Ent1;
-                                               _ ->
-                                                 <<>>
-                                             end,
-                                         {1,<<MT:256/big,Ent/binary>>}
-                                     end,
-              16#AFFFFFFFFF000001 => fun(Bin) ->
-                                         {1,list_to_binary(
-                                              lists:reverse(
-                                                binary_to_list(Bin)
-                                               )
-                                             )}
-                                     end
-            },
   GetCodeFun = fun(Addr,Ex0) ->
                    io:format(".: Get code for  ~p~n",[Addr]),
                    case maps:is_key({Addr,code},Ex0) of
@@ -90,7 +72,7 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
   EvalRes = eevm:eval(<<Code/binary,ACD/binary>>,
                       State,
                       #{
-                        extra=>Opaque,
+                        extra=>Opaque#{getfun=>GetFun, tx=>Tx},
                         logger=>fun logger/4,
                         gas=>GasLimit,
                         get=>#{
@@ -104,7 +86,7 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
                                 gasprice=>1,
                                 origin=>binary:decode_unsigned(From)
                                },
-                        embedded_code => Functions,
+                        embedded_code => embedded_functions(),
                         trace=>whereis(eevm_tracer)
                        }),
   %io:format("EvalRes ~p~n",[EvalRes]),
@@ -205,14 +187,22 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
          BArgs=abi_encode_simple(CArgs),
          <<FunHex:4/binary,BArgs/binary>>;
        #{call:=#{function:=FunNameID,args:=CArgs}} when is_list(FunNameID) ->
-         {ok,E}=ksha3:hash(256, list_to_binary(FunNameID)),
+         BinFun=list_to_binary(FunNameID),
+         {ok,E}=ksha3:hash(256, BinFun),
          <<X:4/binary,_/binary>> = E,
-         BArgs=abi_encode_simple(CArgs),
-         <<X:4/binary,BArgs/binary>>;
+         try
+           {ok,{{function,_},FABI,_}} = contract_evm_abi:parse_signature(BinFun),
+           true=(length(FABI)==length(CArgs)),
+           BArgs=contract_evm_abi:encode_abi(CArgs,FABI),
+           <<X:4/binary,BArgs/binary>>
+         catch EEc:EEe ->
+           ?LOG_ERROR("abiencode error: ~p:~p function ~p args ~p",[EEc,EEe,FunNameID,CArgs]),
+           BArgs2=abi_encode_simple(CArgs),
+           <<X:4/binary,BArgs2/binary>>
+         end;
        _ ->
          <<>>
      end,
-
 
   SLoad=fun(Addr, IKey, _Ex0=#{get_addr:=GAFun}) ->
             io:format("=== sLoad key 0x~s:~p~n",[hex:encode(binary:encode_unsigned(Addr)),IKey]),
@@ -230,109 +220,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
               end
              )
         end,
-  Functions=#{
-              16#AFFFFFFFFF000000 => 
-              fun(_) ->
-                  MT=maps:get(mean_time,Opaque,0),
-                  Ent=case maps:get(entropy,Opaque,<<>>) of
-                        Ent1 when is_binary(Ent1) ->
-                          Ent1;
-                        _ ->
-                          <<>>
-                      end,
-                  {1,<<MT:256/big,Ent/binary>>}
-              end,
-              16#AFFFFFFFFF000001 =>
-              fun(Bin) ->
-                  {1,list_to_binary(
-                       lists:reverse(
-                         binary_to_list(Bin)
-                        )
-                      )}
-              end,
-              16#AFFFFFFFFF000002 => %getTx()
-              fun(_,XAcc) ->
-                  RBin= encode_tx(Tx,[]),
-                  {1,RBin,XAcc}
-              end,
-              16#AFFFFFFFFF000003 =>
-              fun(<<3410561484:32/big,Bin/binary>>,XAcc) -> %byPath(string[])
-                  try
-                    [{<<"key">>,Path}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,{array,string}}]),
-                    FABI=[{<<"settings">>,uint256},
-                          {<<"res_bin">>,bytes},
-                          {<<"res_int">>,uint256},
-                          {<<"keys">>,{array,string}}],
-                    SRes=GetFun({settings,Path}),
-                    RStr=case SRes of
-                           #{} = Mapa ->
-                             [3, <<>>, maps:size(Mapa),
-                              [ if is_atom(A) ->
-                                     atom_to_binary(A);
-                                   is_binary(A) ->
-                                     A
-                                end || A <-  maps:keys(Mapa)]
-                             ];
-                           I when is_integer(I) ->
-                             [1,<<>>,I,[]];
-                           B when is_binary(B) ->
-                             [2,B,size(B),[]];
-                           L when is_list(L) ->
-                             [4,<<>>,length(L),[]]
-                         end,
-                    RBin=contract_evm_abi:encode_abi([RStr], [{<<>>, {tuple, FABI}}]),
-                    {1,RBin,XAcc}
-                  catch Ec:Ee ->
-                          logger:info("decode_abi error: ~p:~p~n",[Ec,Ee]),
-                          {0, <<"badarg">>, XAcc}
-                  end;
-                 (<<3802961955:32/big,Bin/binary>>,XAcc) ->% isNodeKnown(bytes)
-                  try
-                    [{<<"key">>,PubKey}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,bytes}]),
-                    true=is_binary(PubKey),
-                    Sets=settings:clean_meta(GetFun({settings,[]})),
-                    NC=chainsettings:nodechain(PubKey,Sets),
-                    RStr=case NC of
-                           false ->
-                             [0,0,<<>>];
-                           {NodeName,Chain} ->
-                             [1,Chain,NodeName]
-                         end,
-                    FABI=[{<<"known">>,uint8},
-                          {<<"chain">>,uint256},
-                          {<<"name">>,bytes}],
-                    RBin=contract_evm_abi:encode_abi(RStr, FABI),
-                    {1,RBin,XAcc}
-                  catch Ec:Ee:S ->
-                          ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
-                          {0, <<"badarg">>, XAcc}
-                  end;
-                 (<<Sig:32/big,_/binary>>,XAcc) ->
-                  ?LOG_NOTICE("Address ~p unknown sig: ~p~n",[16#AFFFFFFFFF000003,Sig]),
-                  {0, <<"badsig">>, XAcc}
-              end,
-              16#AFFFFFFFFF000004 => %block service
-              fun(<<1489993744:32/big,Bin/binary>>,XAcc) -> %get_signatures(uint256 height)
-                  io:format("=== get_signatures: ~p~n",[Bin]),
-                  try
-                    [{<<"key">>,N}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,uint256}]),
-                    #{sign:=Signatures}=GetFun({get_block, N}),
-
-                    Data=lists:sort([ PubKey || #{beneficiary :=  PubKey } <- Signatures]),
-
-                    logger:notice("=== get_block: ~p",[Data]),
-                    RBin=contract_evm_abi:encode_abi([Data], [{<<>>, {array,bytes}}]),
-                    {1,RBin,XAcc}
-                  catch Ec:Ee ->
-                          logger:info("decode_abi error: ~p:~p~n",[Ec,Ee]),
-                          {0, <<"badarg">>, XAcc}
-                  end;
-                 (<<Sig:32/big,_/binary>>,XAcc) ->
-                  ?LOG_NOTICE("Address ~p unknown sig: ~p~n",[16#AFFFFFFFFF000004,Sig]),
-                  {0, <<"badarg">>, XAcc}
-              end
-             },
-
+  
   FinFun = fun(_,_,#{data:=#{address:=Addr}, storage:=Stor, extra:=Xtra} = FinState) ->
                NewS=maps:merge(
                       maps:get({Addr, state}, Xtra, #{}),
@@ -401,6 +289,8 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
          logger:error("Bad instruction ~p~n",[BIInstr]),
          {error,{bad_instruction,BIInstr},BIState}
      end,
+
+  EmbeddedCode=embedded_functions(),
   CreateFun = fun(Value1, Code1, #{aalloc:=AAlloc}=Ex0) ->
                   %io:format("Ex0 ~p~n",[Ex0]),
                   {ok, Addr0, AAlloc1}=generate_block_process:aalloc(AAlloc),
@@ -425,7 +315,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                                                        gasprice=>1,
                                                        origin=>binary:decode_unsigned(From)
                                                       },
-                                               embedded_code => Functions,
+                                               embedded_code => EmbeddedCode,
                                                cb_beforecall => BeforeCall,
                                                logger=>fun logger/4,
                                                trace=>whereis(eevm_tracer)
@@ -454,7 +344,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                  #{
                    gas=>GasLimit,
                    sload=>SLoad,
-                   extra=>Opaque,
+                   extra=>Opaque#{getfun=>GetFun, tx=>Tx},
                    bad_instruction=>BI,
                    get=>#{
                           code => GetCodeFun,
@@ -469,14 +359,14 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                            gasprice=>1,
                            origin=>binary:decode_unsigned(From)
                           },
-                   embedded_code => Functions,
+                   embedded_code => EmbeddedCode,
                    cb_beforecall => BeforeCall,
                    cd=>CD,
                    logger=>fun logger/4,
                    trace=>whereis(eevm_tracer)
                   }),
 
-  io:format("Call (~s) -> {~p,~p,...}~n",[hex:encode(CD), element(1,Result),element(2,Result)]),
+  ?LOG_DEBUG("Call (~s) -> {~p~n,~p~n,...}~n",[hex:encode(CD), element(1,Result),element(2,Result)]),
   case Result of
     {done, {return,RetVal}, RetState} ->
       returndata(RetState,#{"return"=>RetVal});
@@ -495,9 +385,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
              "state"=>unchanged,
              "gas"=>GasLeft,
              "txs"=>[]}, Opaque#{"revert"=>Revert, log=>Log1}};
-    {error, nogas, #{storage:=NewStorage}} ->
-      io:format("St ~w keys~n",[maps:size(NewStorage)]),
-      io:format("St ~p~n",[(NewStorage)]),
+    {error, nogas, #{storage:=_NewStorage}} ->
       {error, nogas, 0};
     {error, {jump_to,_}, _} ->
       {error, bad_jump, 0};
@@ -509,7 +397,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
 logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}=_EEvmState) ->
   LArgs=[binary:encode_unsigned(I) || I <- LArgs0],
   ?LOG_INFO("EVM log ~p ~p",[Message,LArgs]),
-  io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
+  %io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
   maps:put(log,[([evm,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog],Xtra).
 
 call(#{state:=State,code:=Code}=_Ledger,Method,Args) ->
@@ -707,9 +595,8 @@ decode_tx(BinTx,_Opts) ->
              T0
          end,
 
-      io:format("Call1 ~p~n",[T1]),
+      %needs to be fixed
       TC=tx:construct_tx(T1),
-      io:format("Call1 ~p~n",[TC]),
       TC#{'sig' => Signatures};
     _ ->
       error
@@ -751,4 +638,185 @@ encode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig,payload
 
 
 
+
+%extra=>Opaque#{GetFun,Tx},
+embedded_functions() ->
+  #{
+    16#AFFFFFFFFF000000 => 
+    fun(_,XAcc) ->
+        MT=maps:get(mean_time,XAcc,0),
+        Ent=case maps:get(entropy,XAcc,<<>>) of
+              Ent1 when is_binary(Ent1) ->
+                Ent1;
+              _ ->
+                <<>>
+            end,
+        {1,<<MT:256/big,Ent/binary>>,XAcc}
+    end,
+    16#AFFFFFFFFF000001 => %just for test
+    fun(Bin,XAcc) ->
+        {1,list_to_binary( lists:reverse( binary_to_list(Bin))),XAcc}
+    end,
+    16#AFFFFFFFFF000002 => %getTx()
+    fun(_,#{tx:=Tx}=XAcc) ->
+        RBin= encode_tx(Tx,[]),
+        {1,RBin,XAcc}
+    end,
+    16#AFFFFFFFFF000003 => fun embedded_settings/2,
+    16#AFFFFFFFFF000004 => fun embedded_blocks/2, %block service
+    16#AFFFFFFFFF000005 => fun embedded_lstore/3
+   }.
+
+embedded_blocks(<<1489993744:32/big,Bin/binary>>,#{getfun:=GetFun}=XAcc) -> %get_signatures(uint256 height)
+  io:format("=== get_signatures: ~p~n",[Bin]),
+  try
+    [{<<"key">>,N}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,uint256}]),
+    #{sign:=Signatures}=GetFun({get_block, N}),
+
+    Data=lists:sort([ PubKey || #{beneficiary :=  PubKey } <- Signatures]),
+
+    logger:notice("=== get_block: ~p",[Data]),
+    RBin=contract_evm_abi:encode_abi([Data], [{<<>>, {array,bytes}}]),
+    {1,RBin,XAcc}
+  catch Ec:Ee ->
+          logger:info("decode_abi error: ~p:~p~n",[Ec,Ee]),
+          {0, <<"badarg">>, XAcc}
+  end;
+embedded_blocks(<<Sig:32/big,_/binary>>,XAcc) ->
+  ?LOG_NOTICE("Address ~p unknown sig: ~p~n",[16#AFFFFFFFFF000004,Sig]),
+  {0, <<"badarg">>, XAcc}.
+
+
+embedded_settings(<<3410561484:32/big,Bin/binary>>,#{getfun:=GetFun}=XAcc) -> %byPath(string[])
+  try
+    [{<<"key">>,Path}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,{array,string}}]),
+    SRes=GetFun({settings,Path}),
+    RBin=enc_settings1(SRes),
+    {1,RBin,XAcc}
+  catch Ec:Ee ->
+          logger:info("decode_abi error: ~p:~p~n",[Ec,Ee]),
+          {0, <<"badarg">>, XAcc}
+  end;
+embedded_settings(<<3802961955:32/big,Bin/binary>>,#{getfun:=GetFun}=XAcc) ->% isNodeKnown(bytes)
+  try
+    [{<<"key">>,PubKey}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,bytes}]),
+    true=is_binary(PubKey),
+    Sets=settings:clean_meta(GetFun({settings,[]})),
+    NC=chainsettings:nodechain(PubKey,Sets),
+    RStr=case NC of
+           false ->
+             [0,0,<<>>];
+           {NodeName,Chain} ->
+             [1,Chain,NodeName]
+         end,
+    FABI=[{<<"known">>,uint8},
+          {<<"chain">>,uint256},
+          {<<"name">>,bytes}],
+    RBin=contract_evm_abi:encode_abi(RStr, FABI),
+    {1,RBin,XAcc}
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
+          {0, <<"badarg">>, XAcc}
+  end;
+embedded_settings(<<Sig:32/big,_/binary>>,XAcc) ->
+  ?LOG_NOTICE("Address ~p unknown sig: ~p~n",[16#AFFFFFFFFF000003,Sig]),
+  {0, <<"badsig">>, XAcc}.
+
+
+embedded_lstore(<<16#8D0FE062:32/big,Bin/binary>>,
+                #{data:=#{address:=A}},
+                #{getfun:=GetFun}=XAcc) ->% getByPath(bytes[])
+  InABI=[{<<"key">>,{array,bytes}}],
+  try
+    [{<<"key">>,Path}]=contract_evm_abi:decode_abi(Bin,InABI),
+    
+    SRes=try
+           GetFun({lstore,binary:encode_unsigned(A),Path})
+         catch Ec1:Ee1:S1 ->
+                 ?LOG_ERROR("lstore error ~p:~p @ ~p",[Ec1,Ee1,S1]),
+                 error
+         end,
+    
+    RBin=enc_settings1(SRes),
+    {1,RBin,XAcc}
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
+          {0, <<"badarg">>, XAcc}
+  end;
+
+embedded_lstore(<<2693574879:32/big,Bin/binary>>,
+                #{data:=#{address:=_A}},
+                #{getfun:=GetFun}=XAcc) ->% getByPath(address,bytes[])
+  InABI=[{<<"address">>,address},{<<"key">>,{array,bytes}}],
+  try
+    [{<<"address">>,Addr},{<<"key">>,Path}]=contract_evm_abi:decode_abi(Bin,InABI),
+    
+    SRes=try
+           GetFun({lstore,Addr,Path})
+         catch Ec1:Ee1:S1 ->
+                 ?LOG_ERROR("lstore error ~p:~p @ ~p",[Ec1,Ee1,S1]),
+                 error
+         end,
+    
+    RBin=enc_settings1(SRes),
+    {1,RBin,XAcc}
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
+          {0, <<"badarg">>, XAcc}
+  end;
+
+embedded_lstore(<<2956342894:32/big,Bin/binary>>,
+                #{data:=#{address:=OwnerI}},
+                #{global_acc:=GA=#{table:=Addresses}}=XAcc) ->% setByPath(bytes[],uint256,bytes)
+  Owner=binary:encode_unsigned(OwnerI),
+  InABI=[{<<"p">>,{array,bytes}}, {<<"t">>,uint256}, {<<"v">>,bytes}],
+  try
+    [{<<"p">>,Path},{<<"t">>,Type},{<<"v">>,ValB}]=contract_evm_abi:decode_abi(Bin,InABI),
+    Patch=case Type of
+            1 -> [#{<<"p">>=>Path,<<"t">>=><<"set">>,<<"v">>=>ValB}];
+            _ -> []
+          end,
+    Bal=maps:get(Owner, Addresses),
+    Set1=mbal:get(lstore, Bal),
+    Set2=settings:patch(Patch, Set1),
+    NewBal=mbal:put(lstore, Set2, Bal),
+    NewAddresses=maps:put(Owner, NewBal, Addresses),
+    RBin= <<1:256/big>>,
+    {1,RBin,XAcc#{global_acc=>GA#{table=>NewAddresses}}}
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
+          {0, <<"badarg">>, XAcc}
+  end;
+
+embedded_lstore(<<Sig:32/big,_/binary>>,_,XAcc) ->
+  ?LOG_ERROR("Address ~p unknown sig: ~p~n",[16#AFFFFFFFFF000003,Sig]),
+  {0, <<"badsig">>, XAcc}.
+
+
+
+enc_settings1(SRes) ->
+  OutABI=[{<<"datatype">>,uint256},
+          {<<"res_bin">>,bytes},
+          {<<"res_int">>,uint256},
+          {<<"keys">>,{array,{tuple,[{<<"datatype">>,uint256},
+                                     {<<"res_bin">>,bytes}]}}}],
+  EncSub=fun(Sub) ->
+             [ if is_atom(A) -> [5, atom_to_binary(A)];
+                  is_integer(A) -> [1, binary:encode_unsigned(A)];
+                  is_binary(A) -> [2, A]
+               end || A <-  Sub]
+         end,
+  RStr=case SRes of
+         #{} = Mapa ->
+           [3, <<>>, maps:size(Mapa), EncSub(maps:keys(Mapa))];
+         I when is_integer(I) ->
+           [1,<<>>,I,[]];
+         B when is_binary(B) ->
+           [2,B,size(B),[]];
+         A when is_atom(A) ->
+           [5,atom_to_binary(A,utf8),0,[]];
+         L when is_list(L) ->
+           [4,<<>>,length(L),EncSub(L)]
+       end,
+  contract_evm_abi:encode_abi([RStr], [{<<>>, {tuple, OutABI}}]).
 

@@ -30,15 +30,20 @@ contract builtinFunc {
     string cur;
     uint256 amount;
   }
+  
   struct structTextExample {
     uint256 id;
     string text;
   }
+  struct skey {
+  uint256 datatype;
+  bytes res_bin;
+  }
   struct settings {
-    uint256 settings;
+    uint256 datatype;
     bytes res_bin;
     uint256 res_int;
-    string[] keys;
+    skey[] keys;
   }
 
   uint256 public exampleTextCount;
@@ -54,6 +59,8 @@ contract builtinFunc {
   event newTx(tpTx tx);
   event sig(bytes tx);
   event sig1(uint256 chain, string name);
+  event textbin(string text,bytes data);
+//  event textset(string text,settings data);
 
   constructor() {}
 
@@ -110,7 +117,7 @@ contract builtinFunc {
     return uarr;//[1,2,3];
   }
 
-  function getS() public returns (settings memory) {
+  function getS() public view returns (settings memory) {
     address _addr=address(0xAFFFFFFFFF000003);
     string[] memory path=new string[](3);
     path[0]="current";
@@ -146,7 +153,7 @@ contract builtinFunc {
     return c;
   }
 
-  function getTx() public returns (tpTx memory) {
+  function getTx() public view returns (tpTx memory) {
     address _addr=address(0xAFFFFFFFFF000002);
     (bool success, bytes memory returnBytes) = _addr.staticcall("");
     tpTx memory ret = abi.decode(returnBytes, (tpTx));
@@ -208,5 +215,34 @@ contract builtinFunc {
       ) {
     return mapInt[_id];
   }
+  function setByPath(bytes[] calldata,uint256,skey calldata) public returns (uint256) {
+  return 0;
+  }
+
+  function setLStore(bytes[] calldata d) public returns (uint256) {
+    address _addr=address(0xAFFFFFFFFF000005);
+    bytes memory val=hex'c0ffeedeadc0de';
+    (bool success, bytes memory returnBytes) =
+      _addr.staticcall(abi.encodeWithSignature("setByPath(bytes[],uint256,bytes)", d, 1, val));
+    if (success) {
+      emit textbin('setByPath:success',returnBytes);
+      return 1;
+    }else {
+      emit textbin('fail:setByPath',returnBytes);
+      return 0;
+    }
+  }
+
+  function getLStore(bytes[] calldata d) public returns (settings memory) {
+    address _addr=address(0xAFFFFFFFFF000005);
+    (bool success, bytes memory returnBytes) =
+      _addr.staticcall(abi.encodeWithSignature("getByPath(address,bytes[])", address(this), d));
+    settings memory ret = abi.decode(returnBytes, (settings));
+    emit textbin('getByPath',returnBytes);
+    //emit textset('getByPath',ret);
+    return ret;
+  }
+
+
 
 }

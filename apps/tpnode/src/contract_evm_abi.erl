@@ -9,10 +9,15 @@
 -export([encode_simple/1]).
 -export([parse_signature/1]).
 -export([encode_abi/2]).
+-export([sig32/1]).
 
 -export([pack/1,unpack/1]).
 
 -include_lib("eunit/include/eunit.hrl").
+
+sig32(Signature) ->
+  {ok,<<H:32/big,_/binary>>} = ksha3:hash(256,Signature),
+  H.
 
 sig_events(ABI) ->
   [ begin
