@@ -2,8 +2,6 @@
 pragma solidity ^0.8.0;
 
 contract builtinFunc {
-  //enum TasksStatus { TaskAdded, TaskUpdated, UploadComplete, AllnodeSync }
-
   struct tpCall {
     string func;
     uint256[] args;
@@ -60,6 +58,7 @@ contract builtinFunc {
   event sig(bytes tx);
   event sig1(uint256 chain, string name);
   event textbin(string text,bytes data);
+  event textpayload(string text,tpPayload data);
 //  event textset(string text,settings data);
 
   constructor() {}
@@ -242,7 +241,4 @@ contract builtinFunc {
     //emit textset('getByPath',ret);
     return ret;
   }
-
-
-
 }

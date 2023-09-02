@@ -263,6 +263,7 @@ evm_embedded_abicall_test() ->
                 }
               }
              ],
+      io:format("whereis ~p~n",[whereis(eevm_tracer)]),
       register(eevm_tracer,self()),
       {ok,Log}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       unregister(eevm_tracer),
@@ -308,7 +309,7 @@ evm_embedded_gets_test() ->
               248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
       Addr1=naddress:construct_public(1, OurChain, 1),
 
-      {ok,Bin} = file:read_file("examples/evm_builtin/build/checkSig.hex"),
+      {ok,Bin} = file:read_file("examples/evm_builtin/build/checkSig.bin"),
       ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/checkSig.abi"),
 
       Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
@@ -539,7 +540,7 @@ evm_embedded_lstore_test() ->
               }
              ],
       register(eevm_tracer,self()),
-      {ok,Log,#{bals:=B,txs:=Tx}=Blk}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      {ok,Log,#{bals:=B,txs:=_Tx}}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       io:format("Bals ~p~n",[B]),
       %io:format("st ~p~n",[[ maps:with([call,extdata],Body) || {_,Body} <- Tx]]),
       %io:format("Block ~p~n",[block:minify(Blk)]),

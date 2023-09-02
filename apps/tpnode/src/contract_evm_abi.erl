@@ -58,18 +58,12 @@ decode_abi(_,[],_Bin,Acc) ->
   List;
 
 decode_abi(<<Ptr:256/big,RestB/binary>>,[{Name, {array,Type}}|RestA],Bin,Acc) ->
-  %io:format("~w ~p: ~w ~.16B~n",[?LINE,Name,Type,Ptr]),
   <<_:Ptr/binary,Size:256/big,Data/binary>> = Bin,
-  %hexdump(Bin),
-  %hexdump(<<Size:256/big,Data/binary>>),
   Tpl=decode_abi(Data,[{'_naked',Type} || _ <- lists:seq(1,Size)],Data,[]),
   decode_abi(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc]);
 
 decode_abi(<<Ptr:256/big,RestB/binary>>,[{Name, {tuple,TL}}|RestA],Bin,Acc) ->
-  %io:format("~w ~p: ~w ~.16B~n",[?LINE,Name,TL,Ptr]),
   <<_:Ptr/binary,Tuple/binary>> = Bin,
-  %hexdump(<<Ptr:256/big,RestB/binary>>),
-  %hexdump(Tuple),
   Tpl=decode_abi(Tuple,TL,Tuple,[]),
   decode_abi(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc]);
 
@@ -78,26 +72,39 @@ decode_abi(<<Ptr:256/big,RestB/binary>>,[{Name,bytes}|RestA],Bin,Acc) ->
   decode_abi(RestB, RestA, Bin, [{Name, string, Str}|Acc]);
 
 decode_abi(<<Ptr:256/big,RestB/binary>>,[{Name,string}|RestA],Bin,Acc) ->
-  %io:format("~w ~p: ~w ~.16B~n",[?LINE,Name,string,Ptr]),
   <<_:Ptr/binary,Len:256/big,Str:Len/binary,_/binary>> = Bin,
   decode_abi(RestB, RestA, Bin, [{Name, string, Str}|Acc]);
 
 decode_abi(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc)
   when Val > 9223372036854775808 andalso Val < 13835058055282163712 ->
-  %io:format("~w ~p ~p~n",[?LINE,Name,Val]),
   decode_abi(RestB, RestA, Bin, [{Name, address, binary:encode_unsigned(Val)}|Acc]);
 decode_abi(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc) ->
-  %io:format("~w~n",[?LINE]),
   decode_abi(RestB, RestA, Bin, [{Name, address, Val}|Acc]);
 decode_abi(<<Val:256/big,RestB/binary>>,[{Name,bool}|RestA],Bin,Acc) ->
-  %io:format("~w~n",[?LINE]),
   decode_abi(RestB, RestA, Bin, [{Name, bool, Val==1}|Acc]);
 decode_abi(<<_:248,Val:8/big,RestB/binary>>,[{Name,uint8}|RestA],Bin,Acc) ->
-  %io:format("~w~n",[?LINE]),
   decode_abi(RestB, RestA, Bin, [{Name, uint8, Val}|Acc]);
 decode_abi(<<Val:256/big,RestB/binary>>,[{Name,uint256}|RestA],Bin,Acc) ->
-  %io:format("~w ~p ~p~n",[?LINE, Name, Val]),
   decode_abi(RestB, RestA, Bin, [{Name, uint256, Val}|Acc]).
+
+cmp_abi([],[]) -> true;
+cmp_abi([],[_|_]) -> false;
+cmp_abi([_|_],[]) -> false;
+cmp_abi([{_,K}|A1],[{_,K}|A2]) ->
+  cmp_abi(A1,A2);
+cmp_abi({tuple,K1},{tuple,K2}) ->
+  cmp_abi(K1,K2);
+cmp_abi({array,K1},{array,K2}) ->
+  cmp_abi(K1,K2);
+cmp_abi(E1,E2) when not is_list(E1) andalso not is_list(E2) andalso E1=/=E2 ->
+  false;
+cmp_abi([{_,K1}|A1],[{_,K2}|A2]) ->
+  case cmp_abi(K1,K2) of
+    true ->
+      cmp_abi(A1,A2);
+    false ->
+      false
+  end.
 
 find_function(ABI, Sig) when is_list(ABI), is_list(Sig) ->
   logger:notice("deprecated clause of find_function called"),
@@ -109,7 +116,7 @@ find_function(Sig, ABI) when is_binary(Sig), is_list(ABI) ->
     fun({{function,LName},_CS,_}) when LName == Name andalso Args==undefined ->
         true;
        ({{function,LName},CS,_}) when LName == Name ->
-        [ Type || {_,Type} <- CS ] == Args;
+        cmp_abi(Args,CS);
        (_) ->
         false
     end,
@@ -139,40 +146,35 @@ mk_sig([_|Rest]) ->
 
 mk_sig({{EventOrFunction,Name},CS,_}) when EventOrFunction == event;
                                            EventOrFunction == function ->
-  list_to_binary([
-                  Name,
-                  "(",
-                  lists:join(",", [ mk_sig_type(E) || E <- CS ]),
-                  ")"
-                 ]).
+  list_to_binary([ Name, "(", mk_sig_arr(CS), ")" ]).
 
-mk_sig_type({_,{array,uint256}}) ->
-  <<"uint256[]">>;
-mk_sig_type({_,{array,bytes}}) ->
-  <<"bytes[]">>;
-mk_sig_type({_,{tuple,_Type}}) ->
-  <<"tuple">>;
+mk_sig_arr(CS) ->
+  list_to_binary( lists:join(",", [ mk_sig_type(E) || {_,E} <- CS ]) ).
 
-mk_sig_type({_,Type}) when is_atom(Type) ->
+mk_sig_type({array,A}) ->
+  <<(mk_sig_type(A))/binary,"[]">>;
+mk_sig_type({tuple,Type}) ->
+  <<"(",(mk_sig_arr(Type))/binary,")">>;
+
+mk_sig_type(Type) when is_atom(Type) ->
   atom_to_binary(Type,utf8).
 
 sig_split(Signature) ->
-  case re:run(Signature,
-              "^([01-9a-zA-Z_]+)\\\((.*)\\\)",
-              [{capture, all_but_first, binary}]) of
-    nomatch ->
-      case re:run(Signature,
-                  "^([01-9a-zA-Z_]+)$",
-                  [{capture, all_but_first, binary}]) of
-        nomatch ->
-          {error, {invalid_signature, Signature}};
-        {match, [Name]} ->
-          {Name, undefined}
-      end;
-    {match,[Fun,Args]} ->
-      {Fun,
-       [ convert_type(T) || T<- binary:split(Args,<<",">>,[global]), size(T)>0]
-      }
+  {ok,{{function, Name},Args, _}} = parse_signature(Signature),
+  {Name, Args}.
+
+parse_signature(String) when is_binary(String) ->
+  parse_signature(binary_to_list(String));
+
+parse_signature(String) when is_list(String) ->
+  {_,B,_}=erl_scan:string(String),
+  case contract_evm_abi_parser:parse(B) of
+    {ok,{Name,undefined}} when is_atom(Name) ->
+      {ok,{{function, atom_to_binary(Name)},undefined, undefined}};
+     {ok,{Name,R}} when is_atom(Name) ->
+      {ok,{{function, atom_to_binary(Name)},(R), undefined}};
+    {error, Err} ->
+      {error, Err}
   end.
 
 parse_abilist([_|_]=JSON) ->
@@ -194,8 +196,6 @@ parse_item(#{
              <<"name">> := Name,
              <<"inputs">> := I,
              <<"type">> := <<"function">>
-  %{<<"stateMutabil"...>>,<<"view">>},
-  %{<<"type">>,<<"func"...>>}
             }) ->
   {true,{{function,Name},convert_io(I),convert_io(O)}};
 parse_item(#{
@@ -210,7 +210,6 @@ parse_item(#{
             }) ->
   {true,{{constructor,default},convert_io(I),[]}};
 parse_item(#{}=_Any) ->
-  %io:format("Unknown item: ~p~n",[_Any]),
   false.
 
 convert_io(List) ->
@@ -225,7 +224,7 @@ convert_io(List) ->
           <<"type">> := <<"tuple[]">>,
           <<"components">>:= C}) ->
         {Name, {array,{tuple, convert_io(C)}}};
-        (#{
+       (#{
           <<"name">> := Name,
           <<"type">> := Type}) ->
         {Name, convert_type(Type)}
@@ -280,9 +279,6 @@ encode_typed([],[], Hdr, Body, _BOff) ->
 encode_typed([Val|RVal],[{_Name,{tuple,List}}|RType], Hdr, Body, BOff) ->
   HdLen=length(List)*32,
   EncStr=encode_typed(Val, List, <<>>, <<>>, HdLen),
-  %io:format("< ENC tuple >> BOff ~.16B array ~p ~p~n",[BOff,Val,List]),
-  %hexdump(<<BOff:256/big>>),
-  %hexdump(EncStr),
 
   encode_typed(RVal, % CHECK IT
                RType,
@@ -294,9 +290,6 @@ encode_typed([Val|RVal],[{_Name,{array,Type}}|RType], Hdr, Body, BOff) ->
   Len=length(Val),
   EncStr=encode_typed(Val,[{'_naked',Type} || _ <- lists:seq(1,Len)], <<Len:256/big>>, <<>>,
                       (Len*32)),
-  %io:format("< ENC arr >> BOff ~.16B array ~p ~p~n",[BOff,Val,Type]),
-  %hexdump(<<BOff:256/big>>),
-  %hexdump(EncStr),
 
   encode_typed(RVal,
                RType,
@@ -335,21 +328,6 @@ encode_typed([Val|RVal],[{_Name,Type}|RType], Hdr, Body, BOff) ->
                <<Body/binary,Bin/binary>>,
                BOff+size(Bin))
   end.
-
-parse_signature(Bin) ->
-  case binary:split(Bin,[<<"(">>,<<")">>],[global]) of
-    [Name,<<>>,<<>>] ->
-      {ok, {{function, Name}, [], undefined}};
-    [Name,Args,<<>>] ->
-      {ok,
-       {
-        {function, Name},
-        [ { <<>>, convert_type(T) } || T <- binary:split(Args,[<<",">>],[global]) ],
-        undefined
-       }
-      }
-  end.
-
 
 encode_simple(Elements) ->
   HdLen=length(Elements)*32,

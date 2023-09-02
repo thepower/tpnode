@@ -242,7 +242,7 @@ evm_apis_test(Config) ->
              proplists:get_value("PWD",os:env(),"."),
              "examples/evm_builtin/build/checkSig"
             ),
-  {ok,HexBin} = file:read_file(BaseFile++".hex"),
+  {ok,HexBin} = file:read_file(BaseFile++".bin"),
   ABI=contract_evm_abi:parse_abifile(BaseFile++".abi"),
   Code=hex:decode(hd(binary:split(HexBin,<<"\n">>))),
 
