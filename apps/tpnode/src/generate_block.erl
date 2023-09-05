@@ -55,10 +55,18 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
              end, AAcc0, Txs);
           ({_TxID, #{ver:=2, kind:=patch}}=_TX, AAcc) ->
            AAcc;
+          ({_TxID, #{ver:=2, to:=T, from:=F, payload:=_, txext:=#{<<"sponsor">>:=[SpAddr]}}}=_TX, AAcc) ->
+           AAcc1=preload(F,true,AAcc,GetAddr),
+           AAcc2=preload(T,false,AAcc1,GetAddr),
+           AAcc3=preload(SpAddr,true,AAcc2,GetAddr),
+           AAcc3;
           ({_TxID, #{ver:=2, to:=T, from:=F, payload:=_}}=_TX, AAcc) ->
-           FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
-           TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
-           maps:put(F, FB, maps:put(T, TB, AAcc));
+           AAcc1=preload(F,true,AAcc,GetAddr),
+           AAcc2=preload(T,false,AAcc1,GetAddr),
+           AAcc2;
+%           FB=mbal:fetch(F, <<"ANY">>, true, maps:get(F, AAcc, #{}), GetAddr),
+%           TB=mbal:fetch(T, <<"ANY">>, false, maps:get(T, AAcc, #{}), GetAddr),
+%           maps:put(F, FB, maps:put(T, TB, AAcc));
           ({_TxID, #{ver:=2, kind:=register}}=_TX, AAcc) ->
            AAcc;
           ({_TxID, #{ver:=2, kind:=chkey, from:=F, keys:=_}}=_TX, AAcc) ->
@@ -326,6 +334,10 @@ cleanup_bals(NewBal0, Prev) ->
             end
         end
     end, #{}, NewBal0).
+
+preload(Addr, Header, Acc0, GetAddr) ->
+  FB=mbal:fetch(Addr, <<"ANY">>, Header, maps:get(Addr, Acc0, #{}), GetAddr),
+  maps:put(Addr, FB, Acc0).
 
 ledger_hash(NewBal, undefined) ->
   {ok, LedgerHash}=mledger:apply_patch(mledger:bals2patch(maps:to_list(NewBal)),check),

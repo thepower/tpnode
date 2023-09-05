@@ -3,7 +3,9 @@
     "0": "transfer",
     "1": "srcfee",
     "2": "dstfee",
-    "3": "gas"
+    "3": "gas",
+    "33": "srcfeehint",
+    "35": "gashint"
   },
   "kind": {
     "16": ["generic", 2],

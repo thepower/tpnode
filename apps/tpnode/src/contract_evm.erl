@@ -7,6 +7,7 @@
 -export([tx_abi/0]).
 -export([enc_settings1/1]).
 -export([transform_extra/1]).
+-export([ask_if_sponsor/1, ask_if_wants_to_pay/3]).
 
 info() ->
 	{<<"evm">>, <<"EVM">>}.
@@ -604,8 +605,7 @@ decode_tx(BinTx,_Opts) ->
 
 
 
-encode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig,payload:=RPayload}=Tx,_Opts) ->
-  FABI=tx_abi(),
+preencode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig,payload:=RPayload}=Tx,_Opts) ->
   K=tx:encode_kind(Ver,Kind),
   Call=case Tx of
          #{call:=#{function:=F, args:=A}} ->
@@ -634,9 +634,13 @@ encode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig,payload
   %R=tx:verify(Tx,[nocheck_ledger]),
   %io:format("~p~n",[R]),
   %contract_evm_abi:decode_abi(Bin,FABI).
-  contract_evm_abi:encode_abi([[K, From, To, T, Seq, Call, Payload, Signatures]],FABI).
+  {ok,[K, From, To, T, Seq, Call, Payload, Signatures]}.
 
 
+encode_tx(#{kind:=_,ver:=_,from:=_,to:=_,t:=_,seq:=_,sig:=_,payload:=_}=Tx,Opts) ->
+  {ok,Pre}=preencode_tx(Tx,Opts),
+  FABI=tx_abi(),
+  contract_evm_abi:encode_abi([Pre],FABI).
 
 
 %extra=>Opaque#{GetFun,Tx},
@@ -771,6 +775,9 @@ embedded_lstore(<<2956342894:32/big,Bin/binary>>,
   Owner=binary:encode_unsigned(OwnerI),
   InABI=[{<<"p">>,{array,bytes}}, {<<"t">>,uint256}, {<<"v">>,bytes}],
   try
+    hex:hexdump(Bin),
+    io:format("Bin ~4000p~n",[Bin]),
+    io:format("ABI ~p~n",[InABI]),
     [{<<"p">>,Path},{<<"t">>,Type},{<<"v">>,ValB}]=contract_evm_abi:decode_abi(Bin,InABI),
     Patch=case Type of
             1 -> [#{<<"p">>=>Path,<<"t">>=><<"set">>,<<"v">>=>ValB}];
@@ -784,7 +791,7 @@ embedded_lstore(<<2956342894:32/big,Bin/binary>>,
     RBin= <<1:256/big>>,
     {1,RBin,XAcc#{global_acc=>GA#{table=>NewAddresses}}}
   catch Ec:Ee:S ->
-          ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
+          ?LOG_ERROR("decode_abi error: ~p:~p@~p~n",[Ec,Ee,S]),
           {0, <<"badarg">>, XAcc}
   end;
 
@@ -819,4 +826,73 @@ enc_settings1(SRes) ->
            [4,<<>>,length(L),EncSub(L)]
        end,
   contract_evm_abi:encode_abi([RStr], [{<<>>, {tuple, OutABI}}]).
+
+ask_if_wants_to_pay(Code, Tx, Gas) ->
+  Function= <<"wouldYouLikeToPayTx("
+  "(uint256,address,address,uint256,uint256,"
+  "(string,uint256[])[],"
+  "(uint256,string,uint256)[],"
+  "(bytes,uint256,bytes,bytes,bytes)[])"
+  ")">>,
+  try
+    %{ok,{_,OutABI,_}}=contract_evm_abi:parse_signature(
+    %                    "(string iWillPay,(uint256 purpose,string cur,uint256 amount)[] pay)"
+    %                   ),
+    InABI=[{<<>>,{tuple,[{<<>>,uint256},{<<>>,address},{<<>>,address},{<<>>,uint256},{<<>>,uint256},{<<>>,{array,{tuple,[{<<>>,string},{<<>>,{array,uint256}}]}}},{<<>>,{array,{tuple,[{<<>>,uint256},{<<>>,string},{<<>>,uint256}]}}},{<<>>,{array,{tuple,[{<<>>,bytes},{<<>>,uint256},{<<>>,bytes},{<<>>,bytes},{<<>>,bytes}]}}}]}}],
+    OutABI=[{<<"iWillPay">>,string},{<<"pay">>,{array,{tuple,[{<<"purpose">>,uint256},{<<"cur">>,string},{<<"amount">>,uint256}]}}}],
+    {ok,PTx}=preencode_tx(Tx,[]),
+
+    CD=callcd(Function, [PTx], InABI),
+    case eevm:eval(Code,#{},#{ gas=>Gas, extra=>#{}, cd=>CD }) of
+      {done,{return,Ret},_} ->
+        case contract_evm_abi:decode_abi(Ret,OutABI) of
+          [{<<"iWillPay">>,<<"i will pay">>},{<<"pay">>,WillPay}] ->
+            R=lists:foldr(
+                fun([{<<"purpose">>,P},{<<"cur">>,Cur},{<<"amount">>,Amount}],A) ->
+                    [#{purpose=>tx:decode_purpose(P), cur=>Cur, amount=>Amount}|A]
+                end, [], WillPay),
+            {ok, R};
+          Any ->
+            ?LOG_ERROR("~s static call error: unexpected result ~p",[Function,Any]),
+            false
+        end;
+      {done, Other,_} ->
+        ?LOG_ERROR("~s static call error: unexpected finish ~p",[Function,Other]),
+        false;
+      {error, Reason, _} ->
+        ?LOG_ERROR("~s static call error ~p",[Function,Reason]),
+        false;
+      Any ->
+        ?LOG_ERROR("~s static call error: unexpected return  ~p",[Function,Any]),
+        false
+    end
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("~s static call error: ~p:~p @ ~p",[Function,Ec,Ee,S]),
+          false
+  end.
+
+ask_if_sponsor(Code) ->
+  Function= <<"areYouSponsor()">>,
+  try
+  %{ok,{_,OutABI,_}}=contract_evm_abi:parse_signature( "(bool,bytes,uint256)"),
+  OutABI = [{<<"allow">>,bool},{<<"cur">>,bytes},{<<"amount">>,uint256}],
+  CD=callcd(Function, [], []),
+  {done,{return,Ret},_}=eevm:eval(Code,#{},#{ gas=>2000, extra=>#{}, cd=>CD }),
+  case contract_evm_abi:decode_abi(Ret,OutABI) of
+    [{_,true},{_,Cur},{_,Amount}] ->
+      {true, {Cur,Amount}};
+    Any ->
+      ?LOG_ERROR("~s static call error: unexpected result ~p",[Function,Any]),
+      false
+  end
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("~s static call error: ~p:~p @ ~p",[Function,Ec,Ee,S]),
+          false
+  end.
+
+callcd(BinFun, CArgs, FABI) ->
+  {ok,<<X:4/binary,_/binary>>}=ksha3:hash(256, BinFun),
+  true=(length(FABI)==length(CArgs)),
+  BArgs=contract_evm_abi:encode_abi(CArgs,FABI),
+  <<X:4/binary,BArgs/binary>>.
 

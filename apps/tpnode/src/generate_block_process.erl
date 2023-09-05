@@ -653,12 +653,6 @@ try_process([{TxID, #{
     end,
 
     Bal=maps:get(Owner, Addresses),
-    case mbal:get(vm, Bal) of
-      VM when is_binary(VM) ->
-        ok;
-      _ ->
-        throw('not_deployed')
-    end,
 
     {NewF, _GasF, GotFee, Gas}=withdraw(Bal, Tx, GetFun, SetState, []),
 
@@ -1059,11 +1053,76 @@ try_process_local([{TxID,
          throw('unverified')
     end,
 
+    Ext=maps:get(txext,Tx,#{}),
+    BSponsor=maps:get(<<"sponsor">>,Ext,undefined),
     ?LOG_INFO("Processing local =====[ ~s ]=======",[TxID]),
-    OrigF=maps:get(From, Addresses),
-    {NewF, GasF, GotFee, Gas}=withdraw(OrigF, Tx, GetFun, SetState, []),
+    Sponsor=case BSponsor of
+              [<<SpAddr:8/binary>>] ->
+                MyChain=GetFun(mychain),
+                {true,{chain,SChain}}=addrcheck(SpAddr, SetState, MyChain),
+                if(SChain==MyChain) ->
+                    SpAddr;
+                  true ->
+                    false
+                end;
+              undefined -> false;
+              Other ->
+                ?LOG_ERROR("Invalid sponsor ~p",[Other]),
+                throw('invalid_sponsor')
+            end,
+    RSp=if is_binary(Sponsor) ->
+         case maps:is_key(Sponsor, Addresses) of
+           false ->
+             {false,no_loaded};
+           true ->
+             SPAcc=maps:get(Sponsor, Addresses),
+             IsSponsor=ask_if_sponsor(SPAcc),
+             case IsSponsor of
+               {true, {Token, Amount}} ->
+                 case to_gas(#{amount=>Amount, cur=>Token}, SetState) of
+                   {ok, {_Tkn,TknAm,{Num,Den}}} ->
+                     ?LOG_NOTICE("fixme: save gas here"),
+                     ask_if_wants_to_pay(SPAcc, Tx, (TknAm*Num) div Den);
+                   _ ->
+                     {false, invalid_gas_specified}
+                 end;
+               _ ->
+                 {false, no_sponsor}
+             end
+         end;
+       true ->
+         false
+    end,
+    case RSp of
+      {ok, SPData} ->
+        ?LOG_INFO("sponsoring ~p from ~p",[SPData,Sponsor]);
+      {false,N} when is_binary(Sponsor) ->
+        ?LOG_NOTICE("not sponsoring from ~p: ~p",[Sponsor,N]);
+      _ ->
+        ok
+    end,
+
+    {Addresses1,GasF,GasAddr,GotFee,Gas}=case RSp of
+                 {ok, SPData1} ->
+                   OrigF=maps:get(From, Addresses),
+                   {NewF1, _GasF1, _GotFee1, _Gas1}=withdraw(OrigF, Tx, GetFun, SetState, []),
+                   Addresses_tmp=maps:put(From, NewF1, Addresses),
+
+                   OrigF2=maps:get(Sponsor, Addresses_tmp),
+                   {NewF2, GasF2, GotFee2, Gas2}=withdraw(OrigF2,
+                                                          Tx#{payload=>SPData1},
+                                                          GetFun,
+                                                          SetState,
+                                                          [sponsor,notransfer]),
+                   {maps:put(Sponsor, NewF2, Addresses_tmp),
+                    GasF2, Sponsor, GotFee2, Gas2};
+                 _ ->
+                   OrigF=maps:get(From, Addresses),
+                   {NewF, GasF1, GotFee1, Gas1}=withdraw(OrigF, Tx, GetFun, SetState, []),
+                   {maps:put(From, NewF, Addresses),GasF1,From,GotFee1,Gas1}
+               end,
+
     try
-      Addresses1=maps:put(From, NewF, Addresses),
       {Addresses2, NewEmit, GasLeft, Acc1, AddEd}=deposit(TxID, To, Addresses1,
                                                    Tx, Gas, Acc),
       ?LOG_INFO("Local gas ~p -> ~p f ~p t ~p",[Gas, GasLeft, From, To]),
@@ -1106,7 +1165,7 @@ try_process_local([{TxID,
       try_process(Rest, Acc3#{last => ok})
     catch
       throw:insufficient_gas ->
-        AddressesWoGas=maps:put(From, GasF, Addresses),
+        AddressesWoGas=maps:put(GasAddr, GasF, Addresses),
         try_process(Rest,
                     savegas(Gas, all,
                             savefee(GotFee,
@@ -1341,12 +1400,14 @@ withdraw(FBal0,
          #{ver:=2, seq:=Seq, t:=Timestamp, from:=From}=Tx,
          GetFun, Settings, Opts) ->
   try
+    Sponsor = lists:member(sponsor,Opts),
     Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
     IsContract=is_binary(mbal:get(vm, FBal0)) andalso Contract_Issued=={ok, From},
 
     ?LOG_INFO("Withdraw ~p ~p", [IsContract, maps:without([body,sig],Tx)]),
     if Timestamp==0 andalso IsContract ->
          ok;
+       Sponsor==true -> ok;
        is_integer(Timestamp) ->
          case GetFun({valid_timestamp, Timestamp}) of
            true ->
@@ -1359,6 +1420,7 @@ withdraw(FBal0,
     LD=mbal:get(t, FBal0) div 86400000,
     CD=Timestamp div 86400000,
     if IsContract -> ok;
+       Sponsor==true -> ok;
        true ->
          NoSK=settings:get([<<"current">>, <<"nosk">>], Settings)==1,
          if NoSK -> ok;
@@ -1382,6 +1444,7 @@ withdraw(FBal0,
     end,
     CurFSeq=mbal:get(seq, FBal0),
     if CurFSeq < Seq -> ok;
+       Sponsor==true -> ok;
        Seq==0 andalso IsContract -> ok;
        true ->
          %==== DEBUG CODE
@@ -1398,6 +1461,7 @@ withdraw(FBal0,
     CurFTime=mbal:get(t, FBal0),
     if CurFTime < Timestamp -> ok;
        IsContract andalso Timestamp==0 -> ok;
+       Sponsor==true -> ok;
        true -> throw ('bad_timestamp')
     end,
 
@@ -1473,18 +1537,21 @@ withdraw(FBal0,
     ToTransfer=tx:get_payloads(Tx,transfer),
 
     FBal1=maps:remove(keep,
-                      mbal:mput(
-                        ?MAX(Seq,CurFSeq),
-                        Timestamp,
-                        FBal0,
-                        if IsContract ->
-                             false;
-                           true ->
-                             if CD>LD -> reset;
-                                true -> true
+                      if Sponsor==true -> FBal0;
+                         true ->
+                           mbal:mput(
+                             ?MAX(Seq,CurFSeq),
+                             Timestamp,
+                             FBal0,
+                             if IsContract ->
+                                  false;
+                                true ->
+                                  if CD>LD -> reset;
+                                     true -> true
+                                  end
                              end
-                        end
-                       )),
+                            )
+                      end),
     FBalAfterGas=lists:foldl(TakeMoney,
                              FBal1,
                              ForGas++ForFee
@@ -1603,3 +1670,14 @@ complete_tx(ETxBody,
   {TxID,
    tx:set_ext( <<"contract_issued">>, Address, ETx)
   }.
+
+ask_if_sponsor(#{vm:= <<"evm">>, code:= Code}) ->
+  contract_evm:ask_if_sponsor(Code);
+ask_if_sponsor(_) ->
+  false.
+
+ask_if_wants_to_pay(#{vm:= <<"evm">>, code:= Code},Tx,G) ->
+  contract_evm:ask_if_wants_to_pay(Code, Tx, G);
+ask_if_wants_to_pay(_,_,G) ->
+  {[],G}.
+

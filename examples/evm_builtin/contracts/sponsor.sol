@@ -40,12 +40,37 @@ contract sponsor {
 
   function wouldYouLikeToPayTx(tpTx calldata utx) public returns(string memory iWillPay, tpPayload[] memory pay) {
     uint i=0;
+    uint found_fee_hint=0;
+    uint found_gas_hint=0;
     for (i=0;i<utx.payload.length;i++){
-      emit textpayload('wouldYouLikeToPayTx',utx.payload[i]);
+      if(utx.payload[i].purpose==33){
+        found_fee_hint=i+1;
+      }
+      if(utx.payload[i].purpose==35){
+        found_gas_hint=i+1;
+      }
     }
 
-    tpPayload[] memory payload1=new tpPayload[](1);
-    payload1[0]=tpPayload(0,"SK",10);
+    uint c=0;
+    if(found_fee_hint>0) c++;
+    if(found_gas_hint>0) c++;
+
+    tpPayload[] memory payload1=new tpPayload[](c+1);
+    if(c==2){
+      payload1[0]=utx.payload[found_fee_hint-1];
+      payload1[0].purpose=1;
+      payload1[1]=utx.payload[found_gas_hint-1];
+      payload1[1].purpose=3;
+    }else if(c==1 && found_gas_hint>0){
+      payload1[0]=utx.payload[found_gas_hint-1];
+      payload1[0].purpose=3;
+    }else if(c==1 && found_fee_hint>0){
+      payload1[0]=utx.payload[found_fee_hint-1];
+      payload1[0].purpose=3;
+    }
+    payload1[c]=tpPayload(0,"TST",10000);
+    //payload1[0]=tpPayload(1,"SK",1000000);
+    //payload1[1]=tpPayload(3,"SK",1000000000);
     return ("i will pay",payload1);
   }
 }
