@@ -2,111 +2,6 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-evm_lst_test() ->
-      OurChain=150,
-      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
-              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
-      Addr1=naddress:construct_public(1, OurChain, 1),
-
-      ScCode=fun() ->
-                 {ok,Bin} = file:read_file("Lstore.bin"),
-                 Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
-
-                 {done,{return,Code2},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
-                 Code2
-             end(),
-      SkAddr=naddress:construct_public(1, OurChain, 2),
-
-      TX1=tx:sign(
-            tx:sign(
-            tx:construct_tx(#{
-              ver=>2,
-              kind=>generic,
-              from=>Addr1,
-              to=>SkAddr,
-              call=>#{
-                      function => "registerMessage(uint256,string)",
-                      args => [1,<<"preved">>]
-                      %function => "callText(address,uint256)",
-                      %args => [ <<175,255,255,255,255,0,0,2>>, 1025 ]
-               },
-              payload=>[
-                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>},
-                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
-                       ],
-              seq=>3,
-              t=>os:system_time(millisecond)
-             }), Pvt1),
-            tpecdsa:generate_priv(ed25519)),
-
-
-      TxList1=[
-               {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
-              ],
-      TestFun=fun(#{block:=#{bals:=Bals}=_Block,
-                    log:=Log,
-                    failed:=Failed}) ->
-                  io:format("Failed ~p~n",[Failed]),
-                  io:format("Bals ~p~n",[Bals]),
-                  ?assertMatch([],Failed),
-                  {ok,Log}
-              end,
-      Ledger=[
-              {Addr1,
-               #{amount => #{
-                             <<"FTT">> => 1000000,
-                             <<"SK">> => 3,
-                             <<"TST">> => 26
-                            }
-                }
-              },
-              {SkAddr,
-               #{amount => #{<<"SK">> => 1},
-                 code => ScCode,
-                 vm => <<"evm">>
-                }
-              }
-             ],
-      io:format("whereis ~p~n",[whereis(eevm_tracer)]),
-      register(eevm_tracer,self()),
-      {ok,Log}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
-      unregister(eevm_tracer),
-      ABI=contract_evm_abi:parse_abifile("Lstore.abi"),
-      [{_,_,FABI}]=contract_evm_abi:find_function(<<"registerMessage(uint256,string)">>,ABI),
-      D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> <<>> end end(),
-      fun FT() ->
-          receive 
-            {trace,{stack,_,_}} ->
-              FT();
-            {trace,_Any} ->
-              %io:format("~p~n",[_Any]),
-              FT()
-          after 0 -> ok
-          end
-      end(),
-
-      hex:hexdump(D),
-      io:format("ABI ~p~n",[FABI]),
-      io:format("dec ~p~n",[catch contract_evm_abi:decode_abi(D,FABI)]),
-      Events=contract_evm_abi:sig_events(ABI),
-
-      DoLog = fun (BBin) ->
-                  {ok,[_,<<"evm">>,_,_,DABI,[Arg]]} = msgpack:unpack(BBin),
-                  case lists:keyfind(Arg,2,Events) of
-                    false ->
-                      {DABI,Arg};
-                    {EvName,_,EvABI}->
-                      {EvName,contract_evm_abi:decode_abi(DABI,EvABI)}
-                  end
-              end,
-
-
-      io:format("Logs ~p~n",[[ DoLog(LL) || LL <- Log ]]),
-      [
-       ?assertMatch(true,true)
-      ].
-
-
 ssc_test() ->
   {ok,Bin} = file:read_file("examples/evm_builtin/build/sponsor.bin"),
   ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/sponsor.abi"),
@@ -128,14 +23,15 @@ ssc_test() ->
   DRet2=call(<<"wouldYouLikeToPayTx((uint256,address,address,uint256,uint256,(string,uint256[])[],(uint256,string,uint256)[],(bytes,uint256,bytes,bytes,bytes)[]))">>,
              [
               [1,<<1,2,3,4,5,6,7,8>>,<<1,2,3,4,5,6,7,9>>,1,2,[],
-               [[1,<<"SK">>,5],[2,<<"SK">>,6]],
+               [[1,<<"SK">>,5],[2,<<"SK">>,6],[33,<<"SK">>,600000]],
               []
               ]],ABI,Code2),
+  io:format("~p~n",[DRet2]),
   %wouldYouLikeToPayTx(tpTx calldata utx) p
   [?assertMatch([{<<"arg1">>,true},{<<"arg2">>,<<"SK">>},{<<"arg3">>,100000}], DRet),
    ?assertMatch([{<<"iWillPay">>,<<"i will pay">>},
         {<<"pay">>,
-         [[{<<"purpose">>,0},{<<"cur">>,<<"SK">>},{<<"amount">>,10}]]}],DRet2)
+         [[{<<"purpose">>,3},{<<"cur">>,<<"SK">>},{<<"amount">>,600000}],_]}],DRet2)
   ].
 
 call(Function, CArgs, ABI, Code) when is_binary(Function), is_list(CArgs) ->
@@ -196,7 +92,7 @@ evm_sponsored_call_test() ->
                        ],
               seq=>3,
               t=>os:system_time(millisecond),
-              txext=>#{<<"sponsor">> => [SpAddr]}
+              txext=>#{"sponsor" => [SpAddr]}
              }), Pvt1),
             tpecdsa:generate_priv(ed25519)),
 
@@ -242,8 +138,8 @@ evm_sponsored_call_test() ->
       {ok,Log}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       unregister(eevm_tracer),
       ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
-      [{_,_,FABI}]=contract_evm_abi:find_function(<<"getTxs()">>,ABI),
       D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> <<>> end end(),
+      io:format("D~n"),
       hex:hexdump(D),
       fun FT() ->
           receive 
@@ -256,7 +152,8 @@ evm_sponsored_call_test() ->
           end
       end(),
 
-      io:format("dec ~p~n",[catch contract_evm_abi:decode_abi(D,FABI)]),
+      %[{_,_,FABI}]=contract_evm_abi:find_function(<<"getTxs()">>,ABI),
+      %io:format("dec ~p~n",[catch contract_evm_abi:decode_abi(D,FABI)]),
       Events=contract_evm_abi:sig_events(ABI),
 
       DoLog = fun (BBin) ->

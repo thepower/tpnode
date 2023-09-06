@@ -1054,7 +1054,8 @@ try_process_local([{TxID,
     end,
 
     Ext=maps:get(txext,Tx,#{}),
-    BSponsor=maps:get(<<"sponsor">>,Ext,undefined),
+    io:format("Ext ~p~n",[Ext]),
+    BSponsor=maps:get("sponsor",Ext,undefined),
     ?LOG_INFO("Processing local =====[ ~s ]=======",[TxID]),
     Sponsor=case BSponsor of
               [<<SpAddr:8/binary>>] ->
@@ -1073,7 +1074,7 @@ try_process_local([{TxID,
     RSp=if is_binary(Sponsor) ->
          case maps:is_key(Sponsor, Addresses) of
            false ->
-             {false,no_loaded};
+             throw('sponsor_not_loaded');
            true ->
              SPAcc=maps:get(Sponsor, Addresses),
              IsSponsor=ask_if_sponsor(SPAcc),

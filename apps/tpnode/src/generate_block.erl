@@ -55,7 +55,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
              end, AAcc0, Txs);
           ({_TxID, #{ver:=2, kind:=patch}}=_TX, AAcc) ->
            AAcc;
-          ({_TxID, #{ver:=2, to:=T, from:=F, payload:=_, txext:=#{<<"sponsor">>:=[SpAddr]}}}=_TX, AAcc) ->
+          ({_TxID, #{ver:=2, to:=T, from:=F, payload:=_, txext:=#{"sponsor":=[SpAddr]}}}=_TX, AAcc) ->
            AAcc1=preload(F,true,AAcc,GetAddr),
            AAcc2=preload(T,false,AAcc1,GetAddr),
            AAcc3=preload(SpAddr,true,AAcc2,GetAddr),
