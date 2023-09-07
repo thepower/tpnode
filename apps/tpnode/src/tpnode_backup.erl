@@ -1,4 +1,5 @@
 -module(tpnode_backup).
+-include("include/tplog.hrl").
 -export([make_backup/0,get_backup/0]).
 
 make_backup() ->
@@ -54,8 +55,8 @@ get_backup() ->
       Files=filelib:wildcard(TL++"*",utils:dbpath(backup)) ++ filelib:wildcard(TL++"*/**",utils:dbpath(backup)),
       Info1=(maps:with([last,hash,header],Info))#{dir=>TL},
       file:write_file(utils:dbpath(backup)++"/backup.txt",io_lib:format("~p.~n",[Info1])),
-      Files1=["backup.txt"|Files],
-      io:format("~p~n",[Files1]),
+      Files1=["backup.txt"|lists:usort(Files)],
+      ?LOG_INFO("Storing files ~p~n",[Files1]),
       {ok,_}=zip:create(Dir++".zip",Files1,[{cwd,utils:dbpath(backup)}]),
       file:read_file(Dir++".zip")
   end.
