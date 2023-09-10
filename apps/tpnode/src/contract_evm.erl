@@ -286,6 +286,9 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
        (number,#{stack:=BIStack}=BIState) ->
          #{height:=PHei} = GetFun(parent_block),
          BIState#{stack=>[PHei+1|BIStack]};
+       (timestamp,#{stack:=BIStack}=BIState) ->
+         MT=maps:get(mean_time,Opaque,0),
+         BIState#{stack=>[MT|BIStack]};
        (BIInstr,BIState) ->
          logger:error("Bad instruction ~p~n",[BIInstr]),
          {error,{bad_instruction,BIInstr},BIState}
