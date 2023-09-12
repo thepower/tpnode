@@ -107,24 +107,26 @@ by_path(GetPath) ->
   by_path(GetPath, [blockchain]).
 
 by_path(GetPath, default) ->
-  as_map(
-    select_by_path(GetPath,
-                   [
-                    {blockchain,
-                     fun([Path|_]) ->
+  TBL=case ets:info(mgmt) of
+        undefined -> [blockchain] ;
+        _ ->
+          [{blockchain,
+            fun([Path|_]) ->
                          case Path of
                            [<<"current">>|_] -> true;
                            _ -> false
                          end
                      end},
-                    {mgmt,
-                     fun([Path|_]) ->
-                         case Path of
-                           [<<"current">>|_] -> false;
-                           _ -> true
-                         end
-                     end}
-                   ]));
+           {mgmt,
+           fun([Path|_]) ->
+               case Path of
+                 [<<"current">>|_] -> false;
+                 _ -> true
+               end
+           end}
+          ]
+  end,
+  as_map(select_by_path(GetPath,TBL));
 
 by_path(GetPath, [_|_]=Tables) ->
   R=select_by_path(GetPath, Tables),
