@@ -8,6 +8,7 @@
 -export([enc_settings1/1]).
 -export([transform_extra/1]).
 -export([ask_if_sponsor/1, ask_if_wants_to_pay/3]).
+-export([preencode_tx/2]).
 
 info() ->
 	{<<"evm">>, <<"EVM">>}.
@@ -612,7 +613,12 @@ preencode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig,payl
   K=tx:encode_kind(Ver,Kind),
   Call=case Tx of
          #{call:=#{function:=F, args:=A}} ->
-           [[F,A]];
+           case lists:all(fun(E) -> is_integer(E) end,A) of
+             true ->
+               [[F,A]];
+             false ->
+               [[F,[]]]
+           end;
          _ ->
            []
        end,
