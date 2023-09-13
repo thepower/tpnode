@@ -1516,7 +1516,7 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
         #{};
        (txext, V1) ->
         maps:fold(
-          fun(K2,V2,Acc) when is_list(K2), is_list(V2) ->
+          fun(K2,[Iv1|_]=V2,Acc) when is_list(K2), is_integer(Iv1), Iv1 < 256 ->
               [{str2bin(K2),str2bin(V2)}|Acc];
              (K2,V2,Acc) when is_list(K2) ->
               [{str2bin(K2),V2}|Acc];
