@@ -1106,7 +1106,8 @@ try_process_local([{TxID,
     {Addresses1,GasF,GasAddr,GotFee,Gas}=case RSp of
                  {ok, SPData1} ->
                    OrigF=maps:get(From, Addresses),
-                   {NewF1, _GasF1, _GotFee1, _Gas1}=withdraw(OrigF, Tx, GetFun, SetState, []),
+                   {NewF1, _GasF1, _GotFee1, _Gas1}=withdraw(OrigF, Tx, GetFun, SetState,
+                                                             [nofee,nogas]),
                    Addresses_tmp=maps:put(From, NewF1, Addresses),
 
                    OrigF2=maps:get(Sponsor, Addresses_tmp),
@@ -1134,9 +1135,9 @@ try_process_local([{TxID,
                      {_, IGL, _} when IGL < 0 ->
                        throw('insufficient_gas');
                      {_, IGL, _} when IGL > 0 ->
-                       Bal0=maps:get(From, Addresses2),
+                       Bal0=maps:get(GasAddr, Addresses2),
                        Bal1=return_gas(GasLeft, SetState, Bal0),
-                       maps:put(From, Bal1, Addresses2)
+                       maps:put(GasAddr, Bal1, Addresses2)
                    end,
 
       CI=tx:get_ext(<<"contract_issued">>, Tx),
