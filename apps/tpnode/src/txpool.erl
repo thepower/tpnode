@@ -165,7 +165,7 @@ handle_cast({inbound_block, #{hash:=Hash} = Block}, State) ->
       end;
     {ok, {TxId, _, _}} ->
       % we already have this block in storage. we only need add its txid to outbox
-      gen_server:cast(txqueue, {push, [TxId]})
+      gen_server:cast(txqueue, {push_tx, [TxId]})
   end,
   
   {noreply, State };
