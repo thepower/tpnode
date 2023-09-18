@@ -1384,7 +1384,10 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                Len:256/big,
                Str:Len/binary,_/binary>> when 32>=Len ->
                [{<<"revert">>, Str}];
+             <<>> ->
+               [{<<"revert">>, <<>>}];
              Revert when is_binary(Revert) ->
+               ?LOG_INFO("Tx ~p revert ~p",[TxID, Revert]),
                [{<<"revert">>, <<"other">>}];
              undefined ->
                []
