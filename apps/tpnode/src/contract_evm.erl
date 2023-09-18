@@ -385,7 +385,7 @@ handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
              "gas"=>0,
              "txs"=>[]}, Opaque};
     {done, {revert, Revert}, #{ gas:=GasLeft}} ->
-      Log1=[([evm,revert,Revert])|PreLog],
+      Log1=[[<<"evm:revert">>,To,From,Revert],[evm,revert,Revert]|PreLog],
       {ok, #{null=>"exec",
              "state"=>unchanged,
              "gas"=>GasLeft,
@@ -617,6 +617,7 @@ preencode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig,payl
              true ->
                [[F,A]];
              false ->
+               %% TODO: figure out what to do with args!!!! How to encode them in ABI
                [[F,[]]]
            end;
          _ ->
