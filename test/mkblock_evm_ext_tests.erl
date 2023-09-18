@@ -271,16 +271,7 @@ evm_embedded_abicall_test() ->
       [{_,_,FABI}]=contract_evm_abi:find_function(<<"getTxs()">>,ABI),
       D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> <<>> end end(),
       hex:hexdump(D),
-      fun FT() ->
-          receive 
-            {trace,{stack,_,_}} ->
-              FT();
-            {trace,_Any} ->
-              %io:format("~p~n",[_Any]),
-              FT()
-          after 0 -> ok
-          end
-      end(),
+      fun FT() -> receive {trace,{stack,_,_}} -> FT(); {trace,_Any} -> [_Any|FT()] after 0 -> [] end end(),
 
       io:format("2dec ~p~n",[D]),
       io:format("ABI ~p~n",[FABI]),
@@ -427,7 +418,9 @@ evm_embedded_gets_test() ->
                           {EvName,contract_evm_abi:decode_abi(DABI,EvABI)}
                       end;
                     {ok,[<<"tx1">>,<<"evm">>,<<"revert">>,Sig]} ->
-                      [<<"tx1">>,<<"evm">>,<<"revert">>,Sig]
+                      [<<"tx1">>,<<"evm">>,<<"revert">>,Sig];
+                    {ok,Any} ->
+                      Any
                   end
               end,
 
@@ -586,6 +579,122 @@ evm_embedded_lstore_test() ->
                     (_,A) -> A
                  end, false, ProcLog),
 
+      [
+       ?assertMatch(Succ,true)
+      ].
+
+
+
+evm_caller_test() ->
+      OurChain=151,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+
+      {ok,Bin1} = file:read_file("examples/evm_builtin/build/Caller.bin"),
+      {ok,Bin2} = file:read_file("examples/evm_builtin/build/Callee.bin"),
+      ABI1=contract_evm_abi:parse_abifile("examples/evm_builtin/build/Caller.abi"),
+
+      Code1=hex:decode(hd(binary:split(Bin1,<<"\n">>))),
+      Code2=hex:decode(hd(binary:split(Bin2,<<"\n">>))),
+
+      {done,{return,Code1b},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
+      {done,{return,Code2b},_}=eevm:eval(Code2,#{},#{ gas=>1000000, extra=>#{} }),
+      SkAddr1=naddress:construct_public(1, OurChain, 10),
+      SkAddr2=naddress:construct_public(1, OurChain, 20),
+
+      TX1=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr1,
+              call=>#{
+                      function => "setXFromAddress(address,uint256)",
+                      args => [ SkAddr2, 1234 ]
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+      TxList1=[
+               {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,Block}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{
+                             <<"FTT">> => 1000000,
+                             <<"SK">> => 3,
+                             <<"TST">> => 26
+                            }
+                }
+              },
+              {SkAddr2,
+               #{amount => #{},
+                 code => Code2b,
+                 vm => <<"evm">>
+                }
+              },
+              {SkAddr1,
+               #{amount => #{},
+                 code => Code1b,
+                 vm => <<"evm">>
+                }
+              }
+             ],
+      register(eevm_tracer,self()),
+      {ok,Log,#{bals:=B,txs:=_Tx}}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      io:format("Bals ~p~n",[B]),
+      %io:format("st ~p~n",[[ maps:with([call,extdata],Body) || {_,Body} <- Tx]]),
+      %io:format("Block ~p~n",[block:minify(Blk)]),
+      unregister(eevm_tracer),
+      %[{_,_,FABI}]=contract_evm_abi:find_function(<<"getLStore(bytes[])">>,ABI),
+      %_D=fun() -> receive {trace,{return,Data}} ->
+      %                     %hex:hexdump(Data),
+      %                     io:format("dec ~p~n",[contract_evm_abi:decode_abi(Data,FABI)]),
+      %                     Data
+      %           after 0 ->
+      %                   <<>>
+      %           end end(),
+      fun FT() ->
+          receive
+            {trace,{stack,_,_}} ->
+              FT();
+            {trace,_Any} ->
+              %io:format("~p~n",[_Any]),
+              FT()
+          after 0 -> ok
+          end
+      end(),
+
+      Events=contract_evm_abi:sig_events(ABI1),
+
+      DoLog = fun (BBin) ->
+                  case msgpack:unpack(BBin) of
+                    {ok,[_,<<"evm">>,_,_,DABI,[Arg]]} ->
+                      case lists:keyfind(Arg,2,Events) of
+                        false ->
+                          {DABI,Arg};
+                        {EvName,_,EvABI}->
+                          {EvName,contract_evm_abi:decode_abi(DABI,EvABI)}
+                      end;
+                    {ok,[<<"tx1">>,<<"evm">>,<<"revert">>,Sig]} ->
+                      [<<"tx1">>,<<"evm">>,<<"revert">>,Sig]
+                  end
+              end,
+      ProcLog=[ DoLog(LL) || LL <- Log ],
+      io:format("Logs ~p~n",[ProcLog]),
+      Succ=true,
       [
        ?assertMatch(Succ,true)
       ].
