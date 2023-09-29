@@ -225,6 +225,9 @@ contacts(Name) ->
        R
   end.
 
+get_val(mychain) ->
+  throw('use_get_setting');
+
 get_val(Name) ->
   get_val(Name, undefined).
 

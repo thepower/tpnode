@@ -122,7 +122,7 @@ h(Method, [<<"api">>|Path], Req) ->
   h(Method, Path, Req);
 
 h(<<"GET">>, [<<"node">>, <<"status">>], Req) ->
-  Chain=chainsettings:get_val(mychain),
+  {ok,Chain}=chainsettings:get_setting(mychain),
   #{hash:=Hash,
     sign:=Signatures,
     header:=Header1}=Blk=blockchain:last_meta(),
