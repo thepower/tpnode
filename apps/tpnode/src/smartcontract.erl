@@ -193,6 +193,8 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,{GNum,GDen}=GRate}, GetFun, Opaq
         catch error:badarg ->
                 throw({'run_failed', SReason})
         end;
+      {error, nogas, _} ->
+        throw('insufficient_gas');
       {error, Reason, GasLeft} ->
         %throw({'run_failed', Reason});
         ?LOG_ERROR("Contract error ~p", [Reason]),
