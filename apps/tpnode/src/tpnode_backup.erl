@@ -51,8 +51,13 @@ get_backup() ->
     {ok, Bin} ->
       {ok,Bin};
     {error, enoent} ->
+      DBPath=utils:dbpath(backup),
       TL=integer_to_list(Last),
-      Files=filelib:wildcard(TL++"*",utils:dbpath(backup)) ++ filelib:wildcard(TL++"*/**",utils:dbpath(backup)),
+      Files0=filelib:wildcard(TL++"*",DBPath) ++ filelib:wildcard(TL++"*/**",DBPath),
+      Files=lists:filter(
+               fun(Filename) ->
+                   filelib:is_regular(filename:join(DBPath,Filename))
+               end, Files0),
       Info1=(maps:with([last,hash,header],Info))#{dir=>TL},
       file:write_file(utils:dbpath(backup)++"/backup.txt",io_lib:format("~p.~n",[Info1])),
       Files1=["backup.txt"|lists:usort(Files)],
