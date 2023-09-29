@@ -55,7 +55,7 @@ contract sponsor {
     if(found_fee_hint>0) c++;
     if(found_gas_hint>0) c++;
 
-    tpPayload[] memory payload1=new tpPayload[](c+1);
+    tpPayload[] memory payload1=new tpPayload[](c);
     if(c==2){
       payload1[0]=utx.payload[found_fee_hint-1];
       payload1[0].purpose=1;
@@ -68,7 +68,7 @@ contract sponsor {
       payload1[0]=utx.payload[found_fee_hint-1];
       payload1[0].purpose=3;
     }
-    payload1[c]=tpPayload(0,"TST",10000);
+    //payload1[c]=tpPayload(0,"TST",10000);
     //payload1[0]=tpPayload(1,"SK",1000000);
     //payload1[1]=tpPayload(3,"SK",1000000000);
     return ("i will pay",payload1);
