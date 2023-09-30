@@ -120,11 +120,18 @@ handle_info(init_peers, State=#{opts:=#{get_peers:=GP}=Opts}) when is_function(G
     State1=lists:foldl(
              fun({PubKey,_},Acc) when MyKey==PubKey ->
                  Acc;
+                ({undefined,IPS},Acc) ->
+                 lists:foreach(
+                   fun({IP,Port}) ->
+                       tpic2_client:start(IP,Port,#{})
+                   end, IPS),
+                 Acc;
                 ({PubKey,IPS},Acc) ->
                  {PID, Acc1}=get_conn(PubKey, Acc),
-                 lists:foreach(fun({IP,Port}) ->
-                                   gen_server:call(PID,{add,IP,Port})
-                               end, IPS),
+                 lists:foreach(
+                   fun({IP,Port}) ->
+                       gen_server:call(PID,{add,IP,Port})
+                   end, IPS),
                  Acc1
              end, State, GPeers),
     {noreply, State1}

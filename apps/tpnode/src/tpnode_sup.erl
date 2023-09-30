@@ -208,7 +208,7 @@ init([]) ->
                                           TPIC_Port=maps:get(port,application:get_env(tpnode,tpic,#{}),1800),
                                           tpnode_peerfinder:propose_tpic(I,TPIC_Port);
                                         _ ->
-                                          []
+                                          [{undefined,maps:get(peers,application:get_env(tpnode,tpic,#{}),[])}]
                                       end;
                                     true ->
                                       SP
