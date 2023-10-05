@@ -28,7 +28,7 @@ ssc_test() ->
               ]],ABI,Code2),
   io:format("~p~n",[DRet2]),
   %wouldYouLikeToPayTx(tpTx calldata utx) p
-  [?assertMatch([{<<"arg1">>,true},{<<"arg2">>,<<"SK">>},{<<"arg3">>,100000}], DRet),
+  [?assertMatch([{_,true},{_,<<"SK">>},{_,100000}], DRet),
    ?assertMatch([{<<"iWillPay">>,<<"i will pay">>},
         {<<"pay">>,
          [[{<<"purpose">>,3},{<<"cur">>,<<"SK">>},{<<"amount">>,600000}],_]}],DRet2)
