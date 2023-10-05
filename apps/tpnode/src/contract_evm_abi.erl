@@ -2,16 +2,14 @@
 
 -export([parse_abifile/1]).
 -export([find_function/2, find_event/2]).
--export([all_events/1, mk_sig/1]).
+-export([all_events/1, mk_sig/1, mk_sig2/1]).
 -export([sig_events/1]).
 -export([decode_abi/2]).
--export([decode_abi_map/2]).
+-export([decode_abi/3]).
 -export([encode_simple/1]).
 -export([parse_signature/1]).
 -export([encode_abi/2]).
 -export([sig32/1]).
-
--export([pack/1,unpack/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -31,61 +29,60 @@ all_events(ABI) ->
     fun({{event,_},_,_}) -> true; (_) -> false end,
     ABI).
 
+decode_abi(Bin,Args,Indexed) ->
+  decode_abi(Bin,Args,Bin,[],Indexed).
 decode_abi(Bin,Args) ->
-  decode_abi(Bin,Args,Bin,[]).
+  decode_abi(Bin,Args,Bin,[],[]).
 
-decode_abi_map(Bin,Args) ->
-  maps:from_list(decode_abi(Bin,Args,Bin,[])).
+decode_abi(Bin1,Args,Bin2,Acc,Idx) ->
+  {_,_,_,Acc2,_} = decode_abi_internal(Bin1,Args,Bin2,Acc,Idx),
+  Acc2.
 
-decode_abi(_,[],_Bin,Acc) ->
-  {_,List}=lists:foldl(
-    fun
-      ({'_naked',_Type,Value},{N,A}) ->
-        {N-1,[Value|A]};
-      ({Name,_Type,Value},{N,A}) ->
-        {N-1,[{
-           if(Name == <<>>) ->
-               <<"arg",(integer_to_binary(N))/binary>>;
-             true ->
-               Name
-           end,
-           Value
-          } | A ]}
-    end,
-    {length(Acc),[]},
-    Acc
-   ),
-  List;
+decode_abi_internal(RestB,[],Bin,Acc,Idx) ->
+  List=lists:foldl(
+         fun
+           ({'_naked',_Type,Value},A) ->
+             [Value|A];
+           ({Name,_Type,Value},A) ->
+             [{Name, Value}|A]
+         end,
+         [],
+         Acc
+        ),
+  {RestB,[],Bin,List,Idx};
 
-decode_abi(<<Ptr:256/big,RestB/binary>>,[{Name, {array,Type}}|RestA],Bin,Acc) ->
+decode_abi_internal(RestB,[{Name, {indexed,Type}}|RestA],Bin,Acc,[N|Idx]) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, Type, N}|Acc],Idx);
+
+decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {array,Type}}|RestA],Bin,Acc,Idx) ->
   <<_:Ptr/binary,Size:256/big,Data/binary>> = Bin,
-  Tpl=decode_abi(Data,[{'_naked',Type} || _ <- lists:seq(1,Size)],Data,[]),
-  decode_abi(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc]);
+  {_,[],_,Tpl,Idx1}=decode_abi_internal(Data,[{'_naked',Type} || _ <- lists:seq(1,Size)],Data,[],Idx),
+  decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
 
-decode_abi(<<Ptr:256/big,RestB/binary>>,[{Name, {tuple,TL}}|RestA],Bin,Acc) ->
+decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {tuple,TL}}|RestA],Bin,Acc,Idx) ->
   <<_:Ptr/binary,Tuple/binary>> = Bin,
-  Tpl=decode_abi(Tuple,TL,Tuple,[]),
-  decode_abi(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc]);
+  {_,[],_,Tpl,Idx1}=decode_abi_internal(Tuple,TL,Tuple,[],Idx),
+  decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
 
-decode_abi(<<Ptr:256/big,RestB/binary>>,[{Name,bytes}|RestA],Bin,Acc) ->
+decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name,bytes}|RestA],Bin,Acc,Idx) ->
   <<_:Ptr/binary,Len:256/big,Str:Len/binary,_/binary>> = Bin,
-  decode_abi(RestB, RestA, Bin, [{Name, string, Str}|Acc]);
+  decode_abi_internal(RestB, RestA, Bin, [{Name, string, Str}|Acc],Idx);
 
-decode_abi(<<Ptr:256/big,RestB/binary>>,[{Name,string}|RestA],Bin,Acc) ->
+decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name,string}|RestA],Bin,Acc,Idx) ->
   <<_:Ptr/binary,Len:256/big,Str:Len/binary,_/binary>> = Bin,
-  decode_abi(RestB, RestA, Bin, [{Name, string, Str}|Acc]);
+  decode_abi_internal(RestB, RestA, Bin, [{Name, string, Str}|Acc],Idx);
 
-decode_abi(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc)
+decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc,Idx)
   when Val > 9223372036854775808 andalso Val < 13835058055282163712 ->
-  decode_abi(RestB, RestA, Bin, [{Name, address, binary:encode_unsigned(Val)}|Acc]);
-decode_abi(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc) ->
-  decode_abi(RestB, RestA, Bin, [{Name, address, Val}|Acc]);
-decode_abi(<<Val:256/big,RestB/binary>>,[{Name,bool}|RestA],Bin,Acc) ->
-  decode_abi(RestB, RestA, Bin, [{Name, bool, Val==1}|Acc]);
-decode_abi(<<_:248,Val:8/big,RestB/binary>>,[{Name,uint8}|RestA],Bin,Acc) ->
-  decode_abi(RestB, RestA, Bin, [{Name, uint8, Val}|Acc]);
-decode_abi(<<Val:256/big,RestB/binary>>,[{Name,uint256}|RestA],Bin,Acc) ->
-  decode_abi(RestB, RestA, Bin, [{Name, uint256, Val}|Acc]).
+  decode_abi_internal(RestB, RestA, Bin, [{Name, address, binary:encode_unsigned(Val)}|Acc],Idx);
+decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc,Idx) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, address, Val}|Acc],Idx);
+decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,bool}|RestA],Bin,Acc,Idx) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, bool, Val==1}|Acc],Idx);
+decode_abi_internal(<<_:248,Val:8/big,RestB/binary>>,[{Name,uint8}|RestA],Bin,Acc,Idx) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, uint8, Val}|Acc],Idx);
+decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,uint256}|RestA],Bin,Acc,Idx) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, uint256, Val}|Acc],Idx).
 
 cmp_abi([],[]) -> true;
 cmp_abi([],[_|_]) -> false;
@@ -135,6 +132,21 @@ find_event(Sig, ABI) when is_binary(Sig), is_list(ABI) ->
     end,
     ABI).
 
+mk_sig2([]) ->
+  []; % convert multiple
+mk_sig2([{{event,_},_,_}=E|Rest]) ->
+  [ mk_sig2(E) | mk_sig2(Rest) ];
+mk_sig2([{{function,_},_,_}=E|Rest]) ->
+  [ mk_sig2(E) | mk_sig2(Rest) ];
+mk_sig2([_|Rest]) ->
+  mk_sig2(Rest);
+
+mk_sig2({{EventOrFunction,Name},CS,CS2}) when EventOrFunction == event;
+                                              EventOrFunction == function ->
+  list_to_binary([ Name, "(", mk_sig_arr(CS), ") returns (", mk_sig_arr(CS2), ")" ]).
+
+
+
 mk_sig([]) ->
   []; % convert multiple
 mk_sig([{{event,_},_,_}=E|Rest]) ->
@@ -151,6 +163,8 @@ mk_sig({{EventOrFunction,Name},CS,_}) when EventOrFunction == event;
 mk_sig_arr(CS) ->
   list_to_binary( lists:join(",", [ mk_sig_type(E) || {_,E} <- CS ]) ).
 
+mk_sig_type({indexed,A}) ->
+  mk_sig_type(A);
 mk_sig_type({array,A}) ->
   <<(mk_sig_type(A))/binary,"[]">>;
 mk_sig_type({tuple,Type}) ->
@@ -224,6 +238,11 @@ convert_io(List) ->
           <<"type">> := <<"tuple[]">>,
           <<"components">>:= C}) ->
         {Name, {array,{tuple, convert_io(C)}}};
+       (#{
+          <<"name">> := Name,
+          <<"type">> := Type,
+          <<"indexed">>:= true}) ->
+        {Name, {indexed,convert_type(Type)}};
        (#{
           <<"name">> := Name,
           <<"type">> := Type}) ->
@@ -360,25 +379,6 @@ encode_str(Bin) ->
           N -> 32 - N
         end*8,
   <<(size(Bin)):256/big,Bin/binary,0:Pad/big>>.
-
-pack(JSON) ->
-  Dict=lists:reverse(lists:keysort(2,maps:to_list(mkdict(JSON, #{})))),
-  {_,PL}=lists:foldl(
-            fun
-              ({_,1}, {Acc,Lst}) -> {Acc,Lst};
-              ({S,_}, {Acc,Lst}) when size(S) < 4 -> {Acc,Lst};
-              ({Name,_Cnt}, {Acc,Lst}) ->
-                {Acc+1,[{Name,Acc}|Lst]}
-            end,{1,[]},Dict),
-  Mapa=maps:from_list(PL),
-  LL=lists:foldl( fun({L,_Idx}, Acc) -> [L|Acc] end, [], PL),
-  Enc=transform_list(JSON, Mapa),
-  zlib:compress(msgpack:pack([<<"abiv1">>, LL, Enc ])).
-
-unpack(Bin) ->
-  {ok,[<<"abiv1">>, LL, Enc]}=msgpack:unpack(zlib:uncompress(Bin)),
-  Mapa=maps:from_list(lists:zip(lists:seq(1, length(LL)), LL)),
-  retransform_list(Enc, Mapa).
 
 transform_map(Data, Map) ->
   T=fun(B) -> maps:get(B, Map, B) end,
