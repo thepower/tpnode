@@ -273,7 +273,6 @@ run(Address, Code, Data) ->
   eevm:eval(Code,
             #{},
             State0#{cd=>CallData,
-                    sha3=> fun esha3:keccak_256/1,
                     extra=>Ex1,
                     sload=>SLoad,
                     finfun=>FinFun,

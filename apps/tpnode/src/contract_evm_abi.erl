@@ -2,14 +2,16 @@
 
 -export([parse_abifile/1]).
 -export([find_function/2, find_event/2]).
--export([all_events/1, mk_sig/1, mk_sig2/1]).
+-export([all_events/1, mk_sig/1, mk_fullsig/1]).
 -export([sig_events/1]).
 -export([decode_abi/2]).
 -export([decode_abi/3]).
+-export([encode_abi_call/2]).
 -export([encode_simple/1]).
 -export([parse_signature/1]).
 -export([encode_abi/2]).
 -export([sig32/1]).
+-export([unwrap/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -28,6 +30,19 @@ all_events(ABI) ->
   lists:filter(
     fun({{event,_},_,_}) -> true; (_) -> false end,
     ABI).
+
+unwrap([{_,L}|Rest]) when is_list(L) ->
+  [unwrap(L)|unwrap(Rest)];
+
+unwrap([{_,L}|Rest]) ->
+  [L|unwrap(Rest)];
+
+unwrap([L|Rest]) ->
+  [L|unwrap(Rest)];
+
+unwrap([]) ->
+  [].
+
 
 decode_abi(Bin,Args,Indexed) ->
   decode_abi(Bin,Args,Bin,[],Indexed).
@@ -54,15 +69,24 @@ decode_abi_internal(RestB,[],Bin,Acc,Idx) ->
 decode_abi_internal(RestB,[{Name, {indexed,Type}}|RestA],Bin,Acc,[N|Idx]) ->
   decode_abi_internal(RestB, RestA, Bin, [{Name, Type, N}|Acc],Idx);
 
+decode_abi_internal(RestB, [{Name, {fixarray,{Size,Type}}}|RestA],Bin,Acc,Idx) ->
+  {RB2,[],_,Tpl,Idx1}=decode_abi_internal(RestB, [{'_naked',Type} || _ <- lists:seq(1,Size)],Bin,[],Idx),
+  decode_abi_internal(RB2, RestA, Bin, [{Name, array, Tpl}|Acc],Idx1);
+
 decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {array,Type}}|RestA],Bin,Acc,Idx) ->
   <<_:Ptr/binary,Size:256/big,Data/binary>> = Bin,
   {_,[],_,Tpl,Idx1}=decode_abi_internal(Data,[{'_naked',Type} || _ <- lists:seq(1,Size)],Data,[],Idx),
   decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
 
-decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {tuple,TL}}|RestA],Bin,Acc,Idx) ->
-  <<_:Ptr/binary,Tuple/binary>> = Bin,
-  {_,[],_,Tpl,Idx1}=decode_abi_internal(Tuple,TL,Tuple,[],Idx),
-  decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
+%decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {tuple,TL}}|RestA],Bin,Acc,Idx) ->
+%  <<_:Ptr/binary,Tuple/binary>> = Bin,
+%  {_,[],_,Tpl,Idx1}=decode_abi_internal(Tuple,TL,Tuple,[],Idx),
+%  decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
+
+% this is experemental
+decode_abi_internal(RestB,[{Name, {tuple,TL}}|RestA],Bin,Acc,Idx) ->
+  {RestB2,[],_,Tpl,Idx1}=decode_abi_internal(RestB,TL,Bin,[],Idx),
+  decode_abi_internal(RestB2, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
 
 decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name,bytes}|RestA],Bin,Acc,Idx) ->
   <<_:Ptr/binary,Len:256/big,Str:Len/binary,_/binary>> = Bin,
@@ -81,6 +105,8 @@ decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,bool}|RestA],Bin,Acc,Idx
   decode_abi_internal(RestB, RestA, Bin, [{Name, bool, Val==1}|Acc],Idx);
 decode_abi_internal(<<_:248,Val:8/big,RestB/binary>>,[{Name,uint8}|RestA],Bin,Acc,Idx) ->
   decode_abi_internal(RestB, RestA, Bin, [{Name, uint8, Val}|Acc],Idx);
+decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,uint32}|RestA],Bin,Acc,Idx) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, uint32, Val band 16#ffffffff}|Acc],Idx);
 decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,uint256}|RestA],Bin,Acc,Idx) ->
   decode_abi_internal(RestB, RestA, Bin, [{Name, uint256, Val}|Acc],Idx).
 
@@ -132,21 +158,6 @@ find_event(Sig, ABI) when is_binary(Sig), is_list(ABI) ->
     end,
     ABI).
 
-mk_sig2([]) ->
-  []; % convert multiple
-mk_sig2([{{event,_},_,_}=E|Rest]) ->
-  [ mk_sig2(E) | mk_sig2(Rest) ];
-mk_sig2([{{function,_},_,_}=E|Rest]) ->
-  [ mk_sig2(E) | mk_sig2(Rest) ];
-mk_sig2([_|Rest]) ->
-  mk_sig2(Rest);
-
-mk_sig2({{EventOrFunction,Name},CS,CS2}) when EventOrFunction == event;
-                                              EventOrFunction == function ->
-  list_to_binary([ Name, "(", mk_sig_arr(CS), ") returns (", mk_sig_arr(CS2), ")" ]).
-
-
-
 mk_sig([]) ->
   []; % convert multiple
 mk_sig([{{event,_},_,_}=E|Rest]) ->
@@ -173,6 +184,30 @@ mk_sig_type({tuple,Type}) ->
 mk_sig_type(Type) when is_atom(Type) ->
   atom_to_binary(Type,utf8).
 
+
+mk_fullsig({{EventOrFunction,Name},CS,R}) when EventOrFunction == event;
+                                           EventOrFunction == function ->
+  list_to_binary([ Name, "(", mk_sig_farr(CS), ")",
+                   case R of
+                     [] -> [];
+                     undefined -> [];
+                     _ when is_list(R) ->
+                       [" returns (",mk_sig_farr(R),")"]
+                   end ]).
+
+mk_sig_farr(CS) ->
+  list_to_binary( lists:join(",", [ [mk_sig_ftype(E)|
+                                     if N == <<>> -> []; true -> [" ",N] end] || {N,E} <- CS ]) ).
+mk_sig_ftype({array,A}) ->
+  <<(mk_sig_ftype(A))/binary,"[]">>;
+mk_sig_ftype({tuple,Type}) ->
+  <<"(",(mk_sig_farr(Type))/binary,")">>;
+
+mk_sig_ftype(Type) when is_atom(Type) ->
+  atom_to_binary(Type,utf8).
+
+
+
 sig_split(Signature) ->
   {ok,{{function, Name},Args, _}} = parse_signature(Signature),
   {Name, Args}.
@@ -181,15 +216,57 @@ parse_signature(String) when is_binary(String) ->
   parse_signature(binary_to_list(String));
 
 parse_signature(String) when is_list(String) ->
-  {_,B,_}=erl_scan:string(String),
+  case re:run(String,"(^\.+\\\))\s\*returns\s\*(\\\(.+)") of
+    {match,[_,{S0,L0},{S1,L1}]} ->
+      parse_signature(string:substr(String,S0+1,L0),
+                      string:substr(String,S1+1,L1)
+                     );
+    _ ->
+      String1=case hd(String) of
+                FC when FC>=$A andalso $Z>=FC ->
+                  [$x,$x,$x|String];
+                _ ->
+                  String
+              end,
+      {_,B,_}=erl_scan:string(String1),
+      case contract_evm_abi_parser:parse(B) of
+        {ok,{Name,R}} when is_atom(Name) ->
+          BName=case atom_to_binary(Name) of
+                 <<"xxx",CapName/binary>> -> CapName;
+                  Other -> Other
+                end,
+          {ok,{{function, BName},(R), undefined}};
+        {error, Err} ->
+          {error, Err}
+      end
+  end.
+
+parse_signature(String0,RetString) when is_list(String0), is_list(RetString) ->
+  String1=case hd(String0) of
+    FC when FC>=$A andalso $Z>=FC ->
+      [$x,$x,$x|String0];
+    _ ->
+      String0
+  end,
+  {_,B,_}=erl_scan:string(String1),
   case contract_evm_abi_parser:parse(B) of
-    {ok,{Name,undefined}} when is_atom(Name) ->
-      {ok,{{function, atom_to_binary(Name)},undefined, undefined}};
-     {ok,{Name,R}} when is_atom(Name) ->
-      {ok,{{function, atom_to_binary(Name)},(R), undefined}};
+    {ok,{Name,R}} when is_atom(Name) ->
+      {_,C,_}=erl_scan:string(RetString),
+      case contract_evm_abi_parser:parse(C) of
+        {ok,{_,R2}} ->
+          BName=case atom_to_binary(Name) of
+                 <<"xxx",CapName/binary>> -> CapName;
+                  Other -> Other
+                end,
+          {ok,{{function, BName},(R), R2}};
+        {error, Err} ->
+          {error, Err}
+      end;
     {error, Err} ->
       {error, Err}
   end.
+
+
 
 parse_abilist([_|_]=JSON) ->
   lists:filtermap(
@@ -288,6 +365,17 @@ encode_type(Input, address) ->
 encode_type(_, Type) ->
   throw({'unexpected_type',Type}).
 
+encode_abi_call(D,ABIStr) ->
+  case contract_evm_abi:parse_signature(ABIStr) of
+    {ok,{{function,<<"undefined">>},
+         ABI, _}} ->
+      encode_abi(D,ABI);
+    {ok,{{function,_},ABI,_}=Sig} ->
+      Bin=encode_abi(D,ABI),
+      I=contract_evm_abi:sig32(contract_evm_abi:mk_sig(Sig)),
+      <<I:32/big,Bin/binary>>
+  end.
+
 encode_abi(D,ABI) ->
   HdLen=length(ABI)*32,
   encode_typed(D,ABI,<<>>,<<>>,HdLen).
@@ -379,90 +467,6 @@ encode_str(Bin) ->
           N -> 32 - N
         end*8,
   <<(size(Bin)):256/big,Bin/binary,0:Pad/big>>.
-
-transform_map(Data, Map) ->
-  T=fun(B) -> maps:get(B, Map, B) end,
-  maps:fold(
-    fun(K,V,Acc1) when is_binary(K) andalso is_list(V) ->
-        maps:put(T(K),transform_list(V, Map),Acc1);
-       (K,V,Acc1) when is_binary(K) andalso is_map(V) ->
-        maps:put(T(K),transform_map(V, Map),Acc1);
-       (K,V,Acc1) when is_binary(K) andalso is_binary(V) ->
-        maps:put(T(K),T(V),Acc1);
-       (K,V,Acc1) when is_binary(K) andalso is_atom(V) ->
-        maps:put(T(K),V,Acc1);
-       (Key,_Val,_) ->
-        throw({'unexpected_key',{Key,_Val}})
-    end, #{}, Data).
-
-transform_list(Data, Map) ->
-  T=fun(B) -> maps:get(B, Map, B) end,
-  lists:map(
-    fun({K,V}) when is_binary(K) andalso is_list(V) ->
-        {T(K),transform_list(V, Map)};
-       ({K,V}) when is_binary(K) andalso is_map(V) ->
-        {K,transform_map(V, Map)};
-       ({K,V}) when is_binary(K) andalso is_binary(V) ->
-        {K,V};
-       (V) when is_map(V) ->
-        transform_map(V, Map);
-       (K) when is_binary(K) ->
-        T(K);
-       (Key) ->
-        throw({'unexpected_key',Key})
-    end, Data).
-
-retransform_map(Data, Map) ->
-  T=fun(B) -> maps:get(B, Map, B) end,
-  maps:fold(
-    fun(K,V,Acc1) when (is_integer(K) orelse is_binary(K)) andalso is_list(V) ->
-        maps:put(T(K),retransform_list(V, Map),Acc1);
-       (K,V,Acc1) when (is_integer(K) orelse is_binary(K)) andalso is_map(V) ->
-        maps:put(T(K),retransform_map(V, Map),Acc1);
-       (K,V,Acc1) when (is_integer(K) orelse is_binary(K)) andalso
-                       (is_integer(V) orelse is_binary(V)) ->
-        maps:put(T(K),T(V),Acc1);
-       (K,V,Acc1) when (is_binary(K) orelse is_integer(K)) andalso is_atom(V) ->
-        maps:put(T(K),V,Acc1);
-       (Key,_Val,_) ->
-        throw({'unexpected_key',{Key,_Val}})
-    end, #{}, Data).
-
-retransform_list(Data, Map) ->
-  T=fun(B) -> maps:get(B, Map, B) end,
-  lists:map(
-    fun({K,V}) when is_binary(K) andalso is_list(V) ->
-        {T(K),retransform_list(V, Map)};
-       ({K,V}) when is_binary(K) andalso is_map(V) ->
-        {K,retransform_map(V, Map)};
-       ({K,V}) when is_binary(K) andalso is_binary(V) ->
-        {K,V};
-       (V) when is_map(V) ->
-        retransform_map(V, Map);
-       (K) when is_binary(K) ->
-        T(K);
-       (Key) ->
-        throw({'unexpected_key',Key})
-    end, Data).
-
-
-
-mkdict(Map, Acc) ->
-  lists:foldl(
-    fun(V,Acc1) when is_map(V) ->
-        mkdict(maps:to_list(V), Acc1);
-       ({K,V},Acc1) when is_binary(K) andalso is_list(V) ->
-        mkdict(V, maps:put(K, maps:get(K, Acc1, 0)+1, Acc1));
-       ({K,V},Acc1) when is_binary(K) andalso is_map(V) ->
-        mkdict(V, maps:put(K, maps:get(K, Acc1, 0)+1, Acc1));
-       ({K,V},Acc1) when is_binary(K) andalso is_binary(V) ->
-        Acc2=maps:put(K, maps:get(K, Acc1, 0)+1, Acc1),
-        maps:put(V, maps:get(V, Acc2, 0)+1, Acc2);
-       ({K,V},Acc1) when is_binary(K) andalso is_atom(V) ->
-        maps:put(K, maps:get(K, Acc1, 0)+1, Acc1);
-       (Key,_Val) ->
-        throw({'unexpected_key',Key})
-    end, Acc, Map).
 
 tuple_array_test() ->
   ABI=[{<<>>,{array,{tuple,[{<<"id">>,uint256},{<<"text">>,string}]}}}],
