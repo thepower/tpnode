@@ -121,6 +121,50 @@ h(Method, [<<"playground">>|Path], Req) ->
 h(Method, [<<"api">>|Path], Req) ->
   h(Method, Path, Req);
 
+h(<<"POST">>, [<<"execute">>,<<"call">>], Req) ->
+  case apixiom:bodyjs(Req) of
+    #{<<"call">>:=_Call, <<"to">>:=_To}=Map ->
+      B=maps:merge(#{loop=>1,
+                   <<"args">> =>[],
+                   <<"value">> => 0
+                  },Map),
+      h(<<"POST">>, B#{<<"from">> => <<"0x8000000000000000">>,
+                       <<"gas">> => 1000000000000}, Req);
+    #{} ->
+      {400, [], <<"bad argument">>}
+  end;
+
+h(<<"POST">>, #{<<"call">>:=Call,
+                <<"args">>:=Args,
+                <<"from">>:=From,
+                <<"to">>:=To,
+                <<"gas">>:=GasLimit,
+                <<"value">>:=_Value
+               },_Req) ->
+  case tpnode_evmrun:evm_run(
+         hex:decode(To),
+         Call,
+         tpnode_evmrun:decode_json_args(Args),
+         #{caller=>hex:decode(From),gas=>GasLimit}
+        ) of
+    #{}=Res ->
+      Res1=maps:map(
+             fun(bin,Val) ->
+                 <<"0x",(hex:encode(Val))/binary>>;
+                (log,Log) ->
+                 lists:map(fun([evm,CA,FA,Bin1,Topics|_]) ->
+                               [evm,hex:encode(CA),
+                                hex:encode(FA),
+                                hex:encode(Bin1),
+                                [ hex:encode(H) || H <- Topics ]
+                               ]
+                           end, Log);
+                (_,Any) -> Any
+             end,Res),
+      {200, [], Res1}
+  end;
+
+
 h(<<"GET">>, [<<"node">>, <<"status">>], Req) ->
   {ok,Chain}=chainsettings:get_setting(mychain),
   #{hash:=Hash,

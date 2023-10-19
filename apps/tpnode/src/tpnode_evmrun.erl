@@ -1,0 +1,290 @@
+-module(tpnode_evmrun).
+-export([evm_run/4,decode_json_args/1]).
+
+decode_json_args(Args) ->
+  lists:map(
+    fun(<<"0x",B/binary>>) ->
+        hex:decode(B);
+       (Any) ->
+        Any
+    end, Args).
+
+evm_run(Address, Fun, Args, Ed) ->
+  Code=mbal:get(code,mledger:get(Address)),
+  Res=run(Address, Code, Ed#{call => {Fun, Args}}),
+
+  FmtStack=fun(St) ->
+               [<<"0x",(hex:encode(binary:encode_unsigned(X)))/binary>> || X<-St]
+           end,
+
+  FmtLog=fun(Logs) ->
+             lists:foldl(
+               fun(E,A) ->
+                   [E|A]
+               end,[], Logs)
+         end,
+
+  case Res of
+    {done, {return,RetVal}, #{stack:=St, extra:=#{log:=Log}}} ->
+      case contract_evm_abi:parse_signature(Fun) of
+        {ok,{{function,_},_Sig, undefined}} ->
+          #{result => return,
+            bin => RetVal,
+            log => FmtLog(Log),
+            stack => FmtStack(St)
+           };
+        {ok,{{function,_},_Sig, RetABI}} when is_list(RetABI) ->
+          try
+            D=contract_evm_abi:decode_abi(RetVal,RetABI),
+            #{result => return,
+              bin => RetVal,
+              decode => case D of
+                          [{_,[{<<>>,_}|_]}] -> contract_evm_abi:unwrap(D);
+                          [{_,[{_,_}|_]}] -> D;
+                          [{<<>>,_}|_] -> contract_evm_abi:unwrap(D);
+                          _ -> D
+                        end,
+              log => FmtLog(Log),
+              stack => FmtStack(St)
+             }
+          catch _Ec:_Ee:S ->
+                  #{result => return,
+                    bin => RetVal,
+                    fallback_err => [_Ec,_Ee,S],
+                    log => FmtLog(Log),
+                    stack => FmtStack(St)
+                   }
+          end
+      end;
+    {done, 'stop',  #{stack:=St}} ->
+      %{stop, undefined, FmtStack(St)};
+      #{
+        result => stop,
+        stack => FmtStack(St)
+       };
+    {done, 'eof', #{stack:=St}} ->
+      %{eof, undefined, FmtStack(St)};
+      #{
+        result => eof,
+        stack => FmtStack(St)
+       };
+    {done, 'invalid',  #{stack:=St}} ->
+      #{ result => invalid,
+         stack => FmtStack(St)
+       };
+    {done, {revert, <<8,195,121,160,Data/binary>> = Bin},  #{stack:=St}} ->
+      #{ result => revert,
+         bin => Bin,
+         signature => <<"Error(string)">>,
+         decode => contract_evm_abi:unwrap(contract_evm_abi:decode_abi(Data,[{<<"Error">>,string}])),
+         stack => FmtStack(St)
+       };
+    {done, {revert, <<78,72,123,113,Data/binary>> =Bin},  #{stack:=St}} ->
+      #{ result => revert,
+         bin => Bin,
+         signature => <<"Panic(uint256)">>,
+         decode => contract_evm_abi:unwrap(contract_evm_abi:decode_abi(Data,[{<<"Panic">>,uint256}])),
+         stack => FmtStack(St)
+       };
+    {done, {revert, Data},  #{stack:=St}} ->
+      #{ result => revert,
+         bin => Data,
+         stack => FmtStack(St)
+       };
+    {error, Desc} ->
+      #{ result => error,
+         error => Desc
+       };
+    {error, nogas, #{stack:=St}} ->
+      #{ result => error,
+         error => nogas,
+         stack => FmtStack(St)
+       };
+    {error, {jump_to,_}, #{stack:=St}} ->
+      #{ result => error,
+         error => bad_jump,
+         stack => FmtStack(St)
+       };
+    {error, {bad_instruction,I}, #{stack:=St}} ->
+      #{ result => error,
+         error => bad_instruction,
+         data => list_to_binary([io_lib:format("~p",[I])]),
+         stack => FmtStack(St)
+       }
+  end.
+
+logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}=_EEvmState) ->
+  LArgs=[binary:encode_unsigned(I) || I <- LArgs0],
+  %?LOG_INFO("EVM log ~p ~p",[Message,LArgs]),
+  %io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
+  maps:put(log,[([evm,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog],Xtra).
+
+run(Address, Code, Data) ->
+  BI=fun
+       (chainid, #{stack:=Stack}=BIState) ->
+         BIState#{stack=>[16#c0de00000000|Stack]};
+       (number,#{stack:=BIStack}=BIState) ->
+         BIState#{stack=>[10+1|BIStack]};
+       (timestamp,#{stack:=BIStack}=BIState) ->
+         MT=os:system_time(millisecond),
+         BIState#{stack=>[MT|BIStack]};
+       (BIInstr,BIState) ->
+         logger:error("Bad instruction ~p~n",[BIInstr]),
+         {error,{bad_instruction,BIInstr},BIState}
+     end,
+
+  SLoad=fun(Addr, IKey, _Ex0) ->
+            Res=maps:get(
+                  binary:encode_unsigned(IKey),
+                  mbal:get(state,mledger:get(binary:encode_unsigned(Addr))),
+                  <<>>),
+            binary:decode_unsigned(Res)
+        end,
+  State0 = #{
+             sload=>SLoad,
+             gas=>maps:get(gas,Data,100000000),
+             data=>#{
+                     address=>binary:decode_unsigned(Address),
+                     caller =>binary:decode_unsigned(
+                                maps:get(caller, Data, Address)),
+                     origin  =>binary:decode_unsigned(
+                                 maps:get(caller, Data, Address))
+                    }
+            },
+
+  FinFun = fun(_,_,#{data:=#{address:=Addr}, storage:=Stor, extra:=Xtra} = FinState) ->
+               NewS=maps:merge(
+                      maps:get({Addr, stor}, Xtra, #{}),
+                      Stor
+                     ),
+               FinState#{extra=>Xtra#{{Addr, stor} => NewS}}
+           end,
+
+  GetCodeFun = fun(Addr,Ex0) ->
+                   case maps:is_key({Addr,code},Ex0) of
+                     true ->
+                       maps:get({Addr,code},Ex0,<<>>);
+                     false ->
+                       io:format(".: Get LDB code for  ~p~n",[Addr]),
+                       GotCode=mbal:get(code,mledger:get(Addr)),
+                       {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)}
+                   end
+               end,
+
+  GetBalFun = fun(Addr,Ex0) ->
+                  case maps:is_key({Addr,value},Ex0) of
+                    true ->
+                      maps:get({Addr,value},Ex0);
+                    false ->
+                      0
+                  end
+              end,
+  BeforeCall = fun(CallKind,CFrom,_Code,_Gas,
+                   #{address:=CAddr, value:=V}=CallArgs,
+                   #{global_acc:=GAcc}=Xtra) ->
+                   io:format("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
+                   if V > 0 ->
+                        TX=msgpack:pack(#{
+                                          "k"=>tx:encode_kind(2,generic),
+                                          "to"=>binary:encode_unsigned(CAddr),
+                                          "p"=>[[tx:encode_purpose(transfer),<<"SK">>,V]]
+                                         }),
+                        {TxID,CTX}=generate_block_process:complete_tx(TX,
+                                                               binary:encode_unsigned(CFrom),
+                                                               GAcc),
+                        SCTX=CTX#{sigverify=>#{valid=>1},norun=>1},
+                        NewGAcc=generate_block_process:try_process([{TxID,SCTX}], GAcc),
+                        io:format(">><< LAST ~p~n",[maps:get(last,NewGAcc)]),
+                        case maps:get(last,NewGAcc) of
+                          failed ->
+                            throw({cancel_call,insufficient_fund});
+                          ok ->
+                            ok
+                        end,
+                        Xtra#{global_acc=>NewGAcc};
+                      true ->
+                        Xtra
+                   end
+               end,
+
+  CreateFun = fun(Value1, Code1, #{la:=Lst}=Ex0) ->
+                  Addr0=naddress:construct_public(16#ffff,16#0,Lst+1),
+                  io:format("Address ~p~n",[Addr0]),
+                  Addr=binary:decode_unsigned(Addr0),
+                  Ex1=Ex0#{la=>Lst+1},
+                  %io:format("Ex1 ~p~n",[Ex1]),
+                  Deploy=eevm:eval(Code1,#{},#{
+                                               gas=>100000,
+                                               data=>#{
+                                                       address=>Addr,
+                                                       callvalue=>Value1,
+                                                       caller=>binary:decode_unsigned(Address),
+                                                       gasprice=>1,
+                                                       origin=>binary:decode_unsigned(Address)
+                                                      },
+                                               extra=>Ex1,
+                                               sload=>SLoad,
+                                               bad_instruction=>BI,
+                                               finfun=>FinFun,
+                                               get=>#{
+                                                      code => GetCodeFun,
+                                                      balance => GetBalFun
+                                                     },
+                                               cb_beforecall => BeforeCall,
+                                               logger=>fun logger/4,
+                                               trace=>whereis(eevm_tracer)
+                                              }),
+                  {done,{return,RX},#{storage:=StRet,extra:=Ex2}}=Deploy,
+                  %io:format("Ex2 ~p~n",[Ex2]),
+
+                  St2=maps:merge(
+                        maps:get({Addr,stor},Ex2,#{}),
+                        StRet),
+                  Ex3=maps:merge(Ex2,
+                                 #{
+                                   {Addr,stor} => St2,
+                                   {Addr,code} => RX,
+                                   {Addr,value} => Value1
+                                  }
+                                ),
+                  %io:format("Ex3 ~p~n",[Ex3]),
+                  Ex4=maps:put(created,[Addr|maps:get(created,Ex3,[])],Ex3),
+
+                  {#{ address => Addr },Ex4}
+              end,
+
+  CallData = case maps:get(call, Data, undefined) of
+               {Fun, Arg} ->
+                 {ok,{{function,_},FABI,_}=S} = contract_evm_abi:parse_signature(Fun),
+                 if(length(FABI)==length(Arg)) -> ok;
+                   true -> throw("count of arguments does not match with signature")
+                 end,
+                 BArgs=contract_evm_abi:encode_abi(Arg,FABI),
+                 X=contract_evm_abi:sig32(contract_evm_abi:mk_sig(S)),
+                 <<X:32/big,BArgs/binary>>;
+               undefined ->
+                 <<>>
+             end,
+  
+  Ex1=#{
+        la=>0,
+        log=>[]
+       },
+  eevm:eval(Code,
+            #{},
+            State0#{cd=>CallData,
+                    sha3=> fun esha3:keccak_256/1,
+                    extra=>Ex1,
+                    sload=>SLoad,
+                    finfun=>FinFun,
+                    bad_instruction=>BI,
+                    get=>#{
+                           code => GetCodeFun,
+                           balance => GetBalFun
+                          },
+                    cb_beforecall => BeforeCall,
+                    logger=>fun logger/4,
+                    create => CreateFun,
+                    trace=>whereis(eevm_tracer)
+                   }).
+
