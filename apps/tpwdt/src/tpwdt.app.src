@@ -1,0 +1,12 @@
+{application, tpwdt,
+  [
+    {description, "watchdog"},
+    {vsn, "0.1"},
+    {registered, []},
+    {applications, [
+      kernel,
+      stdlib
+    ]},
+    {mod, {tpwdt, []}},
+    {env, []}
+  ]}.

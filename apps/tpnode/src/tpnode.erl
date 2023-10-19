@@ -3,7 +3,7 @@
 -behaviour(application).
 
 %% Application callbacks
--export([start/2, stop/1, start/0, stop/0, reload/0, die/1]).
+-export([start/2, stop/1, start/0, stop/0, restart/0, reload/0, die/1]).
 
 -include("include/version.hrl").
 -include("include/tplog.hrl").
@@ -16,6 +16,14 @@ start() ->
 
 stop() ->
     application:stop(tpnode).
+
+restart() ->
+  spawn(
+    fun() ->
+        tpnode:stop(),
+        timer:sleep(3000),
+        tpnode:start()
+    end).
 
 start(_StartType, _StartArgs) ->
     application:unset_env(tpnode, dead),
