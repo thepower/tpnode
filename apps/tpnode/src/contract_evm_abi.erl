@@ -78,15 +78,15 @@ decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {array,Type}}|RestA],Bi
   {_,[],_,Tpl,Idx1}=decode_abi_internal(Data,[{'_naked',Type} || _ <- lists:seq(1,Size)],Data,[],Idx),
   decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
 
-%decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {tuple,TL}}|RestA],Bin,Acc,Idx) ->
-%  <<_:Ptr/binary,Tuple/binary>> = Bin,
-%  {_,[],_,Tpl,Idx1}=decode_abi_internal(Tuple,TL,Tuple,[],Idx),
-%  decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
+decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {tuple,TL}}|RestA],Bin,Acc,Idx) ->
+  <<_:Ptr/binary,Tuple/binary>> = Bin,
+  {_,[],_,Tpl,Idx1}=decode_abi_internal(Tuple,TL,Tuple,[],Idx),
+  decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
 
-% this is experemental
-decode_abi_internal(RestB,[{Name, {tuple,TL}}|RestA],Bin,Acc,Idx) ->
-  {RestB2,[],_,Tpl,Idx1}=decode_abi_internal(RestB,TL,Bin,[],Idx),
-  decode_abi_internal(RestB2, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
+%% this is experemental
+%decode_abi_internal(RestB,[{Name, {tuple,TL}}|RestA],Bin,Acc,Idx) ->
+%  {RestB2,[],_,Tpl,Idx1}=decode_abi_internal(RestB,TL,Bin,[],Idx),
+%  decode_abi_internal(RestB2, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
 
 decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name,bytes}|RestA],Bin,Acc,Idx) ->
   <<_:Ptr/binary,Len:256/big,Str:Len/binary,_/binary>> = Bin,
@@ -484,10 +484,11 @@ tuple_array_test() ->
         "0000000000000000000000000000000000000000000000000000000000000003"
         "3636360000000000000000000000000000000000000000000000000000000000"),
   Bin2=encode_abi([[[123,"321"],[666,"666"]]],ABI),
+  Dec=decode_abi(Bin,ABI),
   [
    ?assertMatch([{_, [[{<<"id">>,123},{<<"text">>,<<"321">>}],
                       [{<<"id">>,666},{<<"text">>,<<"666">>}]]}],
-                decode_abi(Bin,ABI)
+                Dec
                ),
    ?assertEqual(Bin, Bin2)
   ].
