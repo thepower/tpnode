@@ -1,9 +1,6 @@
 name: Erlang CI
 
-on:
-  push:
-    branches:
-      - github_actions
+on: workflow_dispatch
 
 permissions:
   contents: read
