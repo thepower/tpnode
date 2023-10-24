@@ -1,0 +1,28 @@
+name: Erlang CI
+
+on:
+  push:
+    branches:
+      - github_actions
+
+permissions:
+  contents: read
+
+jobs:
+
+  build:
+
+    runs-on: self-hosted
+
+    container:
+      image: erlang:25
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Compile
+      run: rebar3 compile
+    - name: Release
+      run: rebar3 release
+    - name: Tar
+      run: rebar3 tar
+
