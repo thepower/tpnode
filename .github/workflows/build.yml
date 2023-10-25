@@ -1,4 +1,4 @@
-name: Erlang CI
+name: Build tpnode
 
 on:
   push:
@@ -26,9 +26,9 @@ jobs:
            build-essential automake autoconf libncurses5-dev elixir
            erlang-base erlang-public-key erlang-asn1 erlang-ssl
            erlang-dev erlang-inets erlang-eunit erlang-common-test
-           rebar3 git iputils-ping
+           rebar3 iputils-ping
     - name: Compile tpnode
-      run: rebar3 compile
+      run: DIAGNOSTIC=1 rebar3 compile
     - name: Release tpnode
       run: rebar3 release
     - name: Tar tpnode
