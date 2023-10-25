@@ -10,19 +10,27 @@ permissions:
 
 jobs:
 
-  build:
+  build_tpnode:
 
     runs-on: self-hosted
 
     container:
-      image: erlang:24
+      image: ubuntu:22.04
 
     steps:
     - uses: actions/checkout@v4
-    - name: Compile
+    - name: Update
+      run: apt-get update -yqq
+    - name: Install soft
+      run: apt-get install -yqq cmake clang gcc git curl libssl-dev \
+           build-essential automake autoconf libncurses5-dev elixir \
+           erlang-base erlang-public-key erlang-asn1 erlang-ssl \
+           erlang-dev erlang-inets erlang-eunit erlang-common-test \
+           rebar3 git iputils-ping
+    - name: Compile tpnode
       run: rebar3 compile
-    - name: Release
+    - name: Release tpnode
       run: rebar3 release
-    - name: Tar
+    - name: Tar tpnode
       run: rebar3 tar
 
