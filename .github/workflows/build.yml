@@ -23,7 +23,6 @@ jobs:
       with:
         fetch-tags: true
         fetch-depth: 2
-    - run: git checkout HEAD^
 
     - name: PWD
       run: pwd
@@ -34,6 +33,8 @@ jobs:
 
     - name: Install soft
       run: apt-get install -yqq git
+
+    - run: git checkout HEAD^
 
     - name: Git describe
       run: git describe
