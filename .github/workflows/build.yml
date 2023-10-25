@@ -24,11 +24,14 @@ jobs:
     - name: PWD
       run: pwd
 
-    - name: Git describe
-      run: git describe
-
     - name: Update
       run: apt-get update -yqq
+
+    - name: Install soft
+      run: apt-get install -yqq git
+
+    - name: Git describe
+      run: git describe
 
     - name: Install soft
       run: apt-get install -yqq cmake clang gcc git curl libssl-dev
