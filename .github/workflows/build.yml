@@ -20,7 +20,7 @@ jobs:
     steps:
 
     - name: Debug
-      run: echo ${{ github.head_ref }}
+      run: echo ${GITHUB_REF##*/} ${{github.repository}}
 
     - name: Update
       run: apt-get update -yqq
@@ -33,7 +33,7 @@ jobs:
            rebar3 iputils-ping
 
     - name: Git clone
-      run: git clone -b ${{ github.head_ref }} https://github.com/thepower/tpnode.git
+      run: git clone -b ${GITHUB_REF##*/} https://github.com/thepower/tpnode.git
     
     - name: Git describe
       run: git describe
