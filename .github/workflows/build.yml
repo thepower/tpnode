@@ -18,21 +18,28 @@ jobs:
       image: ubuntu:22.04
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     - name: Update
       run: apt-get update -yqq
+
     - name: Install soft
       run: apt-get install -yqq cmake clang gcc git curl libssl-dev
            build-essential automake autoconf libncurses5-dev elixir
            erlang-base erlang-public-key erlang-asn1 erlang-ssl
            erlang-dev erlang-inets erlang-eunit erlang-common-test
            rebar3 iputils-ping
+
     - name: Git describe
       run: git describe
+
     - name: Compile tpnode
       run: DIAGNOSTIC=1 rebar3 compile
+
     - name: Release tpnode
       run: rebar3 release
+
     - name: Tar tpnode
       run: rebar3 tar
 
