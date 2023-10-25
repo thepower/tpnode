@@ -19,9 +19,6 @@ jobs:
 
     steps:
 
-    - name: Debug
-      run: echo ${GITHUB_REF##*/} ${{github.repository}}
-
     - name: Update
       run: apt-get update -yqq
 
@@ -32,18 +29,11 @@ jobs:
            erlang-dev erlang-inets erlang-eunit erlang-common-test
            rebar3 iputils-ping
 
-    - name: Git clone
-      run: git clone -b ${GITHUB_REF##*/} https://github.com/thepower/tpnode.git
-    
-    - name: Git describe
-      run: git describe
-
-    - name: Compile tpnode
-      run: rebar3 compile
-
-    - name: Release tpnode
-      run: rebar3 release
-
-    - name: Tar tpnode
-      run: rebar3 tar
+    - name: Clone and build tpnode
+      run: |
+        git clone -b ${GITHUB_REF##*/} https://github.com/${{github.repository}}.git
+        cd tpnode
+        rebar3 compile
+        rebar3 release
+        rebar3 tar
 
