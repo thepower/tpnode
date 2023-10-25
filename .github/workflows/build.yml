@@ -27,6 +27,8 @@ jobs:
            erlang-base erlang-public-key erlang-asn1 erlang-ssl
            erlang-dev erlang-inets erlang-eunit erlang-common-test
            rebar3 iputils-ping
+    - name: Git describe
+      run: git describe
     - name: Compile tpnode
       run: DIAGNOSTIC=1 rebar3 compile
     - name: Release tpnode
