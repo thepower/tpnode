@@ -31,6 +31,13 @@ jobs:
            erlang-dev erlang-inets erlang-eunit erlang-common-test
            rebar3 iputils-ping
 
+    - name: Initialize Git
+      run: git init
+
+    - name: Set Git Config
+      run: git config --global user.email "ext@thepower.io"
+    - run: git config --global user.name "Git Actions"
+
     - name: Git describe
       run: git describe
 
