@@ -1,3 +1,5 @@
+---
+
 name: Build tpnode
 
 on:
@@ -18,9 +20,28 @@ jobs:
       image: ubuntu:22.04
 
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-tags: true
+        fetch-depth: 2
+
+    - name: Debug
+      run: |
+        pwd
+        ls -al
 
     - name: Update
       run: apt-get update -yqq
+
+    - name: Install soft
+      run: apt-get install -yqq git
+
+# git clone -b ${GITHUB_REF##*/} https://github.com/${{github.repository}}.git
+    - name: Git describe
+      run: |
+        git pull
+        git describe
 
     - name: Install soft
       run: apt-get install -yqq cmake clang gcc git curl libssl-dev
@@ -29,11 +50,16 @@ jobs:
            erlang-dev erlang-inets erlang-eunit erlang-common-test
            rebar3 iputils-ping
 
-    - name: Clone and build tpnode
-      run: |
-        git clone -b ${GITHUB_REF##*/} https://github.com/${{github.repository}}.git
-        cd tpnode
-        rebar3 compile
-        rebar3 release
-        rebar3 tar
+    - name: Git describe
+      run: git describe
 
+    - name: Compile tpnode
+      run: DIAGNOSTIC=1 rebar3 compile
+
+    - name: Release tpnode
+      run: rebar3 release
+
+    - name: Tar tpnode
+      run: rebar3 tar
+
+...
