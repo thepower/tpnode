@@ -18,26 +18,12 @@ jobs:
       image: ubuntu:22.04
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-tags: true
-        fetch-depth: 0
 
-    - name: PWD
-      run: pwd
-    - run: ls -al
+    - name: Debug
+      run: echo ${{ github.head_ref }}
 
     - name: Update
       run: apt-get update -yqq
-
-    - name: Install soft
-      run: apt-get install -yqq git
-
-    - run: git checkout HEAD^
-
-    - name: Git describe
-      run: git describe
 
     - name: Install soft
       run: apt-get install -yqq cmake clang gcc git curl libssl-dev
@@ -46,11 +32,14 @@ jobs:
            erlang-dev erlang-inets erlang-eunit erlang-common-test
            rebar3 iputils-ping
 
+    - name: Git clone
+      run: git clone -b ${{ github.head_ref }} https://github.com/thepower/tpnode.git
+    
     - name: Git describe
       run: git describe
 
     - name: Compile tpnode
-      run: DIAGNOSTIC=1 rebar3 compile
+      run: rebar3 compile
 
     - name: Release tpnode
       run: rebar3 release
