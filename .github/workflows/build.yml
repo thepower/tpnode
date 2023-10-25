@@ -25,6 +25,7 @@ jobs:
 
     - name: PWD
       run: pwd
+    - run: ls -al
 
     - name: Update
       run: apt-get update -yqq
