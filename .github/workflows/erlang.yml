@@ -22,10 +22,10 @@ jobs:
     - name: Update
       run: apt-get update -yqq
     - name: Install soft
-      run: apt-get install -yqq cmake clang gcc git curl libssl-dev \
-           build-essential automake autoconf libncurses5-dev elixir \
-           erlang-base erlang-public-key erlang-asn1 erlang-ssl \
-           erlang-dev erlang-inets erlang-eunit erlang-common-test \
+      run: apt-get install -yqq cmake clang gcc git curl libssl-dev
+           build-essential automake autoconf libncurses5-dev elixir
+           erlang-base erlang-public-key erlang-asn1 erlang-ssl
+           erlang-dev erlang-inets erlang-eunit erlang-common-test
            rebar3 git iputils-ping
     - name: Compile tpnode
       run: rebar3 compile
