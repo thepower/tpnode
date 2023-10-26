@@ -7,6 +7,9 @@ on:
      branches:
        - github_actions
 
+env:
+  GIT_DISCOVERY_ACROSS_FILESYSTEM: true
+
 permissions:
   contents: read
 
