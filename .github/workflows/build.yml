@@ -60,6 +60,7 @@ jobs:
         echo "ERLPATH=$(basename ${erl_path})" >> "$GITHUB_OUTPUT"
 
   build_docker:
+    needs: build_tpnode
 
     runs-on: self-hosted
 
