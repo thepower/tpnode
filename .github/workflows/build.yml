@@ -42,9 +42,7 @@ jobs:
 
 # git clone -b ${GITHUB_REF##*/} https://github.com/${{github.repository}}.git
     - name: Git describe
-      run: |
-        git pull
-        git describe
+      run: git describe
 
     - name: Install soft
       run: apt-get install -yqq cmake clang gcc git curl libssl-dev
