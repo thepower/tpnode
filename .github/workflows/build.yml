@@ -35,15 +35,8 @@ jobs:
       with:
         fetch-depth: 0
 
-#    - name: Debug
-#      run: |
-#        pwd
-#        echo ${PWD}
-#        ls -al
-#        git config --global --add safe.directory ${PWD}
-
-#    - name: Git describe
-#      run: git describe
+    - name: Git config
+      run: git config --global --add safe.directory ${PWD}
 
     - name: Compile tpnode
       run: rebar3 compile
