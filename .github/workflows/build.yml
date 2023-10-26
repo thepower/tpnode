@@ -53,4 +53,24 @@ jobs:
         name: tpnode
         path: _build/default/rel/thepower/thepower-*.tar.gz
 
+    - name: Set erlang path
+      id: erlang_path
+      run: |
+        erl_find=$(find . -type d -name 'erts-*')
+        echo "ERLPATH=$(basename ${erl_path})" >> "$GITHUB_OUTPUT"
+
+  build_docker:
+
+    runs-on: self-hosted
+
+    container:
+      image: ubuntu:22.04
+
+    steps:
+    - name: Update
+      run: apt-get update -yqq
+
+    - name: echo
+      run: echo ${{ buuild_node.erlang_path.outputs.ERLPATH }}"
+
 ...
