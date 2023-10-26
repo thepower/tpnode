@@ -7,9 +7,6 @@ on:
      branches:
        - github_actions
 
-# env:
-#   GIT_DISCOVERY_ACROSS_FILESYSTEM: true
-
 permissions:
   contents: read
 
@@ -38,23 +35,29 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Debug
-      run: |
-        pwd
-        echo ${PWD}
-        ls -al
-        git config --global --add safe.directory ${PWD}
+#    - name: Debug
+#      run: |
+#        pwd
+#        echo ${PWD}
+#        ls -al
+#        git config --global --add safe.directory ${PWD}
 
-    - name: Git describe
-      run: git describe
+#    - name: Git describe
+#      run: git describe
 
     - name: Compile tpnode
-      run: DIAGNOSTIC=1 rebar3 compile
+      run: rebar3 compile
 
     - name: Release tpnode
       run: rebar3 release
 
     - name: Tar tpnode
       run: rebar3 tar
+
+    - name: Upload
+      uses: actions/upload-artifact@v3
+      with:
+        name: tpnode
+        path: _build/default/rel/thepower/thepower-*.tar.gz
 
 ...
