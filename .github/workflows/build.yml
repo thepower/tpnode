@@ -42,7 +42,9 @@ jobs:
     - name: Debug
       run: |
         pwd
+        echo ${PWD}
         ls -al
+        git config --global --add safe.directory ${PWD}
 
     - name: Git describe
       run: git describe
