@@ -58,7 +58,7 @@ jobs:
       run: |
         erl_find=$(find . -type d -name 'erts-*')
         erl_path=$(basename ${erl_find})
-        echo "ERLPATH=${erl_path}" >> "$GITHUB_OUTPUT"
+        echo "ERLPATH=${erl_path}" >> "$GITHUB_ENV"
 
   build_docker:
     needs: build_tpnode
@@ -73,6 +73,6 @@ jobs:
       run: apt-get update -yqq
 
     - name: echo
-      run: echo ${{ build_tpnode.erlang_path.outputs.ERLPATH }}
+      run: echo ${ERLPATH}
 
 ...
