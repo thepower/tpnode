@@ -72,6 +72,6 @@ jobs:
       run: apt-get update -yqq
 
     - name: echo
-      run: echo ${{ buuild_node.erlang_path.outputs.ERLPATH }}"
+      run: echo ${{ buuild_tpnode.erlang_path.outputs.ERLPATH }}"
 
 ...
