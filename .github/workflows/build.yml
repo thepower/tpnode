@@ -7,8 +7,8 @@ on:
      branches:
        - github_actions
 
-env:
-  GIT_DISCOVERY_ACROSS_FILESYSTEM: true
+# env:
+#   GIT_DISCOVERY_ACROSS_FILESYSTEM: true
 
 permissions:
   contents: read
@@ -36,8 +36,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        fetch-tags: true
-        fetch-depth: 2
+        fetch-depth: 0
 
     - name: Debug
       run: |
