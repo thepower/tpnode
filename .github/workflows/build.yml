@@ -60,22 +60,6 @@ jobs:
         echo $erl_find
         erl_path=$(basename ${erl_find})
         echo $erl_path
-        echo "ERLPATH=${erl_path}" >> "$GITHUB_ENV"
-        echo $ERLPATH
-
-  build_docker:
-    needs: build_tpnode
-
-    runs-on: self-hosted
-
-    container:
-      image: ubuntu:22.04
-
-    steps:
-    - name: Update
-      run: apt-get update -yqq
-
-    - name: echo
-      run: echo ${ERLPATH}
+        echo "::set-output name=erl_path::${erl_path}"
 
 ...

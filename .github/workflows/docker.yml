@@ -1,0 +1,42 @@
+---
+
+name: Build docker image
+
+on:
+  workflow_run:
+    workflows: ["build_tpnode"]
+    types:
+      - completed
+  push:
+     branches:
+       - github_actions
+
+permissions:
+  contents: read
+
+jobs:
+
+  build_docker:
+
+    runs-on: self-hosted
+
+    container:
+      image: ubuntu:22.04
+
+    - name: echo
+      run: |
+        erl_path=${{ needs.build_tpnode.outputs.erl_path }}
+        echo ${erl_path}
+
+    steps:
+    - name: Update
+      run: apt-get update -yqq
+
+    - name: Install soft
+      run: apt-get install -yqq cmake clang gcc git curl libssl-dev
+           build-essential automake autoconf libncurses5-dev elixir
+           erlang-base erlang-public-key erlang-asn1 erlang-ssl
+           erlang-dev erlang-inets erlang-eunit erlang-common-test
+           rebar3 iputils-ping
+
+...
