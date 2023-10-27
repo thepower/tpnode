@@ -76,7 +76,7 @@ jobs:
   build_docker:
 
     runs-on: self-hosted
-    needs: build_build
+    needs: build_tpnode
 
     container:
       image: ubuntu:22.04
