@@ -7,9 +7,6 @@ on:
     workflows: ["build_tpnode"]
     types:
       - completed
-  push:
-     branches:
-       - github_actions
 
 permissions:
   contents: read
