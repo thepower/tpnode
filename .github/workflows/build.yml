@@ -68,9 +68,9 @@ jobs:
         echo "${erl_path}" > ${{ env.path }}${{ env.file_name }}
     
     - name: Save Erlang path
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ env.artifact_name }}
-          path: ${{ env.path }}${{ env.file_name }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ env.artifact_name }}
+        path: ${{ env.path }}${{ env.file_name }}
 
 ...
