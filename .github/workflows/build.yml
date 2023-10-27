@@ -4,8 +4,8 @@ name: Build tpnode
 
 on:
   push:
-     branches:
-       - github_actions
+    branches:
+      - github_actions
 
 env:
   file_name: erl_path.txt
@@ -25,52 +25,52 @@ jobs:
       image: ubuntu:22.04
 
     steps:
-    - name: Update
-      run: apt-get update -yqq
+      - name: Update
+        run: apt-get update -yqq
 
-    - name: Install soft
-      run: apt-get install -yqq cmake clang gcc git curl libssl-dev
-           build-essential automake autoconf libncurses5-dev elixir
-           erlang-base erlang-public-key erlang-asn1 erlang-ssl
-           erlang-dev erlang-inets erlang-eunit erlang-common-test
-           rebar3 iputils-ping
+      - name: Install soft
+        run: apt-get install -yqq cmake clang gcc git curl libssl-dev
+             build-essential automake autoconf libncurses5-dev elixir
+             erlang-base erlang-public-key erlang-asn1 erlang-ssl
+             erlang-dev erlang-inets erlang-eunit erlang-common-test
+             rebar3 iputils-ping
 
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Git config
-      run: git config --global --add safe.directory ${PWD}
+      - name: Git config
+        run: git config --global --add safe.directory ${PWD}
 
-    - name: Compile tpnode
-      run: rebar3 compile
+      - name: Compile tpnode
+        run: rebar3 compile
 
-    - name: Release tpnode
-      run: rebar3 release
+      - name: Release tpnode
+        run: rebar3 release
 
-    - name: Tar tpnode
-      run: rebar3 tar
+      - name: Tar tpnode
+        run: rebar3 tar
 
-    - name: Upload
-      uses: actions/upload-artifact@v3
-      with:
-        name: tpnode
-        path: _build/default/rel/thepower/thepower-*.tar.gz
+      - name: Upload
+        uses: actions/upload-artifact@v3
+        with:
+          name: tpnode
+          path: _build/default/rel/thepower/thepower-*.tar.gz
 
-    - name: Set erlang path
-      id: erlang_path
-      run: |
-        erl_find=$(find . -type d -name 'erts-*')
-        echo $erl_find
-        erl_path=$(basename ${erl_find})
-        echo $erl_path
-        echo "${erl_path}" > ${{ env.path }}${{ env.file_name }}
-    
-    - name: Save Erlang path
-      uses: actions/upload-artifact@v3
-      with:
-        name: ${{ env.artifact_name }}
-        path: ${{ env.path }}${{ env.file_name }}
+      - name: Set erlang path
+        id: erlang_path
+        run: |
+          erl_find=$(find . -type d -name 'erts-*')
+          echo $erl_find
+          erl_path=$(basename ${erl_find})
+          echo $erl_path
+          echo "${erl_path}" > ${{ env.path }}${{ env.file_name }}
+
+      - name: Save Erlang path
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.artifact_name }}
+          path: ${{ env.path }}${{ env.file_name }}
 
 ...
