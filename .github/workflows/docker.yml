@@ -5,8 +5,8 @@ name: Build docker image
 on:
   workflow_run:
     workflows: [Build tpnode]
-    types:
-      - completed
+    branches: [github_actions]
+    types: [completed]
 
 env:
   file_name: erl_path.txt
