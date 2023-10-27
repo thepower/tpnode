@@ -61,7 +61,7 @@ jobs:
         erl_path=$(basename ${erl_find})
         echo $erl_path
         echo "ERLPATH=${erl_path}" >> "$GITHUB_ENV"
-        echho $ERLPATH
+        echo $ERLPATH
 
   build_docker:
     needs: build_tpnode
