@@ -73,4 +73,34 @@ jobs:
           name: ${{ env.artifact_name }}
           path: ${{ env.path }}${{ env.file_name }}
 
+  build_docker:
+
+    runs-on: self-hosted
+    needs: build_build
+
+    container:
+      image: ubuntu:22.04
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ env.artifact_name }}
+          path: ${{ env.path }}
+      - name: Read artifact
+        run: |
+          erl_path="$(cat ${{ env.path }}${{ env.file_name }})"
+          echo "erl_path=${erl_path}" >> $GITHUB_ENV
+          echo "erl_path: ${erl_path}"
+
+      - name: Update
+        run: apt-get update -yqq
+
+      - name: Install soft
+        run: apt-get install -yqq cmake clang gcc git curl libssl-dev
+             build-essential automake autoconf libncurses5-dev elixir
+             erlang-base erlang-public-key erlang-asn1 erlang-ssl
+             erlang-dev erlang-inets erlang-eunit erlang-common-test
+             rebar3 iputils-ping
+
 ...
