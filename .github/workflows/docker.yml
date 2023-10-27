@@ -4,7 +4,7 @@ name: Build docker image
 
 on:
   workflow_run:
-    workflows: ["Build tpnode"]
+    workflows: [Build tpnode]
     types:
       - completed
 
