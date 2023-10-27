@@ -57,8 +57,11 @@ jobs:
       id: erlang_path
       run: |
         erl_find=$(find . -type d -name 'erts-*')
+        echo $erl_find
         erl_path=$(basename ${erl_find})
+        echo $erl_path
         echo "ERLPATH=${erl_path}" >> "$GITHUB_ENV"
+        echho $ERLPATH
 
   build_docker:
     needs: build_tpnode
