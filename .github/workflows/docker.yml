@@ -8,6 +8,11 @@ on:
     types:
       - completed
 
+env:
+  file_name: erl_path.txt
+  path: ./
+  artifact_name: erl_path
+
 permissions:
   contents: read
 
@@ -20,10 +25,15 @@ jobs:
     container:
       image: ubuntu:22.04
 
-    - name: echo
+    - name: Download artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.artifact_name }}
+        path: ${{ env.path }}
+    - name: Read artifact
       run: |
-        erl_path=${{ needs.build_tpnode.outputs.erl_path }}
-        echo ${erl_path}
+        echo "erl_path=`cat ${{ env.path }}${{ env.file_name }}`" >> $GITHUB_ENV
+        echo "erl_path: $erl_path"
 
     steps:
     - name: Update

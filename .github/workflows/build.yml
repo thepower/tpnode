@@ -7,6 +7,11 @@ on:
      branches:
        - github_actions
 
+env:
+  file_name: erl_path.txt
+  path: ./
+  artifact_name: erl_path
+
 permissions:
   contents: read
 
@@ -60,6 +65,12 @@ jobs:
         echo $erl_find
         erl_path=$(basename ${erl_find})
         echo $erl_path
-        echo "::set-output name=erl_path::${erl_path}"
+        echo "${erl_path}" > ${{ env.path }}${{ env.file_name }}
+    
+    - name: Save Erlang path
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.artifact_name }}
+          path: ${{ env.path }}${{ env.file_name }}
 
 ...
