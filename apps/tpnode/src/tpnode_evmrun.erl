@@ -10,7 +10,11 @@ decode_json_args(Args) ->
     end, Args).
 
 evm_run(Address, Fun, Args, Ed) ->
+  try
   Code=mbal:get(code,mledger:get(Address)),
+  if is_binary(Code) -> ok;
+     true -> throw('no_code')
+  end,
   Res=run(Address, Code, Ed#{call => {Fun, Args}}),
 
   FmtStack=fun(St) ->
@@ -29,15 +33,30 @@ evm_run(Address, Fun, Args, Ed) ->
       case contract_evm_abi:parse_signature(Fun) of
         {ok,{{function,_},_Sig, undefined}} ->
           #{result => return,
+            ok => true,
             bin => RetVal,
             log => FmtLog(Log),
             stack => FmtStack(St)
            };
         {ok,{{function,_},_Sig, RetABI}} when is_list(RetABI) ->
           try
-            D=contract_evm_abi:decode_abi(RetVal,RetABI),
+            DecodeF=fun(_,address,V) ->
+                        <<"0x",(hex:encode(V))/binary>>;
+                       (_,bytes,V) ->
+                        <<"0x",(hex:encode(V))/binary>>;
+                       (_,uint256,V) ->
+                        if(V>72057594037927936) ->
+                            integer_to_binary(V);
+                          true ->
+                            V
+                        end;
+                       (_,_,V) ->
+                        V
+                    end,
+            D=contract_evm_abi:decode_abi(RetVal,RetABI,[],DecodeF),
             #{result => return,
               bin => RetVal,
+              ok => true,
               decode => case D of
                           [{_,[{<<>>,_}|_]}] -> contract_evm_abi:unwrap(D);
                           [{_,[{_,_}|_]}] -> D;
@@ -48,9 +67,11 @@ evm_run(Address, Fun, Args, Ed) ->
               stack => FmtStack(St)
              }
           catch _Ec:_Ee:S ->
+                  logger:error("evmrun decode error: ~p:~p @ ~p",[_Ec,_Ee,S]),
                   #{result => return,
                     bin => RetVal,
-                    fallback_err => [_Ec,_Ee,S],
+                    ok => true,
+                    decode_err => list_to_binary([io_lib:format("~p:~1000p, see logs for detail",[_Ec,_Ee])]),
                     log => FmtLog(Log),
                     stack => FmtStack(St)
                    }
@@ -60,12 +81,14 @@ evm_run(Address, Fun, Args, Ed) ->
       %{stop, undefined, FmtStack(St)};
       #{
         result => stop,
+        ok => true,
         stack => FmtStack(St)
        };
     {done, 'eof', #{stack:=St}} ->
       %{eof, undefined, FmtStack(St)};
       #{
         result => eof,
+        ok => true,
         stack => FmtStack(St)
        };
     {done, 'invalid',  #{stack:=St}} ->
@@ -75,6 +98,7 @@ evm_run(Address, Fun, Args, Ed) ->
     {done, {revert, <<8,195,121,160,Data/binary>> = Bin},  #{stack:=St}} ->
       #{ result => revert,
          bin => Bin,
+         ok => true,
          signature => <<"Error(string)">>,
          decode => contract_evm_abi:unwrap(contract_evm_abi:decode_abi(Data,[{<<"Error">>,string}])),
          stack => FmtStack(St)
@@ -82,6 +106,7 @@ evm_run(Address, Fun, Args, Ed) ->
     {done, {revert, <<78,72,123,113,Data/binary>> =Bin},  #{stack:=St}} ->
       #{ result => revert,
          bin => Bin,
+         ok => true,
          signature => <<"Panic(uint256)">>,
          decode => contract_evm_abi:unwrap(contract_evm_abi:decode_abi(Data,[{<<"Panic">>,uint256}])),
          stack => FmtStack(St)
@@ -89,6 +114,7 @@ evm_run(Address, Fun, Args, Ed) ->
     {done, {revert, Data},  #{stack:=St}} ->
       #{ result => revert,
          bin => Data,
+         ok => true,
          stack => FmtStack(St)
        };
     {error, Desc} ->
@@ -111,7 +137,14 @@ evm_run(Address, Fun, Args, Ed) ->
          data => list_to_binary([io_lib:format("~p",[I])]),
          stack => FmtStack(St)
        }
+  end
+  catch throw:no_code ->
+          #{
+            result => error,
+            error => no_code
+           }
   end.
+
 
 logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}=_EEvmState) ->
   LArgs=[binary:encode_unsigned(I) || I <- LArgs0],

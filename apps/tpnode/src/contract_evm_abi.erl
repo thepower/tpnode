@@ -6,6 +6,7 @@
 -export([sig_events/1]).
 -export([decode_abi/2]).
 -export([decode_abi/3]).
+-export([decode_abi/4]).
 -export([encode_abi_call/2]).
 -export([encode_simple/1]).
 -export([parse_signature/1]).
@@ -44,71 +45,77 @@ unwrap([]) ->
   [].
 
 
+decode_abi(Bin,Args,Indexed,ResFun) ->
+  decode_abi(Bin,Args,Bin,[],Indexed,ResFun).
 decode_abi(Bin,Args,Indexed) ->
-  decode_abi(Bin,Args,Bin,[],Indexed).
+  decode_abi(Bin,Args,Bin,[],Indexed,undefined).
 decode_abi(Bin,Args) ->
-  decode_abi(Bin,Args,Bin,[],[]).
+  decode_abi(Bin,Args,Bin,[],[],undefined).
 
-decode_abi(Bin1,Args,Bin2,Acc,Idx) ->
-  {_,_,_,Acc2,_} = decode_abi_internal(Bin1,Args,Bin2,Acc,Idx),
+decode_abi(Bin1,Args,Bin2,Acc,Idx,ProcFun) ->
+  {_,_,_,Acc2,_} = decode_abi_internal(Bin1,Args,Bin2,Acc,Idx,ProcFun),
   Acc2.
 
-decode_abi_internal(RestB,[],Bin,Acc,Idx) ->
+decode_abi_internal(RestB,[],Bin,Acc,Idx,ProcFun) ->
   List=lists:foldl(
          fun
-           ({'_naked',_Type,Value},A) ->
+           ({'_naked',_Type,Value},A) when ProcFun == undefined ->
              [Value|A];
-           ({Name,_Type,Value},A) ->
-             [{Name, Value}|A]
+           ({Name,_Type,Value},A) when ProcFun == undefined ->
+             [{Name, Value}|A];
+           ({'_naked',Type,Value},A) when is_function(ProcFun,3) ->
+             [ProcFun('_naked',Type,Value)|A];
+           ({Name,Type,Value},A) when is_function(ProcFun,3) ->
+             [{Name, ProcFun(Name,Type,Value)}|A]
          end,
          [],
          Acc
         ),
   {RestB,[],Bin,List,Idx};
 
-decode_abi_internal(RestB,[{Name, {indexed,Type}}|RestA],Bin,Acc,[N|Idx]) ->
-  decode_abi_internal(RestB, RestA, Bin, [{Name, Type, N}|Acc],Idx);
+decode_abi_internal(RestB,[{Name, {indexed,Type}}|RestA],Bin,Acc,[N|Idx], ProcFun) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, Type, N}|Acc],Idx, ProcFun);
 
-decode_abi_internal(RestB, [{Name, {fixarray,{Size,Type}}}|RestA],Bin,Acc,Idx) ->
-  {RB2,[],_,Tpl,Idx1}=decode_abi_internal(RestB, [{'_naked',Type} || _ <- lists:seq(1,Size)],Bin,[],Idx),
-  decode_abi_internal(RB2, RestA, Bin, [{Name, array, Tpl}|Acc],Idx1);
+decode_abi_internal(RestB, [{Name, {fixarray,{Size,Type}}}|RestA],Bin,Acc,Idx, ProcFun) ->
+  {RB2,[],_,Tpl,Idx1}=decode_abi_internal(RestB, [{'_naked',Type} || _ <- lists:seq(1,Size)],Bin,[],Idx, ProcFun),
+  decode_abi_internal(RB2, RestA, Bin, [{Name, array, Tpl}|Acc],Idx1, ProcFun);
 
-decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {array,Type}}|RestA],Bin,Acc,Idx) ->
+decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {array,Type}}|RestA],Bin,Acc,Idx, ProcFun) ->
   <<_:Ptr/binary,Size:256/big,Data/binary>> = Bin,
-  {_,[],_,Tpl,Idx1}=decode_abi_internal(Data,[{'_naked',Type} || _ <- lists:seq(1,Size)],Data,[],Idx),
-  decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
+  {_,[],_,Tpl,Idx1}=decode_abi_internal(Data,[{'_naked',Type} || _ <- lists:seq(1,Size)],Data,[],Idx, ProcFun),
+  decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1, ProcFun);
 
-decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {tuple,TL}}|RestA],Bin,Acc,Idx) ->
+decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {tuple,TL}}|RestA],Bin,Acc,Idx, ProcFun) ->
   <<_:Ptr/binary,Tuple/binary>> = Bin,
-  {_,[],_,Tpl,Idx1}=decode_abi_internal(Tuple,TL,Tuple,[],Idx),
-  decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
+  {_,[],_,Tpl,Idx1}=decode_abi_internal(Tuple,TL,Tuple,[],Idx, ProcFun),
+  decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1, ProcFun);
 
 %% this is experemental
 %decode_abi_internal(RestB,[{Name, {tuple,TL}}|RestA],Bin,Acc,Idx) ->
 %  {RestB2,[],_,Tpl,Idx1}=decode_abi_internal(RestB,TL,Bin,[],Idx),
 %  decode_abi_internal(RestB2, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1);
 
-decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name,bytes}|RestA],Bin,Acc,Idx) ->
+decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name,bytes}|RestA],Bin,Acc,Idx, ProcFun) ->
   <<_:Ptr/binary,Len:256/big,Str:Len/binary,_/binary>> = Bin,
-  decode_abi_internal(RestB, RestA, Bin, [{Name, string, Str}|Acc],Idx);
+  decode_abi_internal(RestB, RestA, Bin, [{Name, string, Str}|Acc],Idx, ProcFun);
 
-decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name,string}|RestA],Bin,Acc,Idx) ->
+decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name,string}|RestA],Bin,Acc,Idx, ProcFun) ->
   <<_:Ptr/binary,Len:256/big,Str:Len/binary,_/binary>> = Bin,
-  decode_abi_internal(RestB, RestA, Bin, [{Name, string, Str}|Acc],Idx);
+  decode_abi_internal(RestB, RestA, Bin, [{Name, string, Str}|Acc],Idx, ProcFun);
 
-decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc,Idx)
+decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc,Idx, ProcFun)
   when Val > 9223372036854775808 andalso Val < 13835058055282163712 ->
-  decode_abi_internal(RestB, RestA, Bin, [{Name, address, binary:encode_unsigned(Val)}|Acc],Idx);
-decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc,Idx) ->
-  decode_abi_internal(RestB, RestA, Bin, [{Name, address, Val}|Acc],Idx);
-decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,bool}|RestA],Bin,Acc,Idx) ->
-  decode_abi_internal(RestB, RestA, Bin, [{Name, bool, Val==1}|Acc],Idx);
-decode_abi_internal(<<_:248,Val:8/big,RestB/binary>>,[{Name,uint8}|RestA],Bin,Acc,Idx) ->
-  decode_abi_internal(RestB, RestA, Bin, [{Name, uint8, Val}|Acc],Idx);
-decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,uint32}|RestA],Bin,Acc,Idx) ->
-  decode_abi_internal(RestB, RestA, Bin, [{Name, uint32, Val band 16#ffffffff}|Acc],Idx);
-decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,uint256}|RestA],Bin,Acc,Idx) ->
-  decode_abi_internal(RestB, RestA, Bin, [{Name, uint256, Val}|Acc],Idx).
+  decode_abi_internal(RestB, RestA, Bin, [{Name, address, binary:encode_unsigned(Val)}|Acc],Idx, ProcFun);
+decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc,Idx, ProcFun) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, address, Val}|Acc],Idx, ProcFun);
+decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,bool}|RestA],Bin,Acc,Idx, ProcFun) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, bool, Val==1}|Acc],Idx, ProcFun);
+decode_abi_internal(<<_:248,Val:8/big,RestB/binary>>,[{Name,uint8}|RestA],Bin,Acc,Idx, ProcFun) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, uint8, Val}|Acc],Idx, ProcFun);
+decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,uint32}|RestA],Bin,Acc,Idx, ProcFun) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, uint32, Val band 16#ffffffff}|Acc],Idx, ProcFun);
+decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,uint256}|RestA],Bin,Acc,Idx, ProcFun) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, uint256, Val}|Acc],Idx, ProcFun).
 
 cmp_abi([],[]) -> true;
 cmp_abi([],[_|_]) -> false;
