@@ -80,7 +80,7 @@ decode_abi_internal(RestB, [{Name, {fixarray,{Size,Type}}}|RestA],Bin,Acc,Idx, P
   {RB2,[],_,Tpl,Idx1}=decode_abi_internal(RestB, [{'_naked',Type} || _ <- lists:seq(1,Size)],Bin,[],Idx, ProcFun),
   decode_abi_internal(RB2, RestA, Bin, [{Name, array, Tpl}|Acc],Idx1, ProcFun);
 
-decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {array,Type}}|RestA],Bin,Acc,Idx, ProcFun) ->
+decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {darray,Type}}|RestA],Bin,Acc,Idx, ProcFun) ->
   <<_:Ptr/binary,Size:256/big,Data/binary>> = Bin,
   {_,[],_,Tpl,Idx1}=decode_abi_internal(Data,[{'_naked',Type} || _ <- lists:seq(1,Size)],Data,[],Idx, ProcFun),
   decode_abi_internal(RestB, RestA, Bin, [{Name, tuple, Tpl}|Acc],Idx1, ProcFun);
@@ -124,7 +124,7 @@ cmp_abi([{_,K}|A1],[{_,K}|A2]) ->
   cmp_abi(A1,A2);
 cmp_abi({tuple,K1},{tuple,K2}) ->
   cmp_abi(K1,K2);
-cmp_abi({array,K1},{array,K2}) ->
+cmp_abi({darray,K1},{darray,K2}) ->
   cmp_abi(K1,K2);
 cmp_abi(E1,E2) when not is_list(E1) andalso not is_list(E2) andalso E1=/=E2 ->
   false;
@@ -183,7 +183,7 @@ mk_sig_arr(CS) ->
 
 mk_sig_type({indexed,A}) ->
   mk_sig_type(A);
-mk_sig_type({array,A}) ->
+mk_sig_type({darray,A}) ->
   <<(mk_sig_type(A))/binary,"[]">>;
 mk_sig_type({tuple,Type}) ->
   <<"(",(mk_sig_arr(Type))/binary,")">>;
@@ -205,7 +205,7 @@ mk_fullsig({{EventOrFunction,Name},CS,R}) when EventOrFunction == event;
 mk_sig_farr(CS) ->
   list_to_binary( lists:join(",", [ [mk_sig_ftype(E)|
                                      if N == <<>> -> []; true -> [" ",N] end] || {N,E} <- CS ]) ).
-mk_sig_ftype({array,A}) ->
+mk_sig_ftype({darray,A}) ->
   <<(mk_sig_ftype(A))/binary,"[]">>;
 mk_sig_ftype({tuple,Type}) ->
   <<"(",(mk_sig_farr(Type))/binary,")">>;
@@ -321,7 +321,7 @@ convert_io(List) ->
           <<"name">> := Name,
           <<"type">> := <<"tuple[]">>,
           <<"components">>:= C}) ->
-        {Name, {array,{tuple, convert_io(C)}}};
+        {Name, {darray,{tuple, convert_io(C)}}};
        (#{
           <<"name">> := Name,
           <<"type">> := Type,
@@ -340,10 +340,10 @@ convert_type(<<"uint8">>) -> uint8;
 convert_type(<<"bytes">>) -> bytes;
 convert_type(<<"bytes4">>) -> bytes4;
 convert_type(<<"uint256">>) -> uint256;
-convert_type(<<"string[]">>) -> {array,string};
-convert_type(<<"uint256[]">>) -> {array,uint256};
-convert_type(<<"uint8[]">>) -> {array,uint8};
-convert_type(<<"bytes[]">>) -> {array,bytes};
+convert_type(<<"string[]">>) -> {darray,string};
+convert_type(<<"uint256[]">>) -> {darray,uint256};
+convert_type(<<"uint8[]">>) -> {darray,uint8};
+convert_type(<<"bytes[]">>) -> {darray,bytes};
 convert_type(<<"bool">>) -> bool.
 
 encode_type(<<Input:256/big>>, uint256) ->
@@ -400,7 +400,7 @@ encode_typed([Val|RVal],[{_Name,{tuple,List}}|RType], Hdr, Body, BOff) ->
                <<Body/binary,EncStr/binary>>,
                BOff+size(EncStr));
 
-encode_typed([Val|RVal],[{_Name,{array,Type}}|RType], Hdr, Body, BOff) ->
+encode_typed([Val|RVal],[{_Name,{darray,Type}}|RType], Hdr, Body, BOff) ->
   Len=length(Val),
   EncStr=encode_typed(Val,[{'_naked',Type} || _ <- lists:seq(1,Len)], <<Len:256/big>>, <<>>,
                       (Len*32)),
@@ -476,7 +476,7 @@ encode_str(Bin) ->
   <<(size(Bin)):256/big,Bin/binary,0:Pad/big>>.
 
 tuple_array_test() ->
-  ABI=[{<<>>,{array,{tuple,[{<<"id">>,uint256},{<<"text">>,string}]}}}],
+  ABI=[{<<>>,{darray,{tuple,[{<<"id">>,uint256},{<<"text">>,string}]}}}],
   Bin=hex:decode(
         "0000000000000000000000000000000000000000000000000000000000000020"
         "0000000000000000000000000000000000000000000000000000000000000002"

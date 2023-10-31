@@ -9,13 +9,27 @@ decode_json_args(Args) ->
         Any
     end, Args).
 
+decode_res(_,address,V) ->
+  <<"0x",(hex:encode(V))/binary>>;
+decode_res(_,bytes,V) ->
+  <<"0x",(hex:encode(V))/binary>>;
+decode_res(_,uint256,V) ->
+  if(V>72057594037927936) ->
+      integer_to_binary(V);
+    true ->
+      V
+  end;
+decode_res(_,_,V) ->
+  V.
+
 evm_run(Address, Fun, Args, Ed) ->
   try
   Code=mbal:get(code,mledger:get(Address)),
   if is_binary(Code) -> ok;
      true -> throw('no_code')
   end,
-  Res=run(Address, Code, Ed#{call => {Fun, Args}}),
+  Gas0=maps:get(gas,Ed,100000000),
+  Res=run(Address, Code, Ed#{call => {Fun, Args}, gas=>Gas0}),
 
   FmtStack=fun(St) ->
                [<<"0x",(hex:encode(binary:encode_unsigned(X)))/binary>> || X<-St]
@@ -29,91 +43,80 @@ evm_run(Address, Fun, Args, Ed) ->
          end,
 
   case Res of
-    {done, {return,RetVal}, #{stack:=St, extra:=#{log:=Log}}} ->
-      case contract_evm_abi:parse_signature(Fun) of
-        {ok,{{function,_},_Sig, undefined}} ->
-          #{result => return,
-            ok => true,
-            bin => RetVal,
-            log => FmtLog(Log),
-            stack => FmtStack(St)
-           };
-        {ok,{{function,_},_Sig, RetABI}} when is_list(RetABI) ->
-          try
-            DecodeF=fun(_,address,V) ->
-                        <<"0x",(hex:encode(V))/binary>>;
-                       (_,bytes,V) ->
-                        <<"0x",(hex:encode(V))/binary>>;
-                       (_,uint256,V) ->
-                        if(V>72057594037927936) ->
-                            integer_to_binary(V);
-                          true ->
-                            V
-                        end;
-                       (_,_,V) ->
-                        V
-                    end,
-            D=contract_evm_abi:decode_abi(RetVal,RetABI,[],DecodeF),
-            #{result => return,
-              bin => RetVal,
-              ok => true,
-              decode => case D of
-                          [{_,[{<<>>,_}|_]}] -> contract_evm_abi:unwrap(D);
-                          [{_,[{_,_}|_]}] -> D;
-                          [{<<>>,_}|_] -> contract_evm_abi:unwrap(D);
-                          _ -> D
-                        end,
-              log => FmtLog(Log),
-              stack => FmtStack(St)
-             }
-          catch _Ec:_Ee:S ->
-                  logger:error("evmrun decode error: ~p:~p @ ~p",[_Ec,_Ee,S]),
-                  #{result => return,
-                    bin => RetVal,
-                    ok => true,
-                    decode_err => list_to_binary([io_lib:format("~p:~1000p, see logs for detail",[_Ec,_Ee])]),
-                    log => FmtLog(Log),
-                    stack => FmtStack(St)
-                   }
-          end
-      end;
-    {done, 'stop',  #{stack:=St}} ->
+    {done, {return,RetVal}, #{stack:=St, extra:=#{log:=Log}, gas:=Gas1}} ->
+      Decoded=case binary:match(Fun,<<"returns">>) of
+                nomatch -> #{};
+                _ ->
+                  case contract_evm_abi:parse_signature(Fun) of
+                    {ok,{{function,_},_Sig, undefined}} -> #{}; %not it's impossible?
+                    {ok,{{function,_},_Sig, RetABI}} when is_list(RetABI) ->
+                      try
+                        D=contract_evm_abi:decode_abi(RetVal,RetABI,[],fun decode_res/3),
+                        #{decode => case D of
+                                      [{_,[{<<>>,_}|_]}] -> contract_evm_abi:unwrap(D);
+                                      [{_,[{_,_}|_]}] -> D;
+                                      [{<<>>,_}|_] -> contract_evm_abi:unwrap(D);
+                                      _ -> D
+                                    end
+                         }
+                      catch _Ec:_Ee:S ->
+                              logger:error("evmrun decode error: ~p:~p @ ~p",[_Ec,_Ee,S]),
+                              #{decode_err => list_to_binary([io_lib:format("~p:~1000p, see logs for detail",[_Ec,_Ee])])
+                               }
+                      end
+                  end
+              end,
+      maps:merge(Decoded,
+                 #{result => return,
+                   ok => true,
+                   bin => RetVal,
+                   gas_used => Gas0-Gas1,
+                   log => FmtLog(Log),
+                   stack => FmtStack(St)
+                  }
+                );
+    {done, 'stop',  #{stack:=St, gas:=Gas1}} ->
       %{stop, undefined, FmtStack(St)};
       #{
         result => stop,
         ok => true,
+        gas_used => Gas0-Gas1,
         stack => FmtStack(St)
        };
-    {done, 'eof', #{stack:=St}} ->
+    {done, 'eof', #{stack:=St, gas:=Gas1}} ->
       %{eof, undefined, FmtStack(St)};
       #{
         result => eof,
         ok => true,
+        gas_used => Gas0-Gas1,
         stack => FmtStack(St)
        };
     {done, 'invalid',  #{stack:=St}} ->
       #{ result => invalid,
          stack => FmtStack(St)
        };
-    {done, {revert, <<8,195,121,160,Data/binary>> = Bin},  #{stack:=St}} ->
+    {done, {revert, <<8,195,121,160,Data/binary>> = Bin},  #{stack:=St, gas:=Gas1}} ->
       #{ result => revert,
          bin => Bin,
          ok => true,
+         gas_used => Gas0-Gas1,
          signature => <<"Error(string)">>,
          decode => contract_evm_abi:unwrap(contract_evm_abi:decode_abi(Data,[{<<"Error">>,string}])),
          stack => FmtStack(St)
        };
-    {done, {revert, <<78,72,123,113,Data/binary>> =Bin},  #{stack:=St}} ->
+    {done, {revert, <<78,72,123,113,Data/binary>> =Bin},  #{stack:=St, gas:=Gas1}} ->
       #{ result => revert,
          bin => Bin,
          ok => true,
+         gas_used => Gas0-Gas1,
          signature => <<"Panic(uint256)">>,
          decode => contract_evm_abi:unwrap(contract_evm_abi:decode_abi(Data,[{<<"Panic">>,uint256}])),
          stack => FmtStack(St)
        };
-    {done, {revert, Data},  #{stack:=St}} ->
+    {done, {revert, Data},  #{stack:=St, gas:=Gas1}} ->
       #{ result => revert,
          bin => Data,
+         gas_used => Gas0-Gas1,
          ok => true,
          stack => FmtStack(St)
        };
@@ -124,6 +127,7 @@ evm_run(Address, Fun, Args, Ed) ->
     {error, nogas, #{stack:=St}} ->
       #{ result => error,
          error => nogas,
+         gas_used => Gas0,
          stack => FmtStack(St)
        };
     {error, {jump_to,_}, #{stack:=St}} ->
@@ -287,6 +291,8 @@ run(Address, Code, Data) ->
               end,
 
   CallData = case maps:get(call, Data, undefined) of
+               {<<"0x0">>,[BinData]} when is_binary(BinData) andalso size(BinData)>=4 ->
+                 BinData;
                {Fun, Arg} ->
                  {ok,{{function,_},FABI,_}=S} = contract_evm_abi:parse_signature(Fun),
                  if(length(FABI)==length(Arg)) -> ok;
@@ -298,6 +304,8 @@ run(Address, Code, Data) ->
                undefined ->
                  <<>>
              end,
+  logger:error("CD ~s",[hex:encode(CallData)]),
+
   
   Ex1=#{
         la=>0,
