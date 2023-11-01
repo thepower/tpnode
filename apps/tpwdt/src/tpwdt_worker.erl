@@ -43,7 +43,7 @@ handle_info(check, #{tmr:=T0}=State) ->
            tpnode:restart(),
            {noreply, State#{
                        lc=>Now,
-                       tmr=>erlang:send_after(10000,self(),check)
+                       tmr=>erlang:send_after(120000,self(),check)
                       }};
          true ->
            {noreply, maps:merge(#{lbt=>Now},
