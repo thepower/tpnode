@@ -160,10 +160,10 @@ eabi2_test() ->
                {<<"t">>,uint256},
                {<<"seq">>,uint256},
                {<<"call">>,
-                {array,{tuple,[{<<"func">>,string},
-                               {<<"args">>,{array,uint256}}]}}},
+                {darray,{tuple,[{<<"func">>,string},
+                               {<<"args">>,{darray,uint256}}]}}},
                {<<"signatures">>,
-                {array,{tuple,[{<<"timestamp">>,uint256},
+                {darray,{tuple,[{<<"timestamp">>,uint256},
                                {<<"pubkey">>,bytes},
                                {<<"rawkey">>,bytes},
                                {<<"signature">>,bytes}]}}}]}}],
@@ -568,8 +568,8 @@ evm_embedded_lstore_test() ->
                         {EvName,_,EvABI}->
                           {EvName,contract_evm_abi:decode_abi(DABI,EvABI)}
                       end;
-                    {ok,[<<"tx1">>,<<"evm">>,<<"revert">>,Sig]} ->
-                      [<<"tx1">>,<<"evm">>,<<"revert">>,Sig]
+                    {ok,[<<"tx1">>,<<"evm:revert">>|Sig]} ->
+                      [<<"tx1">>,<<"evm:revert">>|Sig]
                   end
               end,
       ProcLog=[ DoLog(LL) || LL <- Log ],
@@ -688,8 +688,8 @@ evm_caller_test() ->
                         {EvName,_,EvABI}->
                           {EvName,contract_evm_abi:decode_abi(DABI,EvABI)}
                       end;
-                    {ok,[<<"tx1">>,<<"evm">>,<<"revert">>,Sig]} ->
-                      [<<"tx1">>,<<"evm">>,<<"revert">>,Sig]
+                    {ok,[<<"tx1">>,<<"evm:revert">>|Sig]} ->
+                      [<<"tx1">>,<<"evm:revert">>|Sig]
                   end
               end,
       ProcLog=[ DoLog(LL) || LL <- Log ],
@@ -840,8 +840,8 @@ evm_weth9_test() ->
                         {EvName,_,EvABI} ->
                           {EvName,contract_evm_abi:decode_abi(DABI,EvABI,Indexed)}
                       end;
-                    {ok,[<<"tx1">>,<<"evm">>,<<"revert">>,Sig]} ->
-                      [<<"tx1">>,<<"evm">>,<<"revert">>,Sig]
+                    {ok,[<<"tx1">>,<<"evm:revert">>|Sig]} ->
+                      [<<"tx1">>,<<"evm:revert">>|Sig]
                   end
               end,
       ProcLog=[ DoLog(LL) || LL <- Log ],

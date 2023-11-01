@@ -388,7 +388,7 @@ try_process([{TxID, #{
                       txext:=#{"code":=Code,"vm":=VMType0}=TxExt
                      }=Tx} |Rest],
             #{failed:=Failed,
-              aalloc:=AAlloc,
+              aalloc:=AAlloc0,
               table:=Addresses,
               new_settings:=SetState,
               get_settings:=GetFun,
@@ -418,9 +418,28 @@ try_process([{TxID, #{
     code:ensure_loaded(VM),
     A5=erlang:function_exported(VM,deploy,5),
 
+
     %State0=maps:get(state, Tx, <<>>),
     Bal=maps:get(Owner, Addresses),
     {NewF, GasF, GotFee, {GCur,GAmount,GRate={GNum,GDen}}=Gas}=withdraw(Bal, Tx, GetFun, SetState, []),
+
+    AAlloc=AAlloc0,
+    NewAddr=Owner,
+%    {NewAddr,_NewBal,AAlloc}=case maps:get("new_address",TxExt,0) of
+%                     2 ->
+%                       {ok, NewBAddr, AAl1} = aalloc(AAlloc0),
+%                       logger:notice("Requested deploy to new address, it's does not work yet"),
+%                       {NewBAddr,maps:merge(
+%                                   mbal:new(),
+%                                   maps:with([pubkey],Bal)
+%                                  ),AAl1};
+%                     1 ->
+%                       {ok, NewBAddr, AAl1} = aalloc(AAlloc0),
+%                       logger:notice("Requested deploy to new address, it's does not work yet"),
+%                       {NewBAddr,mbal:new(),AAl1};
+%                     _ ->
+%                       {Owner,,AAlloc0}
+%                   end,
 
     try
       NewF1=mbal:put(vm, VMType, NewF),
@@ -430,8 +449,8 @@ try_process([{TxID, #{
               {ok, View} ->
                 mbal:put(view, View, NewF2)
             end,
-      ?LOG_INFO("Deploy contract ~s for ~s gas ~w",
-                 [VM, naddress:encode(Owner), Gas]),
+      ?LOG_INFO("Deploy contract ~s for ~s to address ~s gas ~w",
+                 [VM, naddress:encode(Owner), naddress:encode(NewAddr), Gas]),
       IGas=(GAmount*GNum) div GDen,
       Left=fun(GL) ->
                ?LOG_INFO("VM run gas ~p -> ~p",[IGas,GL]),
@@ -448,7 +467,7 @@ try_process([{TxID, #{
                    },
       {St1,GasLeft,NewCode,OpaqueState2}=if A5 ->
                          case erlang:apply(VM, deploy,
-                                           [Tx,
+                                           [Tx#{address=>NewAddr},
                                             mbal:msgpack_state(Bal),
                                             IGas,
                                             GetFun,
@@ -543,7 +562,7 @@ try_process([{TxID, #{
           %io:format("DEPLOY ERROR ~p:~p~n",[Ec,Ee]),
           ?LOG_INFO("Contract deploy failed ~p:~p", [Ec,Ee]),
           lists:foreach(fun(SE) ->
-                            %io:format("@ ~p~n", [SE])
+                            %io:format("@ ~p~n", [SE]),
                             ?LOG_INFO("@ ~p~n", [SE])
                         end, S),
           try_process(Rest,
@@ -1376,7 +1395,7 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
          <<Bin:32/big>> ->
            [{<<"retval">>, Bin}];
          RetVal when is_binary(RetVal) ->
-           [{<<"retval">>, <<"other">>}];
+           [{<<"retval">>, RetVal}];
          undefined ->
            case maps:get("revert",OpaqueState2,undefined) of
              <<16#08C379A0:32/big,
@@ -1388,7 +1407,7 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                [{<<"revert">>, <<>>}];
              Revert when is_binary(Revert) ->
                ?LOG_INFO("Tx ~p revert ~p",[TxID, Revert]),
-               [{<<"revert">>, <<"other">>}];
+               [{<<"revert">>, Revert}];
              undefined ->
                []
            end

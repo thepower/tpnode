@@ -323,7 +323,7 @@ cleanup_bals(NewBal0, Prev, GetAddr) ->
                           Mapa1=maps:filter(
                                   fun(MK,MV) ->
                                       %MV=/=maps:get(MK,PreMap,undefined)
-                                      logger:notice("Compare ~p key ~p: ~p changed ~p",
+                                      logger:info("Compare ~p key ~p: ~p changed ~p",
                                                     [
                                                      Addr,
                                                      MK,

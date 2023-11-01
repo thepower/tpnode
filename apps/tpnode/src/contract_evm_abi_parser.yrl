@@ -1,5 +1,5 @@
 Nonterminals List ET Root.
-Terminals ',' '[' ']' '(' ')' atom.
+Terminals ',' '[' ']' '(' ')' atom integer.
 Rootsymbol Root.
 
 List -> ET atom ',' List: [{atom_to_binary(element(3,'$2'),utf8),'$1'} | '$4'].
@@ -15,6 +15,7 @@ Root -> '(' List ')' : {undefined, '$2'}.
 
 ET -> '(' ')' : {'tuple',[]}.
 ET -> '(' List ')' : {'tuple','$2'}.
-ET -> ET '[' ']' : {'array','$1'}.
+ET -> ET '[' ']' : {'darray','$1'}.
+ET -> ET '[' integer ']' : {{'fixarray',element(3,'$3')},'$1'}.
 ET -> atom : element(3,'$1').
 

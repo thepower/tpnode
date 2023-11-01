@@ -76,9 +76,9 @@ decode_abi_internal(RestB,[],Bin,Acc,Idx,ProcFun) ->
 decode_abi_internal(RestB,[{Name, {indexed,Type}}|RestA],Bin,Acc,[N|Idx], ProcFun) ->
   decode_abi_internal(RestB, RestA, Bin, [{Name, Type, N}|Acc],Idx, ProcFun);
 
-decode_abi_internal(RestB, [{Name, {fixarray,{Size,Type}}}|RestA],Bin,Acc,Idx, ProcFun) ->
+decode_abi_internal(RestB, [{Name, {{fixarray,Size},Type}}|RestA],Bin,Acc,Idx, ProcFun) ->
   {RB2,[],_,Tpl,Idx1}=decode_abi_internal(RestB, [{'_naked',Type} || _ <- lists:seq(1,Size)],Bin,[],Idx, ProcFun),
-  decode_abi_internal(RB2, RestA, Bin, [{Name, array, Tpl}|Acc],Idx1, ProcFun);
+  decode_abi_internal(RB2, RestA, Bin, [{Name, {fixarray,Size}, Tpl}|Acc],Idx1, ProcFun);
 
 decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {darray,Type}}|RestA],Bin,Acc,Idx, ProcFun) ->
   <<_:Ptr/binary,Size:256/big,Data/binary>> = Bin,
@@ -123,6 +123,8 @@ cmp_abi([_|_],[]) -> false;
 cmp_abi([{_,K}|A1],[{_,K}|A2]) ->
   cmp_abi(A1,A2);
 cmp_abi({tuple,K1},{tuple,K2}) ->
+  cmp_abi(K1,K2);
+cmp_abi({{fixarray,N},K1},{{fixarray,N},K2}) ->
   cmp_abi(K1,K2);
 cmp_abi({darray,K1},{darray,K2}) ->
   cmp_abi(K1,K2);
