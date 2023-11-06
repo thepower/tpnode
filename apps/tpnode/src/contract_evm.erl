@@ -160,7 +160,7 @@ encode_str(Bin) ->
         end*8,
   <<(size(Bin)):256/big,Bin/binary,0:Pad/big>>.
 
-handle_tx(#{to:=To,from:=From,txext:=#{"code":=Code,"vm":= <<"evm">>}}=Tx,
+handle_tx(#{to:=To,from:=From,txext:=#{"code":=Code,"vm":= "evm"}}=Tx,
           Ledger, GasLimit, GetFun, Opaque) when To==From ->
   handle_tx_int(Tx, Ledger#{code=>Code}, GasLimit, GetFun, Opaque);
 

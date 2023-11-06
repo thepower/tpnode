@@ -736,7 +736,7 @@ evm_callwithcode_test() ->
                        ],
               seq=>3,
               txext => #{
-                         "vm" => <<"evm">>,
+                         "vm" => "evm",
                          "code" => Code
                         },
               t=>os:system_time(millisecond)

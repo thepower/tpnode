@@ -425,7 +425,7 @@ deployless_run_test(Config) ->
                                ],
                       seq=>Seq+1,
                       txext => #{
-                                 "vm" => <<"evm">>,
+                                 "vm" => "evm",
                                  "code" => Code
                                 },
                       t=>os:system_time(millisecond)
