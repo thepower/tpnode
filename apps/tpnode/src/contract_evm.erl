@@ -160,9 +160,15 @@ encode_str(Bin) ->
         end*8,
   <<(size(Bin)):256/big,Bin/binary,0:Pad/big>>.
 
+handle_tx(#{to:=To,from:=From,txext:=#{"code":=Code,"vm":= <<"evm">>}}=Tx,
+          Ledger, GasLimit, GetFun, Opaque) when To==From ->
+  handle_tx_int(Tx, Ledger#{code=>Code}, GasLimit, GetFun, Opaque);
 
-handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
-          GasLimit, GetFun, #{log:=PreLog}=Opaque) ->
+handle_tx(Tx, Ledger, GasLimit, GetFun, Opaque) ->
+  handle_tx_int(Tx, Ledger, GasLimit, GetFun, Opaque).
+
+handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
+              GasLimit, GetFun, #{log:=PreLog}=Opaque) ->
   State=case maps:get(state,Ledger,#{}) of
           BinState when is_binary(BinState) ->
             {ok,MapState}=msgpack:unpack(BinState),

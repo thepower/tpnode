@@ -1267,7 +1267,14 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                          mbal:put_cur( Cur, NewTAmount, TBal)
                      end, TBal0, tx:get_payloads(Tx,transfer))),
   Addresses=maps:put(Address,NewT,Addresses0),
-  case {maps:is_key(norun,Tx),mbal:get(vm, NewT)} of
+
+  UVm=case Tx of
+        #{from:=From,to:=To,txext:=#{"code":=_Code,"vm":=VMu}} when From==To ->
+          to_bin(VMu);
+        _ ->
+          mbal:get(vm, NewT)
+      end,
+  case {maps:is_key(norun,Tx),UVm} of
     {true,_} ->
       {Addresses, [], GasLimit, Acc#{table=>Addresses}, []};
     {_,undefined} ->

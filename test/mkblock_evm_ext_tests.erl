@@ -583,8 +583,6 @@ evm_embedded_lstore_test() ->
        ?assertMatch(Succ,true)
       ].
 
-
-
 evm_caller_test() ->
       OurChain=151,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
@@ -699,7 +697,79 @@ evm_caller_test() ->
        ?assertMatch(Succ,true)
       ].
 
+evm_callwithcode_test() ->
+      OurChain=151,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
 
+      Code=eevm_asm:asm(
+             [{push,1,0},
+              sload,
+              {push,1,1},
+              add,
+              {dup,1},
+              {push,1,0},
+              sstore,
+              {push,1,0},
+              mstore,
+              calldatasize,
+              {dup,1},
+              {push,1,0},
+              {push,1,0},
+              calldatacopy,
+              {push,1,0},
+              return]
+            ),
+
+      TX1=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>Addr1,
+              call=>#{
+                      function => "test(bytes)", args => [<<1,2,3,4>>]
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              txext => #{
+                         "vm" => <<"evm">>,
+                         "code" => Code
+                        },
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+      TxList1=[
+               {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,Block}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{
+                             <<"FTT">> => 1000000,
+                             <<"SK">> => 3,
+                             <<"TST">> => 26
+                            },
+                 state => #{
+                   <<0>> => <<1>>
+                  }
+                }
+              }
+             ],
+      {ok,_Log,#{bals:=B,txs:=[{_,#{extdata:=_Tx}}]}}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      io:format("Tx ~p~n",[_Tx]),
+      io:format("Bals ~p~n",[B]),
+      [
+       ?assertMatch(#{state:=#{<<0>> := <<2>>}},maps:get(Addr1,B))
+      ].
 
 evm_weth9_test() ->
       OurChain=151,
