@@ -195,10 +195,10 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,{GNum,GDen}=GRate}, GetFun, Opaq
         end;
       {error, nogas, _} ->
         throw('insufficient_gas');
-      {error, Reason, GasLeft} ->
-        %throw({'run_failed', Reason});
+      {error, Reason, _GasLeft} ->
         ?LOG_ERROR("Contract error ~p", [Reason]),
-        {[], [], Left(GasLeft), Opaque};
+        throw({'run_failed', Reason});
+        %{[], [], Left(GasLeft), Opaque};
       {error, Reason} ->
         throw({'run_failed', Reason});
       Any ->
