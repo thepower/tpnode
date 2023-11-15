@@ -165,10 +165,10 @@ init([]) ->
                     ]
                 end,
 
-    case application:get_env(tpnode,watchdog,undefined) of
+    case application:get_env(tpnode,watchdog,true) of
       true ->
         tpwdt:start();
-      undefined ->
+      _ ->
         ok
     end,
 
