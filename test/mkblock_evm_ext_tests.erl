@@ -160,10 +160,10 @@ eabi2_test() ->
                {<<"t">>,uint256},
                {<<"seq">>,uint256},
                {<<"call">>,
-                {array,{tuple,[{<<"func">>,string},
-                               {<<"args">>,{array,uint256}}]}}},
+                {darray,{tuple,[{<<"func">>,string},
+                               {<<"args">>,{darray,uint256}}]}}},
                {<<"signatures">>,
-                {array,{tuple,[{<<"timestamp">>,uint256},
+                {darray,{tuple,[{<<"timestamp">>,uint256},
                                {<<"pubkey">>,bytes},
                                {<<"rawkey">>,bytes},
                                {<<"signature">>,bytes}]}}}]}}],
@@ -568,8 +568,8 @@ evm_embedded_lstore_test() ->
                         {EvName,_,EvABI}->
                           {EvName,contract_evm_abi:decode_abi(DABI,EvABI)}
                       end;
-                    {ok,[<<"tx1">>,<<"evm">>,<<"revert">>,Sig]} ->
-                      [<<"tx1">>,<<"evm">>,<<"revert">>,Sig]
+                    {ok,[<<"tx1">>,<<"evm:revert">>|Sig]} ->
+                      [<<"tx1">>,<<"evm:revert">>|Sig]
                   end
               end,
       ProcLog=[ DoLog(LL) || LL <- Log ],
@@ -582,8 +582,6 @@ evm_embedded_lstore_test() ->
       [
        ?assertMatch(Succ,true)
       ].
-
-
 
 evm_caller_test() ->
       OurChain=151,
@@ -688,8 +686,8 @@ evm_caller_test() ->
                         {EvName,_,EvABI}->
                           {EvName,contract_evm_abi:decode_abi(DABI,EvABI)}
                       end;
-                    {ok,[<<"tx1">>,<<"evm">>,<<"revert">>,Sig]} ->
-                      [<<"tx1">>,<<"evm">>,<<"revert">>,Sig]
+                    {ok,[<<"tx1">>,<<"evm:revert">>|Sig]} ->
+                      [<<"tx1">>,<<"evm:revert">>|Sig]
                   end
               end,
       ProcLog=[ DoLog(LL) || LL <- Log ],
@@ -697,6 +695,234 @@ evm_caller_test() ->
       Succ=true,
       [
        ?assertMatch(Succ,true)
+      ].
+
+evm_callwithcode_test() ->
+      OurChain=151,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+
+      Code=eevm_asm:asm(
+             [{push,1,0},
+              sload,
+              {push,1,1},
+              add,
+              {dup,1},
+              {push,1,0},
+              sstore,
+              {push,1,0},
+              mstore,
+              calldatasize,
+              {dup,1},
+              {push,1,0},
+              {push,1,0},
+              calldatacopy,
+              {push,1,0},
+              return]
+            ),
+
+      TX1=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>Addr1,
+              call=>#{
+                      function => "test(bytes)", args => [<<1,2,3,4>>]
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              txext => #{
+                         "vm" => "evm",
+                         "code" => Code
+                        },
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+      TxList1=[
+               {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,Block}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{
+                             <<"FTT">> => 1000000,
+                             <<"SK">> => 3,
+                             <<"TST">> => 26
+                            },
+                 state => #{
+                   <<0>> => <<1>>
+                  }
+                }
+              }
+             ],
+      {ok,_Log,#{bals:=B,txs:=[{_,#{extdata:=_Tx}}]}}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      io:format("Tx ~p~n",[_Tx]),
+      io:format("Bals ~p~n",[B]),
+      [
+       ?assertMatch(#{state:=#{<<0>> := <<2>>}},maps:get(Addr1,B))
+      ].
+
+evm_weth9_test() ->
+      OurChain=151,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+
+      {ok,Bin1} = file:read_file("examples/evm_builtin/build/WETH9.bin"),
+      ABI1=contract_evm_abi:parse_abifile("examples/evm_builtin/build/WETH9.abi"),
+
+      Code1=hex:decode(hd(binary:split(Bin1,<<"\n">>))),
+
+      {done,{return,Code1b},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
+      SkAddr1=naddress:construct_public(1, OurChain, 10),
+
+      TX1=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr1,
+              %call=>#{
+              %        function => "setXFromAddress(address,uint256)",
+              %        args => [ SkAddr1, 1234 ]
+              %},
+              payload=>[
+                        #{purpose=>transfer, amount=>10, cur => <<"SK">>},
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+      TX2=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr1,
+              call=>#{
+                      function => "withdraw(uint256)",
+                      args => [ 5 ]
+              },
+              payload=>[
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
+                       ],
+              seq=>4,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+      TxList1=[
+               {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)},
+               {<<"tx2">>, maps:put(sigverify,#{valid=>1},TX2)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,Block}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{
+                             <<"FTT">> => 1000000,
+                             <<"SK">> => 15,
+                             <<"TST">> => 26
+                            }
+                }
+              },
+              {SkAddr1,
+               #{
+                 code => Code1b,
+                 amount => #{<<"SK">> => 0},
+                 vm => <<"evm">>,
+                 state =>
+                 #{<<83,129,129,208,245,14,115,33,12,109,126,37,108,214,152,
+                     44,168,51,97,153,155,156,202,220,5,55,2,253,234,208,170,
+                     132>> =>
+                       <<>>}
+                }
+              }
+             ],
+      register(eevm_tracer,self()),
+      {ok,Log,#{bals:=B,txs:=_Tx}}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      io:format("Bals ~p~n",[B]),
+      %io:format("st ~p~n",[[ maps:with([call,extdata],Body) || {_,Body} <- Tx]]),
+      %io:format("Block ~p~n",[block:minify(Blk)]),
+      unregister(eevm_tracer),
+      %[{_,_,FABI}]=contract_evm_abi:find_function(<<"getLStore(bytes[])">>,ABI),
+      %_D=fun() -> receive {trace,{return,Data}} ->
+      %                     %hex:hexdump(Data),
+      %                     io:format("dec ~p~n",[contract_evm_abi:decode_abi(Data,FABI)]),
+      %                     Data
+      %           after 0 ->
+      %                   <<>>
+      %           end end(),
+      fun FT(N) ->
+          receive
+            %{trace,{opcode,_,{2122,_}}} -> FT(1);
+            %{trace,{opcode,_,{_,{dup,_}}}=_Any} -> FT(0);
+            %{trace,{opcode,_,{_,{swap,_}}}=_Any} -> FT(0);
+            %{trace,{opcode,_,{_,pop}}=_Any} -> FT(0);
+            %{trace,{opcode,_,{_,sub}}=_Any} -> FT(0);
+            %{trace,{opcode,_,{_,call}}=_Any} ->
+            %  io:format("~n~p",[_Any]),
+            %  FT(3);
+            %%{trace,{opcode,_,{_,mload}}=_Any} ->
+            %%  io:format("~n~p",[_Any]),
+            %%  FT(3);
+            %{trace,{stack,_,_}=_Any} when N>0 ->
+            %  io:format("~n: ~p",[_Any]),
+            %  FT(0);
+            %{trace,{stack,_,_}=_Any} ->
+            %  FT(0);
+            %{trace,{opcode,Dep,{push,Len,Val}}=_Any} ->
+            %  io:format("~n++ {opcode,~w,{push,~w,0x~s}}",[Dep,Len,hex:encode(binary:encode_unsigned(Val))]),
+            %  FT(0);
+            %{trace,{opcode,_,_}=_Any} ->
+            %  %io:format("~n~p",[_Any]),
+            %  FT(0);
+            {trace,_Any} when N>0 ->
+              FT(N-1);
+            {trace,_Any} ->
+              FT(0)
+          after 0 -> 
+                  io:format("~n",[])
+          end
+      end(0),
+
+      Events=contract_evm_abi:sig_events(ABI1),
+
+      DoLog = fun (BBin) ->
+                  case msgpack:unpack(BBin) of
+                    {ok,[_,<<"evm">>,_,_,DABI,[Signature|Indexed]]} ->
+                      case lists:keyfind(Signature,2,Events) of
+                        false ->
+                          {DABI,Signature};
+                        {EvName,_,EvABI} ->
+                          {EvName,contract_evm_abi:decode_abi(DABI,EvABI,Indexed)}
+                      end;
+                    {ok,[<<"tx1">>,<<"evm:revert">>|Sig]} ->
+                      [<<"tx1">>,<<"evm:revert">>|Sig]
+                  end
+              end,
+      ProcLog=[ DoLog(LL) || LL <- Log ],
+      io:format("Logs ~p~n",[ProcLog]),
+      [
+       ?assertMatch(#{amount:=#{<<"SK">>:=5}},maps:get(SkAddr1,B)),
+       ?assertMatch(#{amount:=#{<<"SK">>:=10}},maps:get(Addr1,B)),
+       ?assertMatch([
+                     {<<"Deposit(address,uint256)">>, [{_,Addr1},{_,10}]},
+                     {<<"Withdrawal(address,uint256)">>, [{_,Addr1},{_,5}]}
+                    ], ProcLog )
       ].
 
 

@@ -177,7 +177,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            fun(_,Bal) ->
                mbal:prepare(Bal)
            end,
-           cleanup_bals(NewBal0, Addrs)
+           cleanup_bals(NewBal0, Addrs, GetAddr)
           ),
   ?LOG_DEBUG("Bals after clean and prepare ~p",[NewBal]),
   ExtraPatch=maps:fold(
@@ -302,7 +302,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
    }.
 
 
-cleanup_bals(NewBal0, Prev) ->
+cleanup_bals(NewBal0, Prev, GetAddr) ->
   maps:fold(
     fun(Addr, V, BA) ->
         ?LOG_DEBUG("Bal cleanup ~p ~p",[Addr,V]),
@@ -319,10 +319,18 @@ cleanup_bals(NewBal0, Prev) ->
                         (ublk,LV,LA) ->
                           maps:put(lastblk,LV,LA);
                         (state,Mapa,LA) when is_map(Mapa)->
-                          PreMap=maps:get(state,PreAddr,#{}),
+                          %PreMap=maps:get(state,PreAddr,#{}),
                           Mapa1=maps:filter(
                                   fun(MK,MV) ->
-                                      MV=/=maps:get(MK,PreMap,undefined)
+                                      %MV=/=maps:get(MK,PreMap,undefined)
+                                      logger:info("Compare ~p key ~p: ~p changed ~p",
+                                                    [
+                                                     Addr,
+                                                     MK,
+                                                     MV,
+                                                     MV=/=GetAddr({storage,Addr,MK})
+                                                    ]),
+                                      MV =/= GetAddr({storage,Addr,MK})
                                   end, Mapa),
                           maps:put(state,Mapa1,LA);
                         (LK,LV,LA) ->

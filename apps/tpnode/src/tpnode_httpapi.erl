@@ -98,8 +98,6 @@ answer(Data, Options) when is_map(Data) ->
       }
   end.
 
-
-
 after_filter(Req) ->
   Origin=cowboy_req:header(<<"origin">>, Req, <<"*">>),
   Req1=cowboy_req:set_resp_header(<<"access-control-allow-origin">>,
@@ -120,6 +118,47 @@ h(Method, [<<"playground">>|Path], Req) ->
 
 h(Method, [<<"api">>|Path], Req) ->
   h(Method, Path, Req);
+
+h(<<"POST">>, [<<"execute">>,<<"call">>], Req) ->
+  case apixiom:bodyjs(Req) of
+    #{<<"call">>:=_Call, <<"to">>:=_To}=Map ->
+      B=maps:merge(#{loop=>1, <<"args">> =>[]},Map),
+      h(<<"POST">>, B#{
+                      <<"from">> => <<"0x8000000000000000">>,
+                      <<"value">> => 0,
+                      <<"gas">> => 1000000000000
+                     }, Req);
+    _ ->
+      {400, [], <<"bad argument">>}
+  end;
+
+h(<<"POST">>, #{ <<"call">>:=Call, <<"args">>:=Args, <<"from">>:=From,
+                 <<"to">>:=To, <<"gas">>:=GasLimit, <<"value">>:=_Value
+               },_Req) ->
+  case tpnode_evmrun:evm_run(
+         hex:decode(To),
+         Call,
+         tpnode_evmrun:decode_json_args(Args),
+         #{caller=>hex:decode(From),gas=>GasLimit}
+        ) of
+    #{}=Res ->
+      Res1=maps:map(
+             fun(bin,Val) ->
+                 <<"0x",(hex:encode(Val))/binary>>;
+                (log,Log) ->
+                 lists:map(fun([evm,CA,FA,Bin1,Topics|_]) ->
+                               [evm,hex:encode(CA),
+                                hex:encode(FA),
+                                hex:encode(Bin1),
+                                [ hex:encode(H) || H <- Topics ]
+                               ]
+                           end, Log);
+                (_,Any) -> Any
+             end,Res),
+      {200, [], Res1};
+    _ ->
+      {500, [], <<"bad evm response">>}
+  end;
 
 h(<<"GET">>, [<<"node">>, <<"status">>], Req) ->
   {ok,Chain}=chainsettings:get_setting(mychain),
@@ -340,47 +379,6 @@ h(<<"POST">>, [<<"node">>, <<"hotfix">>], Req) ->
     Body ->
       ?LOG_INFO("hotfix Bad req ~p~n",[Body]),
       answer(#{ result=> false, error=><<"bad_input">>})
-  end;
-
-h(<<"GET">>, [<<"contract">>, TAddr], _Req) ->
-  try
-    Addr=case TAddr of
-           <<"0x", Hex/binary>> ->
-             hex:parse(Hex);
-           _ ->
-             naddress:decode(TAddr)
-         end,
-    Ledger=mledger:get(Addr),
-    case Ledger =/= undefined of
-      false ->
-          err(
-              10009,
-              <<"Not found">>,
-              #{ result => <<"not_found">> }
-              #{ address => Addr, http_code => 404 }
-          );
-      true ->
-        VMName=maps:get(vm, Ledger),
-        {ok,CN,CD}=smartcontract:info(VMName),
-        {ok,List}=smartcontract:getters(VMName),
-
-        answer(
-         #{
-            contract=>CN,
-            descr=>CD,
-            getters=>List
-          },
-          #{ address => Addr })
-    end
-  catch throw:{error, address_crc} ->
-      err(
-          10010,
-          <<"Invalid address">>,
-          #{
-              result => <<"error">>,
-              error => <<"invalid address">>
-          }
-      )
   end;
 
 h(<<"GET">>, [<<"where">>, TAddr], Req) ->

@@ -23,7 +23,7 @@
   0},
  {<<"eevm">>,
   {git,"https://github.com/thepower/eevm.git",
-       {ref,"2592f2ec54dc839720080d320a5ee7e8b78c9c73"}},
+       {ref,"eaa04123d42bb4675676f8052874ada75fa37a2b"}},
   0},
  {<<"eqwalizer_support">>,
   {git_subdir,"https://github.com/whatsapp/eqwalizer.git",

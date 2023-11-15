@@ -44,6 +44,7 @@ logger(Format, Args) when is_list(Format), is_list(Args) ->
 all() -> [
           evm_erc20_test,
           evm_erc721_test,
+          deployless_run_test,
           evm_apis_test
          ].
  
@@ -386,6 +387,56 @@ display_logs(Log, ABI) ->
           end,
   [ io:format("Logs ~p~n",[ DoLog(LL)]) || LL <- Log ].
 
+deployless_run_test(Config) ->
+  {ok,Node}=tpapi2:connect(get_base_url()),
+  {endless_addr,EAddr}=proplists:lookup(endless_addr,Config),
+  {endless_addr_pk,EPriv}=proplists:lookup(endless_addr_pk,Config),
+  Code = eevm_asm:asm(
+           [{push,1,0},
+            sload,
+            {push,1,1},
+            add,
+            {dup,1},
+            {push,1,0},
+            sstore,
+            {push,1,0},
+            mstore,
+            calldatasize,
+            {dup,1},
+            {push,1,0},
+            {push,1,0},
+            calldatacopy,
+            {push,1,0},
+            return]
+          ),
+
+  {ok,Seq}=tpapi2:get_seq(Node, EAddr),
+  Tx=tx:sign(
+    tx:construct_tx(#{
+                      ver=>2,
+                      kind=>generic,
+                      from=>EAddr,
+                      to=>EAddr,
+                      call=>#{
+                              function => "test()", args => []
+                             },
+                      payload=>[
+                                #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
+                               ],
+                      seq=>Seq+1,
+                      txext => #{
+                                 "vm" => "evm",
+                                 "code" => Code
+                                },
+                      t=>os:system_time(millisecond)
+                     }), EPriv),
+  {ok, #{<<"txid">> := TxID, <<"block">>:=BlkID}=Status} = tpapi2:submit_tx(Node, Tx),
+  {ok,#{bals:=BlkBal}}=tpapi2:block(Node,hex:decode(BlkID)),
+  [
+   ?assertMatch(#{state := #{<<0>> := _}},maps:get(EAddr,BlkBal)),
+   ?assertMatch(4171824493,maps:get(<<"retval">>,Status,undefined))
+  ].
+
 
 evm_erc721_test(Config) ->
   {endless_addr,EAddr}=proplists:lookup(endless_addr,Config),
@@ -452,7 +503,7 @@ evm_erc721_test(Config) ->
            ),Priv)),
 
   {ok, #{<<"txid">> := TxID2, <<"block">>:=Blkid2}=Status2} = tpapi2:submit_tx(Node, GenTx),
-  io:format("ERC721 transfer txid ~p~n",[TxID2]),
+  io:format("ERC721 transfer txid ~p in block ~p~n",[TxID2,Blkid2]),
   ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
   gun:close(Node),
 

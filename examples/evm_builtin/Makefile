@@ -1,5 +1,5 @@
 #--combined-json abi,asm,ast,bin,bin-runtime,devdoc,function-debug,function-debug-runtime,generated-sources,generated-sources-runtime,hashes,metadata,opcodes,srcmap,srcmap-runtime,storage-layout,userdoc
-all: build/builtinFunc.bin build/checkSig.bin build/sponsor.bin
+all: build/builtinFunc.bin build/checkSig.bin build/sponsor.bin build/WETH9.bin
 
 build/builtinFunc.bin: contracts/builtinFunc.sol
 	solc --abi --bin contracts/builtinFunc.sol -o build --overwrite --storage-layout
@@ -9,6 +9,9 @@ build/checkSig.bin: contracts/check_sig.sol
 
 build/sponsor.bin: contracts/sponsor.sol
 	solc --abi --bin contracts/sponsor.sol -o build --overwrite --storage-layout
+
+build/WETH9.bin: contracts/WETH9.sol
+	solc --abi --bin contracts/WETH9.sol -o build --overwrite --storage-layout
 
 all0: build/builtinFunc.json build/checkSig.json
 		cat build/builtinFunc.json | jq -r .bytecode | cut -d 'x' -f 2 > build/builtinFunc.hex

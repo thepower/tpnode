@@ -328,12 +328,12 @@ hei_and_has(B) ->
                  #{header:=#{height:=Last_Height1}, hash:=Last_Hash1}=B,
                  {Last_Height1,
                   Last_Hash1,
-                  <<(bnot Last_Height1):64/big,Last_Hash1/binary>>};
+                  <<(bnot (Last_Height1 bsl 1)):64/big,Last_Hash1/binary>>};
                X when is_integer(X) ->
                  ?LOG_DEBUG("Prev block is temporary, make replacement"),
                  #{header:=#{height:=Last_Height1, parent:=Last_Hash1}}=B,
                  {Last_Height1-1,
                   Last_Hash1,
-                  <<(bnot Last_Height1-1):64/big,Last_Hash1/binary>>}
+                  <<(bnot (((Last_Height1-1) bsl 1) +1)):64/big,Last_Hash1/binary>>}
   end.
 

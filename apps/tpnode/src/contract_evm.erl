@@ -82,7 +82,7 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
                                balance => GetBalFun
                               },
                         data=>#{
-                                address=>binary:decode_unsigned(From),
+                                address=>binary:decode_unsigned(maps:get(address,Tx,From)),
                                 callvalue=>Value,
                                 caller=>binary:decode_unsigned(From),
                                 gasprice=>1,
@@ -160,9 +160,15 @@ encode_str(Bin) ->
         end*8,
   <<(size(Bin)):256/big,Bin/binary,0:Pad/big>>.
 
+handle_tx(#{to:=To,from:=From,txext:=#{"code":=Code,"vm":= "evm"}}=Tx,
+          Ledger, GasLimit, GetFun, Opaque) when To==From ->
+  handle_tx_int(Tx, Ledger#{code=>Code}, GasLimit, GetFun, Opaque);
 
-handle_tx(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
-          GasLimit, GetFun, #{log:=PreLog}=Opaque) ->
+handle_tx(Tx, Ledger, GasLimit, GetFun, Opaque) ->
+  handle_tx_int(Tx, Ledger, GasLimit, GetFun, Opaque).
+
+handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
+              GasLimit, GetFun, #{log:=PreLog}=Opaque) ->
   State=case maps:get(state,Ledger,#{}) of
           BinState when is_binary(BinState) ->
             {ok,MapState}=msgpack:unpack(BinState),
@@ -538,16 +544,16 @@ tx_abi() ->
             {<<"t">>,uint256},
             {<<"seq">>,uint256},
             {<<"call">>,
-             {array,{tuple,[{<<"func">>,string},
-                            {<<"args">>,{array,uint256}}]}}},
+             {darray,{tuple,[{<<"func">>,string},
+                            {<<"args">>,{darray,uint256}}]}}},
             {<<"payload">>,
-             {array,{tuple, [
+             {darray,{tuple, [
                              {<<"purpose">>,uint256},
                              {<<"cur">>,string},
                              {<<"amount">>,uint256}
                             ]}}},
             {<<"signatures">>,
-             {array,{tuple,[{<<"raw">>,bytes},
+             {darray,{tuple,[{<<"raw">>,bytes},
                             {<<"timestamp">>,uint256},
                             {<<"pubkey">>,bytes},
                             {<<"rawkey">>,bytes},
@@ -690,7 +696,7 @@ embedded_blocks(<<1489993744:32/big,Bin/binary>>,#{getfun:=GetFun}=XAcc) -> %get
     Data=lists:sort([ PubKey || #{beneficiary :=  PubKey } <- Signatures]),
 
     logger:notice("=== get_block: ~p",[Data]),
-    RBin=contract_evm_abi:encode_abi([Data], [{<<>>, {array,bytes}}]),
+    RBin=contract_evm_abi:encode_abi([Data], [{<<>>, {darray,bytes}}]),
     {1,RBin,XAcc}
   catch Ec:Ee ->
           logger:info("decode_abi error: ~p:~p~n",[Ec,Ee]),
@@ -703,7 +709,7 @@ embedded_blocks(<<Sig:32/big,_/binary>>,XAcc) ->
 
 embedded_settings(<<3410561484:32/big,Bin/binary>>,#{getfun:=GetFun}=XAcc) -> %byPath(string[])
   try
-    [{<<"key">>,Path}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,{array,string}}]),
+    [{<<"key">>,Path}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,{darray,string}}]),
     SRes=GetFun({settings,Path}),
     RBin=enc_settings1(SRes),
     {1,RBin,XAcc}
@@ -740,7 +746,7 @@ embedded_settings(<<Sig:32/big,_/binary>>,XAcc) ->
 embedded_lstore(<<16#8D0FE062:32/big,Bin/binary>>,
                 #{data:=#{address:=A}},
                 #{getfun:=GetFun}=XAcc) ->% getByPath(bytes[])
-  InABI=[{<<"key">>,{array,bytes}}],
+  InABI=[{<<"key">>,{darray,bytes}}],
   try
     [{<<"key">>,Path}]=contract_evm_abi:decode_abi(Bin,InABI),
     
@@ -761,7 +767,7 @@ embedded_lstore(<<16#8D0FE062:32/big,Bin/binary>>,
 embedded_lstore(<<2693574879:32/big,Bin/binary>>,
                 #{data:=#{address:=_A}},
                 #{getfun:=GetFun}=XAcc) ->% getByPath(address,bytes[])
-  InABI=[{<<"address">>,address},{<<"key">>,{array,bytes}}],
+  InABI=[{<<"address">>,address},{<<"key">>,{darray,bytes}}],
   try
     [{<<"address">>,Addr},{<<"key">>,Path}]=contract_evm_abi:decode_abi(Bin,InABI),
     
@@ -783,7 +789,7 @@ embedded_lstore(<<2956342894:32/big,Bin/binary>>,
                 #{data:=#{address:=OwnerI}},
                 #{global_acc:=GA=#{table:=Addresses}}=XAcc) ->% setByPath(bytes[],uint256,bytes)
   Owner=binary:encode_unsigned(OwnerI),
-  InABI=[{<<"p">>,{array,bytes}}, {<<"t">>,uint256}, {<<"v">>,bytes}],
+  InABI=[{<<"p">>,{darray,bytes}}, {<<"t">>,uint256}, {<<"v">>,bytes}],
   try
     hex:hexdump(Bin),
     io:format("Bin ~4000p~n",[Bin]),
@@ -815,7 +821,7 @@ enc_settings1(SRes) ->
   OutABI=[{<<"datatype">>,uint256},
           {<<"res_bin">>,bytes},
           {<<"res_int">>,uint256},
-          {<<"keys">>,{array,{tuple,[{<<"datatype">>,uint256},
+          {<<"keys">>,{darray,{tuple,[{<<"datatype">>,uint256},
                                      {<<"res_bin">>,bytes}]}}}],
   EncSub=fun(Sub) ->
              [ if is_atom(A) -> [5, atom_to_binary(A)];
@@ -848,8 +854,21 @@ ask_if_wants_to_pay(Code, Tx, Gas) ->
     %{ok,{_,OutABI,_}}=contract_evm_abi:parse_signature(
     %                    "(string iWillPay,(uint256 purpose,string cur,uint256 amount)[] pay)"
     %                   ),
-    InABI=[{<<>>,{tuple,[{<<>>,uint256},{<<>>,address},{<<>>,address},{<<>>,uint256},{<<>>,uint256},{<<>>,{array,{tuple,[{<<>>,string},{<<>>,{array,uint256}}]}}},{<<>>,{array,{tuple,[{<<>>,uint256},{<<>>,string},{<<>>,uint256}]}}},{<<>>,{array,{tuple,[{<<>>,bytes},{<<>>,uint256},{<<>>,bytes},{<<>>,bytes},{<<>>,bytes}]}}}]}}],
-    OutABI=[{<<"iWillPay">>,string},{<<"pay">>,{array,{tuple,[{<<"purpose">>,uint256},{<<"cur">>,string},{<<"amount">>,uint256}]}}}],
+    InABI=[{<<>>,{tuple,[{<<>>,uint256},
+                         {<<>>,address},
+                         {<<>>,address},
+                         {<<>>,uint256},
+                         {<<>>,uint256},
+                         {<<>>,{darray,{tuple,[{<<>>,string},{<<>>,{darray,uint256}}]}}},
+                         {<<>>,{darray,{tuple,[{<<>>,uint256},{<<>>,string},{<<>>,uint256}]}}},
+                         {<<>>,{darray,{tuple,[
+                                              {<<>>,bytes},
+                                              {<<>>,uint256},
+                                              {<<>>,bytes},
+                                              {<<>>,bytes},
+                                              {<<>>,bytes}]}}}
+                        ]}}],
+    OutABI=[{<<"iWillPay">>,string},{<<"pay">>,{darray,{tuple,[{<<"purpose">>,uint256},{<<"cur">>,string},{<<"amount">>,uint256}]}}}],
     {ok,PTx}=preencode_tx(Tx,[]),
 
     CD=callcd(Function, [PTx], InABI),

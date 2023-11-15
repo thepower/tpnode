@@ -165,7 +165,12 @@ init([]) ->
                     ]
                 end,
 
-
+    case application:get_env(tpnode,watchdog,undefined) of
+      true ->
+        tpwdt:start();
+      undefined ->
+        ok
+    end,
 
     Discovery=#{name=>discovery, services=>MandatoryServices},
 
