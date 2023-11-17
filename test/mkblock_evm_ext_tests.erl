@@ -583,6 +583,68 @@ evm_embedded_lstore_test() ->
        ?assertMatch(Succ,true)
       ].
 
+evm_embedded_chkey_test() ->
+      OurChain=151,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+
+      {ok,Bin} = file:read_file("examples/evm_builtin/build/builtinFunc.bin"),
+
+      Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
+
+      {done,{return,Code2},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
+      SkAddr=naddress:construct_public(1, OurChain, 2),
+
+      TX0=tx:sign(
+            tx:construct_tx(#{
+             kind => generic,
+             t => os:system_time(millisecond),
+             seq => 2,
+             from => Addr1,
+             to => SkAddr,
+             ver => 2,
+             call=>#{
+                      function => "changeKey1()",
+                      args => []
+                    },
+             payload => [ #{purpose=>gas,amount=>2,cur=><<"SK">>}
+                          %,#{purpose=>transfer,amount=>3,cur=><<"SK">>}
+                        ]
+            }), Pvt1),
+
+      TxList1=[
+               {<<"tx0">>, maps:put(sigverify,#{valid=>1},TX0)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,Block}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{
+                             <<"FTT">> => 1000000,
+                             <<"SK">> => 3000,
+                             <<"TST">> => 26
+                            }
+                }
+              },
+              {SkAddr,
+               #{amount => #{<<"SK">> => 1},
+                 code => Code2,
+                 vm => <<"evm">>
+                }
+              }
+             ],
+      {ok,_Log,#{bals:=B,txs:=_Tx}}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      io:format("Bals ~p~n",[B]),
+      [
+       ?assertMatch(#{SkAddr:=#{pubkey:= << 0,1>> }},B)
+      ].
+
 evm_caller_test() ->
       OurChain=151,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,

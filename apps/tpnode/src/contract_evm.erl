@@ -684,7 +684,8 @@ embedded_functions() ->
     end,
     16#AFFFFFFFFF000003 => fun embedded_settings/2,
     16#AFFFFFFFFF000004 => fun embedded_blocks/2, %block service
-    16#AFFFFFFFFF000005 => fun embedded_lstore/3
+    16#AFFFFFFFFF000005 => fun embedded_lstore/3, %lstore service
+    16#AFFFFFFFFF000006 => fun embedded_chkey/3 %key service
    }.
 
 embedded_blocks(<<1489993744:32/big,Bin/binary>>,#{getfun:=GetFun}=XAcc) -> %get_signatures(uint256 height)
@@ -742,6 +743,31 @@ embedded_settings(<<Sig:32/big,_/binary>>,XAcc) ->
   ?LOG_NOTICE("Address ~p unknown sig: ~p~n",[16#AFFFFFFFFF000003,Sig]),
   {0, <<"badsig">>, XAcc}.
 
+embedded_chkey(<<16#218EBFA3:32/big,Bin/binary>>,
+                #{data:=#{address:=AI}},
+                #{global_acc:=GA=#{table:=Addresses}}=XAcc) ->% setKey(bytes)
+  InABI=[{<<"key">>,bytes}],
+  try
+    [{<<"key">>,NewKey}]=contract_evm_abi:decode_abi(Bin,InABI),
+    Addr=binary:encode_unsigned(AI),
+
+    NewAddresses=maps:put(Addr,
+                          mbal:put(pubkey, NewKey,
+                                   case maps:is_key(Addr,Addresses) of
+                                     false ->
+                                       Load=maps:get(loadaddr, GA),
+                                       Load({undefined, #{ver=>2, kind=>chkey, from=>Addr, keys=>[]}}, Addresses);
+                                     true ->
+                                       maps:get(Addr,Addresses)
+                                   end
+                                  ),
+                          Addresses),
+
+    {1,<<>>,XAcc#{global_acc=>GA#{table=>NewAddresses}}}
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
+          {0, <<"badarg">>, XAcc}
+  end.
 
 embedded_lstore(<<16#8D0FE062:32/big,Bin/binary>>,
                 #{data:=#{address:=A}},

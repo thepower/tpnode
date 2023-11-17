@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+contract Chkey {
+  function setKey(bytes calldata) public virtual {}
+}
+
 contract builtinFunc {
   struct tpCall {
     string func;
@@ -128,6 +132,11 @@ contract builtinFunc {
     require(success == true, "Call to byPath([]) failed");
     settings memory ret = abi.decode(returnBytes, (settings));
     return ret;
+  }
+  function changeKey1() public returns (uint256) {
+    (bool success, bytes memory data) = address(0xAFFFFFFFFF000006).call{gas: 5000}(
+      abi.encodeWithSignature("setKey(bytes)", bytes("\x00\x01"))
+    );
   }
   function checkKeys() public returns (uint256) {
     address kaddr=address(0xAFFFFFFFFF000003);
