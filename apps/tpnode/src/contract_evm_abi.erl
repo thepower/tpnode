@@ -106,6 +106,8 @@ decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name,string}|RestA],Bin,Acc,I
 decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc,Idx, ProcFun)
   when Val > 9223372036854775808 andalso Val < 13835058055282163712 ->
   decode_abi_internal(RestB, RestA, Bin, [{Name, address, binary:encode_unsigned(Val)}|Acc],Idx, ProcFun);
+decode_abi_internal(<<Val:32/binary,RestB/binary>>,[{Name,bytes32}|RestA],Bin,Acc,Idx, ProcFun) ->
+  decode_abi_internal(RestB, RestA, Bin, [{Name, bytes32, Val}|Acc],Idx, ProcFun);
 decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,address}|RestA],Bin,Acc,Idx, ProcFun) ->
   decode_abi_internal(RestB, RestA, Bin, [{Name, address, Val}|Acc],Idx, ProcFun);
 decode_abi_internal(<<Val:256/big,RestB/binary>>,[{Name,bool}|RestA],Bin,Acc,Idx, ProcFun) ->
@@ -349,6 +351,8 @@ convert_type(<<"uint8[]">>) -> {darray,uint8};
 convert_type(<<"bytes[]">>) -> {darray,bytes};
 convert_type(<<"bool">>) -> bool.
 
+encode_type(<<X:32/binary>>, bytes32) ->
+  X;
 encode_type(<<Input:256/big>>, uint256) ->
   <<Input:256/big>>;
 encode_type(Input, uint256) when is_integer(Input) ->

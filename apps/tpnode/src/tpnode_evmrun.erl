@@ -13,6 +13,10 @@ decode_res(_,address,V) ->
   <<"0x",(hex:encode(V))/binary>>;
 decode_res(_,bytes,V) ->
   <<"0x",(hex:encode(V))/binary>>;
+decode_res(_,bytes32,V) ->
+  <<"0x",(hex:encode(V))/binary>>;
+decode_res(_,bytes4,V) ->
+  <<"0x",(hex:encode(V))/binary>>;
 decode_res(_,uint256,V) ->
   if(V>72057594037927936) ->
       integer_to_binary(V);
