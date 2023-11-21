@@ -25,6 +25,7 @@
       sext,
       stout,
       db_merkle_trees,
+      jsonrpc2,
       rockstable
     ]},
     {mod, {tpnode, []}},
