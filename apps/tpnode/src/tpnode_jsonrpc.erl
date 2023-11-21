@@ -92,7 +92,6 @@ handle(<<"eth_gasPrice">>,[]) ->
     i2hex(10);
 
 handle(<<"eth_getLogs">>,[{PList}]) ->
-    io:format("PL ~p~n",[maps:from_list(PList)]),
     handle(<<"eth_getLogs">>,maps:from_list(PList));
 
 handle(<<"eth_getLogs">>, #{<<"blockHash">>:=HexBlockHash}=Map) ->
@@ -124,15 +123,27 @@ handle(<<"eth_getLogs">>, #{}=Map) ->
     end,
     Topics=[ hex2bin(T) || T <- maps:get(<<"topics">>,Map,[]) ],
     Addresses=[ hex2bin(A) || A <- maps:get(<<"address">>,Map,[]) ],
-    lists:foldl(
-      fun(Number,Acc) ->
-              Block=logs_db:get(Number),
-              if is_map(Block) ->
-                     Acc++process_log(Block, Topics, Addresses);
-                 true ->
-                     Acc
-              end
-      end, [], lists:seq(FromBlock,ToBlock));
+    T0=erlang:system_time(millisecond),
+    {_,Res}=lists:foldl(
+              fun
+                  (_,{Cnt,_}) when Cnt>10000 ->
+                      throw({jsonrpc2, 32005, <<"query returned more than 10000 results">>});
+                  (Number,{Cnt,Acc}) ->
+                      T1=erlang:system_time(millisecond),
+                      if(T1-T0) > 10000 ->
+                            throw({jsonrpc2, 32005, <<"query timeout exceeded">>});
+                        true -> ok
+                      end,
+                      Block=logs_db:get(Number),
+                      if is_map(Block) ->
+                             Logs=process_log(Block, Topics, Addresses),
+                             NC=length(Acc),
+                             {Cnt+NC, Acc++Logs};
+                         true ->
+                             {Cnt,Acc}
+                      end
+              end, {0,[]}, lists:seq(FromBlock,ToBlock)),
+    Res;
 
 handle(Method,_Params) ->
     ?LOG_ERROR("Method ~s not found",[Method]),
