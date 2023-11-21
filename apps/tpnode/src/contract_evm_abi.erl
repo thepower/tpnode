@@ -341,6 +341,7 @@ convert_type(<<"address">>) -> address;
 convert_type(<<"uint8">>) -> uint8;
 convert_type(<<"bytes">>) -> bytes;
 convert_type(<<"bytes4">>) -> bytes4;
+convert_type(<<"bytes32">>) -> bytes32;
 convert_type(<<"uint256">>) -> uint256;
 convert_type(<<"string[]">>) -> {darray,string};
 convert_type(<<"uint256[]">>) -> {darray,uint256};
