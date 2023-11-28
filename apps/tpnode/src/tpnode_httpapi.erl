@@ -119,12 +119,21 @@ h(Method, [<<"playground">>|Path], Req) ->
 h(Method, [<<"api">>|Path], Req) ->
   h(Method, Path, Req);
 
+h(Method, [<<"execute">>,<<"script">>|Path], Req) ->
+  case erlang:function_exported(tpnode_scripts,http_script,3) of
+    true ->
+      tpnode_scripts:http_script(Method,Path,Req);
+    false ->
+      {400, [], <<"bad request">>}
+  end;
+
+
 h(<<"POST">>, [<<"execute">>,<<"call">>], Req) ->
   case apixiom:bodyjs(Req) of
     #{<<"call">>:=_Call, <<"to">>:=_To}=Map ->
-      B=maps:merge(#{loop=>1, <<"args">> =>[]},Map),
+      B=maps:merge(#{loop=>1, <<"from">> => <<"0x8000000000000000">>, <<"args">> =>[]},Map),
       h(<<"POST">>, B#{
-                      <<"from">> => <<"0x8000000000000000">>,
+                      
                       <<"value">> => 0,
                       <<"gas">> => 1000000000000
                      }, Req);
