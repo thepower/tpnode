@@ -1316,14 +1316,16 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                            end,
                       LStore=mbal:get(lstore,UBal),
                       settings:get(Path, LStore);
-                    ({addr,ReqAddr,storage,Key}=Request) ->
+                    ({addr,ReqAddr,storage,Key}) ->
                       case maps:is_key(ReqAddr,Addresses) of
                         true ->
                           AddrStor=mbal:get(state,maps:get(ReqAddr, Addresses)),
                           maps:get(Key,AddrStor,<<>>);
                         false ->
-                          GetFun(Request)
+                          GetAddr({storage,ReqAddr,Key})
                       end;
+                    ({code,_Addr}=Request) ->
+                      GetAddr(Request);
                     (Other) ->
                       GetFun(Other)
                 end,

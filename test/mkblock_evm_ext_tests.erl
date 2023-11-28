@@ -87,13 +87,6 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                            abs(os:system_time(millisecond)-(TS-86400000))<3600000;
                           (entropy) -> Entropy;
                           (mean_time) -> MeanTime;
-                          ({code,Addr}) ->
-                           case mledger:get_kpv(Addr,code,[]) of
-                             undefined ->
-                               <<>>;
-                             {ok, Bin} ->
-                               Bin
-                           end;
                           ({get_block, Back}) when 64>=Back ->
                            FindBlock=fun FB(H, N) ->
                                          case blockchain:rel(H, self) of
@@ -118,6 +111,13 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                    end,
                    io:format("TEST get addr ~p key ~p = ~p~n",[Addr,Key,Res]),
                    Res;
+                  ({code,Addr}) ->
+                   case mledger:get_kpv(Addr,code,[]) of
+                     undefined ->
+                       <<>>;
+                     {ok, Bin} ->
+                       Bin
+                   end;
                   (Addr) ->
                    case mledger:get(Addr) of
                      #{amount:=_}=Bal -> Bal;
