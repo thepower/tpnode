@@ -328,7 +328,6 @@ run(Address, Code, Data) ->
                undefined ->
                  <<>>
              end,
-  logger:error("CD ~s",[hex:encode(CallData)]),
 
   
   Ex1=#{
