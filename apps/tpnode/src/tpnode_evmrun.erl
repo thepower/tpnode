@@ -5,6 +5,8 @@ decode_json_args(Args) ->
   lists:map(
     fun(<<"0x",B/binary>>) ->
         hex:decode(B);
+       (List) when is_list(List) ->
+        decode_json_args(List);
        (Any) ->
         Any
     end, Args).
@@ -26,14 +28,27 @@ decode_res(_,uint256,V) ->
 decode_res(_,_,V) ->
   V.
 
+code(Addr) ->
+  case mledger:get_kpv(Addr,code,[]) of
+    {ok, Bin} -> Bin;
+    undefined ->
+      undefined
+  end.
+
+sload(Addr,Key) ->
+  case mledger:get_kpv(Addr, state, Key) of
+    {ok,Bin} -> Bin;
+    undefined -> <<>>
+  end.
+
 evm_run(Address, Fun, Args, Ed) ->
   try
-  Code=mbal:get(code,mledger:get(Address)),
-  if is_binary(Code) -> ok;
-     true -> throw('no_code')
-  end,
-  Gas0=maps:get(gas,Ed,100000000),
-  Res=run(Address, Code, Ed#{call => {Fun, Args}, gas=>Gas0}),
+    Code=code(Address),
+    if is_binary(Code) -> ok;
+       true -> throw('no_code')
+    end,
+    Gas0=maps:get(gas,Ed,100000000),
+    Res=run(Address, Code, Ed#{call => {Fun, Args}, gas=>Gas0}),
 
   FmtStack=fun(St) ->
                [<<"0x",(hex:encode(binary:encode_unsigned(X)))/binary>> || X<-St]
@@ -175,10 +190,10 @@ run(Address, Code, Data) ->
      end,
 
   SLoad=fun(Addr, IKey, _Ex0) ->
-            Res=maps:get(
-                  binary:encode_unsigned(IKey),
-                  mbal:get(state,mledger:get(binary:encode_unsigned(Addr))),
-                  <<>>),
+            Res=sload(
+                  binary:encode_unsigned(Addr),
+                  binary:encode_unsigned(IKey)
+                 ),
             binary:decode_unsigned(Res)
         end,
   State0 = #{
@@ -205,9 +220,14 @@ run(Address, Code, Data) ->
                    case maps:is_key({Addr,code},Ex0) of
                      true ->
                        maps:get({Addr,code},Ex0,<<>>);
+                     false when is_integer(Addr) ->
+                       Addr1=binary:encode_unsigned(Addr),
+                       %io:format(".: Get LDB code for  ~p~n",[Addr1]),
+                       GotCode=code(Addr1),
+                       {ok, GotCode, maps:put({Addr1,code},GotCode,Ex0)};
                      false ->
-                       io:format(".: Get LDB code for  ~p~n",[Addr]),
-                       GotCode=mbal:get(code,mledger:get(Addr)),
+                       %io:format(".: Get LDB code for  ~p~n",[Addr]),
+                       GotCode=code(Addr),
                        {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)}
                    end
                end,
@@ -313,7 +333,8 @@ run(Address, Code, Data) ->
   
   Ex1=#{
         la=>0,
-        log=>[]
+        log=>[],
+        global_acc=>#{}
        },
   eevm:eval(Code,
             #{},
