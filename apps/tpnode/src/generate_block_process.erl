@@ -1316,13 +1316,6 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                            end,
                       LStore=mbal:get(lstore,UBal),
                       settings:get(Path, LStore);
-                    ({addr,ReqAddr,code}) ->
-                      case maps:is_key(ReqAddr,Addresses) of
-                        true ->
-                          mbal:get(code,maps:get(ReqAddr, Addresses));
-                        false ->
-                          mbal:get(code,GetAddr(ReqAddr))
-                      end;
                     ({addr,ReqAddr,storage,Key}=Request) ->
                       case maps:is_key(ReqAddr,Addresses) of
                         true ->

@@ -43,7 +43,7 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
                      true ->
                        maps:get({Addr,code},Ex0,<<>>);
                      false ->
-                       GotCode=GetFun({addr,binary:encode_unsigned(Addr),code}),
+                       GotCode=GetFun({code,binary:encode_unsigned(Addr)}),
                        if is_binary(GotCode) ->
                             {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)};
                           GotCode==undefined ->
@@ -243,7 +243,7 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                      true ->
                        maps:get({Addr,code},Ex0,<<>>);
                      false ->
-                       GotCode=GetFun({addr,binary:encode_unsigned(Addr),code}),
+                       GotCode=GetFun({code,binary:encode_unsigned(Addr)}),
                        if is_binary(GotCode) ->
                             {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)};
                           GotCode==undefined ->

@@ -134,17 +134,25 @@ run_generate(
                  FindBlock(last, Back)
              end,
     AddrFun=fun({storage,Addr,Key}) ->
-                case mledger:get(Addr) of
-                  #{state:=State} -> maps:get(Key,State,<<>>);
-                  #{} -> <<>>;
-                  undefined -> <<>>
+                case mledger:get_kpv(Addr,state,Key) of
+                  undefined ->
+                    <<>>;
+                  {ok, Bin} ->
+                    Bin
                 end;
-               ({Addr, _Cur}) ->
+               ({code,Addr}) ->
+                case mledger:get_kpv(Addr,code,[]) of
+                  undefined ->
+                    <<>>;
+                  {ok, Bin} ->
+                    Bin
+                end;
+               ({Addr, _Cur}) -> %slow method to get everything of account
                 case mledger:get(Addr) of
                   #{amount:=_}=Bal -> maps:without([changes],Bal);
                   undefined -> mbal:new()
                 end;
-               (Addr) ->
+               (Addr) -> %slow method to get everything of account
                 case mledger:get(Addr) of
                   #{amount:=_}=Bal -> maps:without([changes],Bal);
                   undefined -> mbal:new()

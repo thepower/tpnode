@@ -87,6 +87,13 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                            abs(os:system_time(millisecond)-(TS-86400000))<3600000;
                           (entropy) -> Entropy;
                           (mean_time) -> MeanTime;
+                          ({code,Addr}) ->
+                           case mledger:get_kpv(Addr,code,[]) of
+                             undefined ->
+                               <<>>;
+                             {ok, Bin} ->
+                               Bin
+                           end;
                           ({get_block, Back}) when 64>=Back ->
                            FindBlock=fun FB(H, N) ->
                                          case blockchain:rel(H, self) of

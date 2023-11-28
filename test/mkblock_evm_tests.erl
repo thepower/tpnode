@@ -118,6 +118,13 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                                          end
                                      end,
                            FindBlock(last, Back);
+                          ({code,Addr}) ->
+                           case mledger:get_kpv(Addr,code,[]) of
+                             undefined ->
+                               <<>>;
+                             {ok, Bin} ->
+                               Bin
+                           end;
                           (Other) ->
                            error({bad_setting, Other})
                        end,
