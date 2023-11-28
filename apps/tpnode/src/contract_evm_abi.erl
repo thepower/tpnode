@@ -175,10 +175,13 @@ mk_sig([{{event,_},_,_}=E|Rest]) ->
   [ mk_sig(E) | mk_sig(Rest) ];
 mk_sig([{{function,_},_,_}=E|Rest]) ->
   [ mk_sig(E) | mk_sig(Rest) ];
+mk_sig([{{error,_},_,_}=E|Rest]) ->
+  [ mk_sig(E) | mk_sig(Rest) ];
 mk_sig([_|Rest]) ->
   mk_sig(Rest);
 
 mk_sig({{EventOrFunction,Name},CS,_}) when EventOrFunction == event;
+                                           EventOrFunction == error;
                                            EventOrFunction == function ->
   list_to_binary([ Name, "(", mk_sig_arr(CS), ")" ]).
 
@@ -300,6 +303,12 @@ parse_item(#{
              <<"type">> := <<"function">>
             }) ->
   {true,{{function,Name},convert_io(I),convert_io(O)}};
+parse_item(#{
+             <<"name">> := Name,
+             <<"inputs">> := I,
+             <<"type">> := <<"error">>
+            }) ->
+  {true,{{error,Name},convert_io(I),[]}};
 parse_item(#{
              <<"name">> := Name,
              <<"inputs">> := I,
