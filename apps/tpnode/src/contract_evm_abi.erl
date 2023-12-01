@@ -11,10 +11,16 @@
 -export([encode_simple/1]).
 -export([parse_signature/1]).
 -export([encode_abi/2]).
--export([sig32/1]).
+-export([sig32/1, keccak256/1]).
 -export([unwrap/1]).
 
 -include_lib("eunit/include/eunit.hrl").
+
+keccak256(Data) when is_binary(Data) ->
+  {ok, Bin} = ksha3:hash(256,Data),
+  Bin;
+keccak256(List) when is_list(List) ->
+  keccak256(list_to_binary(List)).
 
 sig32(Signature) ->
   {ok,<<H:32/big,_/binary>>} = ksha3:hash(256,Signature),
@@ -97,7 +103,7 @@ decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name, {tuple,TL}}|RestA],Bin,
 
 decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name,bytes}|RestA],Bin,Acc,Idx, ProcFun) ->
   <<_:Ptr/binary,Len:256/big,Str:Len/binary,_/binary>> = Bin,
-  decode_abi_internal(RestB, RestA, Bin, [{Name, string, Str}|Acc],Idx, ProcFun);
+  decode_abi_internal(RestB, RestA, Bin, [{Name, bytes, Str}|Acc],Idx, ProcFun);
 
 decode_abi_internal(<<Ptr:256/big,RestB/binary>>,[{Name,string}|RestA],Bin,Acc,Idx, ProcFun) ->
   <<_:Ptr/binary,Len:256/big,Str:Len/binary,_/binary>> = Bin,
@@ -388,13 +394,13 @@ encode_type(Input, address) ->
 encode_type(_, Type) ->
   throw({'unexpected_type',Type}).
 
-encode_abi_call(D,ABIStr) ->
-  case contract_evm_abi:parse_signature(ABIStr) of
+encode_abi_call(Args,Signature) ->
+  case contract_evm_abi:parse_signature(Signature) of
     {ok,{{function,<<"undefined">>},
          ABI, _}} ->
-      encode_abi(D,ABI);
+      encode_abi(Args,ABI);
     {ok,{{function,_},ABI,_}=Sig} ->
-      Bin=encode_abi(D,ABI),
+      Bin=encode_abi(Args,ABI),
       I=contract_evm_abi:sig32(contract_evm_abi:mk_sig(Sig)),
       <<I:32/big,Bin/binary>>
   end.
