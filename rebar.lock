@@ -68,7 +68,7 @@
  {<<"rocksdb">>,{pkg,<<"rocksdb">>,<<"1.7.0">>},1},
  {<<"rockstable">>,
   {git,"https://github.com/cleverfox/rockstable",
-       {ref,"1bc1e646d458d05a45f990befbacc00cf50d94ed"}},
+       {ref,"d77200dfe07c11d30f70da4d300dcb47295e89fe"}},
   0},
  {<<"sext">>,{pkg,<<"sext">>,<<"1.4.1">>},1},
  {<<"stout">>,
