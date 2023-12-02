@@ -412,6 +412,7 @@ logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}=_EEvm
   maps:put(log,[([evm,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog],Xtra).
 
 call(#{state:=State,code:=Code}=_Ledger,Method,Args) ->
+  ?LOG_ERROR("deprecated call"),
   SLoad=fun(IKey) ->
             %io:format("Load key ~p~n",[IKey]),
             BKey=binary:encode_unsigned(IKey),
