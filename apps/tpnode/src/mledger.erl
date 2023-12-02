@@ -6,8 +6,9 @@
 -export([bals2patch/1, apply_patch/2]).
 -export([dbmtfun/3]).
 -export([mb2item/1]).
+-export([get_lstore/2,get_lstore_map/2]).
 -export([get_kv/1]).
--export([get_kpv/3, get_kpvs/3]).
+-export([get_kpv/3, get_kpvs/4, get_kpvs/3]).
 -export([addr_proof/1, bi_decode/1]).
 -export([rollback/2]).
 -export([apply_backup/1]).
@@ -135,19 +136,50 @@ get_vers(Address, trans) ->
 mb2item( #mb{ address=A, key=K, path=P, value=V, version=Ver, introduced=Int }) ->
   bi_create(A,Ver,K,P,Int,V).
 
-get_kpvs(Address, Key, Path) ->
+get_lstore_map(Address, Path) ->
+  settings:get(Path,
+               lists:foldl(
+                 fun({lstore,P,Val},A) ->
+                     settings:set(P,Val,A)
+                 end, #{}, get_lstore(Address,Path))
+              ).
+
+get_lstore(Address, Path) ->
+  %% it might be non optimal way, possible need to compile predicate, needs benchmarking
+  case rockstable:get(mledger,
+                      undefined,
+                      #bal_items{address=Address,
+                                 version=latest,
+                                 key=lstore,
+                                 _='_'},
+                      [{pred,fun(#bal_items{path=P}) ->
+                                 lists:prefix(Path,P)
+                             end}]
+                     ) of
+    not_found -> [];
+    [] -> [];
+    List ->
+      [ {K, P, V} || #bal_items{key=K,path=P,value=V} <- List]
+  end.
+
+
+get_kpvs(Address, Key, Path, Opts) ->
   case rockstable:get(mledger,
                       undefined,
                       #bal_items{address=Address,
                                  version=latest,
                                  key=Key,
                                  path=Path,
-                                 _='_'}) of
+                                 _='_'}, Opts) of
     not_found -> [];
     [] -> [];
     List ->
       [ {K, P, V} || #bal_items{key=K,path=P,value=V} <- List]
   end.
+
+
+get_kpvs(Address, Key, Path) ->
+  get_kpvs(Address, Key, Path, []).
 
 get_kpv(Address, Key, Path) ->
   case rockstable:get(mledger,
@@ -192,8 +224,9 @@ get(Address, notrans) ->
                          mbal:put(code,[], Code,A);
                        (#bal_items{key=lstore, path=K, value=V1}, A) ->
                          mbal:put(lstore, K, V1, A);
-                       (#bal_items{key=state, path=K, value=V1}, A) ->
-                         mbal:put(state, K, V1, A);
+                       (#bal_items{key=state, path=_K, value=_V1}, A) ->
+                         maps:merge(#{state=>#{}}, A);
+%                         mbal:put(state, K, V1, A);
                        (#bal_items{key=K, path=P, value=V},A) ->
                          mbal:put(K,P,V,A)
                      end,
@@ -243,29 +276,29 @@ bals2patch([{A,Bal}|Rest], PRes) ->
                                  Key == lastblk ->
               [bi_create(A, latest, Key, [], here, Val)|Acc];
               (state,BState,Acc) ->
-              case mbal:get(vm,Bal) of
-                <<"chainfee">> ->
-                  [bi_create(A, latest, state, <<>>, here, BState)|Acc];
-                <<"erltest">> ->
-                  [bi_create(A, latest, state, <<>>, here, BState)|Acc];
-                _ when is_binary(BState) ->
-                  % io:format("BS ~p~n",[BState]),
-                  {ok, State} = msgpack:unpack(BState),
-                  maps:fold(
-                    fun(K,V,Ac) ->
-                        [bi_create(A, latest, state, K, here, V)|Ac]
-                    end, Acc, State);
-                _ when is_map(BState) ->
-                  % io:format("BS ~p~n",[BState]),
-                  maps:fold(
-                    fun(K,V,Ac) ->
-                        [bi_create(A, latest, state, K, here, V)|Ac]
-                    end, Acc, BState)
-              end;
+                  case mbal:get(vm,Bal) of
+                    <<"chainfee">> ->
+                      [bi_create(A, latest, state, <<>>, here, BState)|Acc];
+                    <<"erltest">> ->
+                      [bi_create(A, latest, state, <<>>, here, BState)|Acc];
+                    _ when is_binary(BState) ->
+                      % io:format("BS ~p~n",[BState]),
+                      {ok, State} = msgpack:unpack(BState),
+                      maps:fold(
+                        fun(K,V,Ac) ->
+                            [bi_create(A, latest, state, K, here, V)|Ac]
+                        end, Acc, State);
+                    _ when is_map(BState) ->
+                      % io:format("BS ~p~n",[BState]),
+                      maps:fold(
+                        fun(K,V,Ac) ->
+                            [bi_create(A, latest, state, K, here, V)|Ac]
+                        end, Acc, BState)
+                  end;
               (changes,_,Acc) ->
-              Acc;
+                  Acc;
               (lstore,BState,Acc) ->
-              State=if is_binary(BState) ->
+                  State=if is_binary(BState) ->
                          {ok, S1} = msgpack:unpack(BState),
                          S1;
                        is_map(BState) ->

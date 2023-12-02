@@ -526,33 +526,15 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"lstore">>|Path0], Req) ->
                        Any
                    end,
                    Path0),
-    RawKeys=mledger:get_kpvs(Addr,lstore,'_'),
-    MatchPath=fun M([],P) -> P;
-                  M([E1|R1],[E2|R2]) when E1==E2 ->
-                  M(R1,R2);
-                  M(_,_) -> false
-              end,
+    Data=mledger:get_lstore_map(Addr,Path),
 
-    S1=lists:foldl(
-         fun({lstore,K,V},Acc) ->
-             case MatchPath(Path,K) of
-               false ->
-                 Acc;
-               [] ->
-                 V;
-               P ->
-                 settings:patch([#{<<"t">> => <<"set">>,
-                                   <<"p">> =>P,
-                                   <<"v">> =>V}],Acc)
-             end
-         end, #{}, RawKeys),
-        %if is_binary(S1) ->
-        %     {200, [{"Content-Type","application/octet-stream"}], S1};
-        %   true ->
-        %     {200, [], S1}
-        %end
+    %if is_binary(S1) ->
+    %     {200, [{"Content-Type","application/octet-stream"}], S1};
+    %   true ->
+    %     {200, [], S1}
+    %end
     BinPacker=xpacker(Req),
-    S2=encode_recursive(S1,BinPacker),
+    S2=encode_recursive(Data,BinPacker),
     {200, [], {S2, #{} }}
   catch
     throw:{error, address_crc} ->
