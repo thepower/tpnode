@@ -646,11 +646,9 @@ verify(#{
         {true, _IAddr} ->
           VerFun=case lists:member(nocheck_ledger,Opts) of
                    false ->
-                     LedgerInfo=mledger:get(
-                                  %proplists:get_value(ledger,Opts,ledger),
-                                  From),
+                     LedgerInfo=mledger:get_kpvs(From,pubkey,[]),
                      case LedgerInfo of
-                       #{pubkey:=PK} when is_binary(PK) ->
+                       [{pubkey,_,PK}] when is_binary(PK) ->
                          fun(PubKey, Constraints, _) ->
                              %io:format("Constraints ~p~n",[Constraints]),
                              %io:format("Pubkey ~p~n PK ~p~n",[PubKey,PK]),

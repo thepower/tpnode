@@ -147,6 +147,8 @@ run_generate(
                   {ok, Bin} ->
                     Bin
                 end;
+               ({lstore,Addr,Path}) ->
+                mledger:get_lstore_map(Addr,Path);
                ({Addr, _Cur}) -> %slow method to get everything of account
                 case mledger:get(Addr) of
                   #{amount:=_}=Bal -> maps:without([changes],Bal);

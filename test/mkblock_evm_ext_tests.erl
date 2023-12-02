@@ -105,9 +105,11 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                            error({bad_setting, Other})
                        end,
        GetAddr=fun({storage,Addr,Key}) ->
-                   Res=case mledger:get(Addr) of
-                     #{state:=State} -> maps:get(Key,State,<<>>);
-                     _ -> <<>>
+                   Res=case mledger:get_kpv(Addr,state,Key) of
+                     undefined ->
+                       <<>>;
+                     {ok, Bin} ->
+                       Bin
                    end,
                    io:format("TEST get addr ~p key ~p = ~p~n",[Addr,Key,Res]),
                    Res;
@@ -118,6 +120,8 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                      {ok, Bin} ->
                        Bin
                    end;
+                  ({lstore,Addr,Path}) ->
+                   mledger:get_lstore_map(Addr,Path);
                   (Addr) ->
                    case mledger:get(Addr) of
                      #{amount:=_}=Bal -> Bal;
