@@ -238,55 +238,34 @@ parse_signature(String) when is_binary(String) ->
 parse_signature(String) when is_list(String) ->
   case re:run(String,"(^\.+\\\))\s\*returns\s\*(\\\(.+)") of
     {match,[_,{S0,L0},{S1,L1}]} ->
-      parse_signature(string:substr(String,S0+1,L0),
-                      string:substr(String,S1+1,L1)
-                     );
+      parse_signature(
+        string:substr(String,S0+1,L0),
+        string:substr(String,S1+1,L1)
+       );
     _ ->
-      String1=case hd(String) of
-                FC when FC>=$A andalso $Z>=FC ->
-                  [$x,$x,$x|String];
-                _ ->
-                  String
-              end,
-      {_,B,_}=erl_scan:string(String1),
+      {_,B,_}=erl_scan:string(String),
       case contract_evm_abi_parser:parse(B) of
         {ok,{Name,R}} when is_atom(Name) ->
-          BName=case atom_to_binary(Name) of
-                 <<"xxx",CapName/binary>> -> CapName;
-                  Other -> Other
-                end,
-          {ok,{{function, BName},(R), undefined}};
+          {ok,{{function, atom_to_binary(Name)}, R, undefined}};
         {error, Err} ->
           {error, Err}
       end
   end.
 
 parse_signature(String0,RetString) when is_list(String0), is_list(RetString) ->
-  String1=case hd(String0) of
-    FC when FC>=$A andalso $Z>=FC ->
-      [$x,$x,$x|String0];
-    _ ->
-      String0
-  end,
-  {_,B,_}=erl_scan:string(String1),
+  {_,B,_}=erl_scan:string(String0),
   case contract_evm_abi_parser:parse(B) of
     {ok,{Name,R}} when is_atom(Name) ->
       {_,C,_}=erl_scan:string(RetString),
       case contract_evm_abi_parser:parse(C) of
         {ok,{_,R2}} ->
-          BName=case atom_to_binary(Name) of
-                 <<"xxx",CapName/binary>> -> CapName;
-                  Other -> Other
-                end,
-          {ok,{{function, BName},(R), R2}};
+          {ok,{{function, atom_to_binary(Name)}, R, R2}};
         {error, Err} ->
           {error, Err}
       end;
     {error, Err} ->
       {error, Err}
   end.
-
-
 
 parse_abilist([_|_]=JSON) ->
   lists:filtermap(
@@ -390,6 +369,16 @@ encode_type(Input, address) when is_integer(Input) ->
 encode_type(Input, address) ->
   IVal=binary:decode_unsigned(Input),
   <<IVal:256/big>>;
+encode_type(InputArr, {{fixarray, N},Type}) ->
+  if (length(InputArr)==N) -> ok;
+     true ->
+       throw(array_data_length_mismatch)
+  end,
+  lists:foldl(
+    fun(E,A) ->
+        Enc=encode_type(E,Type),
+        <<A/binary,Enc/binary>>
+    end,<<>>,InputArr);
 
 encode_type(_, Type) ->
   throw({'unexpected_type',Type}).
