@@ -10,7 +10,7 @@ deploy(Tx, Ledger, GasLimit, GetFun, Opaque) ->
   handle_tx(Tx, Ledger, GasLimit, GetFun, Opaque).
 
 handle_tx(Tx, Ledger, GasLimit, GetFun, _Opaque) ->
-  throw(wasm_vm_broken)
+  throw(wasm_vm_broken),
   %io:format("wasm Opaque ~p~n",[_Opaque]),
   %Storage=lists:foldl(
   %          fun({state,K,V},A) ->
