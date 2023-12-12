@@ -1102,7 +1102,7 @@ try_process_local([{TxID,
                  case to_gas(#{amount=>Amount, cur=>Token}, SetState) of
                    {ok, {_Tkn,TknAm,{Num,Den}}} ->
                      ?LOG_NOTICE("fixme: save gas here"),
-                     ask_if_wants_to_pay(SPAcc, Tx, (TknAm*Num) div Den);
+                     ask_if_wants_to_pay(SPAcc, Tx, (TknAm*Num) div Den,Sponsor);
                    _ ->
                      {false, invalid_gas_specified}
                  end;
@@ -1696,8 +1696,8 @@ ask_if_sponsor(#{vm:= <<"evm">>, code:= Code}) ->
 ask_if_sponsor(_) ->
   false.
 
-ask_if_wants_to_pay(#{vm:= <<"evm">>, code:= Code},Tx,G) ->
-  contract_evm:ask_if_wants_to_pay(Code, Tx, G);
-ask_if_wants_to_pay(_,_,G) ->
+ask_if_wants_to_pay(#{vm:= <<"evm">>, code:= Code},Tx,G,SPa) ->
+  contract_evm:ask_if_wants_to_pay(Code, Tx, G,SPa);
+ask_if_wants_to_pay(_,_,G,_) ->
   {[],G}.
 

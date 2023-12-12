@@ -7,7 +7,7 @@
 -export([tx_abi/0]).
 -export([enc_settings1/1]).
 -export([transform_extra/1]).
--export([ask_if_sponsor/1, ask_if_wants_to_pay/3]).
+-export([ask_if_sponsor/1, ask_if_wants_to_pay/4]).
 -export([preencode_tx/2]).
 
 info() ->
@@ -870,7 +870,7 @@ enc_settings1(SRes) ->
        end,
   contract_evm_abi:encode_abi([RStr], [{<<>>, {tuple, OutABI}}]).
 
-ask_if_wants_to_pay(Code, Tx, Gas) ->
+ask_if_wants_to_pay(Code, Tx, Gas, From) ->
   Function= <<"wouldYouLikeToPayTx("
   "(uint256,address,address,uint256,uint256,"
   "(string,uint256[])[],"
@@ -899,7 +899,23 @@ ask_if_wants_to_pay(Code, Tx, Gas) ->
     {ok,PTx}=preencode_tx(Tx,[]),
 
     CD=callcd(Function, [PTx], InABI),
-    case eevm:eval(Code,#{},#{ gas=>Gas, extra=>#{}, cd=>CD }) of
+    SLoad=fun(Addr, IKey, _Ex0) ->
+            BKey=binary:encode_unsigned(IKey),
+            case mledger:get_kpv(binary:encode_unsigned(Addr),state,BKey) of
+              undefined -> 0;
+              {ok,Bin} -> binary:decode_unsigned(Bin)
+            end
+        end,
+
+    case eevm:eval(Code,#{},#{ gas=>Gas, extra=>#{}, cd=>CD, sload=>SLoad,
+                               data=>#{
+                                address=>binary:decode_unsigned(From),
+                                callvalue=>0,
+                                caller=>binary:decode_unsigned(From),
+                                gasprice=>1,
+                                origin=>binary:decode_unsigned(From)
+                               }
+                             }) of
       {done,{return,Ret},_} ->
         case contract_evm_abi:decode_abi(Ret,OutABI) of
           [{<<"iWillPay">>,<<"i will pay">>},{<<"pay">>,WillPay}] ->
@@ -908,6 +924,9 @@ ask_if_wants_to_pay(Code, Tx, Gas) ->
                     [#{purpose=>tx:decode_purpose(P), cur=>Cur, amount=>Amount}|A]
                 end, [], WillPay),
             {ok, R};
+          [{<<"iWillPay">>,<<"no">>},_] ->
+            ?LOG_INFO("Sponsor is not willing to pay for tx"),
+            false;
           Any ->
             ?LOG_ERROR("~s static call error: unexpected result ~p",[Function,Any]),
             false
