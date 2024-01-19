@@ -6,6 +6,7 @@
 -export([encode_tx/2,decode_tx/2]).
 -export([tx_abi/0]).
 -export([enc_settings1/1]).
+-export([callcd/3]).
 -export([transform_extra/1]).
 -export([ask_if_sponsor/1, ask_if_wants_to_pay/4]).
 -export([preencode_tx/2]).
@@ -63,6 +64,13 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
         case Tx of
           #{call:=#{function:="ABI",args:=CArgs}} ->
             abi_encode_simple(CArgs);
+          #{call:=#{function:="0x0",args:=[Bin]}} when is_binary(Bin) ->
+            Bin;
+          #{call:=#{function:=FunNameID,args:=CArgs}} when is_list(FunNameID) ->
+            BinFun=list_to_binary(FunNameID),
+            {ok,{{function,_},FABI,_}} = contract_evm_abi:parse_signature(BinFun),
+            true=(length(FABI)==length(CArgs)),
+            contract_evm_abi:encode_abi(CArgs,FABI);
           _ ->
             <<>>
         end
