@@ -147,7 +147,7 @@ jsonfy1({true,#{retval:=RV}}) when is_binary(RV)->
 
 jsonfy1({true,#{revert:=RV}}) when is_binary(RV)->
   #{ok=>true,
-    res=>ok,
+    res=><<"revert">>,
     revert=>utils:textize_binary(RV)
    };
 
