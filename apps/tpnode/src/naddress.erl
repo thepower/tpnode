@@ -93,6 +93,10 @@ check(UserAddr) ->
     end.
 %% decode address from human-frendly format to int and check checksum
 
+decode("0x"++HEX) when length(HEX)==16 ->
+    hex:decode(HEX);
+decode(<<"0x",HEX:16/binary>>) ->
+    hex:decode(HEX);
 decode(UserAddr) ->
     C=cleanup(UserAddr),
     case size(C) of

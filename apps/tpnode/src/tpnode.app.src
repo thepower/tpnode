@@ -26,6 +26,7 @@
       stout,
       db_merkle_trees,
       jsonrpc2,
+      jiffy,
       rockstable
     ]},
     {mod, {tpnode, []}},

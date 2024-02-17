@@ -19,6 +19,7 @@ init_per_suite(Config) ->
                    248,115,150,54,239,58,218,221,145,
                    246,158,15,210,165>>
   end,
+  contract_evm_abi:init(),
 
   [{endless_addr,EAddr}, {endless_addr_pk, EKey} |Config].
 

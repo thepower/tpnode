@@ -1,5 +1,6 @@
 -module(hex).
 -export([encode/1, decode/1]).
+-export([encodex/1]).
 -export([parse/1]).
 
 -export([hexdump/1]).
@@ -51,6 +52,12 @@ h2i($d) -> 13;
 h2i($e) -> 14;
 h2i($f) -> 15;
 h2i(Any) -> throw({'bad_symbol', Any}).
+
+encodex(List) when is_list(List) ->
+    encode(list_to_binary(List),<<"0x">>);
+encodex(B) when is_binary(B) ->
+  encode(B, <<"0x">>).
+
 
 encode(List) when is_list(List) ->
     encode(list_to_binary(List),<<>>);

@@ -213,7 +213,7 @@ eabi2_test() ->
       D)
   ].
 
-evm_embedded_abicall_test() ->
+evm_tx_decode_test() ->
       OurChain=150,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
               248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
@@ -221,6 +221,99 @@ evm_embedded_abicall_test() ->
 
       {ok,Bin} = file:read_file("examples/evm_builtin/build/builtinFunc.bin"),
       Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
+
+      {done,{return,Code2},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
+      SkAddr=naddress:construct_public(1, OurChain, 2),
+
+      TX1=tx:sign(
+            tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr,
+              call=>#{
+                      function => "exampleTx()",
+                      args => []
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+            tpecdsa:generate_priv(ed25519)),
+
+
+      TxList1=[
+               {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
+              ],
+      TestFun=fun(#{block:=_Block,
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{
+                             <<"FTT">> => 1000000,
+                             <<"SK">> => 3,
+                             <<"TST">> => 26
+                            }
+                }
+              },
+              {SkAddr,
+               #{amount => #{<<"SK">> => 1},
+                 code => Code2,
+                 vm => <<"evm">>
+                }
+              }
+             ],
+      io:format("whereis ~p~n",[whereis(eevm_tracer)]),
+      register(eevm_tracer,self()),
+      {ok,Log}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      unregister(eevm_tracer),
+      ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
+      [{_,_,FABI}]=contract_evm_abi:find_function(<<"exampleTx()">>,ABI),
+      D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> throw(no_return) end end(),
+      hex:hexdump(D),
+      fun FT() -> receive {trace,{stack,_,_}} -> FT(); {trace,_Any} ->
+                            %io:format("Flush ~p~n",[_Any]),
+                            [_Any|FT()] after 0 -> [] end end(),
+
+      io:format("2dec ~p~n",[D]),
+      io:format("ABI ~p~n",[FABI]),
+      io:format("dec ~p~n",[catch contract_evm_abi:decode_abi(D,FABI)]),
+      Events=contract_evm_abi:sig_events(ABI),
+
+      DoLog = fun (BBin) ->
+                  {ok,[_,<<"evm">>,_,_,DABI,[Arg]]} = msgpack:unpack(BBin),
+                  case lists:keyfind(Arg,2,Events) of
+                    false ->
+                      {DABI,Arg};
+                    {EvName,_,EvABI}->
+                      {EvName,contract_evm_abi:decode_abi(DABI,EvABI)}
+                  end
+              end,
+
+
+      io:format("Logs ~p~n",[[ DoLog(LL) || LL <- Log ]]),
+      [
+       ?assertMatch(true,true)
+      ].
+
+
+evm_embedded_abicall_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+
+      {ok,Bin} = file:read_file("examples/evm_builtin/build/builtinFunc.bin"),
+      Code1=hex:decode(string:chomp(Bin)),
 
       {done,{return,Code2},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
       SkAddr=naddress:construct_public(1, OurChain, 2),
@@ -280,9 +373,11 @@ evm_embedded_abicall_test() ->
       unregister(eevm_tracer),
       ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
       [{_,_,FABI}]=contract_evm_abi:find_function(<<"getTxs()">>,ABI),
-      D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> <<>> end end(),
+      D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> throw(no_return) end end(),
       hex:hexdump(D),
-      fun FT() -> receive {trace,{stack,_,_}} -> FT(); {trace,_Any} -> [_Any|FT()] after 0 -> [] end end(),
+      fun FT() -> receive {trace,{stack,_,_}} -> FT(); {trace,_Any} ->
+                            io:format("Flush ~p~n",[_Any]),
+                            [_Any|FT()] after 0 -> [] end end(),
 
       io:format("2dec ~p~n",[D]),
       io:format("ABI ~p~n",[FABI]),

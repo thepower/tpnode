@@ -122,7 +122,9 @@ h(Method, [<<"api">>|Path], Req) ->
 h(Method, [<<"execute">>,<<"script">>|Path], Req) ->
   case erlang:function_exported(tpnode_scripts,http_script,3) of
     true ->
-      tpnode_scripts:http_script(Method,Path,Req);
+      erlang:apply(tpnode_scripts,
+                   http_script,
+                   [Method,Path,Req]);
     false ->
       {400, [], <<"bad request">>}
   end;
@@ -332,6 +334,18 @@ h(<<"GET">>, [<<"node">>, <<"chainstate">>], _Req) ->
     #{ result => <<"ok">>,
        chainstate => R
      });
+
+h(<<"POST">>, [<<"node">>, <<"rollback">>], _Req) ->
+  R=list_to_binary(
+      [ io_lib:format("~1000p~n",
+                     [ gen_server:call(blockchain_updater, rollback) ]
+                    ) ]
+     ),
+  answer(#{
+           result => <<"ok">>,
+           res => R
+          });
+
 
 h(<<"POST">>, [<<"node">>, <<"runsync">>], _Req) ->
   R=list_to_binary(
@@ -1015,10 +1029,10 @@ h(<<"GET">>, [<<"debug">>, <<"logzip">>,_N], _Req) ->
 
 h(<<"POST">>, [<<"debug">>, <<"runsync">>|N], _Req) ->
   Q = case N of
-        [NN] ->
-          {runsync_h, binary_to_integer(NN)};
-        [NN,TT] ->
-          {runsync_h, {binary_to_integer(NN),binary_to_integer(TT)}};
+        [Height] ->
+          {runsync_h, binary_to_integer(Height)};
+        [Height,Temp] ->
+          {runsync_h, {binary_to_integer(Height),binary_to_integer(Temp)}};
         [] ->
           {runsync_h, any}
       end,
