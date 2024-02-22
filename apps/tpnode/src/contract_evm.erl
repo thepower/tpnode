@@ -39,7 +39,7 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
           _ -> #{}
         end,
   GetCodeFun = fun(Addr,Ex0) ->
-                   io:format(".: Get code for  ~p~n",[Addr]),
+                   %io:format(".: Get code for  ~p~n",[Addr]),
                    case maps:is_key({Addr,code},Ex0) of
                      true ->
                        maps:get({Addr,code},Ex0,<<>>);
@@ -102,7 +102,7 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
   %io:format("EvalRes ~p~n",[EvalRes]),
   case EvalRes of
     {done, {return,NewCode}, #{ gas:=GasLeft, storage:=NewStorage }} ->
-      io:format("Deploy -> OK~n",[]),
+      %io:format("Deploy -> OK~n",[]),
       {ok, #{null=>"exec",
              "code"=>NewCode,
              "state"=>convert_storage(NewStorage),
@@ -110,22 +110,22 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
              "txs"=>[]
             }, Opaque};
     {done, 'stop', _} ->
-      io:format("Deploy -> stop~n",[]),
+      %io:format("Deploy -> stop~n",[]),
       {error, deploy_stop};
     {done, 'invalid', _} ->
-      io:format("Deploy -> invalid~n",[]),
+      %io:format("Deploy -> invalid~n",[]),
       {error, deploy_invalid};
     {done, {revert, _}, _} ->
-      io:format("Deploy -> revert~n",[]),
+      %io:format("Deploy -> revert~n",[]),
       {error, deploy_revert};
     {error, nogas, _} ->
-      io:format("Deploy -> nogas~n",[]),
+      %io:format("Deploy -> nogas~n",[]),
       {error, nogas};
     {error, {jump_to,_}, _} ->
-      io:format("Deploy -> bad_jump~n",[]),
+      %io:format("Deploy -> bad_jump~n",[]),
       {error, bad_jump};
     {error, {bad_instruction,_}, _} ->
-      io:format("Deploy -> bad_instruction~n",[]),
+      %io:format("Deploy -> bad_instruction~n",[]),
       {error, bad_instruction}
 %
 % {done, [stop|invalid|{revert,Err}|{return,Data}], State1}
@@ -221,7 +221,7 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
      end,
 
   SLoad=fun(Addr, IKey, _Ex0=#{get_addr:=GAFun}) ->
-            io:format("=== sLoad key 0x~s:~p~n",[hex:encode(binary:encode_unsigned(Addr)),IKey]),
+            %io:format("=== sLoad key 0x~s:~p~n",[hex:encode(binary:encode_unsigned(Addr)),IKey]),
             BKey=binary:encode_unsigned(IKey),
             binary:decode_unsigned(
               if Addr == To ->
@@ -239,14 +239,14 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
   
   FinFun = fun(_,_,#{data:=#{address:=Addr}, storage:=Stor, extra:=Xtra} = FinState) ->
                NewS=maps:merge(
-                      maps:get({Addr, state}, Xtra, #{}),
+                      maps:get({Addr, stor}, Xtra, #{}),
                       Stor
                      ),
-               FinState#{extra=>Xtra#{{Addr, state} => NewS}}
+               FinState#{extra=>Xtra#{{Addr, stor} => NewS}}
            end,
 
   GetCodeFun = fun(Addr,Ex0) ->
-                   io:format(".: Get code for  ~p~n",[Addr]),
+                   logger:debug("Load code for ~p",[Addr]),
                    case maps:is_key({Addr,code},Ex0) of
                      true ->
                        maps:get({Addr,code},Ex0,<<>>);
@@ -270,7 +270,7 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
   BeforeCall = fun(CallKind,CFrom,_Code,_Gas,
                    #{address:=CAddr, value:=V}=CallArgs,
                    #{global_acc:=GAcc}=Xtra) ->
-                   io:format("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
+                   %io:format("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
                    ?LOG_INFO("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
                    if V > 0 ->
                         TX=msgpack:pack(#{
@@ -283,7 +283,7 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                                                                GAcc),
                         SCTX=CTX#{sigverify=>#{valid=>1},norun=>1},
                         NewGAcc=generate_block_process:try_process([{TxID,SCTX}], GAcc),
-                        io:format(">><< LAST ~p~n",[maps:get(last,NewGAcc)]),
+                        %io:format(">><< LAST ~p~n",[maps:get(last,NewGAcc)]),
                         case maps:get(last,NewGAcc) of
                           failed ->
                             throw({cancel_call,insufficient_fund});
@@ -343,11 +343,11 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                   %io:format("Ex2 ~p~n",[Ex2]),
 
                   St2=maps:merge(
-                        maps:get({Addr,state},Ex2,#{}),
+                        maps:get({Addr,stor},Ex2,#{}),
                         StRet),
                   Ex3=maps:merge(Ex2,
                                  #{
-                                   {Addr,state} => St2,
+                                   {Addr,stor} => St2,
                                    {Addr,code} => RX,
                                    {Addr,value} => Value1
                                   }
@@ -474,7 +474,7 @@ transform_extra_created(#{created:=C}=Extra) ->
            %io:format("Created addr ~p~n",[Addr]),
            {Acc1, ToDel}=maps:fold(
            fun
-             ({Addr1, state}=K,Value,{IAcc,IToDel}) when Addr==Addr1 ->
+             ({Addr1, stor}=K,Value,{IAcc,IToDel}) when Addr==Addr1 ->
               {
                mbal:put(state,convert_storage(Value),IAcc),
                [K|IToDel]
@@ -505,11 +505,11 @@ transform_extra_created(Extra) ->
 
 transform_extra_changed(#{changed:=C}=Extra) ->
   {Changed,ToRemove}=lists:foldl(fun(Addr,{Acc,Remove}) ->
-                             case maps:is_key({Addr,state},Extra) of
+                             case maps:is_key({Addr,stor},Extra) of
                                true ->
                                  {
                                   [{{binary:encode_unsigned(Addr),mergestate},
-                                    convert_storage(maps:get({Addr,state},Extra))}|Acc],
+                                    convert_storage(maps:get({Addr,stor},Extra))}|Acc],
                                   [{Addr,state}|Remove]
                                  };
                                false ->

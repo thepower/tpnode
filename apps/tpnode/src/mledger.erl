@@ -9,6 +9,7 @@
 -export([get_lstore/2,get_lstore_map/2]).
 -export([get_kv/1]).
 -export([get_kpv/3, get_kpvs/4, get_kpvs/3]).
+-export([get_kpvs_height/5, get_kpvs_height/4]). % <- it's relative slow !!
 -export([addr_proof/1, bi_decode/1]).
 -export([rollback/2]).
 -export([apply_backup/1]).
@@ -108,10 +109,10 @@ put(_Address, Bal) ->
         Acc
     end, #{}, Changes).
 
-get_vers(Address) -> 
+get_vers(Address) ->
   get_vers(Address,trans).
 
-get_vers(Address, notrans) -> 
+get_vers(Address, notrans) ->
   {Addr,Key}=case Address of
                {A, K} when is_binary(A) ->
                  {A, K};
@@ -126,7 +127,7 @@ get_vers(Address, notrans) ->
                     _='_'
                    });
 
-get_vers(Address, trans) -> 
+get_vers(Address, trans) ->
   {atomic,List}=rockstable:transaction(mledger,
                                        fun()->
                                            get_vers(Address, notrans)
@@ -163,6 +164,28 @@ get_lstore(Address, Path) ->
   end.
 
 
+%it's relative slow, do not use in production too much
+get_kpvs_height(Address, Key, Path, BlockHeight) ->
+  get_kpvs_height(Address, Key, Path, BlockHeight,[]).
+
+get_kpvs_height(Address, Key, Path, BlockHeight, Opts) ->
+  case rockstable:get(mledger,
+                      undefined,
+                      #bal_items{address=Address,
+                                 key=Key,
+                                 path=Path,
+                                 _='_'}, Opts) of
+    not_found -> [];
+    [] -> [];
+    List ->
+      [ {K, P, V} || #bal_items{key=K,path=P,value=V,introduced=I,version=E} <- List,
+                     BlockHeight>=I,
+                     E>BlockHeight
+      ]
+  end.
+
+
+
 get_kpvs(Address, Key, Path, Opts) ->
   case rockstable:get(mledger,
                       undefined,
@@ -195,7 +218,7 @@ get_kpv(Address, Key, Path) ->
       {ok, V}
   end.
 
-get(Address) -> 
+get(Address) ->
   get(Address,trans).
 
 get_kv(Address) ->
@@ -212,7 +235,7 @@ get_raw(Address, notrans) ->
                                   _ ='_'
                                  }).
 
-get(Address, notrans) -> 
+get(Address, notrans) ->
   Raw=get_raw(Address, notrans),
   if Raw == [] ->
        undefined;
@@ -235,7 +258,7 @@ get(Address, notrans) ->
                     ))
   end;
 
-get(Address, trans) -> 
+get(Address, trans) ->
   {atomic,List}=rockstable:transaction(mledger,
                   fun()->
                       get(Address, notrans)
@@ -259,11 +282,11 @@ hashl(BIs) when is_list(BIs) ->
 hash(Address) when is_binary(Address) ->
   BIs=get_raw(Address,notrans),
   hashl(BIs).
-  
+
 bals2patch(Data) ->
   bals2patch(Data,[]).
 
-bals2patch([], Acc) -> Acc; 
+bals2patch([], Acc) -> Acc;
 bals2patch([{A,Bal}|Rest], PRes) ->
   FoldFun=fun (Key,Val,Acc) when Key == amount;
                                  Key == code;

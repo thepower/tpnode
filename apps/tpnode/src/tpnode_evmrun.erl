@@ -12,13 +12,13 @@ decode_json_args(Args) ->
     end, Args).
 
 decode_res(_,address,V) ->
-  <<"0x",(hex:encode(V))/binary>>;
+  hex:encodex(V);
 decode_res(_,bytes,V) ->
-  <<"0x",(hex:encode(V))/binary>>;
+  hex:encodex(V);
 decode_res(_,bytes32,V) ->
-  <<"0x",(hex:encode(V))/binary>>;
+  hex:encodex(V);
 decode_res(_,bytes4,V) ->
-  <<"0x",(hex:encode(V))/binary>>;
+  hex:encodex(V);
 decode_res(_,uint256,V) ->
   if(V>72057594037927936) ->
       integer_to_binary(V);
@@ -28,22 +28,38 @@ decode_res(_,uint256,V) ->
 decode_res(_,_,V) ->
   V.
 
-code(Addr) ->
+code(Addr, H) when is_integer(Addr) ->
+  code(binary:encode_unsigned(Addr), H);
+
+code(Addr, undefined) ->
   case mledger:get_kpv(Addr,code,[]) of
     {ok, Bin} -> Bin;
     undefined ->
       undefined
+  end;
+
+code(Addr, Height) ->
+  case mledger:get_kpvs_height(Addr,code,[],Height) of
+    [{code,_,Bin}] -> Bin;
+    [] -> <<>>
   end.
 
-sload(Addr,Key) ->
+sload(Addr,Key,undefined) ->
   case mledger:get_kpv(Addr, state, Key) of
     {ok,Bin} -> Bin;
     undefined -> <<>>
+  end;
+
+sload(Addr,Key,Height) ->
+  case mledger:get_kpvs_height(Addr,state,Key,Height) of
+    [{state,Key,Bin}] -> Bin;
+    [] -> <<>>
   end.
 
 evm_run(Address, Fun, Args, Ed) ->
   try
-    Code=code(Address),
+    BlockHeight=maps:get(block_height,Ed,undefined),
+    Code=code(Address,BlockHeight),
     if is_binary(Code) -> ok;
        true -> throw('no_code')
     end,
@@ -51,7 +67,7 @@ evm_run(Address, Fun, Args, Ed) ->
     Res=run(Address, Code, Ed#{call => {Fun, Args}, gas=>Gas0}),
 
   FmtStack=fun(St) ->
-               [<<"0x",(hex:encode(binary:encode_unsigned(X)))/binary>> || X<-St]
+               [ hex:encodex(binary:encode_unsigned(X)) || X<-St]
            end,
 
   FmtLog=fun(Logs) ->
@@ -62,7 +78,7 @@ evm_run(Address, Fun, Args, Ed) ->
          end,
 
   case Res of
-    {done, {return,RetVal}, #{stack:=St, extra:=#{log:=Log}, gas:=Gas1}} ->
+    {done, {return,RetVal}, #{stack:=St, extra:=#{log:=Log}, gas:=Gas1}=_EVMState} ->
       Decoded=case binary:match(Fun,<<"returns">>) of
                 nomatch -> #{};
                 _ ->
@@ -189,10 +205,13 @@ run(Address, Code, Data) ->
          {error,{bad_instruction,BIInstr},BIState}
      end,
 
+  BlockHeight=maps:get(block_height,Data,undefined),
+
   SLoad=fun(Addr, IKey, _Ex0) ->
             Res=sload(
                   binary:encode_unsigned(Addr),
-                  binary:encode_unsigned(IKey)
+                  binary:encode_unsigned(IKey),
+                  BlockHeight
                  ),
             binary:decode_unsigned(Res)
         end,
@@ -220,14 +239,8 @@ run(Address, Code, Data) ->
                    case maps:is_key({Addr,code},Ex0) of
                      true ->
                        maps:get({Addr,code},Ex0,<<>>);
-                     false when is_integer(Addr) ->
-                       Addr1=binary:encode_unsigned(Addr),
-                       %io:format(".: Get LDB code for  ~p~n",[Addr1]),
-                       GotCode=code(Addr1),
-                       {ok, GotCode, maps:put({Addr1,code},GotCode,Ex0)};
                      false ->
-                       %io:format(".: Get LDB code for  ~p~n",[Addr]),
-                       GotCode=code(Addr),
+                       GotCode=code((Addr),BlockHeight),
                        {ok, GotCode, maps:put({Addr,code},GotCode,Ex0)}
                    end
                end,
@@ -243,7 +256,7 @@ run(Address, Code, Data) ->
   BeforeCall = fun(CallKind,CFrom,_Code,_Gas,
                    #{address:=CAddr, value:=V}=CallArgs,
                    #{global_acc:=GAcc}=Xtra) ->
-                   io:format("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
+                   %io:format("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
                    if V > 0 ->
                         TX=msgpack:pack(#{
                                           "k"=>tx:encode_kind(2,generic),
@@ -255,7 +268,7 @@ run(Address, Code, Data) ->
                                                                GAcc),
                         SCTX=CTX#{sigverify=>#{valid=>1},norun=>1},
                         NewGAcc=generate_block_process:try_process([{TxID,SCTX}], GAcc),
-                        io:format(">><< LAST ~p~n",[maps:get(last,NewGAcc)]),
+                        %io:format(">><< LAST ~p~n",[maps:get(last,NewGAcc)]),
                         case maps:get(last,NewGAcc) of
                           failed ->
                             throw({cancel_call,insufficient_fund});
@@ -270,7 +283,7 @@ run(Address, Code, Data) ->
 
   CreateFun = fun(Value1, Code1, #{la:=Lst}=Ex0) ->
                   Addr0=naddress:construct_public(16#ffff,16#0,Lst+1),
-                  io:format("Address ~p~n",[Addr0]),
+                  %io:format("Address ~p~n",[Addr0]),
                   Addr=binary:decode_unsigned(Addr0),
                   Ex1=Ex0#{la=>Lst+1},
                   %io:format("Ex1 ~p~n",[Ex1]),

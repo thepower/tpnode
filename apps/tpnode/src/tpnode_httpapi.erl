@@ -145,12 +145,24 @@ h(<<"POST">>, [<<"execute">>,<<"call">>], Req) ->
 
 h(<<"POST">>, #{ <<"call">>:=Call, <<"args">>:=Args, <<"from">>:=From,
                  <<"to">>:=To, <<"gas">>:=GasLimit, <<"value">>:=_Value
-               },_Req) ->
+               }=ReqData,_Req) ->
   case tpnode_evmrun:evm_run(
          hex:decode(To),
          Call,
          tpnode_evmrun:decode_json_args(Args),
-         #{caller=>hex:decode(From),gas=>GasLimit}
+         case maps:is_key(<<"blockHeight">>,ReqData) of
+           false ->
+             #{
+               caller=>hex:decode(From),
+               gas=>GasLimit
+              };
+           true ->
+             #{
+               caller=>hex:decode(From),
+               gas=>GasLimit,
+               block_height=>maps:get(<<"blockHeight">>,ReqData)
+              }
+         end
         ) of
     #{}=Res ->
       Res1=maps:map(
