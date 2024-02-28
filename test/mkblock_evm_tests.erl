@@ -558,28 +558,28 @@ call_test() ->
       SkAddr1=naddress:construct_public(1, OurChain, 4),
       Code1=eevm_asm:asm(
               [{push,1,0},
- sload,
- {push,1,1},
- add,
- {dup,1},
- {push,1,0},
- sstore,
- {push,1,0},
- mstore,
- {push,1,32},
- {push,1,0},
- return]
+               sload,
+               {push,1,1},
+               add,
+               {dup,1},
+               {push,1,0},
+               sstore,
+               {push,1,0},
+               mstore,
+               {push,1,32},
+               {push,1,0},
+               return]
              ),
 
-      SkAddr=naddress:construct_public(1, OurChain, 5),
-      Code=eevm_asm:assemble(
+      SkAddr2=naddress:construct_public(1, OurChain, 5),
+      Code2=eevm_asm:assemble(
 <<"
 push1 0
 push1 0
 push1 0
 push1 0
 push1 0
-push8 9223407223743447044
+push8 addr1
 push3 262144
 call
 
@@ -590,14 +590,14 @@ push1 0
 returndatacopy
 push1 0
 return
-">>),
+">>,#{"addr1"=>binary:decode_unsigned(SkAddr1)}),
 
       TX2=tx:sign(
             tx:construct_tx(#{
               ver=>2,
               kind=>generic,
               from=>Addr1,
-              to=>SkAddr,
+              to=>SkAddr2,
               call=>#{
                 %function => "0x095EA7B3", %"approve(address,uint256)",
                 %function => "approve(address,uint256)",
@@ -617,7 +617,7 @@ return
               ver=>2,
               kind=>generic,
               from=>Addr1,
-              to=>SkAddr,
+              to=>SkAddr2,
               call=>#{
                 %function => "0x095EA7B3", %"approve(address,uint256)",
                 %function => "approve(address,uint256)",
@@ -655,18 +655,20 @@ return
                  state => #{ <<0>> => <<2,0,0>> }
                 }
               },
-              {SkAddr,
+              {SkAddr2,
                #{amount => #{<<"SK">> => 1},
-                 code => Code,
-                 vm => <<"evm">>
+                 code => Code2,
+                 vm => <<"evm">>,
+                 state => #{}
                 }
               }
              ],
       {ok,L1,_S1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      io:format("State0 ~p~n",[Ledger]),
       io:format("State1 ~p~n",[L1]),
       [
        ?assertMatch(#{state:=#{<<0>> := <<2,0,2>>}},
-                    maps:get(<<128,0,32,0,150,0,0,4>>,L1)),
+                    maps:get(SkAddr1,L1)),
        ?assertMatch(true,true)
       ].
 
