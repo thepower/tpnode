@@ -1625,6 +1625,9 @@ fmterr(X) ->
 to_bin(List) when is_list(List) -> list_to_binary(List);
 to_bin(Bin) when is_binary(Bin) -> Bin.
 
+to_gas(#{amount:=0, cur:= <<"NORUN">>}, _Settings) ->
+  {ok, {<<"NORUN">>,0,{1,1}}};
+
 to_gas(#{amount:=A, cur:=C}, Settings) ->
   Path=[<<"current">>, <<"gas">>, C],
   case settings:get(Path, Settings) of

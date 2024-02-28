@@ -183,9 +183,26 @@ evm_erc20_test(Config) ->
              }
            ),Priv)),
 
+  STx=tx:pack(
+          tx:sign(
+          tx:construct_tx(
+            #{ver=>2,
+              kind=>generic,
+              to=>Addr,
+              from=>Addr,
+              seq=>os:system_time(millisecond)+2,
+              t=>os:system_time(millisecond)+2,
+              payload=>[#{purpose=>transfer, amount=>1500, cur=><<"FTT">>},
+                        #{purpose=>gas,amount=>0,cur=><<"NORUN">>}]
+             }
+           ),Priv)),
+
   {ok, #{<<"txid">> := TxID2, <<"block">>:=Blkid2}=Status2} = tpapi2:submit_tx(Node, GenTx),
+  {ok, #{<<"txid">> := TxID3, <<"block">>:=Blkid3}=Status3} = tpapi2:submit_tx(Node, STx),
   io:format("ERC20 transfer txid ~p~n",[TxID2]),
   ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
+  io:format("Send token tx to ERC20 txid ~p~n",[TxID3]),
+  ?assertMatch(#{<<"res">> := <<"ok">>}, Status3),
   gun:close(Node),
 
   #{bals:=Bals}=tpapi:get_fullblock(Blkid2,get_base_url()),
