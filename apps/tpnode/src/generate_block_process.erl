@@ -1274,7 +1274,13 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
         _ ->
           mbal:get(vm, NewT)
       end,
-  case {maps:is_key(norun,Tx),UVm} of
+  NoRun=case GasLimit of
+          {<<"NORUN">>,0,_} ->
+            true;
+          _ ->
+            maps:is_key(norun,Tx)
+        end,
+  case {NoRun,UVm} of
     {true,_} ->
       {Addresses, [], GasLimit, Acc#{table=>Addresses}, []};
     {_,undefined} ->
