@@ -198,7 +198,7 @@ evm_erc20_test(Config) ->
            ),Priv)),
 
   {ok, #{<<"txid">> := TxID2, <<"block">>:=Blkid2}=Status2} = tpapi2:submit_tx(Node, GenTx),
-  {ok, #{<<"txid">> := TxID3, <<"block">>:=Blkid3}=Status3} = tpapi2:submit_tx(Node, STx),
+  {ok, #{<<"txid">> := TxID3, <<"block">>:=_Blkid3}=Status3} = tpapi2:submit_tx(Node, STx),
   io:format("ERC20 transfer txid ~p~n",[TxID2]),
   ?assertMatch(#{<<"res">> := <<"ok">>}, Status2),
   io:format("Send token tx to ERC20 txid ~p~n",[TxID3]),

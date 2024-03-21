@@ -66,10 +66,6 @@ evm_run(Address, Fun, Args, Ed) ->
     Gas0=maps:get(gas,Ed,100000000),
     Res=run(Address, Code, Ed#{call => {Fun, Args}, gas=>Gas0}),
 
-  FmtStack=fun(St) ->
-               [ hex:encodex(binary:encode_unsigned(X)) || X<-St]
-           end,
-
   FmtLog=fun(Logs) ->
              lists:foldl(
                fun(E,A) ->
@@ -83,7 +79,7 @@ evm_run(Address, Fun, Args, Ed) ->
                 nomatch -> #{};
                 _ ->
                   case contract_evm_abi:parse_signature(Fun) of
-                    {ok,{{function,_},_Sig, undefined}} -> #{}; %not it's impossible?
+                    {ok,{{function,_},_Sig, undefined}} -> #{}; %is it possible?
                     {ok,{{function,_},_Sig, RetABI}} when is_list(RetABI) ->
                       try
                         D=contract_evm_abi:decode_abi(RetVal,RetABI,[],fun decode_res/3),
@@ -107,75 +103,56 @@ evm_run(Address, Fun, Args, Ed) ->
                    bin => RetVal,
                    gas_used => Gas0-Gas1,
                    log => FmtLog(Log),
-                   stack => FmtStack(St)
+                   stack => fmt_stack(St)
                   }
                 );
-    {done, 'stop',  #{stack:=St, gas:=Gas1}} ->
-      %{stop, undefined, FmtStack(St)};
-      #{
-        result => stop,
-        ok => true,
-        gas_used => Gas0-Gas1,
-        stack => FmtStack(St)
-       };
-    {done, 'eof', #{stack:=St, gas:=Gas1}} ->
-      %{eof, undefined, FmtStack(St)};
-      #{
-        result => eof,
-        ok => true,
-        gas_used => Gas0-Gas1,
-        stack => FmtStack(St)
-       };
-    {done, 'invalid',  #{stack:=St}} ->
-      #{ result => invalid,
-         stack => FmtStack(St)
-       };
-    {done, {revert, <<8,195,121,160,Data/binary>> = Bin},  #{stack:=St, gas:=Gas1}} ->
-      #{ result => revert,
-         bin => Bin,
-         ok => true,
-         gas_used => Gas0-Gas1,
-         signature => <<"Error(string)">>,
-         decode => contract_evm_abi:unwrap(contract_evm_abi:decode_abi(Data,[{<<"Error">>,string}])),
-         stack => FmtStack(St)
-       };
-    {done, {revert, <<78,72,123,113,Data/binary>> =Bin},  #{stack:=St, gas:=Gas1}} ->
-      #{ result => revert,
-         bin => Bin,
-         ok => true,
-         gas_used => Gas0-Gas1,
-         signature => <<"Panic(uint256)">>,
-         decode => contract_evm_abi:unwrap(contract_evm_abi:decode_abi(Data,[{<<"Panic">>,uint256}])),
-         stack => FmtStack(St)
-       };
-    {done, {revert, Data},  #{stack:=St, gas:=Gas1}} ->
-      #{ result => revert,
-         bin => Data,
-         gas_used => Gas0-Gas1,
-         ok => true,
-         stack => FmtStack(St)
-       };
+    {done, Reason,  RetState} when Reason=='stop' orelse Reason=='eof' ->
+      apply_retstate(
+        #{
+          result => Reason,
+          ok => true
+         }, RetState, Gas0);
+    {done, 'invalid',  RetState} ->
+      apply_retstate(
+        #{
+          result => invalid
+         }, RetState, Gas0);
+    {done, {revert, Data},  RetState} ->
+      Logs=case RetState of
+             #{extra:=#{log:=Log}} ->
+               #{ log => FmtLog(Log) };
+             _ ->
+               #{}
+           end,
+      apply_retstate(
+        revert_decode(
+          Logs#{ result => revert,
+                 bin => Data,
+                 ok => true
+               }, Data), RetState, Gas0);
     {error, Desc} ->
-      #{ result => error,
-         error => Desc
+      #{
+        result => error,
+        error => Desc
        };
-    {error, nogas, #{stack:=St}} ->
+    {error, nogas, RetState} ->
+      apply_retstate(
+        #{
+          result => error,
+          error => nogas,
+          gas_used => Gas0
+         }, RetState, Gas0);
+    {error, {jump_to,_}, RetState} ->
+      apply_retstate(
       #{ result => error,
-         error => nogas,
-         gas_used => Gas0,
-         stack => FmtStack(St)
-       };
-    {error, {jump_to,_}, #{stack:=St}} ->
-      #{ result => error,
-         error => bad_jump,
-         stack => FmtStack(St)
-       };
-    {error, {bad_instruction,I}, #{stack:=St}} ->
-      #{ result => error,
-         error => bad_instruction,
-         data => list_to_binary([io_lib:format("~p",[I])]),
-         stack => FmtStack(St)
-       }
+         error => bad_jump
+         }, RetState, Gas0);
+    {error, {bad_instruction,I}, RetState} ->
+      apply_retstate(
+        #{ result => error,
+           error => bad_instruction,
+           data => list_to_binary([io_lib:format("~p",[I])])
+         }, RetState, Gas0)
   end
   catch throw:no_code ->
           #{
@@ -184,6 +161,37 @@ evm_run(Address, Fun, Args, Ed) ->
            }
   end.
 
+fmt_stack(St) ->
+  [ if X>=0 ->
+         hex:encodex(binary:encode_unsigned(X));
+       X<0 ->
+         hex:encodex(<<X:256/big-signed>>)
+    end || X<-St].
+
+apply_retstate(RetMap, RetState, Gas0) ->
+  M1=case RetState of
+    #{gas:=Gas1} ->
+      RetMap#{gas_used => Gas0-Gas1};
+    _ ->
+      RetMap
+  end,
+  case RetState of
+    #{stack:=St} ->
+      M1#{stack => fmt_stack(St)};
+    _ ->
+      M1
+  end.
+
+revert_decode(Map, <<8,195,121,160,Data/binary>>) ->
+  Map#{signature => <<"Error(string)">>,
+       decode => contract_evm_abi:unwrap(contract_evm_abi:decode_abi(Data,[{<<"Error">>,string}]))
+      };
+revert_decode(Map, <<78,72,123,113,Data/binary>>) ->
+  Map#{signature => <<"Panic(uint256)">>,
+       decode => contract_evm_abi:unwrap(contract_evm_abi:decode_abi(Data,[{<<"Panic">>,uint256}]))
+      };
+revert_decode(Map, _) ->
+  Map.
 
 logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}=_EEvmState) ->
   LArgs=[binary:encode_unsigned(I) || I <- LArgs0],
@@ -208,6 +216,7 @@ run(Address, Code, Data) ->
   BlockHeight=maps:get(block_height,Data,undefined),
 
   SLoad=fun(Addr, IKey, _Ex0) ->
+            %io:format("SLOAD ~p:~p~n ex ~p~n",[Addr,IKey,maps:keys(maps:get({Addr,stor},_Ex0,#{}))]),
             Res=sload(
                   binary:encode_unsigned(Addr),
                   binary:encode_unsigned(IKey),
@@ -253,8 +262,8 @@ run(Address, Code, Data) ->
                       0
                   end
               end,
-  BeforeCall = fun(CallKind,CFrom,_Code,_Gas,
-                   #{address:=CAddr, value:=V}=CallArgs,
+  BeforeCall = fun(_CallKind,CFrom,_Code,_Gas,
+                   #{address:=CAddr, value:=V}=_CallArgs,
                    #{global_acc:=GAcc}=Xtra) ->
                    %io:format("EVMCall from ~p ~p: ~p~n",[CFrom,CallKind,CallArgs]),
                    if V > 0 ->

@@ -79,12 +79,27 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
               <<>>
       end,
 
+  BI=fun
+       (chainid, #{stack:=Stack}=BIState) ->
+         BIState#{stack=>[16#c0de00000000|Stack]};
+       (number,#{stack:=BIStack}=BIState) ->
+         #{height:=PHei} = GetFun(parent_block),
+         BIState#{stack=>[PHei+1|BIStack]};
+       (timestamp,#{stack:=BIStack}=BIState) ->
+         MT=maps:get(mean_time,Opaque,0),
+         BIState#{stack=>[MT|BIStack]};
+       (BIInstr,BIState) ->
+         logger:error("Bad instruction ~p~n",[BIInstr]),
+         {error,{bad_instruction,BIInstr},BIState}
+     end,
+
   EvalRes = eevm:eval(<<Code/binary,ACD/binary>>,
                       State,
                       #{
                         extra=>Opaque#{getfun=>GetFun, tx=>Tx},
                         logger=>fun logger/4,
                         gas=>GasLimit,
+                        bad_instruction=>BI,
                         get=>#{
                                code => GetCodeFun,
                                balance => GetBalFun
