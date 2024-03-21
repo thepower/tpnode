@@ -4,9 +4,20 @@
 -export([parse/1]).
 
 -export([hexdump/1]).
+-export([hexdump/2]).
 
 hexdump(Bin) ->
   dump(Bin,0).
+
+%% hexdump/2 displays bin in two parts
+hexdump(Bin,O) ->
+  try
+    <<B1:O/binary,B2/binary>> = Bin,
+    dump(B1,0),
+    dump(B2,0)
+  catch _:_ ->
+          dump(Bin,0)
+  end.
 
 dump(<<Bin:32/binary,Rest/binary>>,Off) ->
   io:format("~6.16B: ~s~n",[Off, hex:encode(Bin)]),
@@ -53,12 +64,16 @@ h2i($e) -> 14;
 h2i($f) -> 15;
 h2i(Any) -> throw({'bad_symbol', Any}).
 
+encodex(Integer) when is_integer(Integer) andalso Integer >=0 ->
+  encode(binary:encode_unsigned(Integer),<<"0x">>);
 encodex(List) when is_list(List) ->
     encode(list_to_binary(List),<<"0x">>);
 encodex(B) when is_binary(B) ->
   encode(B, <<"0x">>).
 
 
+encode(Integer) when is_integer(Integer) andalso Integer >=0 ->
+  encode(binary:encode_unsigned(Integer),<<>>);
 encode(List) when is_list(List) ->
     encode(list_to_binary(List),<<>>);
 encode(B) when is_binary(B) ->
