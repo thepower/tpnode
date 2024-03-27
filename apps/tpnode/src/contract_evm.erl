@@ -185,10 +185,10 @@ encode_str(Bin) ->
 
 handle_tx(#{to:=To,from:=From,txext:=#{"code":=Code,"vm":= "evm"}}=Tx,
           Ledger, GasLimit, GetFun, Opaque) when To==From ->
-  handle_tx_int(Tx, Ledger#{code=>Code}, GasLimit, GetFun, Opaque);
+  handle_tx_int(Tx, Ledger#{code=>Code}, GasLimit, GetFun, maps:merge(#{log=>[]},Opaque));
 
 handle_tx(Tx, Ledger, GasLimit, GetFun, Opaque) ->
-  handle_tx_int(Tx, Ledger, GasLimit, GetFun, Opaque).
+  handle_tx_int(Tx, Ledger, GasLimit, GetFun, maps:merge(#{log=>[]},Opaque)).
 
 handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
               GasLimit, GetFun, #{log:=PreLog}=Opaque) ->
