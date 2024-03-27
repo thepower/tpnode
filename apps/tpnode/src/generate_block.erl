@@ -443,23 +443,25 @@ depositf(Address, TBal, #{cur:=Cur, amount:=Amount}=Tx, GetFun, _Settings, GasLi
   NewT=maps:remove(keep,
                    mbal:put_cur( Cur, NewTAmount, TBal)
                   ),
-  case mbal:get(vm, NewT) of
-    undefined ->
-      {NewT, [], GasLimit, Acc};
-    VMType ->
-      ?LOG_INFO("Smartcontract ~p", [VMType]),
-      {L1, TXs, Gas, _}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun, #{}),
-      {L1, lists:map(
-             fun(#{seq:=Seq}=ETx) ->
-                 H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
-                 BSeq=hex:encode(<<Seq:64/big>>),
-                 EA=(naddress:encode(Address)),
-                 TxID= <<EA/binary, BSeq/binary, H/binary>>,
-                 {TxID,
-                  tx:set_ext( <<"contract_issued">>, Address, ETx)
-                 }
-             end, TXs), Gas, Acc}
-  end.
+  %TODO: it needs refactoring, due to smartcontract:run/6 returns ledger changes instead of new state
+  %case mbal:get(vm, NewT) of
+  %  undefined ->
+      {NewT, [], GasLimit, Acc}%;
+  %  VMType ->
+  %    ?LOG_INFO("Smartcontract ~p", [VMType]),
+  %    {L1, TXs, Gas, _}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun, #{}),
+  %    {L1, lists:map(
+  %           fun(#{seq:=Seq}=ETx) ->
+  %               H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
+  %               BSeq=hex:encode(<<Seq:64/big>>),
+  %               EA=(naddress:encode(Address)),
+  %               TxID= <<EA/binary, BSeq/binary, H/binary>>,
+  %               {TxID,
+  %                tx:set_ext( <<"contract_issued">>, Address, ETx)
+  %               }
+  %           end, TXs), Gas, Acc}
+  %end.
+  .
 
 
 deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings, GAcc) ->
