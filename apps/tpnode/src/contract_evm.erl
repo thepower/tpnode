@@ -200,13 +200,18 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
             MapState
         end,
 
-  Value=case tx:get_payload(Tx, transfer) of
-          undefined ->
-            0;
-          #{amount:=A,cur:= <<"SK">>} ->
+  Value=case Tx of
+          #{amount := A, cur := <<"SK">>} ->
             A;
-          _ ->
-            0
+          #{payload:=_} ->
+            case tx:get_payload(Tx, transfer) of
+              undefined ->
+                0;
+              #{amount:=A,cur:= <<"SK">>} ->
+                A;
+              _ ->
+                0
+            end
         end,
 
   CD=case Tx of
