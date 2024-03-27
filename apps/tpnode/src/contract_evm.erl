@@ -414,7 +414,7 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
              "gas"=>0,
              "txs"=>[]}, Opaque};
     {done, {revert, Revert}, #{ gas:=GasLeft}} ->
-      Log1=[[<<"evm:revert">>,To,From,Revert],[evm,revert,Revert]|PreLog],
+      Log1=[[<<"evm:revert">>,To,From,Revert]|PreLog],
       {ok, #{null=>"exec",
              "state"=>unchanged,
              "gas"=>GasLeft,
