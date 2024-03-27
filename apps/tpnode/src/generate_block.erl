@@ -469,7 +469,9 @@ deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings, GAcc) ->
                       {NewT, NewTXL, _, _}=depositf(Addr, Acc,
                                                 #{cur=>Cur,
                                                   amount=>Summ,
-                                                  to=>Addr},
+                                                  to=>Addr,
+                                                  from=>Addr
+                                                 },
                                                 GetFun, Settings, free, GAcc),
                       {NewT, TxAcc ++ NewTXL}
                   end,
