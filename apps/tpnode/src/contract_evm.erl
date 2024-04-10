@@ -1,8 +1,7 @@
 -module(contract_evm).
 -include("include/tplog.hrl").
--behaviour(smartcontract2).
 
--export([deploy/5, handle_tx/5, getters/0, get/3, info/0, call/3]).
+-export([deploy/5, handle_tx/5, getters/0, get/3, info/0, call/3, call/4]).
 -export([encode_tx/2,decode_tx/2]).
 -export([tx_abi/0]).
 -export([enc_settings1/1]).
@@ -240,23 +239,28 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
          <<>>
      end,
 
-  SLoad=fun(Addr, IKey, _Ex0=#{get_addr:=GAFun}) ->
+  SLoad=fun(Addr, IKey, Ex0=#{get_addr:=GAFun}) ->
             %io:format("=== sLoad key 0x~s:~p~n",[hex:encode(binary:encode_unsigned(Addr)),IKey]),
-            BKey=binary:encode_unsigned(IKey),
-            binary:decode_unsigned(
-              if Addr == To ->
-                   case maps:is_key(BKey,State) of
+            case maps:get(IKey,maps:get({Addr,stor},Ex0,#{}),undefined) of
+              IRes when is_integer(IRes) ->
+                IRes;
+              undefined ->
+                BKey=binary:encode_unsigned(IKey),
+                binary:decode_unsigned(
+                  if Addr == To ->
+                       case maps:is_key(BKey,State) of
+                         true ->
+                           maps:get(BKey, State, <<0>>);
+                         false ->
+                           GAFun({storage,binary:encode_unsigned(Addr),BKey})
+                       end;
                      true ->
-                       maps:get(BKey, State, <<0>>);
-                     false ->
                        GAFun({storage,binary:encode_unsigned(Addr),BKey})
-                   end;
-                 true ->
-                   GAFun({storage,binary:encode_unsigned(Addr),BKey})
-              end
-             )
+                  end
+                 )
+            end
         end,
-  
+
   FinFun = fun(_,_,#{data:=#{address:=Addr}, storage:=Stor, extra:=Xtra} = FinState) ->
                NewS=maps:merge(
                       maps:get({Addr, stor}, Xtra, #{}),
@@ -439,13 +443,28 @@ logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}=_EEvm
   %io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
   maps:put(log,[([evm,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog],Xtra).
 
-call(#{state:=State,code:=Code}=_Ledger,Method,Args) ->
+call(#{state:=_State,code:=_Code}=Ledger,Method,Args) ->
   ?LOG_ERROR("deprecated call"),
-  SLoad=fun(IKey) ->
-            %io:format("Load key ~p~n",[IKey]),
-            BKey=binary:encode_unsigned(IKey),
-            binary:decode_unsigned(maps:get(BKey, State, <<0>>))
+  call(<<1>>,#{<<1>>=>Ledger},Method,Args).
+
+
+call(Address, LedgerMap, Method, Args) ->
+  SLoad=fun(Addr, IKey, _) ->
+            %io:format("=== sLoad key 0x~s:~p~n",[hex:encode(binary:encode_unsigned(Addr)),IKey]),
+            L=maps:get(binary:encode_unsigned(Addr),LedgerMap,#{}),
+            S=maps:get(state,L,#{}),
+            binary:decode_unsigned(maps:get(binary:encode_unsigned(IKey),S,<<0>>))
         end,
+  GetCodeFun = fun(Addr,_) ->
+                   L=maps:get(binary:encode_unsigned(Addr),LedgerMap,#{}),
+                   maps:get(code,L,<<>>)
+               end,
+
+  %SLoad=fun(IKey) ->
+  %          %io:format("Load key ~p~n",[IKey]),
+  %          BKey=binary:encode_unsigned(IKey),
+  %          binary:decode_unsigned(maps:get(BKey, State, <<0>>))
+  %      end,
   CD=case Method of
        "0x"++FunID ->
          FunHex=hex:decode(FunID),
@@ -453,33 +472,48 @@ call(#{state:=State,code:=Code}=_Ledger,Method,Args) ->
          %lists:foldl(fun encode_arg/2, <<FunHex:4/binary>>, Args);
          <<FunHex:4/binary,BArgs/binary>>;
        FunNameID when is_list(FunNameID) ->
-         {ok,E}=ksha3:hash(256, list_to_binary(FunNameID)),
-         <<X:4/binary,_/binary>> = E,
-         BArgs=abi_encode_simple(Args),
-         %lists:foldl(fun encode_arg/2, <<X:4/binary>>, Args)
-         <<X:4/binary,BArgs/binary>>
+         %{ok,E}=ksha3:hash(256, list_to_binary(FunNameID)),
+         %<<X:4/binary,_/binary>> = E,
+         %BArgs=abi_encode_simple(Args),
+         %%lists:foldl(fun encode_arg/2, <<X:4/binary>>, Args)
+         %<<X:4/binary,BArgs/binary>>
+         {ok,{{function,_},FABI,_}=S} = contract_evm_abi:parse_signature(FunNameID),
+         if(length(FABI)==length(Args)) -> ok;
+           true -> throw("amount of arguments does not match with signature")
+         end,
+         BArgs=contract_evm_abi:encode_abi(Args,FABI),
+         X=contract_evm_abi:sig32(contract_evm_abi:mk_sig(S)),
+         <<X:32/big,BArgs/binary>>
      end,
 
+  Code=GetCodeFun(binary:decode_unsigned(Address),#{}),
   Result = eevm:eval(Code,
                      #{},
                      #{
-                       gas=>20000,
+                       gas=>30000,
                        sload=>SLoad,
+                       get=>#{ code => GetCodeFun },
                        value=>0,
                        cd=>CD,
-                       caller=><<0>>,
+                       data=>#{
+                                address=>binary:decode_unsigned(Address),
+                                callvalue=>0,
+                                caller=>0,
+                                gasprice=>1,
+                                origin=>0
+                               },
                        logger=>fun logger/4,
                        trace=>whereis(eevm_tracer)
                       }),
   case Result of
-    {done, {return,RetVal}, _} ->
+    {done, {return,RetVal}, X1} ->
       {ok, RetVal};
     {done, 'stop', _} ->
       {ok, stop};
     {done, 'invalid', _} ->
       {ok, invalid};
-    {done, {revert, Msg}, _} ->
-      {ok, Msg};
+    {done, {revert, Msg}, X1} ->
+      {revert, Msg};
     {error, nogas, _} ->
       {error, nogas, 0};
     {error, {jump_to,_}, _} ->
@@ -691,7 +725,7 @@ encode_tx(#{kind:=_,ver:=_,from:=_,to:=_,t:=_,seq:=_,sig:=_,payload:=_}=Tx,Opts)
 %extra=>Opaque#{GetFun,Tx},
 embedded_functions() ->
   #{
-    16#AFFFFFFFFF000000 => 
+    16#AFFFFFFFFF000000 =>
     fun(_,XAcc) ->
         MT=maps:get(mean_time,XAcc,0),
         Ent=case maps:get(entropy,XAcc,<<>>) of
@@ -825,14 +859,14 @@ embedded_lstore(<<2693574879:32/big,Bin/binary>>,
   InABI=[{<<"address">>,address},{<<"key">>,{darray,bytes}}],
   try
     [{<<"address">>,Addr},{<<"key">>,Path}]=contract_evm_abi:decode_abi(Bin,InABI),
-    
+
     SRes=try
            GetFun({lstore,Addr,Path})
          catch Ec1:Ee1:S1 ->
                  ?LOG_ERROR("lstore error ~p:~p @ ~p",[Ec1,Ee1,S1]),
                  error
          end,
-    
+
     RBin=enc_settings1(SRes),
     {1,RBin,XAcc}
   catch Ec:Ee:S ->

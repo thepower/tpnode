@@ -228,7 +228,7 @@ try_process([{TxID, #{ver:=2,
               true ->
                 ok
             end;
-          true ->
+          _ ->
             throw({patchkeys_needsig, undefined})
         end
     end,
@@ -1073,7 +1073,6 @@ try_process_local([{TxID,
     end,
 
     Ext=maps:get(txext,Tx,#{}),
-    io:format("Ext ~p~n",[Ext]),
     BSponsor=maps:get("sponsor",Ext,undefined),
     ?LOG_INFO("Processing local =====[ ~s ]=======",[TxID]),
     Sponsor=case BSponsor of

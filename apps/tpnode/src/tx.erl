@@ -763,7 +763,7 @@ verify(#{
                chainsettings:by_path([<<"current">>,<<"patchkeys">>])
            end,
       case Sets of
-        #{keys:=Keys0} when is_list(Keys0) ->
+        #{<<"keys">>:=Keys0} when is_list(Keys0) ->
           Keys=[tpecdsa:cmp_pubkey(K) || K <- Keys0 ],
 
           CheckFun1=fun(PubKey,_) ->

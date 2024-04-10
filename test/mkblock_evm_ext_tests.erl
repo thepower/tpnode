@@ -502,7 +502,7 @@ evm_embedded_gets_test() ->
                          <<>>
                  end end(),
       fun FT() ->
-          receive 
+          receive
             {trace,{stack,_,_}} ->
               FT();
             {trace,_Any} ->
@@ -1062,7 +1062,7 @@ evm_weth9_test() ->
               FT(N-1);
             {trace,_Any} ->
               FT(0)
-          after 0 -> 
+          after 0 ->
                   io:format("~n",[])
           end
       end(0),
@@ -1094,171 +1094,208 @@ evm_weth9_test() ->
       ].
 
 
-%storage_messing_up_test() ->
-%      OurChain=151,
-%      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
-%              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
-%      Addr1=naddress:construct_public(1, OurChain, 1),
-%
-%      %{ok,Bin1} = file:read_file("examples/evm_builtin/build/StorageRecursive1.bin"),
-%      {ok,Bin1} = file:read_file("examples/evm_builtin/build/StorageRecursive1.bin-runtime"),
-%      {ok,Bin2} = file:read_file("examples/evm_builtin/build/StorageRecursive2.bin-runtime"),
-%      ABI1=contract_evm_abi:parse_abifile("examples/evm_builtin/build/StorageRecursive1.abi"),
-%      ABI2=contract_evm_abi:parse_abifile("examples/evm_builtin/build/StorageRecursive2.abi"),
-%      ABI=ABI1++ABI2,
-%
-%      Code1b=hex:decode(string:chomp(Bin1)),
-%      Code2b=hex:decode(string:chomp(Bin2)),
-%
-%      %{done,{return,Code2b},_}=eevm:eval(Code2,#{},#{ gas=>1000000, extra=>#{} }),
-%      SkAddr1=naddress:construct_public(1, OurChain, 10),
-%      SkAddr2=naddress:construct_public(1, OurChain, 11),
-%
-%      %TX1=tx:sign(
-%      %      tx:construct_tx(#{
-%      %        ver=>2,
-%      %        kind=>deploy,
-%      %        from=>SkAddr1,
-%      %        to=>SkAddr1,
-%      %        payload=>[
-%      %                  #{purpose=>gas, amount=>trunc(1.0e5), cur=><<"SK">>}
-%      %                 ],
-%      %        seq=>1,
-%      %        call => #{
-%      %                  function => "constructor(string _name, address _c2)",
-%      %                  args => ["test_1",SkAddr2]
-%      %                 },
-%      %        t=>os:system_time(millisecond),
-%      %        txext=>#{ "code"=> Code1, "vm" => "evm" }
-%      %       }), Pvt1),
-%      TX2=tx:sign(
-%            tx:construct_tx(#{
-%              ver=>2,
-%              kind=>generic,
-%              from=>Addr1,
-%              to=>SkAddr1,
-%              call=>#{
-%                      function => "test(uint256)",
-%                      args => [ 5 ]
-%              },
-%              payload=>[
-%                        #{purpose=>gas, amount=>trunc(1.0e5), cur=><<"SK">>}
-%                       ],
-%              seq=>4,
-%              t=>os:system_time(millisecond)
-%             }), Pvt1),
-%
-%      TxList1=[
-%               %{<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)},
-%               {<<"tx2">>, maps:put(sigverify,#{valid=>1},TX2)}
-%              ],
-%      TestFun=fun(#{block:=Block,
-%                    log:=Log,
-%                    failed:=Failed}) ->
-%                  io:format("Failed ~p~n",[Failed]),
-%                  ?assertMatch([],Failed),
-%                  {ok,Log,Block}
-%              end,
-%      Ledger=[
-%              {Addr1,
-%               #{amount => #{ <<"SK">> => trunc(1.0e10) }
-%                }
-%              },
-%              {SkAddr1, #{
-%                          amount => #{
-%                                      <<"SK">> => trunc(1.0e10)
-%                                     },
-%                          code => Code1b,
-%                          vm => <<"evm">>,
-%                          state => #{
-%                                     <<0>> => <<116,101,115,116,95,49,
-%                                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,12>>,
-%                                     <<1>> => <<128,0,32,0,151,0,0,11>>,
-%                                     <<2>> => <<1>>
-%                                    }
-%                         }
-%              },
-%              {SkAddr2,
-%               #{
-%                 code => Code2b,
-%                 amount => #{<<"SK">> => trunc(1.0e10)},
-%                 vm => <<"evm">>,
-%                 state => #{}
-%                }
-%              }
-%             ],
-%      register(eevm_tracer,self()),
-%      {ok,Log,#{bals:=B,txs:=_Tx}}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
-%      io:format("Bals ~p~n",[B]),
-%      %io:format("st ~p~n",[[ maps:with([call,extdata],Body) || {_,Body} <- Tx]]),
-%      %io:format("Block ~p~n",[block:minify(Blk)]),
-%      unregister(eevm_tracer),
-%      %[{_,_,FABI}]=contract_evm_abi:find_function(<<"getLStore(bytes[])">>,ABI),
-%      %_D=fun() -> receive {trace,{return,Data}} ->
-%      %                     %hex:hexdump(Data),
-%      %                     io:format("dec ~p~n",[contract_evm_abi:decode_abi(Data,FABI)]),
-%      %                     Data
-%      %           after 0 ->
-%      %                   <<>>
-%      %           end end(),
-%      fun FT(N) ->
-%          receive
-%            %{trace,{opcode,_,{2122,_}}} -> FT(1);
-%            %{trace,{opcode,_,{_,{dup,_}}}=_Any} -> FT(0);
-%            %{trace,{opcode,_,{_,{swap,_}}}=_Any} -> FT(0);
-%            %{trace,{opcode,_,{_,pop}}=_Any} -> FT(0);
-%            %{trace,{opcode,_,{_,sub}}=_Any} -> FT(0);
-%            %{trace,{opcode,_,{_,call}}=_Any} ->
-%            %  io:format("~n~p",[_Any]),
-%            %  FT(3);
-%            %%{trace,{opcode,_,{_,mload}}=_Any} ->
-%            %%  io:format("~n~p",[_Any]),
-%            %%  FT(3);
-%            %{trace,{stack,_,_}=_Any} when N>0 ->
-%            %  io:format("~n: ~p",[_Any]),
-%            %  FT(0);
-%            %{trace,{stack,_,_}=_Any} ->
-%            %  FT(0);
-%            %{trace,{opcode,Dep,{push,Len,Val}}=_Any} ->
-%            %  io:format("~n++ {opcode,~w,{push,~w,0x~s}}",[Dep,Len,hex:encode(binary:encode_unsigned(Val))]),
-%            %  FT(0);
-%            %{trace,{opcode,_,_}=_Any} ->
-%            %  %io:format("~n~p",[_Any]),
-%            %  FT(0);
-%            {trace,_Any} when N>0 ->
-%              FT(N-1);
-%            {trace,_Any} ->
-%              FT(0)
-%          after 0 ->
-%                  io:format("~n",[])
-%          end
-%      end(0),
-%
-%      Events=contract_evm_abi:sig_events(ABI),
-%
-%      DoLog = fun (BBin) ->
-%                  case msgpack:unpack(BBin) of
-%                    {ok,[_,<<"evm">>,_,_,DABI,[Signature|Indexed]]} ->
-%                      case lists:keyfind(Signature,2,Events) of
-%                        false ->
-%                          {DABI,Signature};
-%                        {EvName,_,EvABI} ->
-%                          {EvName,contract_evm_abi:decode_abi(DABI,EvABI,Indexed)}
-%                      end;
-%                    {ok,[<<"tx1">>,<<"evm:revert">>|Sig]} ->
-%                      [<<"tx1">>,<<"evm:revert">>|Sig]
-%                  end
-%              end,
-%      ProcLog=[ DoLog(LL) || LL <- Log ],
-%      io:format("Logs ~p~n",[ProcLog]),
-%      [
-%       ?assertMatch(#{amount:=#{<<"SK">>:=5}},maps:get(SkAddr1,B)),
-%       ?assertMatch(#{amount:=#{<<"SK">>:=10}},maps:get(Addr1,B)),
-%       ?assertMatch([
-%                     {<<"Deposit(address,uint256)">>, [{_,Addr1},{_,10}]},
-%                     {<<"Withdrawal(address,uint256)">>, [{_,Addr1},{_,5}]}
-%                    ], ProcLog )
-%      ].
-%
-%
-%
+storage_messing_up_test() ->
+      OurChain=151,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+
+      {ok,Bin1} = file:read_file("examples/evm_builtin/build/StorageRecursive1.bin-runtime"),
+      {ok,Bin2} = file:read_file("examples/evm_builtin/build/StorageRecursive2.bin-runtime"),
+
+      Code1b=hex:decode(string:chomp(Bin1)),
+      Code2b=hex:decode(string:chomp(Bin2)),
+
+      {ok,Bin3} = file:read_file("examples/evm_builtin/build/multicall.bin-runtime"),
+      Code3b=hex:decode(string:chomp(Bin3)),
+
+      %{done,{return,Code2b},_}=eevm:eval(Code2,#{},#{ gas=>1000000, extra=>#{} }),
+      SkAddr1=naddress:construct_public(1, OurChain, 10),
+      SkAddr2=naddress:construct_public(1, OurChain, 11),
+
+      _TX1=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr2,
+              call=>#{
+                      function => "rcall(address,bytes)",
+                      args => [ SkAddr1, contract_evm_abi:encode_abi_call([10],"test(uint256)") ]
+              },
+              payload=>[
+                        #{purpose=>gas, amount=>trunc(1.0e5), cur=><<"SK">>}
+                       ],
+              seq=>4,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+      _TX2=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr1,
+              call=>#{
+                      function => "test(uint256)",
+                      args => [ 5 ]
+              },
+              payload=>[
+                        #{purpose=>gas, amount=>trunc(1.0e5), cur=><<"SK">>}
+                       ],
+              seq=>5,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+      _TX3=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr1,
+              call=>#{
+                      function => "rcall(address,bytes)",
+                      args => [ SkAddr2,
+                                contract_evm_abi:encode_abi_call([SkAddr1,
+                                contract_evm_abi:encode_abi_call([20],"test(uint256)")
+                                                                 ],"rcall(address,bytes)")
+                              ]
+              },
+              payload=>[
+                        #{purpose=>gas, amount=>trunc(1.0e5), cur=><<"SK">>}
+                       ],
+              seq=>6,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+      TX4=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>Addr1,
+              call=>#{
+                      function => "mcall((address,bytes)[])",
+                      args => [ [[
+                                 SkAddr1,
+                                contract_evm_abi:encode_abi_call([SkAddr2,
+                                contract_evm_abi:encode_abi_call([SkAddr1,
+                                contract_evm_abi:encode_abi_call([20],"test(uint256)")
+                                                                 ],"rcall(address,bytes)")
+                                                                 ],"rcall(address,bytes)")
+                                ]]
+                              ]
+              },
+              payload=>[
+                        #{purpose=>gas, amount=>trunc(1.0e5), cur=><<"SK">>}
+                       ],
+              seq=>7,
+              t=>os:system_time(millisecond),
+              txext => #{
+                         "code" => Code3b,
+                         "vm" => "evm"
+                        }
+             }), Pvt1),
+
+
+      TxList1=[
+%               {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
+%               ,{<<"tx2">>, maps:put(sigverify,#{valid=>1},TX2)}
+               %{<<"tx3">>, maps:put(sigverify,#{valid=>1},TX3)}
+               {<<"tx4">>, maps:put(sigverify,#{valid=>1},TX4)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,Block}
+              end,
+      Ledger=[
+              {Addr1,   #{
+                          amount => #{ <<"SK">> => trunc(1.0e10) }
+                         } },
+              {SkAddr1, #{
+                          amount => #{ <<"SK">> => trunc(1.0e10) },
+                          code => Code1b,
+                          vm => <<"evm">>,
+                          state => #{
+                                     <<0>> => hex:decode("746573745F31000000000000000000000000000000000000000000000000000C"),
+                                     <<1>> => <<128,0,32,0,151,0,0,11>>,
+                                     <<2>> => <<1>>
+                                    }
+                         }
+              },
+              {SkAddr2, #{
+                          code => Code2b,
+                          amount => #{<<"SK">> => trunc(1.0e10)},
+                          vm => <<"evm">>,
+                          state => #{}
+                         }
+              }
+             ],
+
+      {ok,_Log,#{bals:=B0,txs:=_Tx}}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      B=ledger_merge(Ledger,B0),
+      %io:format("Bals changes:~n ~180p~n",[B0]),
+      %io:format("Bals dst~n ~150p~n",[maps:map(fun(_,V) -> maps:remove(code,V) end,B)]),
+      %io:format("st ~p~n",[[ maps:with([call,extdata],Body) || {_,Body} <- Tx]]),
+      %io:format("Block ~p~n",[block:minify(Blk)]),
+
+      {ok,<<R10:256/big>>}=contract_evm:call(SkAddr1, maps:from_list(Ledger), "calls()", []),
+      {ok,<<R11:256/big>>}=contract_evm:call(SkAddr1, B, "calls()", []),
+      {ok,<<R20:256/big>>}=contract_evm:call(SkAddr2, maps:from_list(Ledger), "calls()", []),
+      {ok,<<R21:256/big>>}=contract_evm:call(SkAddr2, B, "calls()", []),
+      {ok,<<P010:256/big>>}=contract_evm:call(SkAddr1, maps:from_list(Ledger), "callsp0()", []),
+      {ok,<<P011:256/big>>}=contract_evm:call(SkAddr1, B, "callsp0()", []),
+      {ok,<<P020:256/big>>}=contract_evm:call(SkAddr2, maps:from_list(Ledger), "callsp0()", []),
+      {ok,<<P021:256/big>>}=contract_evm:call(SkAddr2, B, "callsp0()", []),
+      {ok,<<P110:256/big>>}=contract_evm:call(SkAddr1, maps:from_list(Ledger), "callsp1()", []),
+      {ok,<<P111:256/big>>}=contract_evm:call(SkAddr1, B, "callsp1()", []),
+      {ok,<<P120:256/big>>}=contract_evm:call(SkAddr2, maps:from_list(Ledger), "callsp1()", []),
+      {ok,<<P121:256/big>>}=contract_evm:call(SkAddr2, B, "callsp1()", []),
+      {ok,<<C10:256/big>>}=contract_evm:call(SkAddr2, maps:from_list(Ledger), "counter()", []),
+      {ok,<<C11:256/big>>}=contract_evm:call(SkAddr2, B, "counter()", []),
+      io:format("~s calls() ~p -> ~p~n",[hex:encodex(SkAddr1),R10,R11]),
+      io:format("~s calls() ~p -> ~p~n",[hex:encodex(SkAddr2),R20,R21]),
+      io:format("~s callsp0() ~p -> ~p~n",[hex:encodex(SkAddr1),P010,P011]),
+      io:format("~s callsp0() ~p -> ~p~n",[hex:encodex(SkAddr2),P020,P021]),
+      io:format("~s callsp1() ~p -> ~p~n",[hex:encodex(SkAddr1),P110,P111]),
+      io:format("~s callsp1() ~p -> ~p~n",[hex:encodex(SkAddr2),P120,P121]),
+      io:format("~s counter() ~p -> ~p~n",[hex:encodex(SkAddr2),C10,C11]),
+      [
+       ?assertMatch([{1,2},{0,1},{0,1},{0,1},{0,1},{0,1},{0,20}],
+                    [{R10,R11},{R20,R21},{P010,P011},{P020,P021},{P110,P111},{P120,P121},{C10,C11}])
+      ].
+
+
+ledger_merge(List1,Map2) ->
+  Map1=maps:from_list(List1),
+  mapmerge(Map1,Map2,[{any,[{amount,[]},{state,[]}]}]).
+
+mapmerge(Map1,Map2,Rec) ->
+  Keys=lists:usort(maps:keys(Map1)++maps:keys(Map2)),
+  lists:foldl(
+    fun(Key,Acc) ->
+        L1=maps:get(Key,Map1,undefined),
+        L2=maps:get(Key,Map2,undefined),
+        if(L1==undefined andalso L2==undefined) ->
+            Acc;
+          (L1==undefined) ->
+            maps:put(Key,L2,Acc);
+          (L2==undefined) ->
+            maps:put(Key,L1,Acc);
+          true ->
+            case lists:keyfind(Key,1,Rec) of
+              {Key,Val} ->
+                maps:put(Key,mapmerge(L1,L2,Val),Acc);
+              false ->
+                case lists:keyfind(any,1,Rec) of
+                  {any,Val} ->
+                    maps:put(Key,mapmerge(L1,L2,Val),Acc);
+                  false ->
+                    maps:put(Key,L2,Acc)
+                end
+            end
+        end
+    end, #{}, Keys).
+
+

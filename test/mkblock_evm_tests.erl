@@ -1370,10 +1370,8 @@ evm_revert_test() ->
         end, Log),
       [
        ?assertMatch([
-                     [<<"1log">>,<<"evm">>, <<"revert">>, <<131073:256/big>>],
-                     _,
-                     [<<"2log">>,<<"evm">>, <<"revert">>, _],
-                     _
+                     [<<"1log">>,<<"evm:revert">>,_,_, <<131073:256/big>>],
+                     [<<"2log">>,<<"evm:revert">>,_,_, _]
                     ], ReadableLog),
        ?assertMatch(true,true)
       ].
