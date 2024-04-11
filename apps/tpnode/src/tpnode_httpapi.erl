@@ -1570,35 +1570,54 @@ prettify_tx(TXB, BinPacker) ->
 
 show_signs(Signs, BinPacker, IsNode) ->
   lists:map(
-    fun(BSig) ->
-        #{binextra:=Hdr,
-          extra:=Extra,
-          signature:=Signature}=bsig:unpacksig(BSig),
-        UExtra=lists:map(
-                 fun({K, V}) ->
-                     if(is_binary(V)) ->
-                         {K, BinPacker(V)};
-                       true ->
-                         {K, V}
-                     end
-                 end, Extra
-                ),
-        NodeID=proplists:get_value(pubkey, Extra, <<>>),
-        R1=#{ binextra => BinPacker(Hdr),
-           signature => BinPacker(Signature),
-           extra =>UExtra
-         },
-        if IsNode ->
-             R1#{
-               '_nodeid' => nodekey:node_id(NodeID),
-               '_nodename' => try chainsettings:is_our_node(NodeID)
-                              catch _:_ -> null
-                              end
-              };
-           true ->
-             R1
-        end
-    end, Signs).
+       fun(BSig) ->
+           Map=#{extra:=Extra}=bsig:unpacksig(BSig),
+           R1=maps:map(
+             fun(binextra,V) ->
+                 BinPacker(V);
+                (signature,V) ->
+                 BinPacker(V);
+                (extra,List) ->
+                 lists:map(
+                   fun({K, V}) ->
+                       if(is_binary(V)) ->
+                           {K, BinPacker(V)};
+                         true ->
+                           {K, V}
+                       end
+                   end, List
+                  );
+                (_,V) -> V
+             end,Map),
+
+           %        #{binextra:=Hdr,
+           %          extra:=Extra,
+           %          signature:=Signature}=bsig:unpacksig(BSig),
+           %        UExtra=lists:map(
+           %                 fun({K, V}) ->
+           %                     if(is_binary(V)) ->
+           %                         {K, BinPacker(V)};
+           %                       true ->
+           %                         {K, V}
+           %                     end
+           %                 end, Extra
+           %                ),
+           NodeID=proplists:get_value(pubkey, Extra, <<>>),
+           %        R1=#{ binextra => BinPacker(Hdr),
+           %              signature => BinPacker(Signature),
+           %              extra =>UExtra
+           %            },
+           if IsNode ->
+                R1#{
+                  '_nodeid' => nodekey:node_id(NodeID),
+                  '_nodename' => try chainsettings:is_our_node(NodeID)
+                                 catch _:_ -> null
+                                 end
+                 };
+              true ->
+                R1
+           end
+       end, Signs).
 
 % ----------------------------------------------------------------------
 

@@ -2,7 +2,7 @@
 -export([checksig/3, checksig/2]).
 -export([checksig1/3, checksig1/2]).
 -export([signhash/3, signhash1/3]).
--export([packsigld/1, packsig/1, unpacksig/1]).
+-export([packsig/1, unpacksig/1]).
 -export([add_localdata/2]).
 -export([set_localdata/2]).
 -export([get_localdata/1]).
@@ -197,19 +197,12 @@ set_localdata(#{}=Sig,LD1) ->
 packsig(BinSig) when is_binary(BinSig) ->
     BinSig;
 
-packsig(#{signature:=Signature, binextra:=BinExtra}) ->
-    <<255, (size(Signature)):8/integer, Signature/binary,
-      BinExtra/binary>>.
-
-packsigld(BinSig) when is_binary(BinSig) ->
-    BinSig;
-
-packsigld(#{local_data:=LD, signature:=Signature, binextra:=BinExtra}) ->
+packsig(#{local_data:=LD, signature:=Signature, binextra:=BinExtra}) ->
     <<254, (size(LD)):8/integer, LD/binary,
       255, (size(Signature)):8/integer, Signature/binary,
       BinExtra/binary>>;
 
-packsigld(#{signature:=Signature, binextra:=BinExtra}) ->
+packsig(#{signature:=Signature, binextra:=BinExtra}) ->
     <<255, (size(Signature)):8/integer, Signature/binary,
       BinExtra/binary>>.
 

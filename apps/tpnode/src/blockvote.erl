@@ -98,7 +98,9 @@ handle_cast({tpic, _From, #{
                      <<"sign">> := Sigs
                     }},
             #{mychain:=MyChain}=State) when MyChain==MsgChain ->
-    handle_cast({signature, BlockHash, Sigs}, State);
+    LD = << 64 , (os:system_time(microsecond)):64/big >>,
+    Sigs2 = [ bsig:set_localdata(E, LD) || E <- Sigs ],
+    handle_cast({signature, BlockHash, Sigs2}, State);
 
 handle_cast({tpic, _From, #{
                      null:=<<"blockvote">>,
