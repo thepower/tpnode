@@ -2,7 +2,10 @@
 -export([checksig/3, checksig/2]).
 -export([checksig1/3, checksig1/2]).
 -export([signhash/3, signhash1/3]).
--export([packsig/1, unpacksig/1]).
+-export([packsigld/1, packsig/1, unpacksig/1]).
+-export([add_localdata/2]).
+-export([set_localdata/2]).
+-export([get_localdata/1]).
 -export([pack_sign_ed/1, unpack_sign_ed/1]).
 -export([add_sig/2]).
 -export([extract_pubkey/1, extract_pubkeys/1]).
@@ -118,8 +121,9 @@ decode_edval(240, <<KL:8/integer, Rest/binary>>=Raw) ->
         {240, Raw}
   end;
 
-decode_edval(254, Bin) -> {purpose, Bin};
+%decode_edval(254, Bin) -> {purpose, Bin};
 decode_edval(255, Bin) -> {signature, Bin};
+decode_edval(254, Bin) -> {local_data, Bin};
 decode_edval(Key, BinVal) -> {Key, BinVal}.
 
 encode_edval(timestamp, Integer) -> <<1, 8, Integer:64/big>>;
@@ -134,7 +138,7 @@ encode_edval(baldep, {Address,Seq}) ->
   8=size(Address),
   <<7, 16, Address/binary, Seq:64/big>>;
 encode_edval(signature, PK) -> <<255, (size(PK)):8/integer, PK/binary>>;
-encode_edval(purpose, PK) -> <<254, (size(PK)):8/integer, PK/binary>>;
+%encode_edval(purpose, PK) -> <<254, (size(PK)):8/integer, PK/binary>>;
 encode_edval(N, PK) when is_binary(N) andalso is_binary(PK) ->
   TS=size(N)+size(PK)+1,
   if TS>=64 ->
@@ -144,23 +148,71 @@ encode_edval(N, PK) when is_binary(N) andalso is_binary(PK) ->
   end;
 encode_edval(_, _) -> <<>>.
 
-splitsig(<<255, SLen:8/integer, Signature:SLen/binary, Rest/binary>>) ->
-    {Signature, Rest}.
+splitsig(Bin) ->
+  splitsig(Bin,#{}).
+
+splitsig(<<255, SLen:8/integer, Signature:SLen/binary, Rest/binary>>,A) ->
+  A#{signature => Signature,
+     binextra => Rest};
+
+splitsig(<<254, LLen:8/integer, LocalData:LLen/binary, Rest/binary>>,A) ->
+  splitsig(Rest,A#{local_data => LocalData}).
 
 unpacksig(HSig) when is_map(HSig) ->
     HSig;
 
 unpacksig(BSig) when is_binary(BSig) ->
-    {Signature, Hdr}=splitsig(BSig),
-    #{ binextra => (Hdr),
-       signature => (Signature),
-       extra => unpack_sign_ed(Hdr)
-     }.
+  #{binextra:=BE}=Split=splitsig(BSig),
+  Split#{extra=> unpack_sign_ed(BE)}.
+
+get_localdata(<<254, LLen:8/integer, LD0:LLen/binary, _Rest/binary>>) ->
+  LD0;
+get_localdata(#{local_data:=LD0}) ->
+  LD0;
+get_localdata(_) ->
+  <<>>.
+
+add_localdata(<<255,_/binary>> = Sig, LD) ->
+  <<254, (size(LD)):8/integer, LD/binary, Sig/binary>>;
+
+add_localdata(#{local_data:=LD0}=Sig,LD1) ->
+  Sig#{
+    local_data => <<LD0/binary,LD1/binary>>
+   };
+
+add_localdata(#{}=Sig,LD1) ->
+  Sig#{
+    local_data => <<LD1/binary>>
+   }.
+
+set_localdata(<<255,_/binary>> = Sig, LD) ->
+  <<254, (size(LD)):8/integer, LD/binary, Sig/binary>>;
+
+set_localdata(<<254, LLen:8/integer, _LD0:LLen/binary, Rest/binary>>, LD1) ->
+  <<254, (size(LD1)):8/integer, LD1/binary, Rest/binary>>;
+
+set_localdata(#{}=Sig,LD1) ->
+  Sig#{ local_data => <<LD1/binary>> }.
 
 packsig(BinSig) when is_binary(BinSig) ->
     BinSig;
+
 packsig(#{signature:=Signature, binextra:=BinExtra}) ->
-    <<255, (size(Signature)):8/integer, Signature/binary, BinExtra/binary>>.
+    <<255, (size(Signature)):8/integer, Signature/binary,
+      BinExtra/binary>>.
+
+packsigld(BinSig) when is_binary(BinSig) ->
+    BinSig;
+
+packsigld(#{local_data:=LD, signature:=Signature, binextra:=BinExtra}) ->
+    <<254, (size(LD)):8/integer, LD/binary,
+      255, (size(Signature)):8/integer, Signature/binary,
+      BinExtra/binary>>;
+
+packsigld(#{signature:=Signature, binextra:=BinExtra}) ->
+    <<255, (size(Signature)):8/integer, Signature/binary,
+      BinExtra/binary>>.
+
 
 add_sig(OldSigs, NewSigs) ->
   Apply=fun(#{extra:=EPL}=Sig, Acc) ->
