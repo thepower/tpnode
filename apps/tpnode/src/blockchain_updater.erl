@@ -273,11 +273,14 @@ handle_call({new_block, #{hash:=BlockHash,
         end,
         MBlk=case maps:get(BlockHash, Candidates, undefined) of
                undefined ->
-                 Blk;
+                 Blk#{
+                   <<"_install_t">> => os:system_time(microsecond)
+                  };
                #{sign:=BSig}=ExBlk ->
                  NewSigs=lists:usort(BSig ++ Success),
                  ExBlk#{
-                   sign=>NewSigs
+                   sign=>NewSigs,
+                   <<"_install_t">> => os:system_time(microsecond)
                   }
              end,
         SigLen=length(maps:get(sign, MBlk)),

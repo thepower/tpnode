@@ -10,6 +10,8 @@
 -export([start_link/0]).
 -export([blkid/1,
          mychain/0,
+         get_block/2,
+         get_block/1,
          send_block_real/4]).
 %-export([mychain0/0]).
 
@@ -131,6 +133,15 @@ handle_call({block_exists, BlockHash}, _From, #{ldb:=LDB} = State)
       true
   end,
   {reply, Exists, State};
+
+handle_call({get_block, Height}, _From, #{ldb:=LDB} = State) when is_integer(Height) ->
+  case ldb:read_key(LDB, <<"h:", Height:64/big>>, undefined) of
+    undefined ->
+      {reply, not_found, State};
+    Hash ->
+      Res=block_rel(LDB, Hash, self),
+      {reply, Res, State}
+  end;
 
 handle_call({get_hash, Height}, _From, #{ldb:=LDB} = State) when is_integer(Height) ->
   R=
@@ -605,4 +616,9 @@ mychain(State) ->
      true ->
        State
   end.
+
+get_block(BlockHash, Rel) ->
+  gen_server:call(?SERVER,{get_block, BlockHash, Rel}).
+get_block(H) when is_integer(H) ->
+  gen_server:call(?SERVER,{get_block, H}).
 

@@ -164,6 +164,17 @@ upgrade_pubkey(<<4,_:64/binary>> =PubKey) ->
                              },
                            subjectPublicKey = PubKey}
                        );
+upgrade_pubkey(<<PubKey:32/binary>>) ->
+  public_key:der_encode('SubjectPublicKeyInfo',
+                            #'SubjectPublicKeyInfo'{
+                               algorithm =
+                               #'AlgorithmIdentifier'{
+                                  algorithm = {1,3,101,112},
+                                  parameters = asn1_NOVALUE
+                                 },
+                               subjectPublicKey = PubKey}
+                           );
+
 upgrade_pubkey(DerEncoded) when is_binary(DerEncoded) ->
   DerEncoded.
 
