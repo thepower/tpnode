@@ -506,13 +506,13 @@ call(Address, LedgerMap, Method, Args) ->
                        trace=>whereis(eevm_tracer)
                       }),
   case Result of
-    {done, {return,RetVal}, X1} ->
+    {done, {return,RetVal}, _X1} ->
       {ok, RetVal};
     {done, 'stop', _} ->
       {ok, stop};
     {done, 'invalid', _} ->
       {ok, invalid};
-    {done, {revert, Msg}, X1} ->
+    {done, {revert, Msg}, _X1} ->
       {revert, Msg};
     {error, nogas, _} ->
       {error, nogas, 0};
