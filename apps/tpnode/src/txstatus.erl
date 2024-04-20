@@ -66,8 +66,15 @@ handle_cast({done, Result, Txs}, #{q:=Q} = State) when is_list(Txs) ->
   Q1 = lists:foldl(
     fun
       ({TxID, Res}, QAcc) ->
+        tinymq:push(TxID,{Result,Res}),
         hashqueue:add(TxID, Timeout, {Result, Res}, QAcc);
       (TxID, QAcc) ->
+        tinymq:push(TxID,{Result,
+            if Result ->
+              ok;
+              true -> error
+            end
+          }),
         hashqueue:add(
           TxID,
           Timeout,
@@ -79,6 +86,7 @@ handle_cast({done, Result, Txs}, #{q:=Q} = State) when is_list(Txs) ->
           },
           QAcc)
     end, Q, Txs),
+
   {noreply,
     State#{q=>Q1}
   };
