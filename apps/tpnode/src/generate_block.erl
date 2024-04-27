@@ -133,6 +133,32 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            log=>[],
            get_addr=>GetAddr
           },
+  ?LOG_INFO("Afterblock ~p",[settings:get([<<"current">>, <<"autorun">>,<<"afterBlock">>],
+                                          XSettings)]),
+  TXL1=case settings:get([<<"current">>, <<"autorun">>,<<"afterBlock">>], XSettings) of
+    <<AutoRunAddr:8/binary>> when TXL=/=[] ->
+           TXL++[{<<"afterBlock">>,
+                  maps:merge(
+                    tx:construct_tx(
+                      #{
+                        call => #{args => [],function => "afterBlock()"},
+                        from => <<160,0,0,0,0,0,0,0>>,
+                        kind => generic,
+                        payload => [],
+                        seq => Parent_Height+1,
+                        t => MeanTime,
+                        to => AutoRunAddr,
+                        txext => #{},
+                        ver => 2}),
+                    #{
+                      sig => [],
+                      sigverify => #{invalid => 0, pubkeys => [<<>>], valid => 1}
+                     })
+                 }];
+    _ -> TXL
+  end,
+
+  ?LOG_INFO("TXL1 ~p~n",[TXL1]),
   #{failed:=Failed,
     table:=NewBal0,
     success:=Success,
@@ -144,7 +170,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     emit:=EmitTXs0,
     log:=Logs0,
     new_settings := NewSettings
-   }=finish_processing(generate_block_process:try_process(TXL, GBInit)),
+   }=finish_processing(generate_block_process:try_process(TXL1, GBInit)),
   if(FeeCollected == #{amount => #{},changes => []}
      andalso
      TipCollected == #{amount => #{},changes => []}) ->

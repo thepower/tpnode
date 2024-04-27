@@ -1,13 +1,15 @@
 -module(contract_evm).
 -include("include/tplog.hrl").
 
--export([deploy/5, handle_tx/5, getters/0, get/3, info/0, call/3, call/4]).
+-export([deploy/5, handle_tx/5, getters/0, get/3, info/0, call/3, call/4, call_i/4]).
 -export([encode_tx/2,decode_tx/2]).
 -export([tx_abi/0]).
 -export([enc_settings1/1]).
 -export([callcd/3]).
+-export([ask_ERC165/3]).
+-export([ask_ERC165/2]).
 -export([transform_extra/1]).
--export([ask_if_sponsor/1, ask_if_wants_to_pay/4]).
+-export([ask_if_sponsor/1, ask_if_wants_to_pay/4,ask_if_wants_to_pay/3]).
 -export([preencode_tx/2]).
 
 info() ->
@@ -409,7 +411,7 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
                    trace=>whereis(eevm_tracer)
                   }),
 
-  ?LOG_DEBUG("Call (~s) -> {~p~n,~p~n,...}~n",[hex:encode(CD), element(1,Result),element(2,Result)]),
+  ?LOG_INFO("Call (~s) -> {~p~n,~p~n,...}~n",[hex:encode(CD), element(1,Result),element(2,Result)]),
   case Result of
     {done, {return,RetVal}, RetState} ->
       returndata(RetState,#{"return"=>RetVal});
@@ -447,7 +449,6 @@ call(#{state:=_State,code:=_Code}=Ledger,Method,Args) ->
   ?LOG_ERROR("deprecated call"),
   call(<<1>>,#{<<1>>=>Ledger},Method,Args).
 
-
 call(Address, LedgerMap, Method, Args) ->
   SLoad=fun(Addr, IKey, _) ->
             %io:format("=== sLoad key 0x~s:~p~n",[hex:encode(binary:encode_unsigned(Addr)),IKey]),
@@ -455,28 +456,21 @@ call(Address, LedgerMap, Method, Args) ->
             S=maps:get(state,L,#{}),
             binary:decode_unsigned(maps:get(binary:encode_unsigned(IKey),S,<<0>>))
         end,
-  GetCodeFun = fun(Addr,_) ->
+  GetCode = fun(Addr,_) ->
                    L=maps:get(binary:encode_unsigned(Addr),LedgerMap,#{}),
                    maps:get(code,L,<<>>)
                end,
+  call_i(Address, Method, Args, #{sload=>SLoad, getcode=>GetCode}).
 
-  %SLoad=fun(IKey) ->
-  %          %io:format("Load key ~p~n",[IKey]),
-  %          BKey=binary:encode_unsigned(IKey),
-  %          binary:decode_unsigned(maps:get(BKey, State, <<0>>))
-  %      end,
+call_i(Address, Method, Args, #{sload:=SLoad, getcode:=GetCode}=Opts) ->
   CD=case Method of
+       "0x0" ->
+         list_to_binary(Args);
        "0x"++FunID ->
          FunHex=hex:decode(FunID),
          BArgs=abi_encode_simple(Args),
-         %lists:foldl(fun encode_arg/2, <<FunHex:4/binary>>, Args);
          <<FunHex:4/binary,BArgs/binary>>;
        FunNameID when is_list(FunNameID) ->
-         %{ok,E}=ksha3:hash(256, list_to_binary(FunNameID)),
-         %<<X:4/binary,_/binary>> = E,
-         %BArgs=abi_encode_simple(Args),
-         %%lists:foldl(fun encode_arg/2, <<X:4/binary>>, Args)
-         %<<X:4/binary,BArgs/binary>>
          {ok,{{function,_},FABI,_}=S} = contract_evm_abi:parse_signature(FunNameID),
          if(length(FABI)==length(Args)) -> ok;
            true -> throw("amount of arguments does not match with signature")
@@ -486,13 +480,13 @@ call(Address, LedgerMap, Method, Args) ->
          <<X:32/big,BArgs/binary>>
      end,
 
-  Code=GetCodeFun(binary:decode_unsigned(Address),#{}),
+  Code=GetCode(binary:decode_unsigned(Address),#{}),
   Result = eevm:eval(Code,
                      #{},
                      #{
-                       gas=>30000,
+                       gas=>maps:get(gas,Opts,30000),
                        sload=>SLoad,
-                       get=>#{ code => GetCodeFun },
+                       get=>#{ code => GetCode },
                        value=>0,
                        cd=>CD,
                        data=>#{
@@ -1006,6 +1000,91 @@ ask_if_wants_to_pay(Code, Tx, Gas, From) ->
   catch Ec:Ee:S ->
           ?LOG_ERROR("~s static call error: ~p:~p @ ~p",[Function,Ec,Ee,S]),
           false
+  end.
+
+%ask_if_wants_to_pay(Address, Tx) ->
+%ask_if_wants_to_pay(Address, Tx, fun mledger:getfun/1).
+
+ask_if_wants_to_pay(Address, Tx, GetFun) ->
+  Function= <<"wouldYouLikeToPayTx("
+  "(uint256,address,address,uint256,uint256,"
+  "(string,uint256[])[],"
+  "(uint256,string,uint256)[],"
+  "(bytes,uint256,bytes,bytes,bytes)[])"
+  ")">>,
+  try
+    %{ok,{_,OutABI,_}}=contract_evm_abi:parse_signature(
+    %                    "(string iWillPay,(uint256 purpose,string cur,uint256 amount)[] pay)"
+    %                   ),
+    OutABI=[{<<"iWillPay">>,string},{<<"pay">>,{darray,{tuple,[{<<"purpose">>,uint256},{<<"cur">>,string},{<<"amount">>,uint256}]}}}],
+    {ok,PTx}=preencode_tx(Tx,[]),
+
+    GetCode = fun(Addr,_Ex0) ->
+                  GotCode=GetFun({code,binary:encode_unsigned(Addr)}),
+                  if is_binary(GotCode) ->
+                       GotCode;
+                     GotCode==undefined ->
+                       <<>>
+                  end
+              end,
+    SLoad=fun(Addr, IKey, _Ex0) ->
+              BKey=binary:encode_unsigned(IKey),
+              binary:decode_unsigned(
+                GetFun({storage,binary:encode_unsigned(Addr),BKey})
+               )
+          end,
+
+    case call_i(Address, Function, [PTx], #{sload=>SLoad, getcode=>GetCode}) of
+      {ok,Ret} ->
+        case contract_evm_abi:decode_abi(Ret,OutABI) of
+          [{<<"iWillPay">>,<<"i will pay">>},{<<"pay">>,WillPay}] ->
+            R=lists:foldr(
+                fun([{<<"purpose">>,P},{<<"cur">>,Cur},{<<"amount">>,Amount}],A) ->
+                    [#{purpose=>tx:decode_purpose(P), cur=>Cur, amount=>Amount}|A]
+                end, [], WillPay),
+            {ok, R};
+          [{<<"iWillPay">>,<<"no">>},_] ->
+            ?LOG_INFO("Sponsor is not willing to pay for tx"),
+            false;
+          Any ->
+            ?LOG_ERROR("~s static call error: unexpected result ~p",[Function,Any]),
+            false
+        end;
+      Any ->
+        ?LOG_ERROR("~s static call error: unexpected return  ~p",[Function,Any]),
+        false
+    end
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("~s static call error: ~p:~p @ ~p",[Function,Ec,Ee,S]),
+          false
+  end.
+
+ask_ERC165(Address, InterfaceId) ->
+  ask_ERC165(Address, InterfaceId, fun mledger:getfun/1).
+
+ask_ERC165(Address, InterfaceId, GetFun) ->
+  GetCode = fun(Addr,_Ex0) ->
+                   GotCode=GetFun({code,binary:encode_unsigned(Addr)}),
+                   if is_binary(GotCode) ->
+                        GotCode;
+                      GotCode==undefined ->
+                        <<>>
+                   end
+               end,
+  SLoad=fun(Addr, IKey, _Ex0) ->
+            BKey=binary:encode_unsigned(IKey),
+            binary:decode_unsigned(
+              GetFun({storage,binary:encode_unsigned(Addr),BKey})
+             )
+        end,
+  try
+    %supportsInterface(bytes4 interfaceId) returns (bool) #01FFC9A7
+    {ok,<<1:256/big>>}=call_i(Address, "supportsInterface(bytes4)", [InterfaceId],
+                              #{sload=>SLoad, getcode=>GetCode}),
+    {ok,<<0:256/big>>}=call_i(Address, "supportsInterface(bytes4)", [<<255,255,255,255>>],
+                              #{sload=>SLoad, getcode=>GetCode}),
+    true
+  catch _:_ -> false
   end.
 
 ask_if_sponsor(Code) ->

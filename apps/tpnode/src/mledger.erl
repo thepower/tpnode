@@ -7,6 +7,7 @@
 -export([dbmtfun/3]).
 -export([mb2item/1]).
 -export([get_lstore/2,get_lstore_map/2]).
+-export([getfun/1]).
 -export([get_kv/1]).
 -export([get_kpv/3, get_kpvs/4, get_kpvs/3]).
 -export([get_kpvs_height/5, get_kpvs_height/4]). % <- it's relative slow !!
@@ -521,5 +522,34 @@ addr_proof(Address) ->
         }
     end),
   Res.
+
+getfun({storage,Addr,Key}) ->
+  case mledger:get_kpv(Addr,state,Key) of
+    undefined ->
+      <<>>;
+    {ok, Bin} ->
+      Bin
+  end;
+getfun({code,Addr}) ->
+  ?LOG_INFO("Load code for address ~p",[Addr]),
+  case mledger:get_kpv(Addr,code,[]) of
+    undefined ->
+      <<>>;
+    {ok, Bin} ->
+      Bin
+  end;
+getfun({lstore,Addr,Path}) ->
+  mledger:get_lstore_map(Addr,Path);
+getfun({Addr, _Cur}) -> %slow method to get everything of account
+  case mledger:get(Addr) of
+    #{amount:=_}=Bal -> maps:without([changes],Bal);
+    undefined -> mbal:new()
+  end;
+getfun(Addr) -> %slow method to get everything of account
+  ?LOG_INFO("Load everything for address ~p",[Addr]),
+  case mledger:get(Addr) of
+    #{amount:=_}=Bal -> maps:without([changes],Bal);
+    undefined -> mbal:new()
+  end.
 
 

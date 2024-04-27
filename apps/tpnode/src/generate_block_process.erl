@@ -1021,7 +1021,6 @@ try_process_outbound([{TxID,
                        new_settings:=SetState
                       }=Acc) ->
   ?LOG_INFO("Processing outbound ==[ ~s ]=======",[TxID]),
-  ?LOG_NOTICE("TODO:Check signature once again"),
   ?LOG_INFO("outbound to chain ~p ~p", [OutTo, To]),
   FBal=maps:get(From, Addresses),
 
@@ -1054,6 +1053,7 @@ try_process_local([{TxID,
                     #{to:=To, from:=From}=Tx}
                    |Rest]=TXL,
                   #{
+                    get_addr:=GetAddr,
                     table:=Addresses,
                     get_settings:=GetFun,
                     new_settings:=SetState,
@@ -1095,18 +1095,23 @@ try_process_local([{TxID,
              throw('sponsor_not_loaded');
            true ->
              SPAcc=maps:get(Sponsor, Addresses),
-             IsSponsor=ask_if_sponsor(SPAcc),
-             case IsSponsor of
-               {true, {Token, Amount}} ->
-                 case to_gas(#{amount=>Amount, cur=>Token}, SetState) of
-                   {ok, {_Tkn,TknAm,{Num,Den}}} ->
-                     ?LOG_NOTICE("fixme: save gas here"),
-                     ask_if_wants_to_pay(SPAcc, Tx, (TknAm*Num) div Den,Sponsor);
+             case contract_evm:ask_ERC165(Sponsor,<<16#1B,16#97,16#71,16#2B>>,GetAddr) of
+               true ->
+                 ask_if_wants_to_pay(SPAcc, Tx, 30000,Sponsor);
+               false ->
+                 IsSponsor=ask_if_sponsor(SPAcc),
+                 case IsSponsor of
+                   {true, {Token, Amount}} ->
+                     case to_gas(#{amount=>Amount, cur=>Token}, SetState) of
+                       {ok, {_Tkn,TknAm,{Num,Den}}} ->
+                         ?LOG_NOTICE("fixme: save gas here"),
+                         ask_if_wants_to_pay(SPAcc, Tx, (TknAm*Num) div Den,Sponsor);
+                       _ ->
+                         {false, invalid_gas_specified}
+                     end;
                    _ ->
-                     {false, invalid_gas_specified}
-                 end;
-               _ ->
-                 {false, no_sponsor}
+                     {false, no_sponsor}
+                 end
              end
          end;
        true ->
@@ -1285,10 +1290,15 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
     {_,undefined} ->
       {Addresses, [], GasLimit, Acc#{table=>Addresses}, []};
     {false,VMType} ->
-      FreeGas=case settings:get([<<"current">>, <<"freegas">>], SetState) of
+      FreeGasC=case settings:get([<<"current">>, <<"freegas">>], SetState) of
                 N when is_integer(N), N>0 -> N;
                 _ -> 0
               end,
+      FreeGasP=case settings:get([<<"current">>, <<"freegas2">>,Address], SetState) of
+                N1 when is_integer(N1), N1>0 -> N1;
+                _ -> 0
+              end,
+      FreeGas=FreeGasC+FreeGasP,
       ?LOG_INFO("Smartcontract ~p gas ~p free gas ~p", [VMType, GasLimit, FreeGas]),
       GetAddr1=fun({storage,BAddr,BKey}=Q) ->
                    case maps:get(BAddr,Addresses,undefined) of
@@ -1322,6 +1332,7 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
                       LStore=mbal:get(lstore,UBal),
                       settings:get(Path, LStore);
                     ({addr,ReqAddr,storage,Key}) ->
+                      ?LOG_ERROR("METHOD_DEPRECATED"),
                       GetAddr({storage,ReqAddr,Key});
                     ({code,_Addr}=Request) ->
                       GetAddr(Request);
@@ -1429,6 +1440,7 @@ withdraw(FBal0,
     Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
     IsContract=is_binary(mbal:get(vm, FBal0)) andalso Contract_Issued=={ok, From},
 
+
     ?LOG_INFO("Withdraw ~p ~p", [IsContract, maps:without([body,sig],Tx)]),
     if Timestamp==0 andalso IsContract ->
          ok;
@@ -1444,28 +1456,32 @@ withdraw(FBal0,
     end,
     LD=mbal:get(t, FBal0) div 86400000,
     CD=Timestamp div 86400000,
-    if IsContract -> ok;
-       Sponsor==true -> ok;
-       true ->
-         NoSK=settings:get([<<"current">>, <<"nosk">>], Settings)==1,
-         if NoSK -> ok;
-            true ->
-              FSK=mbal:get_cur(<<"SK">>, FBal0),
-              FSKUsed=if CD>LD ->
-                           0;
-                         true ->
-                           mbal:get(usk, FBal0)
-                      end,
-              ?LOG_DEBUG("usk ~p SK ~p",[FSKUsed,FSK]),
-              if FSK < 1 ->
-                   case GetFun({endless, From, <<"SK">>}) of
-                     true -> ok;
-                     false -> throw('no_sk')
-                   end;
-                 FSKUsed >= FSK -> throw('sk_limit');
-                 true -> ok
-              end
-         end
+    case naddress:parse(From) of
+      #{type := private} -> ok;
+      #{type := public} ->
+        if IsContract -> ok;
+           Sponsor==true -> ok;
+           true ->
+             NoSK=settings:get([<<"current">>, <<"nosk">>], Settings)==1,
+             if NoSK -> ok;
+                true ->
+                  FSK=mbal:get_cur(<<"SK">>, FBal0),
+                  FSKUsed=if CD>LD ->
+                               0;
+                             true ->
+                               mbal:get(usk, FBal0)
+                          end,
+                  ?LOG_DEBUG("usk ~p SK ~p",[FSKUsed,FSK]),
+                  if FSK < 1 ->
+                       case GetFun({endless, From, <<"SK">>}) of
+                         true -> ok;
+                         false -> throw('no_sk')
+                       end;
+                     FSKUsed >= FSK -> throw('sk_limit');
+                     true -> ok
+                  end
+             end
+        end
     end,
     CurFSeq=mbal:get(seq, FBal0),
     if CurFSeq < Seq -> ok;

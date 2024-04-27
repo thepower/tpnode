@@ -107,6 +107,12 @@ handle_cast({done, Txs}, #{inprocess:=InProc0,
               LCnt,
               Txs
              ),
+
+    lists:foreach(fun({TxID,Reason}) ->
+                      tinymq:push(TxID,{true,Reason});
+                     (TxID) when is_binary(TxID) ->
+                      tinymq:push(TxID,{true,undefined})
+                  end, Txs),
   gen_server:cast(txstatus, {done, true, Txs}),
   gen_server:cast(tpnode_ws_dispatcher, {done, true, Txs}),
   {noreply,
@@ -140,6 +146,10 @@ handle_cast({failed, Txs}, #{inprocess:=InProc0,
             LCnt,
             Txs
            ),
+
+  lists:foreach(fun({TxID,Reason}) ->
+                    tinymq:push(TxID,{false,Reason})
+                end, Txs),
   gen_server:cast(txstatus, {done, false, Txs}),
   gen_server:cast(tpnode_ws_dispatcher, {done, false, Txs}),
   {noreply, State#{
