@@ -928,6 +928,23 @@ h(<<"GET">>, [<<"block_candidates">>], _Req) ->
         )
   end;
 
+h(<<"GET">>, [<<"binblockn">>, BlockNum], _Req) ->
+  Number=binary_to_integer(BlockNum),
+  case blockchain_reader:get_block(Number) of
+    not_found ->
+        err(
+            10006,
+            <<"Not found">>,
+            #{result => <<"not_found">>},
+            #{http_code => 404}
+        );
+    #{}=GoodBlock ->
+      {200,
+       [{<<"content-type">>,<<"binary/tp-block">>}],
+       block:pack(GoodBlock)
+      }
+  end;
+
 h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
   BlockHash0=if(BlockId == <<"last">>) -> last;
                (BlockId == <<"genesis">>) -> genesis;
@@ -969,6 +986,45 @@ h(<<"GET">>, [<<"txtblock">>, BlockId], _Req) ->
         )
       }
   end;
+
+h(<<"GET">>, [<<"blockn">>, BlockNo], _Req) ->
+  QS=cowboy_req:parse_qs(_Req),
+  BinPacker=packer(_Req),
+  Address=case proplists:get_value(<<"addr">>, QS) of
+            undefined -> undefined;
+            Addr -> naddress:decode(Addr)
+          end,
+  Number=binary_to_integer(BlockNo),
+  case blockchain_reader:get_block(Number) of
+    not_found ->
+        err(
+            10006,
+            <<"Not found">>,
+            #{result => <<"not_found">>},
+            #{http_code => 404}
+        );
+    #{}=GoodBlock ->
+      ReadyBlock=if Address == undefined ->
+                      GoodBlock;
+                    is_binary(Address) ->
+                      filter_block(
+                        GoodBlock,
+                        Address)
+                 end,
+      Block=prettify_block(ReadyBlock, BinPacker),
+      EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+              Conf1=jsx_config:list_to_config(Conf),
+              jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                                State, Handler, Stack, Conf1)
+          end,
+      answer(
+        #{ result => <<"ok">>,
+           block => Block
+         },
+        #{jsx=>[ strict, {error_handler, EHF} ]}
+       )
+  end;
+
 
 h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
