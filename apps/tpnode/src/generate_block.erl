@@ -133,11 +133,11 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            log=>[],
            get_addr=>GetAddr
           },
-  ?LOG_INFO("Afterblock ~p",[settings:get([<<"current">>, <<"autorun">>,<<"afterBlock">>],
+  ?LOG_DEBUG("Afterblock ~p",[settings:get([<<"current">>, <<"autorun">>,<<"afterBlock">>],
                                           XSettings)]),
   TXL1=case settings:get([<<"current">>, <<"autorun">>,<<"afterBlock">>], XSettings) of
     <<AutoRunAddr:8/binary>> when TXL=/=[] ->
-           TXL++[{<<"afterBlock">>,
+           TXL++[{<<"~afterBlock">>,
                   maps:merge(
                     tx:construct_tx(
                       #{
