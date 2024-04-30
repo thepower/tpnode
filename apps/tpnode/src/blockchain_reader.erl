@@ -589,8 +589,8 @@ mychain() ->
                     ?LOG_ERROR("Can't parse node key ~p -> ~p",[Key, Val]),
                     Acc
                 end, #{}, KeyDB),
-  ?LOG_NOTICE("NodesDB ~p", [KeyDB]),
-  ?LOG_NOTICE("Nodes ~p", [ChainNodes0]),
+  ?LOG_DEBUG("NodesDB ~p", [KeyDB]),
+  ?LOG_INFO("Nodes ~p", [maps:values(ChainNodes0)]),
   MyName=maps:get(PubKey, ChainNodes0, undefined),
   MyChain=maps:get(MyName, NodeChain, 0),
   ChainNodes=maps:filter(

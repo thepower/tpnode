@@ -158,7 +158,10 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     _ -> TXL
   end,
 
-  ?LOG_INFO("TXL1 ~p~n",[TXL1]),
+  if TXL1==[] -> ok;
+     true ->
+       ?LOG_DEBUG("TXL1 ~p~n",[TXL1])
+  end,
   #{failed:=Failed,
     table:=NewBal0,
     success:=Success,
@@ -349,13 +352,13 @@ cleanup_bals(NewBal0, Prev, GetAddr) ->
                           Mapa1=maps:filter(
                                   fun(MK,MV) ->
                                       %MV=/=maps:get(MK,PreMap,undefined)
-                                      logger:info("Compare ~p key ~p: ~p changed ~p",
-                                                    [
-                                                     Addr,
-                                                     MK,
-                                                     MV,
-                                                     MV=/=GetAddr({storage,Addr,MK})
-                                                    ]),
+                                      ?LOG_DEBUG("Compare ~p key ~p: ~p changed ~p",
+                                                [
+                                                 Addr,
+                                                 MK,
+                                                 MV,
+                                                 MV=/=GetAddr({storage,Addr,MK})
+                                                ]),
                                       MV =/= GetAddr({storage,Addr,MK})
                                   end, Mapa),
                           maps:put(state,Mapa1,LA);
@@ -464,7 +467,7 @@ replace_set({Key,_}=New,Settings) ->
   [New|lists:keydelete(Key, 1, Settings)].
 
 %this is only for depositing gathered fees
-depositf(Address, TBal, #{cur:=Cur, amount:=Amount}=Tx, GetFun, _Settings, GasLimit, Acc) ->
+depositf(Address, TBal, #{cur:=Cur, amount:=Amount}=Tx, _GetFun, _Settings, GasLimit, Acc) ->
   NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
   NewT=maps:remove(keep,
                    mbal:put_cur( Cur, NewTAmount, TBal)

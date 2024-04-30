@@ -564,7 +564,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
                  []
              end,
 
-  ?LOG_INFO("ER ~p",[ExtraRoots]),
+  ?LOG_DEBUG("ExtraRoots ~p",[ExtraRoots]),
   TempRoot=if TempID == false -> ExtraRoots;
               true -> [{tmp, <<TempID:64/big>>}|ExtraRoots]
            end,

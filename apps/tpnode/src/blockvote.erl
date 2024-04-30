@@ -118,7 +118,7 @@ handle_cast({tpic, _From, #{
 handle_cast({signature, BlockHash, Sigs}=WholeSig,
             #{lastblock:=#{hash:=LBH}}=State) when LBH==BlockHash->
     ?LOG_DEBUG("BV Got extra sig for ~s ~p", [blkid(BlockHash), WholeSig]),
-    ?LOG_INFO("BV Got extra sig for ~s", [blkid(BlockHash)]),
+    %?LOG_DEBUG("BV Got extra sig for ~s", [blkid(BlockHash)]),
 
     stout:log(
       bv_gotsig,
@@ -131,7 +131,7 @@ handle_cast({signature, BlockHash, Sigs}=WholeSig,
 
 handle_cast({signature, BlockHash, Sigs},
     #{candidatesig:=Candidatesig, candidatets:=CandidateTS}=State) ->
-    ?LOG_INFO("BV Got sig for ~s", [blkid(BlockHash)]),
+    ?LOG_DEBUG("BV Got sig for ~s", [blkid(BlockHash)]),
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
     %?LOG_DEBUG("BV S CS2 ~p", [maps:keys(CSig)]),
@@ -359,7 +359,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
         blockchain_updater:new_block(Blk),
         Extra=maps:get(BlockHash, Extras, #{}),
         if Extra =/= #{} andalso Extra =/= #{log=>[]} ->
-             ?LOG_INFO("Extra for blk ~w ~s: ~p",[Height, blkid(BlockHash), Extra]);
+             ?LOG_INFO("Extra for blk ~w ~s: ~p",[Height, blkid(BlockHash), maps:keys(Extra)]);
            true -> ok
         end,
         case maps:is_key(log, Extra) of

@@ -245,7 +245,7 @@ run_generate(
              <<"height">>=>NewH
             },
     HBlk=msgpack:pack(Msg),
-    ?LOG_INFO("MB send blockvote ~p", [Msg]),
+    ?LOG_DEBUG("MB send blockvote ~p", [Msg]),
     ?LOG_INFO("MB send blockvote My sign for block ~p chain ~p",
                 [
                  blockchain:blkid(maps:get(hash,SignedBlock)),

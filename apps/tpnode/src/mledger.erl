@@ -425,11 +425,14 @@ apply_patch(Patches, check) ->
 apply_patch(Patches, {commit, HeiHash, ExpectedHash}) ->
   F=fun() ->
         {ok,LH}=do_apply(Patches, HeiHash),
-        ?LOG_INFO("check and commit expected ~p actual ~p",[ExpectedHash, LH]),
         case LH == ExpectedHash of
           true ->
+            ?LOG_DEBUG("check and commit expected ~p actual ~p",
+                       [hex:encode(ExpectedHash), hex:encode(LH)]),
             LH;
           false ->
+            ?LOG_ERROR("check and commit expected ~p actual ~p",
+                      [hex:encode(ExpectedHash), hex:encode(LH)]),
             throw({'abort',LH})
         end
     end,
@@ -546,7 +549,7 @@ getfun({Addr, _Cur}) -> %slow method to get everything of account
     undefined -> mbal:new()
   end;
 getfun(Addr) -> %slow method to get everything of account
-  ?LOG_INFO("Load everything for address ~p",[Addr]),
+  ?LOG_DEBUG("Load everything for address ~p @ ~p",[Addr,tl(try throw(a) catch throw:a:S -> S end)]),
   case mledger:get(Addr) of
     #{amount:=_}=Bal -> maps:without([changes],Bal);
     undefined -> mbal:new()
