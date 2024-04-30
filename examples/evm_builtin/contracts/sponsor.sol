@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-contract sponsor {
+import {ERC165} from "contracts/utils/introspection/ERC165.sol";
+
+contract Sponsor is ERC165 {
   struct tpCall {
     string func;
     uint256[] args;
@@ -29,16 +31,44 @@ contract sponsor {
     uint256 amount;
   }
 
-  event textbin(string text,bytes data);
-  event textpayload(string text,tpPayload data);
+  bytes4 public constant INTERFACE_ID = bytes4(0x1B97712B);
+  address public owner;
+  mapping (address => uint) public allowed;
 
-  constructor() {}
+  constructor() {
+    //INTERFACE_ID = this.areYouSponsor.selector ^ this.wouldYouLikeToPayTx.selector;
+    //INTERFACE_ID = this.wouldYouLikeToPayTx.selector; =  0x1B97712B
+    owner=msg.sender;
+    allowed[address(0x800140057C000003)]=2;
+    allowed[address(0x800140057B000003)]=2;
+    allowed[address(0x800140057B000004)]=2;
+    allowed[address(0x800140057B000005)]=2;
+    allowed[address(0x800140057B000006)]=2;
+    allowed[address(0x800140057B00000b)]=2;
 
-  function areYouSponsor() public pure returns (bool,bytes memory,uint256) {
-    return (true,'SK',100000);
+  }
+  function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165) returns (bool) {
+    return interfaceId == INTERFACE_ID || super.supportsInterface(interfaceId);
   }
 
-  function wouldYouLikeToPayTx(tpTx calldata utx) public returns(string memory iWillPay, tpPayload[] memory pay) {
+  function areYouSponsor() public pure returns (bool,bytes memory,uint256) {
+    return (true,'SK',10000000);
+  }
+  function allowAdmin(address to) public returns (uint256){
+    require(msg.sender==owner ||
+            (allowed[msg.sender] & 0x100000000) == 0x100000000,"Not allowed");
+    return allowed[to]=allowed[to] | 0x100000000;
+  }
+  function allow(address to, uint32 add, uint32 del) public returns (uint256) {
+    require(msg.sender==owner ||
+            (allowed[msg.sender] & 0x100000000) == 0x100000000,"Not allowed");
+    return allowed[to]=(allowed[to] & ~(uint(del))) | uint(add);
+  }
+
+  function wouldYouLikeToPayTx(tpTx calldata utx) public view returns(string memory iWillPay, tpPayload[] memory pay) {
+    if((allowed[utx.from] & 1) == 0 && (allowed[utx.to] & 2) == 0){
+      return("no",new tpPayload[](0));
+    }
     uint i=0;
     uint found_fee_hint=0;
     uint found_gas_hint=0;
@@ -66,11 +96,8 @@ contract sponsor {
       payload1[0].purpose=3;
     }else if(c==1 && found_fee_hint>0){
       payload1[0]=utx.payload[found_fee_hint-1];
-      payload1[0].purpose=3;
+      payload1[0].purpose=1;
     }
-    //payload1[c]=tpPayload(0,"TST",10000);
-    //payload1[0]=tpPayload(1,"SK",1000000);
-    //payload1[1]=tpPayload(3,"SK",1000000000);
     return ("i will pay",payload1);
   }
 }
