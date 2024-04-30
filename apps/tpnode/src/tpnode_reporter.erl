@@ -1,6 +1,112 @@
 -module(tpnode_reporter).
--export([prepare/1,prepare/3, blockinfo/1, band_info/2, encode_data/1, ensure_account/0, register/1,
-        post_tx_and_wait/2]).
+-export([prepare/1,prepare/4, blockinfo/1, band_info/2, encode_data/2, ensure_account/0, register/1,
+        post_tx_and_wait/2, get_ver/0, get_iver/1, attributes/0, attributes_changed/2,
+        set_attributes/2
+        ]).
+
+get_ver() ->
+    {Ver,_Build}=tpnode:ver(),
+    RE="^v(?<MAJ>\\d\+)\.(?<MID>\\d\+)(\.(?<MIN>\\d\+)(\-(?<PATCH>\\d\+))?)?",
+    case re:run(Ver ,RE,[{capture,all_names,list}]) of
+        {match,VerSeq} ->
+            lists:map(
+              fun("") -> 0;
+                 (Int) -> list_to_integer(Int)
+              end, VerSeq)
+    end.
+
+get_iver(Ver) ->
+    RE="^v(?<MAJ>\\d\+)\.(?<MID>\\d\+)(\.(?<MIN>\\d\+)(\-(?<PATCH>\\d\+))?)?",
+    case re:run(Ver ,RE,[{capture,all_names,list}]) of
+        {match,VerSeq} ->
+            lists:foldl(fun(S,A) ->
+                            I=case S of
+                                  "" -> 0;
+                                  Int ->list_to_integer(Int)
+                              end,
+                                <<A/binary,I:16/big>>
+                        end, <<>>, VerSeq)
+    end.
+
+
+attr2id(mine_to) -> 1;
+attr2id(version) -> 2;
+attr2id(Any) when is_atom(Any) ->
+    logger:notice("Unknown reporter attrib name ~p",[Any]),
+    false.
+decode_v(mine_to, A) ->
+    naddress:decode(A);
+decode_v(version, A) ->
+    get_iver(A).
+
+id2attr(1) -> mine_to;
+id2attr(2) -> version;
+id2attr(Any) when is_integer(Any) ->
+    logger:notice("Unknown reporter attrib number ~B",[Any]),
+    Any.
+
+attributes() ->
+    {Ver,_Build}=tpnode:ver(),
+    A0=case application:get_env(tpnode,report_attributes) of
+           {ok,Map} ->
+               maps:fold(
+                 fun(K,V,A) ->
+                         case attr2id(K) of
+                             false -> A;
+                             N ->
+                                 [{N,decode_v(K,V)}|A]
+                         end
+                 end, [], Map#{version=>Ver})
+       end,
+    A0.
+
+attributes_changed(Address, Attrs) ->
+    KeyId=case tpnode_evmrun:evm_run(Address,
+                                     <<"node_id(bytes nodekey) returns (uint256)">>,
+                                     [nodekey:get_pub()],
+                                     #{ gas=>50000 }) of
+              #{result:=return, decode:=[Result1]} -> Result1
+          end,
+    Attr=fun(I) ->
+                 case tpnode_evmrun:evm_run(Address,
+                                            <<"attrib(uint256,uint256) returns (uint256)">>,
+                                            [KeyId,I],
+                                            #{ gas=>50000 }) of
+                     #{result:=return, bin:=Result2} ->
+                         binary:decode_unsigned(Result2)
+                 end
+         end,
+    lists:foldl(
+      fun({K,V},A) ->
+              PreVal=Attr(K),
+              case binary:decode_unsigned(V) == PreVal of
+                  true -> A;
+                  false ->
+                      [{K,V}|A]
+              end
+      end, [], Attrs).
+
+set_attributes(_ToContract, []) ->
+    ignore;
+set_attributes(ToContract, KVs) ->
+    {ok,Address} = get_account(),
+    KVs1=[ [Ki, if is_integer(Vi) -> Vi;
+                   is_binary(Vi) -> binary:decode_unsigned(Vi)
+                end ] || {Ki, Vi} <- KVs ],
+    Tx0=tx:construct_tx(#{
+      ver=>2,
+      kind=>generic,
+      to=>ToContract,
+      from=>Address,
+      t=>os:system_time(millisecond),
+      seq=>maps:get(seq,mledger:get(Address),0)+1,
+      payload=>[],
+      call=>#{function=>"set_attrib(uint256[2][])",args=>[ KVs1 ]}
+     }),
+    Tx=tx:sign(Tx0,nodekey:get_priv()),
+    post_tx_and_wait(Tx,20000).
+
+
 
 blockinfo(N) ->
     #{hash:=Hash,header:=#{roots:=Roots},sign:=Sigs}=Blk=blockchain_reader:get_block(N),
@@ -48,15 +154,26 @@ sig(#{extra:=X}=A) ->
     end,
     [RPK,M1,M2].
 
-encode_data(Data) ->
+%encode_data(Data) ->
+%    {ok,{_,Sig,_}=SS}=contract_evm_abi:parse_signature(
+%                        "updateData((bytes32,uint256,uint256,uint256,(bytes,uint256,uint256)[])[])"
+%                       ),
+%    FunctionSig=contract_evm_abi:sigb32(contract_evm_abi:mk_sig(SS)),
+%    EData=contract_evm_abi:encode_abi([Data],Sig),
+%    <<FunctionSig/binary,EData/binary>>.
+
+encode_data(Data, Attrs) ->
     {ok,{_,Sig,_}=SS}=contract_evm_abi:parse_signature(
-                        "updateData((bytes32,uint256,uint256,uint256,(bytes,uint256,uint256)[])[])"
+                        "updateData((bytes32,uint256,uint256,uint256,(bytes,uint256,uint256)[])[],uint256[2][])"
                        ),
     FunctionSig=contract_evm_abi:sigb32(contract_evm_abi:mk_sig(SS)),
-    EData=contract_evm_abi:encode_abi([Data],Sig),
+    EData=contract_evm_abi:encode_abi([Data, Attrs],Sig),
     <<FunctionSig/binary,EData/binary>>.
 
 prepare(ToContract) ->
+    prepare(ToContract, attributes_changed(ToContract,attributes())).
+
+prepare(ToContract, Attributes) ->
     KeyId=case tpnode_evmrun:evm_run(ToContract,
                                      <<"node_id(bytes nodekey) returns (uint256)">>,
                                      [nodekey:get_pub()],
@@ -83,7 +200,7 @@ prepare(ToContract) ->
             
           %ToBlk=(LBH div 10) * 10,
           %FromBlk=max(LBH-30,SCH),
-          prepare(ToContract,F,T);
+          prepare(ToContract,F,T, Attributes);
       true ->
           nokey
     end.
@@ -117,11 +234,14 @@ register(ToContract) ->
     post_tx_and_wait(Tx,20000).
 
 
-prepare(ToContract, FromBlock, ToBlock) ->
+prepare(ToContract, FromBlock, ToBlock, Attributes) ->
     io:format("To ~p rom ~p to ~p~n",[ToContract, FromBlock, ToBlock]),
     {ok,Address} = get_account(),
     BI=band_info(FromBlock, ToBlock),
-    Args=[encode_data(BI)],
+    KVs1=[ [Ki, if is_integer(Vi) -> Vi;
+                   is_binary(Vi) -> binary:decode_unsigned(Vi)
+                end ] || {Ki, Vi} <- Attributes ],
+    Args=[encode_data(BI, KVs1) ],
     tx:sign(tx:construct_tx(#{
       ver=>2,
       kind=>generic,
