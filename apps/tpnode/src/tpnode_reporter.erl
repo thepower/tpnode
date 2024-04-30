@@ -1,8 +1,19 @@
 -module(tpnode_reporter).
 -export([prepare/1,prepare/4, blockinfo/1, band_info/2, encode_data/2, ensure_account/0, register/1,
         post_tx_and_wait/2, get_ver/0, get_iver/1, attributes/0, attributes_changed/2,
-        set_attributes/2
+        set_attributes/2, ask_nextblock/1, id2attr/1, run/0
         ]).
+
+-include("include/tplog.hrl").
+-behaviour(gen_server).
+-define(SERVER, ?MODULE).
+
+-export([start_link/0]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+
+start_link() ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
 
 get_ver() ->
     {Ver,_Build}=tpnode:ver(),
@@ -28,6 +39,33 @@ get_iver(Ver) ->
                         end, <<>>, VerSeq)
     end.
 
+run() ->
+    {ok,_Addr}=tpnode_reporter:ensure_account(),
+    CS=case application:get_env(tpnode,chainstate,undefined) of
+           undefined ->
+               case chainsettings:by_path([<<"current">>,<<"chainstate">>]) of
+                   Y when is_binary(Y) -> Y;
+                   _ -> undefined
+               end;
+           X ->
+               naddress:decode(X)
+       end,
+    if CS==false ->
+           no_chainstate_specified;
+       true ->
+           case tpnode_reporter:prepare(CS) of
+               nokey ->
+                   logger:error("Cannot report, key is not registered");
+               Tx when is_map(Tx) ->
+                   {ok,TxID}=gen_server:call(txpool,txid),
+                   gen_server:cast(txqueue,{push_head,TxID,tx:pack(Tx)}),
+                   {ok, {TxID, Tx}};
+               ignore ->
+                   ignore
+           end
+    end.
+
+
 
 attr2id(mine_to) -> 1;
 attr2id(version) -> 2;
@@ -48,17 +86,19 @@ id2attr(Any) when is_integer(Any) ->
 attributes() ->
     {Ver,_Build}=tpnode:ver(),
     A0=case application:get_env(tpnode,report_attributes) of
+           undefined ->
+               #{version=>Ver};
            {ok,Map} ->
-               maps:fold(
-                 fun(K,V,A) ->
-                         case attr2id(K) of
-                             false -> A;
-                             N ->
-                                 [{N,decode_v(K,V)}|A]
-                         end
-                 end, [], Map#{version=>Ver})
+               Map#{version=>Ver}
        end,
-    A0.
+    maps:fold(
+      fun(K,V,A) ->
+              case attr2id(K) of
+                  false -> A;
+                  N ->
+                      [{N,decode_v(K,V)}|A]
+              end
+      end, [], A0).
 
 attributes_changed(Address, Attrs) ->
     KeyId=case tpnode_evmrun:evm_run(Address,
@@ -162,6 +202,24 @@ sig(#{extra:=X}=A) ->
 %    EData=contract_evm_abi:encode_abi([Data],Sig),
 %    <<FunctionSig/binary,EData/binary>>.
 
+ask_nextblock(ToContract) ->
+    {
+    case tpnode_evmrun:evm_run(ToContract,
+                               <<"next_block_on() returns (uint256)">>,
+                               [],
+                               #{ gas=>50000 }) of
+        #{result:=return, bin:= <<Result1:256/big>>} ->
+            Result1
+    end,
+    case tpnode_evmrun:evm_run(ToContract,
+                               <<"next_report_blk() returns (uint256)">>,
+                               [],
+                               #{ gas=>50000 }) of
+        #{result:=return, bin:= <<Result2:256/big>>} ->
+            Result2
+    end
+    }.
+
 encode_data(Data, Attrs) ->
     {ok,{_,Sig,_}=SS}=contract_evm_abi:parse_signature(
                         "updateData((bytes32,uint256,uint256,uint256,(bytes,uint256,uint256)[])[],uint256[2][])"
@@ -182,27 +240,55 @@ prepare(ToContract, Attributes) ->
           end,
     io:format("KeyID ~p~n",[KeyId]),
     if(KeyId > 0) ->
-          SCH=case tpnode_evmrun:evm_run(ToContract,
-                                         <<"last_height(uint256) returns (uint256)">>, [KeyId],
-                                         #{ gas=>50000 }) of
-                  #{result:=return, decode:=[Result]} ->
-                      Result
-              end,
           #{height:=LBH} = maps:get(header,blockchain:last_meta()),
-          io:format("SCH ~p LBH ~p~n",[SCH,LBH]),
-          {F,T}=if LBH-SCH>30 ->
-                       {LBH-10,LBH-1};
-                   true ->
-                       {SCH,min(SCH+10,LBH-1)}
-                end,
-        
 
-            
-          %ToBlk=(LBH div 10) * 10,
-          %FromBlk=max(LBH-30,SCH),
-          prepare(ToContract,F,T, Attributes);
+          {Time,Blk}=tpnode_reporter:ask_nextblock(ToContract),
+          Wait=Time-os:system_time(second),
+          io:format("LBH ~p wait ~p blk ~p~n",[LBH, Wait, Blk]),
+
+          if(Wait =< 2 orelse LBH==Blk-1) ->
+                SCH=case tpnode_evmrun:evm_run(
+                           ToContract,
+                           <<"last_height(uint256) returns (uint256)">>, [KeyId],
+                           #{ gas=>50000 }) of
+                        #{result:=return, bin:= <<Result:256/big>>} ->
+                            Result
+                    end,
+                io:format("SCH ~p LBH ~p~n",[SCH,LBH]),
+                {F,T}=if LBH-SCH>30 ->
+                             {LBH-10,LBH-1};
+                         true ->
+                             {SCH,min(SCH+10,LBH-1)}
+                      end,
+
+
+
+                %ToBlk=(LBH div 10) * 10,
+                %FromBlk=max(LBH-30,SCH),
+                prepare(ToContract,F,T, Attributes);
+            true ->
+                ignore
+          end;
       true ->
-          nokey
+          case tpnode_evmrun:evm_run(ToContract,
+                                     <<"self_registration()">>, [],
+                                     #{ gas=>50000 }) of
+              #{result:=return, bin:= <<1:256/big>>} ->
+                  {ok,Address} = get_account(),
+                  Tx0=tx:construct_tx(#{
+                                    ver=>2,
+                                    kind=>generic,
+                                    to=>ToContract,
+                                    from=>Address,
+                                    t=>os:system_time(millisecond),
+                                    seq=>maps:get(seq,mledger:get(Address),0)+1,
+                                    payload=>[],
+                                    call=>#{function=>"register()",args=>[]}
+                                   }),
+                  tx:sign(Tx0,nodekey:get_priv());
+              _Any ->
+                  nokey
+          end
     end.
 
 register(ToContract) ->
@@ -300,4 +386,30 @@ post_tx_and_wait(TXConstructed, Timeout) ->
     after Timeout ->
               {error,{'registration_timeout',TxID}}
     end.
+
+
+init(_Args) ->
+  {ok, #{}}.
+
+handle_call(_Request, _From, State) ->
+  {reply, ok, State}.
+
+handle_cast({new_block,H,T}, State) ->
+    R=run(),
+    ?LOG_INFO("run ~p new blk ~p ~p",[R, H, T]),
+    {noreply, State};
+
+handle_cast(_Msg, State) ->
+  ?LOG_ERROR("Unknown cast ~p", [_Msg]),
+  {noreply, State}.
+
+handle_info(_Info, State) ->
+  ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
+  {noreply, State}.
+
+terminate(_Reason, _State) ->
+  ok.
+
+code_change(_OldVsn, State, _Extra) ->
+  {ok, State}.
 

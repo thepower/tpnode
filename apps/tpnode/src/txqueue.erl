@@ -69,6 +69,11 @@ handle_cast({push_tx, TxId},
              }
   };
 
+handle_cast({push_head, TxId, TxBody}, #{queue:=Queue} = State) ->
+  {noreply, State#{
+    queue=>queue:in({TxId, TxBody},Queue)
+  }};
+
 handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
   ?LOG_INFO("push head ~p", [TxIds]),
   stout:log(txqueue_pushhead, [ {ids, TxIds} ]),
