@@ -1416,8 +1416,15 @@ prettify_bal(V, BinPacker) ->
   maps:map(
     fun(pubkey, PubKey) ->
         BinPacker(PubKey);
-       (state, PubKey) when is_binary(PubKey) ->
-        BinPacker(PubKey);
+       %(state, PubKey) when is_binary(PubKey) ->
+       % BinPacker(PubKey);
+       (state, Map=#{}) ->
+        maps:map(
+          fun
+            (_K,V1) when size(V1) =< 8 ->
+              binary:decode_unsigned(V1);
+            (_K,V1) -> BinPacker(V1) end,
+          Map);
        (view, View) ->
         [ list_to_binary(M) || M<- View];
        (code, PubKey) ->
@@ -1580,6 +1587,8 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
           fun(<<"addr">>,V2,Acc) ->
               [{<<"addr.txt">>,naddress:encode(V2)},
                {<<"addr">>,BinPacker(V2)} |Acc];
+             (<<"retval">>,V2,Acc) ->
+              [{<<"retval">>,BinPacker(V2)}|Acc];
               (K2,V2,Acc) ->
               [{K2,V2}|Acc]
           end, [], V1);
@@ -1854,12 +1863,14 @@ packer(Req) ->
 packer(Req,Default) ->
   QS=cowboy_req:parse_qs(Req),
   case proplists:get_value(<<"bin">>, QS) of
-    <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
-    <<"hex">> -> fun(Bin) -> hex:encode(Bin) end;
-    <<"0xhex">> -> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
-    <<"raw">> -> fun(Bin) -> Bin end;
+    <<"b64">>  -> fun(Bin) -> base64:encode(Bin) end;
+    <<"hex">>  -> fun(Bin) -> hex:encode(Bin) end;
+    <<"xhex">> -> fun(Bin) -> hex:encodex(Bin) end;
+    <<"0xhex">>-> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
+    <<"raw">>  -> fun(Bin) -> Bin end;
     _ -> case Default of
            hex -> fun(Bin) -> hex:encode(Bin) end;
+           xhex-> fun(Bin) -> hex:encodex(Bin) end;
            b64 -> fun(Bin) -> base64:encode(Bin) end;
            raw -> fun(Bin) -> Bin end
          end
