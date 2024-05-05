@@ -1440,6 +1440,10 @@ withdraw(FBal0,
     Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
     IsContract=is_binary(mbal:get(vm, FBal0)) andalso Contract_Issued=={ok, From},
 
+    FreeGas=case settings:get([<<"current">>, <<"freegas2">>,maps:get(to,Tx,undefined)], Settings) of
+               N1 when is_integer(N1), N1>0 ->true;
+               _ -> false
+             end,
 
     ?LOG_INFO("Withdraw ~p ~p", [IsContract, maps:without([body,sig],Tx)]),
     if Timestamp==0 andalso IsContract ->
@@ -1461,6 +1465,7 @@ withdraw(FBal0,
       #{type := public} ->
         if IsContract -> ok;
            Sponsor==true -> ok;
+           FreeGas==true -> ok;
            true ->
              NoSK=settings:get([<<"current">>, <<"nosk">>], Settings)==1,
              if NoSK -> ok;
@@ -1510,6 +1515,8 @@ withdraw(FBal0,
     {ForFee,GotFee}=if IsContract ->
                          {[],{<<"NONE">>,0,1}};
                        NoTakeFee ->
+                         {[],{<<"NONE">>,0,1}};
+                       FreeGas ->
                          {[],{<<"NONE">>,0,1}};
                        true ->
                          GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
