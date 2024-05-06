@@ -153,7 +153,7 @@ handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
   try
     case lists:member(Node,PreNodes) of
       true ->
-        ?LOG_NOTICE("Got prepare from ~s again (~p)", [Node,try disp(Node) catch _:_ -> err end]),
+        ?LOG_NOTICE("Got prepare from ~p again", [try disp(Node) catch _:_ -> err end]),
         throw(ignore);
       false ->
         ok
