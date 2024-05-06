@@ -133,23 +133,7 @@ run_generate(
                 ({get_block, Back}) when 64>=Back ->
                  FindBlock(last, Back)
              end,
-    AddrFun=fun({storage,Addr,Key}) ->
-                case mledger:get(Addr) of
-                  #{state:=State} -> maps:get(Key,State,<<>>);
-                  #{} -> <<>>;
-                  undefined -> <<>>
-                end;
-               ({Addr, _Cur}) ->
-                case mledger:get(Addr) of
-                  #{amount:=_}=Bal -> maps:without([changes],Bal);
-                  undefined -> mbal:new()
-                end;
-               (Addr) ->
-                case mledger:get(Addr) of
-                  #{amount:=_}=Bal -> maps:without([changes],Bal);
-                  undefined -> mbal:new()
-                end
-            end,
+    AddrFun=fun mledger:getfun/1,
 
     NoTMP=maps:get(notmp, MySet, 0),
 
@@ -261,7 +245,7 @@ run_generate(
              <<"height">>=>NewH
             },
     HBlk=msgpack:pack(Msg),
-    ?LOG_INFO("MB send blockvote ~p", [Msg]),
+    ?LOG_DEBUG("MB send blockvote ~p", [Msg]),
     ?LOG_INFO("MB send blockvote My sign for block ~p chain ~p",
                 [
                  blockchain:blkid(maps:get(hash,SignedBlock)),

@@ -41,6 +41,7 @@ init(_Args) ->
        preptxm=>#{},
        mean_time=>[],
        entropy=>[],
+       nodes=>[],
        settings=>#{}
       }
     }.
@@ -86,19 +87,37 @@ handle_cast({tpic, FromKey, #{
        }}
   end;
 
+handle_cast({tpic, FromKey,
+             #{
+               null:= <<"mkblock_relay">>,
+               <<"relay_from">> := RelayFrom,
+               <<"chain">> := _,
+               <<"txs">> := _
+              }=Msg}, State)  ->
+  ?LOG_INFO("Got realyed proposal from ~s via ~s",[disp(RelayFrom), disp(FromKey)]),
+  handle_cast({tpic, RelayFrom, Msg#{null=><<"mkblock">>,via=>FromKey} }, State),
+  {noreply,State};
+
 handle_cast({tpic, FromKey, #{
-                     null:=<<"mkblock">>,
-                     <<"chain">>:=_MsgChain,
-                     <<"txs">>:=TPICTXs
-                    }=Msg}, State)  ->
+                              null:=<<"mkblock">>,
+                              <<"chain">>:=_MsgChain,
+                              <<"txs">>:=TPICTXs
+                             }=Msg},
+            State)  ->
   TXs=decode_tpic_txs(maps:to_list(TPICTXs)),
-  if TXs==[] -> ok;
-     true ->
+  %if TXs==[] -> ok;
+  %   true ->
        ?LOG_INFO("Got ~w txs from ~s",
-            [
-             length(TXs),
-             chainsettings:is_our_node(FromKey)
-            ])
+                 [
+                  length(TXs),
+                  chainsettings:is_our_node(FromKey)
+                 ]),
+  %end,
+  case maps:is_key(<<"relay_from">>,Msg) of
+    true -> %only one relay allowed
+      ignore;
+    false ->
+      relay(FromKey,Msg,State)
   end,
   Entropy=maps:get(<<"entropy">>,Msg,undefined),
   Timestamp=maps:get(<<"timestamp">>,Msg,undefined),
@@ -108,7 +127,6 @@ handle_cast({tpic, FromKey, #{
     {ok, Bin} ->
       PreBlk=block:unpack(Bin),
       MS=chainsettings:get_val(minsig),
-
       {_, _, HeiHas}=hei_and_has(PreBlk),
       CheckFun=fun(PubKey,_) ->
                    chainsettings:is_our_node(PubKey) =/= false
@@ -130,92 +148,97 @@ handle_cast({tpic, FromKey, #{
 handle_cast({prepare, Node, Txs, HeiHash, Entropy, Timestamp},
             #{mean_time:=MT,
               entropy:=Ent,
+              nodes := PreNodes,
               preptxm:=PreTXM}=State) ->
-  Origin=chainsettings:is_our_node(Node),
-  if Origin==false ->
-       ?LOG_ERROR("Got txs from bad node ~s",
-             [bin2hex:dbin2hex(Node)]),
-       {noreply, State};
-     true ->
-       if Txs==[] -> ok;
-        true ->
-          ?LOG_INFO("Prepare TXs from node ~s: ~p time ~p hh ~p entropy ~p",
-               [ Origin, length(Txs), Timestamp, HeiHash, Entropy])
-       end,
-       MarkTx =
-         fun({TxID, TxBody}) ->
-           TxBody1 =
-             try
-               case TxBody of
-%                 #{patch:=_} -> %legacy patch
-%                   VerFun =
-%                     fun(PubKey) ->
-%                       NodeID = chainsettings:is_our_node(PubKey),
-%                       is_binary(NodeID)
-%                     end,
-%                   {ok, Tx1} = settings:verify(TxBody, VerFun),
-%                   tx:set_ext(origin, Origin, Tx1);
-                 #{hash:=_,
-                   header:=_,
-                   sign:=_} ->
+  try
+    case lists:member(Node,PreNodes) of
+      true ->
+        ?LOG_NOTICE("Got prepare from ~p again", [try disp(Node) catch _:_ -> err end]),
+        throw(ignore);
+      false ->
+        ok
+    end,
 
-                   %do nothing with inbound block
-                   TxBody;
-                 _ ->
-                   case tx:verify(TxBody, [{maxsize, txpool:get_max_tx_size()}]) of
-                     bad_sig ->
-                       throw('bad_sig');
-                     {ok, Tx1} ->
-                       ?LOG_INFO("TX ok ~p",[TxID]),
-                       tx:set_ext(origin, Origin, Tx1)
-                   end
-               end
-             catch
-               throw:no_transaction ->
-                 ?LOG_INFO("TX absend ~p",[TxID]),
-                 null;
-               throw:bad_sig ->
-                 ?LOG_INFO("TX bad_sig ~p",[TxID]),
-                 null;
-               _Ec:_Ee:S ->
-                 ?LOG_INFO("TX error ~p",[TxID]),
-                 %S=erlang:get_stacktrace(),
-                 utils:print_error("Error", _Ec, _Ee, S),
-                 file:write_file(
-                   "tmp/mkblk_badsig_" ++ binary_to_list(nodekey:node_id()),
-                   io_lib:format("~p.~n", [TxBody])
-                 ),
-                 TxBody
-             end,
-           case TxBody1 of
-             null ->
-               false;
-             _ ->
-               {true, {TxID, TxBody1}}
-           end
+    Origin=chainsettings:is_our_node(Node),
+    if Origin==false ->
+         ?LOG_ERROR("Got txs from bad node ~s",
+                    [bin2hex:dbin2hex(Node)]),
+         throw(ignore);
+       true ->
+         ok
+    end,
+
+    if Txs==[] -> ok;
+       true ->
+         ?LOG_INFO("Prepare TXs from node ~s: ~p time ~p hh ~p entropy ~p",
+                   [ Origin, length(Txs), Timestamp, HeiHash, Entropy])
+    end,
+    MarkTx =
+    fun({TxID, TxBody}) ->
+        TxBody1 =
+        try
+          case TxBody of
+            #{hash:=_, header:=_, sign:=_} ->
+              %do nothing with inbound block
+              TxBody;
+            _ ->
+              case tx:verify(TxBody, [{maxsize, txpool:get_max_tx_size()}]) of
+                bad_sig ->
+                  throw('bad_sig');
+                {ok, Tx1} ->
+                  ?LOG_INFO("TX ok ~p",[TxID]),
+                  tx:set_ext(origin, Origin, Tx1)
+              end
+          end
+        catch
+          throw:no_transaction ->
+            ?LOG_INFO("TX absend ~p",[TxID]),
+            null;
+          throw:bad_sig ->
+            ?LOG_INFO("TX bad_sig ~p",[TxID]),
+            null;
+          _Ec:_Ee:S ->
+            ?LOG_INFO("TX error ~p",[TxID]),
+            %S=erlang:get_stacktrace(),
+            utils:print_error("Error", _Ec, _Ee, S),
+            file:write_file(
+              "tmp/mkblk_badsig_" ++ binary_to_list(nodekey:node_id()),
+              io_lib:format("~p.~n", [TxBody])
+             ),
+            TxBody
+        end,
+        case TxBody1 of
+          null ->
+            false;
+          _ ->
+            {true, {TxID, TxBody1}}
+        end
+    end,
+
+    Tx2Put=lists:filtermap(MarkTx, Txs),
+    MT1=if is_integer(Timestamp) ->
+             [Timestamp|MT];
+           true ->
+             MT
+        end,
+    Ent1=if Txs==[] -> Ent;
+            is_binary(Entropy) ->
+              [crypto:hash(sha256,Entropy)|Ent];
+            true ->
+              Ent
          end,
-
-         Tx2Put=lists:filtermap(MarkTx, Txs),
-         MT1=if is_integer(Timestamp) ->
-                  [Timestamp|MT];
-                true ->
-                  MT
-             end,
-         Ent1=if Txs==[] -> Ent;
-                is_binary(Entropy) ->
-                  [crypto:hash(sha256,Entropy)|Ent];
-                true ->
-                   Ent
-             end,
-       {noreply,
-        State#{
-          entropy=> Ent1,
-          mean_time=> MT1,
-          preptxm=> maps:put(HeiHash,
-                             maps:get(HeiHash,PreTXM, []) ++ Tx2Put,
-                            PreTXM)
-         }
-       }
+    {noreply,
+     State#{
+       entropy=> Ent1,
+       mean_time=> MT1,
+       nodes => [Node|PreNodes],
+       preptxm=> maps:put(HeiHash,
+                          maps:get(HeiHash,PreTXM, []) ++ Tx2Put,
+                          PreTXM)
+      }
+    }
+  catch throw:ignore ->
+          {noreply, State}
   end;
 
 handle_cast(settings, State) ->
@@ -247,6 +270,7 @@ handle_info(process,
     presig=>#{},
     mean_time=>[],
     entropy=>[],
+    nodes=>[],
     gbpid=>GBPID
   }};
 
@@ -335,5 +359,49 @@ hei_and_has(B) ->
                  {Last_Height1-1,
                   Last_Hash1,
                   <<(bnot (((Last_Height1-1) bsl 1) +1)):64/big,Last_Hash1/binary>>}
+  end.
+
+relay(FromKey,Msg,_State) ->
+  case maps:get(<<"sent_to">>,Msg,undefined) of
+    undefined -> ok;
+    L when is_list(L) ->
+      {Relay,L1}=lists:foldl(
+                   fun({RPK,_,_}=E, {Acc1,Acc2}) ->
+                       {ed25519,Pub1} = tpecdsa:cmp_pubkey(RPK),
+                       case lists:member(Pub1,L) orelse Pub1==FromKey orelse RPK==FromKey of
+                         true -> {Acc1,Acc2};
+                         false ->
+                           {[E|Acc1],[Pub1|Acc2]}
+                       end
+                   end, {[],L}, tpic2:cast_prepare(<<"mkblock">>)),
+      ?LOG_DEBUG("He sent to ~p",[[disp(KK) || KK <- L]]),
+      ?LOG_DEBUG("need to relay for ~p",[[disp(KK) || KK <- Relay]]),
+      if Relay == [] ->
+           ok;
+         true ->
+           MsgBin = msgpack:pack(Msg#{
+                                   null=><<"mkblock_relay">>,
+                                   <<"relay_from">> => FromKey,
+                                   <<"sent_to">> => L1
+                                  }),
+           RelayRes=lists:map(
+                       fun(ReqID) ->
+                           tpic2:cast(ReqID, MsgBin)
+                       end, Relay),
+           ?LOG_INFO("Relay res ~p",[RelayRes])
+      end
+  end.
+
+disp({Key,_,_}) when is_binary(Key) ->
+  disp(Key);
+disp(Key) when is_binary(Key) ->
+  Key1=case Key of
+         <<K:32/binary>> ->
+           tpecdsa:upgrade_pubkey(K);
+         K -> K
+  end,
+  case chainsettings:is_our_node(Key1) of
+    false -> hex:encodex(Key);
+    Any -> Any
   end.
 

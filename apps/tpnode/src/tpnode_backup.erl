@@ -20,6 +20,7 @@ make_backup() ->
       if(Hei==undefined orelse PHei==undefined orelse Hei>PHei) ->
           DB=utils:dbpath(backup)++"/"++integer_to_list(T),
           rockstable:backup(mledger,DB++".mledger"),
+          rockstable:backup(logs_db,DB++".logs_db"),
           gen_server:call(rdb_dispatcher,{backup,utils:dbpath(db),DB++".blocks"}),
           file:write_file(DB++".set",io_lib:format("~p.~n",[chainsettings:by_path([])])),
           Data=D0#{last=>T,

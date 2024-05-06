@@ -69,6 +69,11 @@ handle_cast({push_tx, TxId},
              }
   };
 
+handle_cast({push_head, TxId, TxBody}, #{queue:=Queue} = State) ->
+  {noreply, State#{
+    queue=>queue:in({TxId, TxBody},Queue)
+  }};
+
 handle_cast({push_head, TxIds}, #{queue:=Queue} = State) when is_list(TxIds) ->
   ?LOG_INFO("push head ~p", [TxIds]),
   stout:log(txqueue_pushhead, [ {ids, TxIds} ]),
@@ -107,6 +112,12 @@ handle_cast({done, Txs}, #{inprocess:=InProc0,
               LCnt,
               Txs
              ),
+
+    lists:foreach(fun({TxID,Reason}) ->
+                      tinymq:push(TxID,{true,Reason});
+                     (TxID) when is_binary(TxID) ->
+                      tinymq:push(TxID,{true,undefined})
+                  end, Txs),
   gen_server:cast(txstatus, {done, true, Txs}),
   gen_server:cast(tpnode_ws_dispatcher, {done, true, Txs}),
   {noreply,
@@ -140,6 +151,10 @@ handle_cast({failed, Txs}, #{inprocess:=InProc0,
             LCnt,
             Txs
            ),
+
+  lists:foreach(fun({TxID,Reason}) ->
+                    tinymq:push(TxID,{false,Reason})
+                end, Txs),
   gen_server:cast(txstatus, {done, false, Txs}),
   gen_server:cast(tpnode_ws_dispatcher, {done, false, Txs}),
   {noreply, State#{
@@ -188,7 +203,14 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue, lost_
       TxIds
      ),
     ?LOG_DEBUG("txs for mkblock: ~p", [TxMap]),
-    Entropy=crypto:strong_rand_bytes(32),
+    Entropy = crypto:strong_rand_bytes(32),
+
+    SentTo=[ begin
+              {ed25519,Pub} = tpecdsa:cmp_pubkey(RPK),
+              Pub
+            end || {RPK,_,_} <- tpic2:cast_prepare(<<"mkblock">>)
+          ],
+
     MRes = msgpack:pack(
              #{
              null=><<"mkblock">>,
@@ -197,9 +219,11 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue, lost_
              lastblk=>LastBlk,
              entropy=>Entropy,
              timestamp=>os:system_time(millisecond),
-             txs=>TxMap
+             txs=>TxMap,
+             sent_to=>SentTo
             }
             ),
+    ?LOG_DEBUG("Going to send ~p",[[disp(KK) || KK <- SentTo]]),
     gen_server:cast(mkblock, {tpic, PK, MRes}),
     tpic2:cast(<<"mkblock">>, MRes),
     stout:log(txqueue_mkblock, [{ids, TxIds}, {lbh, LBH}])
@@ -322,4 +346,11 @@ get_state() ->
   gen_server:call(?MODULE, state).
 
 %% ------------------------------------------------------------------
+
+disp(Key) ->
+  hex:encodex(Key).
+  %case chainsettings:is_our_node(Key) of
+  %  false -> hex:encodex(Key);
+  %  Any -> Any
+  %end.
 

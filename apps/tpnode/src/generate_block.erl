@@ -133,6 +133,35 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
            log=>[],
            get_addr=>GetAddr
           },
+  ?LOG_DEBUG("Afterblock ~p",[settings:get([<<"current">>, <<"autorun">>,<<"afterBlock">>],
+                                          XSettings)]),
+  TXL1=case settings:get([<<"current">>, <<"autorun">>,<<"afterBlock">>], XSettings) of
+    <<AutoRunAddr:8/binary>> when TXL=/=[] ->
+           TXL++[{<<"~afterBlock">>,
+                  maps:merge(
+                    tx:construct_tx(
+                      #{
+                        call => #{args => [],function => "afterBlock()"},
+                        from => <<160,0,0,0,0,0,0,0>>,
+                        kind => generic,
+                        payload => [],
+                        seq => Parent_Height+1,
+                        t => MeanTime,
+                        to => AutoRunAddr,
+                        txext => #{},
+                        ver => 2}),
+                    #{
+                      sig => [],
+                      sigverify => #{invalid => 0, pubkeys => [<<>>], valid => 1}
+                     })
+                 }];
+    _ -> TXL
+  end,
+
+  if TXL1==[] -> ok;
+     true ->
+       ?LOG_DEBUG("TXL1 ~p~n",[TXL1])
+  end,
   #{failed:=Failed,
     table:=NewBal0,
     success:=Success,
@@ -144,7 +173,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     emit:=EmitTXs0,
     log:=Logs0,
     new_settings := NewSettings
-   }=finish_processing(generate_block_process:try_process(TXL, GBInit)),
+   }=finish_processing(generate_block_process:try_process(TXL1, GBInit)),
   if(FeeCollected == #{amount => #{},changes => []}
      andalso
      TipCollected == #{amount => #{},changes => []}) ->
@@ -323,13 +352,13 @@ cleanup_bals(NewBal0, Prev, GetAddr) ->
                           Mapa1=maps:filter(
                                   fun(MK,MV) ->
                                       %MV=/=maps:get(MK,PreMap,undefined)
-                                      logger:info("Compare ~p key ~p: ~p changed ~p",
-                                                    [
-                                                     Addr,
-                                                     MK,
-                                                     MV,
-                                                     MV=/=GetAddr({storage,Addr,MK})
-                                                    ]),
+                                      ?LOG_DEBUG("Compare ~p key ~p: ~p changed ~p",
+                                                [
+                                                 Addr,
+                                                 MK,
+                                                 MV,
+                                                 MV=/=GetAddr({storage,Addr,MK})
+                                                ]),
                                       MV =/= GetAddr({storage,Addr,MK})
                                   end, Mapa),
                           maps:put(state,Mapa1,LA);
@@ -438,28 +467,30 @@ replace_set({Key,_}=New,Settings) ->
   [New|lists:keydelete(Key, 1, Settings)].
 
 %this is only for depositing gathered fees
-depositf(Address, TBal, #{cur:=Cur, amount:=Amount}=Tx, GetFun, _Settings, GasLimit, Acc) ->
+depositf(Address, TBal, #{cur:=Cur, amount:=Amount}=Tx, _GetFun, _Settings, GasLimit, Acc) ->
   NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
   NewT=maps:remove(keep,
                    mbal:put_cur( Cur, NewTAmount, TBal)
                   ),
-  case mbal:get(vm, NewT) of
-    undefined ->
-      {NewT, [], GasLimit, Acc};
-    VMType ->
-      ?LOG_INFO("Smartcontract ~p", [VMType]),
-      {L1, TXs, Gas, _}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun, #{}),
-      {L1, lists:map(
-             fun(#{seq:=Seq}=ETx) ->
-                 H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
-                 BSeq=hex:encode(<<Seq:64/big>>),
-                 EA=(naddress:encode(Address)),
-                 TxID= <<EA/binary, BSeq/binary, H/binary>>,
-                 {TxID,
-                  tx:set_ext( <<"contract_issued">>, Address, ETx)
-                 }
-             end, TXs), Gas, Acc}
-  end.
+  %TODO: it needs refactoring, due to smartcontract:run/6 returns ledger changes instead of new state
+  %case mbal:get(vm, NewT) of
+  %  undefined ->
+      {NewT, [], GasLimit, Acc}%;
+  %  VMType ->
+  %    ?LOG_INFO("Smartcontract ~p", [VMType]),
+  %    {L1, TXs, Gas, _}=smartcontract:run(VMType, Tx, NewT, GasLimit, GetFun, #{}),
+  %    {L1, lists:map(
+  %           fun(#{seq:=Seq}=ETx) ->
+  %               H=base64:encode(crypto:hash(sha, mbal:get(state, TBal))),
+  %               BSeq=hex:encode(<<Seq:64/big>>),
+  %               EA=(naddress:encode(Address)),
+  %               TxID= <<EA/binary, BSeq/binary, H/binary>>,
+  %               {TxID,
+  %                tx:set_ext( <<"contract_issued">>, Address, ETx)
+  %               }
+  %           end, TXs), Gas, Acc}
+  %end.
+  .
 
 
 deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings, GAcc) ->
@@ -469,7 +500,9 @@ deposit_fee(#{amount:=Amounts}, Addr, Addresses, TXL, GetFun, Settings, GAcc) ->
                       {NewT, NewTXL, _, _}=depositf(Addr, Acc,
                                                 #{cur=>Cur,
                                                   amount=>Summ,
-                                                  to=>Addr},
+                                                  to=>Addr,
+                                                  from=>Addr
+                                                 },
                                                 GetFun, Settings, free, GAcc),
                       {NewT, TxAcc ++ NewTXL}
                   end,

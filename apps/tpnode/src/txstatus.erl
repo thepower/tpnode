@@ -66,8 +66,15 @@ handle_cast({done, Result, Txs}, #{q:=Q} = State) when is_list(Txs) ->
   Q1 = lists:foldl(
     fun
       ({TxID, Res}, QAcc) ->
+        %tinymq:push(TxID,{Result,Res}),
         hashqueue:add(TxID, Timeout, {Result, Res}, QAcc);
       (TxID, QAcc) ->
+        %tinymq:push(TxID,{Result,
+        %    if Result ->
+        %      ok;
+        %      true -> error
+        %    end
+        %  }),
         hashqueue:add(
           TxID,
           Timeout,
@@ -79,6 +86,7 @@ handle_cast({done, Result, Txs}, #{q:=Q} = State) when is_list(Txs) ->
           },
           QAcc)
     end, Q, Txs),
+
   {noreply,
     State#{q=>Q1}
   };
@@ -147,7 +155,7 @@ jsonfy1({true,#{retval:=RV}}) when is_binary(RV)->
 
 jsonfy1({true,#{revert:=RV}}) when is_binary(RV)->
   #{ok=>true,
-    res=>ok,
+    res=><<"revert">>,
     revert=>utils:textize_binary(RV)
    };
 

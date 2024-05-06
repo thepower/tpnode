@@ -273,11 +273,14 @@ handle_call({new_block, #{hash:=BlockHash,
         end,
         MBlk=case maps:get(BlockHash, Candidates, undefined) of
                undefined ->
-                 Blk;
+                 Blk#{
+                   <<"_install_t">> => os:system_time(microsecond)
+                  };
                #{sign:=BSig}=ExBlk ->
                  NewSigs=lists:usort(BSig ++ Success),
                  ExBlk#{
-                   sign=>NewSigs
+                   sign=>NewSigs,
+                   <<"_install_t">> => os:system_time(microsecond)
                   }
              end,
         SigLen=length(maps:get(sign, MBlk)),
@@ -357,6 +360,7 @@ handle_call({new_block, #{hash:=BlockHash,
                             }),
                   gen_server:cast(blockchain_reader,{update,MBlk}),
                   gen_server:cast(tpnode_ws_dispatcher, {new_block, MBlk}),
+                  gen_server:cast(tpnode_reporter, {new_block, maps:get(height, maps:get(header, Blk)), maps:get(temporary,Blk,false)}),
 
                   {reply, ok, State#{
                                 tmpblock=>MBlk
@@ -388,7 +392,7 @@ handle_call({new_block, #{hash:=BlockHash,
                              _ ->
                                {checkput, BlockLedgerHash}
                            end, MBlk),
-                  ?LOG_INFO("LApply ~p",[LApply]),
+                  ?LOG_DEBUG("LApply ~p",[LApply]),
 
                   LHash=case LApply of
                           {ok, LH11} ->
@@ -423,6 +427,8 @@ handle_call({new_block, #{hash:=BlockHash,
                         true -> ok
                       end
                   end,
+
+                  gen_server:cast(tpnode_reporter, {new_block, maps:get(height, maps:get(header, Blk)), maps:get(temporary,Blk,false)}),
 
                   SendSuccess=lists:map(
                                 fun({TxID, #{register:=_, address:=Addr}}) ->
@@ -866,7 +872,7 @@ apply_ledger(Action, #{bals:=S, hash:=BlockHash, header:=#{height:=Height}}) ->
        put ->
          {ok,mledger:apply_patch(mledger:bals2patch(Patch), {commit, {Height, BlockHash}})}
      end,
-  ?LOG_INFO("Apply ~p ~p", [Action, LR]),
+  ?LOG_DEBUG("Apply ~p ~p", [Action, LR]),
   LR.
 
 apply_block_conf_meta(#{hash:=Hash}=Block, Conf0) ->
@@ -923,10 +929,10 @@ mychain(#{lastblock:=#{header:=#{chain:=MyChain}}, settings:=Sets}=State) ->
                chainnodes=>ChainNodes,
                mychain=>MyChain
               }),
-  SK=fun(SS) ->
-         Req=[ candidates, ldb, settings, btable, lastblock, mychain ],
-         [ {T,maps:is_key(T,SS)} || T <- Req ]
-     end,
+  %SK=fun(SS) ->
+  %       Req=[ candidates, ldb, settings, btable, lastblock, mychain ],
+  %       [ {T,maps:is_key(T,SS)} || T <- Req ]
+  %   end,
   %logger:error("MYCHAIN old ~p new ~p",[SK(State), SK(S1)]),
   S1;
 
@@ -940,11 +946,11 @@ mychain(#{lastblock:=#{header:=_ChainLess}, settings:=Sets}=State) ->
                chainnodes=>ChainNodes,
                mychain=>0
               }),
-  SK=fun(SS) ->
-         Req=[ candidates, ldb, settings, btable, lastblock, mychain ],
-         [ {T,maps:is_key(T,SS)} || T <- Req ]
-     end,
-  %logger:error("MYCHAIN old ~p new ~p",[SK(State), SK(S1)]),
+  %SK=fun(SS) ->
+  %       Req=[ candidates, ldb, settings, btable, lastblock, mychain ],
+  %       [ {T,maps:is_key(T,SS)} || T <- Req ]
+  %   end,
+  %?LOG_DEBUG("MYCHAIN old ~p new ~p",[SK(State), SK(S1)]),
   S1.
 
 replace(Field, Value) ->

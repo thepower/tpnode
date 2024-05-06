@@ -646,11 +646,9 @@ verify(#{
         {true, _IAddr} ->
           VerFun=case lists:member(nocheck_ledger,Opts) of
                    false ->
-                     LedgerInfo=mledger:get(
-                                  %proplists:get_value(ledger,Opts,ledger),
-                                  From),
+                     LedgerInfo=mledger:get_kpvs(From,pubkey,[]),
                      case LedgerInfo of
-                       #{pubkey:=PK} when is_binary(PK) ->
+                       [{pubkey,_,PK}] when is_binary(PK) ->
                          fun(PubKey, Constraints, _) ->
                              %io:format("Constraints ~p~n",[Constraints]),
                              %io:format("Pubkey ~p~n PK ~p~n",[PubKey,PK]),
@@ -765,7 +763,7 @@ verify(#{
                chainsettings:by_path([<<"current">>,<<"patchkeys">>])
            end,
       case Sets of
-        #{keys:=Keys0} when is_list(Keys0) ->
+        #{<<"keys">>:=Keys0} when is_list(Keys0) ->
           Keys=[tpecdsa:cmp_pubkey(K) || K <- Keys0 ],
 
           CheckFun1=fun(PubKey,_) ->

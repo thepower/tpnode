@@ -79,7 +79,7 @@ get(VMType,Method,Args,Ledger) ->
           error
   end.
 
-getters(VMType) -> 
+getters(VMType) ->
   try
     A=erlang:binary_to_existing_atom(<<"contract_", VMType/binary>>, utf8),
     Res=erlang:apply(A, getters, []),
@@ -87,6 +87,9 @@ getters(VMType) ->
   catch error:badarg ->
           error
   end.
+
+run(VMType, #{to:=To}=Tx, Ledger, free, GetFun, Opaque) ->
+  run(VMType, #{to:=To}=Tx, Ledger, {<<"SK">>,100,{10000000,1}}, GetFun, Opaque);
 
 run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,{GNum,GDen}=GRate}, GetFun, Opaque) ->
   %io:format("smartcontract Opaque ~p~n",[Opaque]),
@@ -206,7 +209,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,{GNum,GDen}=GRate}, GetFun, Opaq
         ?LOG_ERROR("Contract return error ~p", [Any]),
         throw({'run_failed', other})
     end
-  catch 
+  catch
     Ec:Ee:S when Ec=/=throw ->
           ?LOG_INFO("Can't run contract ~p:~p @ ~p/~p~n",
                       [Ec, Ee, hd(S),hd(tl(S))]),

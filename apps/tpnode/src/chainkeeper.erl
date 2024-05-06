@@ -132,7 +132,7 @@ handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = Sta
         {ok, Decode} when is_map(Decode) ->
           case Decode of
             #{null := <<"block_installed">>,<<"blk">> := ReceivedBlk} ->
-              ?LOG_INFO("got ck_beacon from ~s, block: ~p", [NodeName, Payload]),
+              ?LOG_DEBUG("got ck_beacon from ~s ~p", [NodeName, ReceivedBlk]),
               block:unpack(ReceivedBlk);
             _ ->
               ?LOG_INFO("got ck_beacon from ~s, unpacked payload: ~p", [NodeName, Decode]),
@@ -149,13 +149,13 @@ handle_cast({tpic, NodeName, _From, Payload}, #{lookaround_timer := Timer} = Sta
         #{}
     end,
 
-  ?LOG_INFO("Blk: ~p", [Blk]),
-  case Blk of
-    #{hash:=H} ->
-      Sig=gen_server:call(blockvote,{signatures, H}),
-      ?LOG_INFO("got signatures: ~p", [Sig]);
-    _ -> ok
-  end,
+  ?LOG_DEBUG("Blk: ~p", [Blk]),
+  %case Blk of
+  %  #{hash:=H} ->
+  %    Sig=gen_server:call(blockvote,{signatures, H}),
+  %    ?LOG_INFO("got new signatures from node ~s: ~p", [NodeName,Sig]);
+  %  _ -> ok
+  %end,
 
 
   stout:log(ck_beacon,

@@ -119,12 +119,23 @@ h(Method, [<<"playground">>|Path], Req) ->
 h(Method, [<<"api">>|Path], Req) ->
   h(Method, Path, Req);
 
+h(Method, [<<"execute">>,<<"script">>|Path], Req) ->
+  case erlang:function_exported(tpnode_scripts,http_script,3) of
+    true ->
+      erlang:apply(tpnode_scripts,
+                   http_script,
+                   [Method,Path,Req]);
+    false ->
+      {400, [], <<"bad request">>}
+  end;
+
+
 h(<<"POST">>, [<<"execute">>,<<"call">>], Req) ->
   case apixiom:bodyjs(Req) of
     #{<<"call">>:=_Call, <<"to">>:=_To}=Map ->
-      B=maps:merge(#{loop=>1, <<"args">> =>[]},Map),
+      B=maps:merge(#{loop=>1, <<"from">> => <<"0x8000000000000000">>, <<"args">> =>[]},Map),
       h(<<"POST">>, B#{
-                      <<"from">> => <<"0x8000000000000000">>,
+                      
                       <<"value">> => 0,
                       <<"gas">> => 1000000000000
                      }, Req);
@@ -134,12 +145,24 @@ h(<<"POST">>, [<<"execute">>,<<"call">>], Req) ->
 
 h(<<"POST">>, #{ <<"call">>:=Call, <<"args">>:=Args, <<"from">>:=From,
                  <<"to">>:=To, <<"gas">>:=GasLimit, <<"value">>:=_Value
-               },_Req) ->
+               }=ReqData,_Req) ->
   case tpnode_evmrun:evm_run(
          hex:decode(To),
          Call,
          tpnode_evmrun:decode_json_args(Args),
-         #{caller=>hex:decode(From),gas=>GasLimit}
+         case maps:is_key(<<"blockHeight">>,ReqData) of
+           false ->
+             #{
+               caller=>hex:decode(From),
+               gas=>GasLimit
+              };
+           true ->
+             #{
+               caller=>hex:decode(From),
+               gas=>GasLimit,
+               block_height=>maps:get(<<"blockHeight">>,ReqData)
+              }
+         end
         ) of
     #{}=Res ->
       Res1=maps:map(
@@ -323,6 +346,18 @@ h(<<"GET">>, [<<"node">>, <<"chainstate">>], _Req) ->
     #{ result => <<"ok">>,
        chainstate => R
      });
+
+h(<<"POST">>, [<<"node">>, <<"rollback">>], _Req) ->
+  R=list_to_binary(
+      [ io_lib:format("~1000p~n",
+                     [ gen_server:call(blockchain_updater, rollback) ]
+                    ) ]
+     ),
+  answer(#{
+           result => <<"ok">>,
+           res => R
+          });
+
 
 h(<<"POST">>, [<<"node">>, <<"runsync">>], _Req) ->
   R=list_to_binary(
@@ -517,33 +552,15 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"lstore">>|Path0], Req) ->
                        Any
                    end,
                    Path0),
-    RawKeys=mledger:get_kpvs(Addr,lstore,'_'),
-    MatchPath=fun M([],P) -> P;
-                  M([E1|R1],[E2|R2]) when E1==E2 ->
-                  M(R1,R2);
-                  M(_,_) -> false
-              end,
+    Data=mledger:get_lstore_map(Addr,Path),
 
-    S1=lists:foldl(
-         fun({lstore,K,V},Acc) ->
-             case MatchPath(Path,K) of
-               false ->
-                 Acc;
-               [] ->
-                 V;
-               P ->
-                 settings:patch([#{<<"t">> => <<"set">>,
-                                   <<"p">> =>P,
-                                   <<"v">> =>V}],Acc)
-             end
-         end, #{}, RawKeys),
-        %if is_binary(S1) ->
-        %     {200, [{"Content-Type","application/octet-stream"}], S1};
-        %   true ->
-        %     {200, [], S1}
-        %end
+    %if is_binary(S1) ->
+    %     {200, [{"Content-Type","application/octet-stream"}], S1};
+    %   true ->
+    %     {200, [], S1}
+    %end
     BinPacker=xpacker(Req),
-    S2=encode_recursive(S1,BinPacker),
+    S2=encode_recursive(Data,BinPacker),
     {200, [], {S2, #{} }}
   catch
     throw:{error, address_crc} ->
@@ -911,6 +928,23 @@ h(<<"GET">>, [<<"block_candidates">>], _Req) ->
         )
   end;
 
+h(<<"GET">>, [<<"binblockn">>, BlockNum], _Req) ->
+  Number=binary_to_integer(BlockNum),
+  case blockchain_reader:get_block(Number) of
+    not_found ->
+        err(
+            10006,
+            <<"Not found">>,
+            #{result => <<"not_found">>},
+            #{http_code => 404}
+        );
+    #{}=GoodBlock ->
+      {200,
+       [{<<"content-type">>,<<"binary/tp-block">>}],
+       block:pack(GoodBlock)
+      }
+  end;
+
 h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
   BlockHash0=if(BlockId == <<"last">>) -> last;
                (BlockId == <<"genesis">>) -> genesis;
@@ -952,6 +986,45 @@ h(<<"GET">>, [<<"txtblock">>, BlockId], _Req) ->
         )
       }
   end;
+
+h(<<"GET">>, [<<"blockn">>, BlockNo], _Req) ->
+  QS=cowboy_req:parse_qs(_Req),
+  BinPacker=packer(_Req),
+  Address=case proplists:get_value(<<"addr">>, QS) of
+            undefined -> undefined;
+            Addr -> naddress:decode(Addr)
+          end,
+  Number=binary_to_integer(BlockNo),
+  case blockchain_reader:get_block(Number) of
+    not_found ->
+        err(
+            10006,
+            <<"Not found">>,
+            #{result => <<"not_found">>},
+            #{http_code => 404}
+        );
+    #{}=GoodBlock ->
+      ReadyBlock=if Address == undefined ->
+                      GoodBlock;
+                    is_binary(Address) ->
+                      filter_block(
+                        GoodBlock,
+                        Address)
+                 end,
+      Block=prettify_block(ReadyBlock, BinPacker),
+      EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+              Conf1=jsx_config:list_to_config(Conf),
+              jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                                State, Handler, Stack, Conf1)
+          end,
+      answer(
+        #{ result => <<"ok">>,
+           block => Block
+         },
+        #{jsx=>[ strict, {error_handler, EHF} ]}
+       )
+  end;
+
 
 h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
@@ -1024,10 +1097,10 @@ h(<<"GET">>, [<<"debug">>, <<"logzip">>,_N], _Req) ->
 
 h(<<"POST">>, [<<"debug">>, <<"runsync">>|N], _Req) ->
   Q = case N of
-        [NN] ->
-          {runsync_h, binary_to_integer(NN)};
-        [NN,TT] ->
-          {runsync_h, {binary_to_integer(NN),binary_to_integer(TT)}};
+        [Height] ->
+          {runsync_h, binary_to_integer(Height)};
+        [Height,Temp] ->
+          {runsync_h, {binary_to_integer(Height),binary_to_integer(Temp)}};
         [] ->
           {runsync_h, any}
       end,
@@ -1343,8 +1416,15 @@ prettify_bal(V, BinPacker) ->
   maps:map(
     fun(pubkey, PubKey) ->
         BinPacker(PubKey);
-       (state, PubKey) when is_binary(PubKey) ->
-        BinPacker(PubKey);
+       %(state, PubKey) when is_binary(PubKey) ->
+       % BinPacker(PubKey);
+       (state, Map=#{}) ->
+        maps:map(
+          fun
+            (_K,V1) when size(V1) =< 8 ->
+              binary:decode_unsigned(V1);
+            (_K,V1) -> BinPacker(V1) end,
+          Map);
        (view, View) ->
         [ list_to_binary(M) || M<- View];
        (code, PubKey) ->
@@ -1507,6 +1587,8 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
           fun(<<"addr">>,V2,Acc) ->
               [{<<"addr.txt">>,naddress:encode(V2)},
                {<<"addr">>,BinPacker(V2)} |Acc];
+             (<<"retval">>,V2,Acc) ->
+              [{<<"retval">>,BinPacker(V2)}|Acc];
               (K2,V2,Acc) ->
               [{K2,V2}|Acc]
           end, [], V1);
@@ -1553,35 +1635,54 @@ prettify_tx(TXB, BinPacker) ->
 
 show_signs(Signs, BinPacker, IsNode) ->
   lists:map(
-    fun(BSig) ->
-        #{binextra:=Hdr,
-          extra:=Extra,
-          signature:=Signature}=bsig:unpacksig(BSig),
-        UExtra=lists:map(
-                 fun({K, V}) ->
-                     if(is_binary(V)) ->
-                         {K, BinPacker(V)};
-                       true ->
-                         {K, V}
-                     end
-                 end, Extra
-                ),
-        NodeID=proplists:get_value(pubkey, Extra, <<>>),
-        R1=#{ binextra => BinPacker(Hdr),
-           signature => BinPacker(Signature),
-           extra =>UExtra
-         },
-        if IsNode ->
-             R1#{
-               '_nodeid' => nodekey:node_id(NodeID),
-               '_nodename' => try chainsettings:is_our_node(NodeID)
-                              catch _:_ -> null
-                              end
-              };
-           true ->
-             R1
-        end
-    end, Signs).
+       fun(BSig) ->
+           Map=#{extra:=Extra}=bsig:unpacksig(BSig),
+           R1=maps:map(
+             fun(binextra,V) ->
+                 BinPacker(V);
+                (signature,V) ->
+                 BinPacker(V);
+                (extra,List) ->
+                 lists:map(
+                   fun({K, V}) ->
+                       if(is_binary(V)) ->
+                           {K, BinPacker(V)};
+                         true ->
+                           {K, V}
+                       end
+                   end, List
+                  );
+                (_,V) -> V
+             end,Map),
+
+           %        #{binextra:=Hdr,
+           %          extra:=Extra,
+           %          signature:=Signature}=bsig:unpacksig(BSig),
+           %        UExtra=lists:map(
+           %                 fun({K, V}) ->
+           %                     if(is_binary(V)) ->
+           %                         {K, BinPacker(V)};
+           %                       true ->
+           %                         {K, V}
+           %                     end
+           %                 end, Extra
+           %                ),
+           NodeID=proplists:get_value(pubkey, Extra, <<>>),
+           %        R1=#{ binextra => BinPacker(Hdr),
+           %              signature => BinPacker(Signature),
+           %              extra =>UExtra
+           %            },
+           if IsNode ->
+                R1#{
+                  '_nodeid' => nodekey:node_id(NodeID),
+                  '_nodename' => try chainsettings:is_our_node(NodeID)
+                                 catch _:_ -> null
+                                 end
+                 };
+              true ->
+                R1
+           end
+       end, Signs).
 
 % ----------------------------------------------------------------------
 
@@ -1762,12 +1863,14 @@ packer(Req) ->
 packer(Req,Default) ->
   QS=cowboy_req:parse_qs(Req),
   case proplists:get_value(<<"bin">>, QS) of
-    <<"b64">> -> fun(Bin) -> base64:encode(Bin) end;
-    <<"hex">> -> fun(Bin) -> hex:encode(Bin) end;
-    <<"0xhex">> -> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
-    <<"raw">> -> fun(Bin) -> Bin end;
+    <<"b64">>  -> fun(Bin) -> base64:encode(Bin) end;
+    <<"hex">>  -> fun(Bin) -> hex:encode(Bin) end;
+    <<"xhex">> -> fun(Bin) -> hex:encodex(Bin) end;
+    <<"0xhex">>-> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
+    <<"raw">>  -> fun(Bin) -> Bin end;
     _ -> case Default of
            hex -> fun(Bin) -> hex:encode(Bin) end;
+           xhex-> fun(Bin) -> hex:encodex(Bin) end;
            b64 -> fun(Bin) -> base64:encode(Bin) end;
            raw -> fun(Bin) -> Bin end
          end

@@ -100,7 +100,7 @@ handle_request(Method, Path, Req, Target, Format, _Opts) ->
       api_call,
       [{path, cowboy_req:path(Req)}, {client_addr, get_client_ip_headers(Req)}]
     ),
-    ?LOG_INFO("api: ~p ~p", [cowboy_req:path(Req), get_client_ip_headers(Req)]),
+    ?LOG_DEBUG("api: ~p ~p", [cowboy_req:path(Req), get_client_ip_headers(Req)]),
     
     Req1 =
       case Format of

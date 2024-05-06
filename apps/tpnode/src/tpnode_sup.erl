@@ -165,10 +165,10 @@ init([]) ->
                     ]
                 end,
 
-    case application:get_env(tpnode,watchdog,true) of
+    case application:get_env(tpnode,watchdog,undefined) of
       true ->
         tpwdt:start();
-      _ ->
+      undefined ->
         ok
     end,
 
@@ -224,6 +224,7 @@ init([]) ->
                   { blockchain_sync, {blockchain_sync, start_link, []}, permanent, 5000, worker, []},
                   { synchronizer, {synchronizer, start_link, []}, permanent, 5000, worker, []},
                   { mkblock, {mkblock, start_link, []}, permanent, 5000, worker, []},
+                  { tpnode_reporter, {tpnode_reporter, start_link, []}, permanent, 5000, worker, []},
                   { topology, {topology, start_link, []}, permanent, 5000, worker, []},
                   { xchain_client, {xchain_client, start_link, [#{}]}, permanent, 5000, worker, []},
                   { xchain_dispatcher, {xchain_dispatcher, start_link, []}, permanent, 5000, worker, []},

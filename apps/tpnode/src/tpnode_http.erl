@@ -13,6 +13,7 @@ get_http_conn_type() ->
       {'_', [
         {"/api/ws", tpnode_ws, []},
         {"/api/[...]", apixiom, {tpnode_httpapi, #{}}},
+        {"/jsonrpc", cowboy_jsonrpc, {tpnode_jsonrpc, #{}}},
         {"/tpic2/[...]", tpnode_tpicapi, #{}},
         {"/xchain/ws", xchain_server, []},
         {"/xchain/api/[...]", apixiom, {xchain_api, #{}}},

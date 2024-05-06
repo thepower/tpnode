@@ -6,8 +6,11 @@
 -export([bals2patch/1, apply_patch/2]).
 -export([dbmtfun/3]).
 -export([mb2item/1]).
+-export([get_lstore/2,get_lstore_map/2]).
+-export([getfun/1]).
 -export([get_kv/1]).
--export([get_kpv/3, get_kpvs/3]).
+-export([get_kpv/3, get_kpvs/4, get_kpvs/3]).
+-export([get_kpvs_height/5, get_kpvs_height/4]). % <- it's relative slow !!
 -export([addr_proof/1, bi_decode/1]).
 -export([rollback/2]).
 -export([apply_backup/1]).
@@ -107,10 +110,10 @@ put(_Address, Bal) ->
         Acc
     end, #{}, Changes).
 
-get_vers(Address) -> 
+get_vers(Address) ->
   get_vers(Address,trans).
 
-get_vers(Address, notrans) -> 
+get_vers(Address, notrans) ->
   {Addr,Key}=case Address of
                {A, K} when is_binary(A) ->
                  {A, K};
@@ -125,7 +128,7 @@ get_vers(Address, notrans) ->
                     _='_'
                    });
 
-get_vers(Address, trans) -> 
+get_vers(Address, trans) ->
   {atomic,List}=rockstable:transaction(mledger,
                                        fun()->
                                            get_vers(Address, notrans)
@@ -135,19 +138,72 @@ get_vers(Address, trans) ->
 mb2item( #mb{ address=A, key=K, path=P, value=V, version=Ver, introduced=Int }) ->
   bi_create(A,Ver,K,P,Int,V).
 
-get_kpvs(Address, Key, Path) ->
+get_lstore_map(Address, Path) ->
+  settings:get(Path,
+               lists:foldl(
+                 fun({lstore,P,Val},A) ->
+                     settings:set(P,Val,A)
+                 end, #{}, get_lstore(Address,Path))
+              ).
+
+get_lstore(Address, Path) ->
+  %% it might be non optimal way, possible need to compile predicate, needs benchmarking
+  case rockstable:get(mledger,
+                      undefined,
+                      #bal_items{address=Address,
+                                 version=latest,
+                                 key=lstore,
+                                 _='_'},
+                      [{pred,fun(#bal_items{path=P}) ->
+                                 lists:prefix(Path,P)
+                             end}]
+                     ) of
+    not_found -> [];
+    [] -> [];
+    List ->
+      [ {K, P, V} || #bal_items{key=K,path=P,value=V} <- List]
+  end.
+
+
+%it's relative slow, do not use in production too much
+get_kpvs_height(Address, Key, Path, BlockHeight) ->
+  get_kpvs_height(Address, Key, Path, BlockHeight,[]).
+
+get_kpvs_height(Address, Key, Path, BlockHeight, Opts) ->
+  case rockstable:get(mledger,
+                      undefined,
+                      #bal_items{address=Address,
+                                 key=Key,
+                                 path=Path,
+                                 _='_'}, Opts) of
+    not_found -> [];
+    [] -> [];
+    List ->
+      [ {K, P, V} || #bal_items{key=K,path=P,value=V,introduced=I,version=E} <- List,
+                     BlockHeight>=I,
+                     E>BlockHeight
+      ]
+  end.
+
+
+
+get_kpvs(Address, Key, Path, Opts) ->
   case rockstable:get(mledger,
                       undefined,
                       #bal_items{address=Address,
                                  version=latest,
                                  key=Key,
                                  path=Path,
-                                 _='_'}) of
+                                 _='_'}, Opts) of
     not_found -> [];
     [] -> [];
     List ->
       [ {K, P, V} || #bal_items{key=K,path=P,value=V} <- List]
   end.
+
+
+get_kpvs(Address, Key, Path) ->
+  get_kpvs(Address, Key, Path, []).
 
 get_kpv(Address, Key, Path) ->
   case rockstable:get(mledger,
@@ -163,7 +219,7 @@ get_kpv(Address, Key, Path) ->
       {ok, V}
   end.
 
-get(Address) -> 
+get(Address) ->
   get(Address,trans).
 
 get_kv(Address) ->
@@ -180,7 +236,7 @@ get_raw(Address, notrans) ->
                                   _ ='_'
                                  }).
 
-get(Address, notrans) -> 
+get(Address, notrans) ->
   Raw=get_raw(Address, notrans),
   if Raw == [] ->
        undefined;
@@ -192,8 +248,9 @@ get(Address, notrans) ->
                          mbal:put(code,[], Code,A);
                        (#bal_items{key=lstore, path=K, value=V1}, A) ->
                          mbal:put(lstore, K, V1, A);
-                       (#bal_items{key=state, path=K, value=V1}, A) ->
-                         mbal:put(state, K, V1, A);
+                       (#bal_items{key=state, path=_K, value=_V1}, A) ->
+                         maps:merge(#{state=>#{}}, A);
+%                         mbal:put(state, K, V1, A);
                        (#bal_items{key=K, path=P, value=V},A) ->
                          mbal:put(K,P,V,A)
                      end,
@@ -202,7 +259,7 @@ get(Address, notrans) ->
                     ))
   end;
 
-get(Address, trans) -> 
+get(Address, trans) ->
   {atomic,List}=rockstable:transaction(mledger,
                   fun()->
                       get(Address, notrans)
@@ -226,11 +283,11 @@ hashl(BIs) when is_list(BIs) ->
 hash(Address) when is_binary(Address) ->
   BIs=get_raw(Address,notrans),
   hashl(BIs).
-  
+
 bals2patch(Data) ->
   bals2patch(Data,[]).
 
-bals2patch([], Acc) -> Acc; 
+bals2patch([], Acc) -> Acc;
 bals2patch([{A,Bal}|Rest], PRes) ->
   FoldFun=fun (Key,Val,Acc) when Key == amount;
                                  Key == code;
@@ -243,29 +300,29 @@ bals2patch([{A,Bal}|Rest], PRes) ->
                                  Key == lastblk ->
               [bi_create(A, latest, Key, [], here, Val)|Acc];
               (state,BState,Acc) ->
-              case mbal:get(vm,Bal) of
-                <<"chainfee">> ->
-                  [bi_create(A, latest, state, <<>>, here, BState)|Acc];
-                <<"erltest">> ->
-                  [bi_create(A, latest, state, <<>>, here, BState)|Acc];
-                _ when is_binary(BState) ->
-                  % io:format("BS ~p~n",[BState]),
-                  {ok, State} = msgpack:unpack(BState),
-                  maps:fold(
-                    fun(K,V,Ac) ->
-                        [bi_create(A, latest, state, K, here, V)|Ac]
-                    end, Acc, State);
-                _ when is_map(BState) ->
-                  % io:format("BS ~p~n",[BState]),
-                  maps:fold(
-                    fun(K,V,Ac) ->
-                        [bi_create(A, latest, state, K, here, V)|Ac]
-                    end, Acc, BState)
-              end;
+                  case mbal:get(vm,Bal) of
+                    <<"chainfee">> ->
+                      [bi_create(A, latest, state, <<>>, here, BState)|Acc];
+                    <<"erltest">> ->
+                      [bi_create(A, latest, state, <<>>, here, BState)|Acc];
+                    _ when is_binary(BState) ->
+                      % io:format("BS ~p~n",[BState]),
+                      {ok, State} = msgpack:unpack(BState),
+                      maps:fold(
+                        fun(K,V,Ac) ->
+                            [bi_create(A, latest, state, K, here, V)|Ac]
+                        end, Acc, State);
+                    _ when is_map(BState) ->
+                      % io:format("BS ~p~n",[BState]),
+                      maps:fold(
+                        fun(K,V,Ac) ->
+                            [bi_create(A, latest, state, K, here, V)|Ac]
+                        end, Acc, BState)
+                  end;
               (changes,_,Acc) ->
-              Acc;
+                  Acc;
               (lstore,BState,Acc) ->
-              State=if is_binary(BState) ->
+                  State=if is_binary(BState) ->
                          {ok, S1} = msgpack:unpack(BState),
                          S1;
                        is_map(BState) ->
@@ -368,11 +425,14 @@ apply_patch(Patches, check) ->
 apply_patch(Patches, {commit, HeiHash, ExpectedHash}) ->
   F=fun() ->
         {ok,LH}=do_apply(Patches, HeiHash),
-        ?LOG_INFO("check and commit expected ~p actual ~p",[ExpectedHash, LH]),
         case LH == ExpectedHash of
           true ->
+            ?LOG_DEBUG("check and commit expected ~p actual ~p",
+                       [hex:encode(ExpectedHash), hex:encode(LH)]),
             LH;
           false ->
+            ?LOG_ERROR("check and commit expected ~p actual ~p",
+                      [hex:encode(ExpectedHash), hex:encode(LH)]),
             throw({'abort',LH})
         end
     end,
@@ -465,5 +525,34 @@ addr_proof(Address) ->
         }
     end),
   Res.
+
+getfun({storage,Addr,Key}) ->
+  case mledger:get_kpv(Addr,state,Key) of
+    undefined ->
+      <<>>;
+    {ok, Bin} ->
+      Bin
+  end;
+getfun({code,Addr}) ->
+  ?LOG_INFO("Load code for address ~p",[Addr]),
+  case mledger:get_kpv(Addr,code,[]) of
+    undefined ->
+      <<>>;
+    {ok, Bin} ->
+      Bin
+  end;
+getfun({lstore,Addr,Path}) ->
+  mledger:get_lstore_map(Addr,Path);
+getfun({Addr, _Cur}) -> %slow method to get everything of account
+  case mledger:get(Addr) of
+    #{amount:=_}=Bal -> maps:without([changes],Bal);
+    undefined -> mbal:new()
+  end;
+getfun(Addr) -> %slow method to get everything of account
+  ?LOG_DEBUG("Load everything for address ~p @ ~p",[Addr,tl(try throw(a) catch throw:a:S -> S end)]),
+  case mledger:get(Addr) of
+    #{amount:=_}=Bal -> maps:without([changes],Bal);
+    undefined -> mbal:new()
+  end.
 
 

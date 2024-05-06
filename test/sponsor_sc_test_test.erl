@@ -31,7 +31,7 @@ ssc_test() ->
   [?assertMatch([{_,true},{_,<<"SK">>},{_,100000}], DRet),
    ?assertMatch([{<<"iWillPay">>,<<"i will pay">>},
         {<<"pay">>,
-         [[{<<"purpose">>,3},{<<"cur">>,<<"SK">>},{<<"amount">>,600000}],_]}],DRet2)
+         [[{<<"purpose">>,3},{<<"cur">>,<<"SK">>},{<<"amount">>,600000}]|_]}],DRet2)
   ].
 
 call(Function, CArgs, ABI, Code) when is_binary(Function), is_list(CArgs) ->

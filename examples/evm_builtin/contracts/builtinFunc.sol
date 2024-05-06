@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+contract Chkey {
+  function setKey(bytes calldata) public virtual {}
+}
+
 contract builtinFunc {
   struct tpCall {
     string func;
@@ -56,6 +60,7 @@ contract builtinFunc {
   event callFunction(string nameFunction);
   event newTx(tpTx tx);
   event sig(bytes tx);
+  event Debug(bytes);
   event sig1(uint256 chain, string name);
   event textbin(string text,bytes data);
   event textpayload(string text,tpPayload data);
@@ -129,10 +134,17 @@ contract builtinFunc {
     settings memory ret = abi.decode(returnBytes, (settings));
     return ret;
   }
+  function changeKey1() public {
+    (bool success,/* bytes memory data*/) = address(0xAFFFFFFFFF000006).call{gas: 5000}(
+      abi.encodeWithSignature("setKey(bytes)", bytes("\x00\x01"))
+    );
+    require(success,"something wrong");
+  }
   function checkKeys() public returns (uint256) {
     address kaddr=address(0xAFFFFFFFFF000003);
     address taddr=address(0xAFFFFFFFFF000002);
     (bool success, bytes memory returnBytes) = taddr.staticcall("");
+    require(success == true, "Call 0xAFFFFFFFFF000002 failed");
     tpTx memory ret = abi.decode(returnBytes, (tpTx));
     uint256 i=0;
     uint256 c=0;
@@ -140,8 +152,8 @@ contract builtinFunc {
       (bool success1, bytes memory returnBytes1) = kaddr.staticcall(
         abi.encodeWithSignature("isNodeKnown(bytes)",ret.signatures[i].pubkey)
       );
-      //require(success == true, "Call to isNodeKnown(bytes) failed");
-      if(success){
+      require(success1 == true, "Call to isNodeKnown(bytes) failed");
+      if(success1){
         (uint8 known, uint256 chain, string memory name) = abi.decode(returnBytes1, (uint8, uint256, string));
         if(known>0){
           emit sig1(chain,name);
@@ -155,14 +167,26 @@ contract builtinFunc {
   function getTx() public view returns (tpTx memory) {
     address _addr=address(0xAFFFFFFFFF000002);
     (bool success, bytes memory returnBytes) = _addr.staticcall("");
+    require(success == true, "Call failed");
     tpTx memory ret = abi.decode(returnBytes, (tpTx));
     return ret;
   }
 
+  function exampleTx() public pure returns (tpTx memory ret) {
+    ret.kind=16;
+    ret.from=address(0x8000000000000001);
+    ret.to=address(0x8000000000000002);
+    ret.t=0x12345678;
+    ret.seq=0x123;
+  }
+
   function getTxs() public returns (tpCall memory) {
     address _addr=address(0xAFFFFFFFFF000002);
+    emit callFunction("a0");
     (bool success, bytes memory returnBytes) = _addr.staticcall("");
+    require(success == true, "Call failed");
     emit callFunction("a1");
+    emit Debug(returnBytes);
     tpTx memory ret = abi.decode(returnBytes, (tpTx));
     emit callFunction("a2");
     uint256 i=0;
@@ -236,6 +260,7 @@ contract builtinFunc {
     address _addr=address(0xAFFFFFFFFF000005);
     (bool success, bytes memory returnBytes) =
       _addr.staticcall(abi.encodeWithSignature("getByPath(address,bytes[])", address(this), d));
+    require(success == true, "Call failed");
     settings memory ret = abi.decode(returnBytes, (settings));
     emit textbin('getByPath',returnBytes);
     //emit textset('getByPath',ret);
