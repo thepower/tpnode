@@ -1,7 +1,7 @@
 -module(tpnode_reporter).
--export([prepare/1,prepare/4, blockinfo/1, band_info/2, encode_data/2, ensure_account/0, register/1,
+-export([prepare/1,prepare/2,prepare/4, blockinfo/1, band_info/2, encode_data/2, ensure_account/0, register/1,
         post_tx_and_wait/2, get_ver/0, get_iver/1, attributes/0, attributes_changed/2,
-        set_attributes/2, ask_nextblock/1, id2attr/1, run/0
+        set_attributes/2, ask_nextblock/1, id2attr/1, run/0, run/1
         ]).
 
 -include("include/tplog.hrl").
@@ -40,6 +40,9 @@ get_iver(Ver) ->
     end.
 
 run() ->
+    run(#{}).
+
+run(Opts) ->
     {ok,_Addr}=tpnode_reporter:ensure_account(),
     CS=case application:get_env(tpnode,chainstate,undefined) of
            undefined ->
@@ -50,10 +53,8 @@ run() ->
            X ->
                naddress:decode(X)
        end,
-    if CS==false ->
-           no_chainstate_specified;
-       true ->
-           case tpnode_reporter:prepare(CS) of
+    if is_binary(CS) ->
+           case tpnode_reporter:prepare(CS, Opts) of
                nokey ->
                    logger:error("Cannot report, key is not registered");
                Tx when is_map(Tx) ->
@@ -62,7 +63,9 @@ run() ->
                    {ok, {TxID, Tx}};
                ignore ->
                    ignore
-           end
+           end;
+       true ->
+           no_chainstate_specified
     end.
 
 
@@ -229,9 +232,11 @@ encode_data(Data, Attrs) ->
     <<FunctionSig/binary,EData/binary>>.
 
 prepare(ToContract) ->
-    prepare(ToContract, attributes_changed(ToContract,attributes())).
+    prepare(ToContract, #{}).
+prepare(ToContract, Opts) ->
+    prepare(ToContract, attributes_changed(ToContract,attributes()), Opts).
 
-prepare(ToContract, Attributes) ->
+prepare(ToContract, Attributes, Opts) ->
     KeyId=case tpnode_evmrun:evm_run(ToContract,
                                      <<"node_id(bytes nodekey) returns (uint256)">>,
                                      [nodekey:get_pub()],
@@ -245,8 +250,9 @@ prepare(ToContract, Attributes) ->
           {Time,Blk}=tpnode_reporter:ask_nextblock(ToContract),
           Wait=Time-os:system_time(second),
           io:format("LBH ~p wait ~p blk ~p~n",[LBH, Wait, Blk]),
+          Nowait = maps:is_key(nowait,Opts),
 
-          if(Wait =< 2 orelse LBH==Blk-1) ->
+          if(Nowait orelse Wait =< 2 orelse LBH==Blk-1) ->
                 SCH=case tpnode_evmrun:evm_run(
                            ToContract,
                            <<"last_height(uint256) returns (uint256)">>, [KeyId],
