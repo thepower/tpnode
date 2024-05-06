@@ -491,7 +491,7 @@ bbyb_sync(Hash, Handler, Candidates) ->
       end,
       {broken_sync, skip_candidate(Candidates)};
     [{_, #{block:=BlockPart}=R}] ->
-      ?LOG_INFO("block found in received bbyb sync data ~p",[R]),
+      ?LOG_DEBUG("block found in received bbyb sync data ~p",[R]),
       try
         BinBlock = receive_block(Handler, BlockPart),
         #{hash:=NewH, header:=#{height:=NewHei}} = Block = block:unpack(BinBlock),

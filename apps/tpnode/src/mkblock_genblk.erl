@@ -257,6 +257,10 @@ run_generate(
   catch throw:empty ->
           ?LOG_INFO("Skip empty block"),
           skip;
+        throw:{'unsync',BestHeiHash,PHeiHash} ->
+          ?LOG_NOTICE("Unsync best ~s parent ~s",[hex:encode(BestHeiHash),
+                                                  hex:decode(PHeiHash)]),
+          error;
         throw:Other:Stack ->
           ?LOG_NOTICE("Skip ~p @ ~p",[Other,hd(Stack)]),
           error
