@@ -317,6 +317,17 @@ h(<<"GET">>, [<<"node">>, <<"status">>], Req) ->
        }
     });
 
+h(<<"GET">>, [<<"node">>, <<"backup.zip">>], _Req) ->
+  case tpnode_backup:make_backup() of
+    {OkIg, _} when OkIg==ok orelse OkIg==ignore ->
+      {ok, Path} = tpnode_backup:get_backup_path(),
+      logger:notice("Req ~p~n",[_Req]),
+      {raw,cowboy_static:init(_Req,{file,Path})};
+    _ ->
+      {400, [], #{error=>"backup returned unexpected result"}}
+  end;
+
+
 h(<<"GET">>, [<<"node">>, <<"backup">>], _Req) ->
   case tpnode_backup:make_backup() of
     {OkIg, _} when OkIg==ok orelse OkIg==ignore ->

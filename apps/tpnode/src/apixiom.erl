@@ -2,6 +2,28 @@
 -include("include/tplog.hrl").
 -export([bodyjs/1, body_data/1]).
 -export([init/2]).
+-export([content_types_provided/2]).
+-export([get_file/2]).
+-export([ranges_provided/2]).
+
+
+-include_lib("kernel/include/file.hrl").
+content_types_provided(Req, State={Path, _, Extra}) when is_list(Extra) ->
+	case lists:keyfind(mimetypes, 1, Extra) of
+		false ->
+			{[{cow_mimetypes:web(Path), get_file}], Req, State};
+		{mimetypes, Module, Function} ->
+			{[{Module:Function(Path), get_file}], Req, State};
+		{mimetypes, Type} ->
+			{[{Type, get_file}], Req, State}
+	end.
+
+ranges_provided(Req, State) ->
+	{[{<<"bytes">>, auto}], Req, State}.
+
+get_file(Req, State={Path, {direct, #file_info{size=Size}}, _}) ->
+	{{sendfile, 0, Size, Path}, Req, State}.
+
 
 %% API
 init(Req0, {Target, Opts}) ->
@@ -10,23 +32,28 @@ init(Req0, {Target, Opts}) ->
     Path = cowboy_req:path_info(Req1),
 %%    ?LOG_INFO("request: ~p ~p", [Format, Req1]),
     PRes = handle_request(Method, Path, Req1, Target, Format, Opts),
-    Req2 =
-        case erlang:function_exported(Target, before_filter, 1) of
-            true ->
-                Target:before_filter(Req1);
-            false ->
-                Req1
+    case PRes of
+      {raw, R} ->
+        R;
+      _ ->
+        Req2 =
+    case erlang:function_exported(Target, before_filter, 1) of
+          true ->
+            Target:before_filter(Req1);
+          false ->
+            Req1
         end,
-    {Status, Body, ResReq} = process_response(PRes, Format, Req2),
+        {Status, Body, ResReq} = process_response(PRes, Format, Req2),
     Response =
-        case erlang:function_exported(Target, after_filter, 1) of
-            true ->
-                Target:after_filter(ResReq);
-            false ->
-                ResReq
+    case erlang:function_exported(Target, after_filter, 1) of
+          true ->
+            Target:after_filter(ResReq);
+          false ->
+            ResReq
         end,
-    %?LOG_DEBUG("Res ~p", [Response]),
-    {ok, cowboy_req:reply(Status, #{}, Body, Response), Opts}.
+        %?LOG_DEBUG("Res ~p", [Response]),
+        {ok, cowboy_req:reply(Status, #{}, Body, Response), Opts}
+    end.
 
 bodyjs(Req) ->
     maps:get(request_data, Req, undefined).

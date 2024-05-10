@@ -1,6 +1,6 @@
 -module(tpnode_backup).
 -include("include/tplog.hrl").
--export([make_backup/0,get_backup/0]).
+-export([make_backup/0,get_backup/0,get_backup_path/0]).
 
 make_backup() ->
   filelib:ensure_dir(utils:dbpath(backup)++"/"),
@@ -21,7 +21,7 @@ make_backup() ->
           DB=utils:dbpath(backup)++"/"++integer_to_list(T),
           rockstable:backup(mledger,DB++".mledger"),
           rockstable:backup(logs_db,DB++".logs_db"),
-          gen_server:call(rdb_dispatcher,{backup,utils:dbpath(db),DB++".blocks"}),
+          gen_server:call(rdb_dispatcher,{backup,utils:dbpath(db),DB++".blocks"},60000),
           file:write_file(DB++".set",io_lib:format("~p.~n",[chainsettings:by_path([])])),
           Data=D0#{last=>T,
                    prev=>[T|maps:get(prev,D0,[])],
@@ -65,5 +65,26 @@ get_backup() ->
       ?LOG_INFO("Storing files ~p~n",[Files1]),
       {ok,_}=zip:create(Dir++".zip",Files1,[{cwd,utils:dbpath(backup)}]),
       file:read_file(Dir++".zip")
+  end.
+
+get_backup_path() ->
+  {ok,Info=#{dir:=Dir,last:=Last}}=get_info(),
+  case file:read_file(Dir++".zip") of
+    {ok, _Bin} ->
+      {ok,Dir++".zip"};
+    {error, enoent} ->
+      DBPath=utils:dbpath(backup),
+      TL=integer_to_list(Last),
+      Files0=filelib:wildcard(TL++"*",DBPath) ++ filelib:wildcard(TL++"*/**",DBPath),
+      Files=lists:filter(
+               fun(Filename) ->
+                   filelib:is_regular(filename:join(DBPath,Filename))
+               end, Files0),
+      Info1=(maps:with([last,hash,header],Info))#{dir=>TL},
+      file:write_file(utils:dbpath(backup)++"/backup.txt",io_lib:format("~p.~n",[Info1])),
+      Files1=["backup.txt"|lists:usort(Files)],
+      ?LOG_INFO("Storing files ~p~n",[Files1]),
+      {ok,_}=zip:create(Dir++".zip",Files1,[{cwd,utils:dbpath(backup)}]),
+      {ok,Dir++".zip"}
   end.
 
