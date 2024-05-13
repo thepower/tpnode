@@ -2,6 +2,7 @@
 -export([generate_priv/0, minify/1, calc_pub/2, sign/2, verify/3]).
 -export([export/2, export/3, import/1, import/2, import/3 ]).
 -export([generate_priv/1,import_der/2, calc_pub/1, upgrade_pubkey/1]).
+-export([pem_decrypt/2]).
 -export([keytype/1, rawkey/1, wrap_pubkey/2]).
 -export([cmp_pubkey/1, decipher/2
 ]).
@@ -69,7 +70,9 @@ generate_priv_secp256k1(N) ->
 
 minify(XPub) ->
   case XPub of
-    <<Gxp:8/integer, Gy:32/binary, _:31/binary>> when Gxp==2 orelse Gxp==3->
+    <<Gxp:8/integer, Gy:32/binary>> when Gxp==2 orelse Gxp==3->
+      <<Gxp:8/integer, Gy:32/binary>>;
+    <<Gxp:8/integer, Gy:32/binary, _:32/binary>> when Gxp==2 orelse Gxp==3->
       <<Gxp:8/integer, Gy:32/binary>>;
     <<4, Gy:32/binary, _:31/binary, Gxx:8/integer>> ->
       Gxp=if Gxx rem 2 == 1 -> 3;
@@ -446,7 +449,7 @@ import_proc([Other|T],A) ->
 
 import_proc([],A) -> A.
 
-import(PEM, Password) ->
+pem_decrypt(PEM, Password) ->
   DR=case erlang:function_exported(tpecdsa_pem,decode,1) of
        true ->
          tpecdsa_pem:decode(PEM);
@@ -454,16 +457,23 @@ import(PEM, Password) ->
          public_key:pem_decode(PEM)
      end,
 
+  lists:map(
+    fun({KeyType, DerKey, not_encrypted}=E0) ->
+        E0;
+       ({KeyType, _Payload, {_Algo, _Params}}=E0) ->
+        if(Password == undefined) ->
+            throw('password_needed');
+          true ->
+            {_,DerKey, not_encrypted}=E=decipher(E0, Password),
+            E
+        end
+    end, DR).
+
+import(PEM, Password) ->
+  DR=pem_decrypt(PEM,Password),
   case DR of
     [{KeyType, DerKey, not_encrypted}|_] ->
-      import_der(KeyType, DerKey);
-    [{KeyType, _Payload, {_Algo, _Params}}=E0|_] ->
-      if(Password == undefined) ->
-          throw('password_needed');
-        true ->
-          {_,DerKey, not_encrypted}=decipher(E0, Password),
-          import_der(KeyType, DerKey)
-      end
+      import_der(KeyType, DerKey)
   end.
 
 import_der(priv, DerKey) ->
