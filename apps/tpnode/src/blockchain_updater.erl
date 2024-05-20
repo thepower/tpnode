@@ -919,7 +919,8 @@ notify_settings() ->
   gen_server:cast(synchronizer, settings),
   gen_server:cast(xchain_client, settings).
 
-mychain(#{lastblock:=#{header:=#{chain:=MyChain}}, settings:=Sets}=State) ->
+mychain(#{lastblock:=#{header:=Header}, settings:=Sets}=State) ->
+  MyChain=maps:get(chain,Header,0),
   %{MyChain, MyName, ChainNodes}=blockchain_reader:mychain(),
   ChainNodes=chainsettings:all_nodes(Sets, MyChain),
   MyName=maps:get(tpecdsa:cmp_pubkey(nodekey:get_pub()), Sets, nodekey:node_id()),
@@ -934,23 +935,6 @@ mychain(#{lastblock:=#{header:=#{chain:=MyChain}}, settings:=Sets}=State) ->
   %       [ {T,maps:is_key(T,SS)} || T <- Req ]
   %   end,
   %logger:error("MYCHAIN old ~p new ~p",[SK(State), SK(S1)]),
-  S1;
-
-mychain(#{lastblock:=#{header:=_ChainLess}, settings:=Sets}=State) ->
-  %{MyChain, MyName, ChainNodes}=blockchain_reader:mychain(),
-  ChainNodes=chainsettings:all_nodes(Sets, 0),
-  MyName=maps:get(tpecdsa:cmp_pubkey(nodekey:get_pub()), Sets, nodekey:node_id()),
-  store_mychain(MyName, ChainNodes, 0),
-  S1=maps:merge(State,
-             #{myname=>MyName,
-               chainnodes=>ChainNodes,
-               mychain=>0
-              }),
-  %SK=fun(SS) ->
-  %       Req=[ candidates, ldb, settings, btable, lastblock, mychain ],
-  %       [ {T,maps:is_key(T,SS)} || T <- Req ]
-  %   end,
-  %?LOG_DEBUG("MYCHAIN old ~p new ~p",[SK(State), SK(S1)]),
   S1.
 
 replace(Field, Value) ->
@@ -966,6 +950,7 @@ replace(Field, Value) ->
 
 store_mychain(MyName, ChainNodes, MyChain) ->
   ?LOG_NOTICE("My name ~s chain ~p our chain nodes ~p", [MyName, MyChain, maps:values(ChainNodes)]),
+  ?LOG_NOTICE("store_mychain @ ~p",[try throw(ok) catch throw:ok:S -> S end]),
   replace(myname, MyName),
   replace(chainnodes, ChainNodes),
   replace(mychain, MyChain),
