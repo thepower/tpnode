@@ -12,7 +12,7 @@
 -export([apply_block_conf/2,
          apply_block_conf_meta/2,
          apply_ledger/2,
-         store_mychain/3,
+         %store_mychain/3,
          backup/1, restore/1]).
 
 %% ------------------------------------------------------------------

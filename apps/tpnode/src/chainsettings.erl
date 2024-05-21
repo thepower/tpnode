@@ -166,24 +166,24 @@ settings_to_ets(NewSettings, Table) ->
                     [{{'_','$1','_','_'},[{'<','$1',Ver}],[true]}]
                    ),
 
-  KeyDB=maps:get(<<"keys">>, NewSettings, #{}),
-  NodeChain=maps:get(<<"nodechain">>, NewSettings, #{}),
-  PubKey=nodekey:get_pub(),
-  ChainNodes0=maps:fold(
-                fun(Name, XPubKey, Acc) ->
-                    maps:put(XPubKey, Name, Acc)
-                end, #{}, KeyDB),
-  MyName=maps:get(PubKey, ChainNodes0, undefined),
-  MyChain=maps:get(MyName, NodeChain, 0),
-  ChainNodes=maps:filter(
-               fun(_PubKey, Name) ->
-                   maps:get(Name, NodeChain, 0) == MyChain
-               end, ChainNodes0),
-  if Table == blockchain ->
-       blockchain_updater:store_mychain(MyName, ChainNodes, MyChain);
-     true ->
-       ok
-  end,
+  %KeyDB=maps:get(<<"keys">>, NewSettings, #{}),
+  %NodeChain=maps:get(<<"nodechain">>, NewSettings, #{}),
+  %PubKey=nodekey:get_pub(),
+  %ChainNodes0=maps:fold(
+  %              fun(Name, XPubKey, Acc) ->
+  %                  maps:put(XPubKey, Name, Acc)
+  %              end, #{}, KeyDB),
+  %MyName=maps:get(PubKey, ChainNodes0, undefined),
+  %MyChain=maps:get(MyName, NodeChain, 0),
+  %ChainNodes=maps:filter(
+  %             fun(_PubKey, Name) ->
+  %                 maps:get(Name, NodeChain, 0) == MyChain
+  %             end, ChainNodes0),
+  %if Table == blockchain ->
+  %     blockchain_updater:store_mychain(MyName, ChainNodes, MyChain);
+  %   true ->
+  %     ok
+  %end,
   NewSettings.
 
 contacts(Name, Protocol) when is_binary(Protocol) ->

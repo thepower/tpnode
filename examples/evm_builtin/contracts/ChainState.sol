@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.24;
 
 abstract contract getTx {
   struct tpCall {
@@ -32,6 +32,18 @@ abstract contract getTx {
   function get() virtual public returns (tpTx memory);
 }
 
+contract BronKerbosch {
+  struct node_info {
+    uint256 node_id;
+    uint256[] nodes;
+  }
+  struct node_info2 {
+    uint256 src_node;
+    uint256 dst_node;
+  }
+  function max_clique(node_info[] calldata) public pure virtual returns (uint256[] memory) {}
+  function max_clique_list(uint256[2][] calldata) public pure virtual returns (uint256[] memory) {}
+}
 
 contract ChainState {
   struct blockSig {
@@ -68,6 +80,9 @@ contract ChainState {
   mapping ( uint256 node_id => uint256 ) public last_height;
   mapping ( uint256 node_id => mapping (uint256 => uint256) ) public attrib;
   mapping ( uint256 height => hashSig[] ) public signatures;
+  mapping ( uint256 height => uint256 ) public block_clique;
+
+  uint256 public calc_till;
 
   event NewEpoch (uint256,uint256,uint256,uint256);
   event Blk (uint256 indexed,uint256 indexed);
@@ -99,8 +114,8 @@ contract ChainState {
   event AB(uint256);
 
   function afterBlock() public returns (uint256) {
-    emit AB(block.number);
-    next_block_on=(block.timestamp / 1000)+90;
+
+    next_block_on=(block.timestamp / 1000)+3600;
     if(next_report_blk<=block.number){
       next_report_blk=block.number+10;
     }
@@ -111,8 +126,36 @@ contract ChainState {
       newEpoch();
       return 2;
     }
+    uint256 blk=block.number-12;
+    uint256 mask=calc_block(blk);
+    block_clique[blk]=mask;
+    clean_block(blk);
+    calc_till=block.number-12;
     return 0;
   }
+
+  function clean_block(uint256 number) public returns(uint256) {
+    uint sl=signatures[number].length;
+    for(uint i=0;i<sl;i++){
+      signatures[number].pop();
+    }
+    return sl;
+  }
+  function calc_block(uint256 number) public returns(uint256) {
+    uint sl=signatures[number].length;
+    uint256[2][] memory n=new uint256[2][](sl);
+    for(uint i=0;i<sl;i++){
+      n[i][0]=signatures[number][i].from;
+      n[i][1]=signatures[number][i].to;
+    }
+    uint256[] memory res=BronKerbosch(address(0xAFFFFFFFFF000007)).max_clique_list(n);
+    uint256 mask=0;
+    for(uint i=0;i<res.length;i++){
+      mask+=(1<<res[i]);
+    }
+    return mask;
+  }
+
   function _payout() public returns (uint256) {
     uint blkn;
     for(blkn=epoch_last_start_blk;blkn<epoch_start_blk;blkn++){
@@ -236,6 +279,7 @@ contract ChainState {
   }
 
   function _updateData(uint256 from, hUpd calldata data) public returns (bool) {
+    if(data.height<=calc_till) return false;
     if(block.number > epoch_start_blk+1)
       if(data.height<epoch_start_blk) return false;
     else
@@ -323,3 +367,172 @@ contract ChainState {
         }
 }
 
+contract BronKerbosch_sol {
+  // Graph is represented as an adjacency list where the key is the node and the value is the list of neighbors.
+  mapping(uint256 => mapping(uint256 => bool)) public adjMatrix;
+  uint256 public numVertices;
+
+  event CliqueFound(uint256[] clique);
+
+  /**
+   * @dev Entry function to start the Bron-Kerbosch algorithm without pivoting.
+   * Emits a CliqueFound event for each maximal clique found.
+   */
+  function findMaximalCliques() public {
+    uint256[] memory R = new uint256[](numVertices);
+    uint256[] memory P = new uint256[](numVertices);
+    uint256[] memory X = new uint256[](numVertices);
+    for (uint256 i = 0; i < numVertices; i++) {
+      P[i] = i;
+    }
+    _bronKerbosch(R, P, X);
+  }
+
+  /**
+   * @dev Private function to execute the recursive Bron-Kerbosch algorithm.
+   * @param R A currently growing clique.
+   * @param P Nodes that can be added to R to create a larger clique.
+   * @param X Nodes that should be skipped (already processed in other cliques).
+   */
+  function _bronKerbosch(uint256[] memory R, uint256[] memory P, uint256[] memory X) private {
+    if (_isEmpty(P) && _isEmpty(X)) {
+      emit CliqueFound(_compact(R));
+      return;
+    }
+
+    uint256[] memory P_copy = _copyArray(P);
+    for (uint256 i = 0; i < P_copy.length; i++) {
+      if (P_copy[i] == numVertices) continue;
+
+      uint256 v = P_copy[i];
+      R = _addToSet(R, v);
+      _bronKerbosch(
+        R,
+        _intersect(P, _neighbors(v)),
+        _intersect(X, _neighbors(v))
+      );
+      R = _removeFromSet(R, v);
+      P = _removeFromSet(P, v);
+      X = _addToSet(X, v);
+    }
+  }
+
+     /**
+     * @dev Checks if a set is empty.
+     * @param set The set to check.
+     * @return True if the set is empty, false otherwise.
+     */
+    function _isEmpty(uint256[] memory set) internal pure returns (bool) {
+        for (uint256 i = 0; i < set.length; i++) {
+            if (set[i] != type(uint256).max) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @dev Adds an element to a set.
+     * @param set The set.
+     * @param element The element to add.
+     * @return The updated set.
+     */
+    function _addToSet(uint256[] memory set, uint256 element) internal pure returns (uint256[] memory) {
+        for (uint256 i = 0; i < set.length; i++) {
+            if (set[i] == type(uint256).max) {
+                set[i] = element;
+                break;
+            }
+        }
+        return set;
+    }
+
+    /**
+     * @dev Removes an element from a set.
+     * @param set The set.
+     * @param element The element to remove.
+     * @return The updated set.
+     */
+    function _removeFromSet(uint256[] memory set, uint256 element) internal pure returns (uint256[] memory) {
+        for (uint256 i = 0; i < set.length; i++) {
+            if (set[i] == element) {
+                set[i] = type(uint256).max;
+                break;
+            }
+        }
+        return set;
+    }
+
+  /**
+     * @dev Intersects two sets.
+     * @param setA The first set.
+     * @param setB The second set.
+     * @return The intersection of the two sets.
+     */
+    function _intersect(uint256[] memory setA, uint256[] memory setB) internal pure returns (uint256[] memory) {
+        uint256[] memory result = new uint256[](setA.length);
+        for (uint256 i = 0; i < setA.length; i++) {
+            result[i] = type(uint256).max;
+            for (uint256 j = 0; j < setB.length; j++) {
+                if (setA[i] == setB[j]) {
+                    result[i] = setA[i];
+                    break;
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * @dev Finds the neighbors of a vertex.
+     * @param v The vertex.
+     * @return The neighbors of the vertex.
+     */
+    function _neighbors(uint256 v) internal view returns (uint256[] memory) {
+        uint256[] memory neighbors = new uint256[](numVertices);
+        for (uint256 i = 0; i < numVertices; i++) {
+            neighbors[i] = type(uint256).max;
+            if (adjMatrix[v][i]) {
+                neighbors[i] = i;
+            }
+        }
+        return neighbors;
+    }
+
+    /**
+     * @dev Compacts a set by removing the default max values.
+     * @param set The set to compact.
+     * @return The compacted set.
+     */
+    function _compact(uint256[] memory set) internal pure returns (uint256[] memory) {
+        uint256 count;
+        for (uint256 i = 0; i < set.length; i++) {
+            if (set[i] != type(uint256).max) {
+                count++;
+            }
+        }
+        uint256[] memory compacted = new uint256[](count);
+        count = 0;
+        for (uint256 i = 0; i < set.length; i++) {
+            if (set[i] != type(uint256).max) {
+                compacted[count] = set[i];
+                count++;
+            }
+        }
+        return compacted;
+    }
+
+    /**
+     * @dev Copies an array.
+     * @param array The array to copy.
+     * @return The copied array.
+     */
+    function _copyArray(uint256[] memory array) internal pure returns (uint256[] memory) {
+        uint256[] memory copy = new uint256[](array.length);
+        for (uint256 i = 0; i < array.length; i++) {
+            copy[i] = array[i];
+        }
+        return copy;
+    }
+}
+  

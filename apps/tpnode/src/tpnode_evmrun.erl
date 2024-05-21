@@ -314,6 +314,7 @@ run(Address, Code, Data) ->
                                                       balance => GetBalFun
                                                      },
                                                cb_beforecall => BeforeCall,
+                                               embedded_code => contract_evm:embedded_functions(),
                                                logger=>fun logger/4,
                                                trace=>whereis(eevm_tracer)
                                               }),
@@ -371,6 +372,7 @@ run(Address, Code, Data) ->
                     cb_beforecall => BeforeCall,
                     logger=>fun logger/4,
                     create => CreateFun,
+                    embedded_code => contract_evm:embedded_functions(),
                     trace=>whereis(eevm_tracer)
                    }).
 

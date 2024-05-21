@@ -213,6 +213,84 @@ eabi2_test() ->
       D)
   ].
 
+evm_embedded_bron_kerbosch_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+
+      {ok,Bin} = file:read_file("examples/evm_builtin/build/builtinFunc.bin"),
+      Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
+
+      {done,{return,Code2},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
+      SkAddr=naddress:construct_public(1, OurChain, 2),
+
+      TX1=tx:sign(
+            tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr,
+              call=>#{
+                      function => "bron_kerbosch()",
+                      args => []
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+            tpecdsa:generate_priv(ed25519)),
+
+
+      TxList1=[
+               {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
+              ],
+      TestFun=fun(#{block:=#{txs:=Txs},
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Txs}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{
+                             <<"FTT">> => 1000000,
+                             <<"SK">> => 3,
+                             <<"TST">> => 26
+                            }
+                }
+              },
+              {SkAddr,
+               #{amount => #{<<"SK">> => 1},
+                 code => Code2,
+                 vm => <<"evm">>
+                }
+              }
+             ],
+      %io:format("whereis ~p~n",[whereis(eevm_tracer)]),
+      %register(eevm_tracer,self()),
+      {ok,Txs}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      %unregister(eevm_tracer),
+      ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
+      [{_,_,FABI}]=contract_evm_abi:find_function(<<"bron_kerbosch()">>,ABI),
+      D=maps:get(<<"retval">>,maps:get(extdata,proplists:get_value(<<"tx1">>,Txs))),
+
+      %D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> throw(no_return) end end(),
+      %hex:hexdump(D),
+      %fun FT() -> receive {trace,{stack,_,_}} -> FT();
+      %                    {trace,_Any} ->
+      %                      %io:format("Flush ~p~n",[_Any]),
+      %                      [_Any|FT()] after 0 -> [] end end(),
+      [
+       ?assertMatch([{_,[1,2]}],contract_evm_abi:decode_abi(D,FABI))
+      ].
+
+
+
 evm_tx_decode_test() ->
       OurChain=150,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
@@ -347,9 +425,8 @@ evm_embedded_abicall_test() ->
       TestFun=fun(#{block:=_Block,
                     log:=Log,
                     failed:=Failed}) ->
-                  io:format("Failed ~p~n",[Failed]),
-                  ?assertMatch([],Failed),
-                  {ok,Log}
+                  io:format("Failed1 ~p~n",[Failed]),
+                  {ok,Log,Failed}
               end,
       Ledger=[
               {Addr1,
@@ -369,17 +446,19 @@ evm_embedded_abicall_test() ->
              ],
       io:format("whereis ~p~n",[whereis(eevm_tracer)]),
       register(eevm_tracer,self()),
-      {ok,Log}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
-      unregister(eevm_tracer),
+      try
+      {ok,Log,Failed}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
       [{_,_,FABI}]=contract_evm_abi:find_function(<<"getTxs()">>,ABI),
       D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> throw(no_return) end end(),
+      io:format("Filed ~p~n",[Failed]),
       hex:hexdump(D),
-      fun FT() -> receive {trace,{stack,_,_}} -> FT(); {trace,_Any} ->
+      fun FT() -> receive {trace,{stack,_,_}} -> FT();
+                          {trace,_Any} ->
                             io:format("Flush ~p~n",[_Any]),
                             [_Any|FT()] after 0 -> [] end end(),
 
-      io:format("2dec ~p~n",[D]),
+      %io:format("2dec ~p~n",[D]),
       io:format("ABI ~p~n",[FABI]),
       io:format("dec ~p~n",[catch contract_evm_abi:decode_abi(D,FABI)]),
       Events=contract_evm_abi:sig_events(ABI),
@@ -397,8 +476,12 @@ evm_embedded_abicall_test() ->
 
       io:format("Logs ~p~n",[[ DoLog(LL) || LL <- Log ]]),
       [
+       ?assertMatch([],Failed),
        ?assertMatch(true,true)
-      ].
+      ]
+      after
+        unregister(eevm_tracer)
+      end.
 
 evm_embedded_gets_test() ->
       OurChain=150,

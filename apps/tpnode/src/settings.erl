@@ -353,16 +353,18 @@ patch(MP, M) when is_binary(MP) ->
     DMP=dmp(MP),
     patch1(DMP, M).
 
-upgrade(true) -> true;
-upgrade(false) -> false;
-upgrade(Term) when is_binary(Term) ->
+upgrade(Data) -> upgrade(Data,[]).
+
+upgrade(true,_) -> true;
+upgrade(false,_) -> false;
+upgrade(Term,_) when is_binary(Term) ->
   Term;
-upgrade(Term) when is_list(Term) ->
+upgrade(Term,_) when is_list(Term) ->
   Term;
-upgrade(Term) when is_integer(Term) ->
+upgrade(Term,_) when is_integer(Term) ->
   Term;
 
-upgrade(Term) when is_map(Term) ->
+upgrade(Term,P) when is_map(Term) ->
   maps:fold(
     fun(Element,V,Acc) when
       Element==chain orelse
@@ -377,18 +379,25 @@ upgrade(Term) when is_map(Term) ->
       Element==params orelse
       Element==disable orelse
       Element==nodes ->
-        maps:put(atom_to_binary(Element, utf8), upgrade(V), Acc);
+        maps:put(atom_to_binary(Element, utf8), upgrade(V,[Element|P]), Acc);
+       (block, V, Acc) ->
+        case maps:is_key(<<"block">>,Term) of
+          true ->
+            Acc;
+          false ->
+            maps:put(<<"block">>,V,Acc)
+        end;
        (Element, _V, _Acc) when is_atom(Element) ->
         try
           throw(bad)
         catch throw:bad:S ->
-                logger:error("Found atom ~p in settings at ~p", [Element, S]),
-                throw({'bad_atom',Element})
+                logger:error("Found atom ~p in settings patch ~p at ~p", [Element, lists:reverse(P), S]),
+                throw({'bad_atom',lists:reverse([Element|P])})
         end;
        (Element, V, Acc) when is_integer(Element) ->
-        maps:put(Element, upgrade(V), Acc);
+        maps:put(Element, upgrade(V,[Element|P]), Acc);
        (Element, V, Acc) when is_binary(Element) ->
-        maps:put(Element, upgrade(V), Acc)
+        maps:put(Element, upgrade(V,[Element|P]), Acc)
     end, #{}, Term).
 
 dmp(Term) when is_binary(Term) ->

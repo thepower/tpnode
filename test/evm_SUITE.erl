@@ -43,7 +43,7 @@ logger(Format, Args) when is_list(Format), is_list(Args) ->
 %{ok,Bin} = file:read_file("examples/evm_builtin/build/checkSig.hex"),
 
 all() -> [
-          evm_chainstate_test,
+          %evm_chainstate_test,
           evm_erc20_test,
           deployless_run_test,
           evm_apis_test

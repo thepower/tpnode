@@ -29,11 +29,19 @@
 %% ------------------------------------------------------------------
 
 new_tx(BinTX) ->
-  case tx:verify(BinTX) of
-    {ok, _Tx} ->
-      gen_server:call(txpool, {new_tx, BinTX});
-    {error, Reason} ->
-      {error, Reason}
+  try
+    case tx:verify(BinTX) of
+      {ok, _Tx} ->
+        gen_server:call(txpool, {new_tx, BinTX});
+      bad_sig ->
+        {error, bad_sig};
+      bad_keys ->
+        {error, bad_keys}
+      %{error, Reason} ->
+      %  {error, Reason}
+    end
+  catch throw:Reason ->
+          {error, Reason}
   end.
 
 inbound_block(Blk) ->

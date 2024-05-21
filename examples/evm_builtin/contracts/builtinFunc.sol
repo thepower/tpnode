@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+contract BronKerbosch {
+  struct node_info {
+    uint256 node_id;
+    uint256[] nodes;
+  }
+  struct node_info2 {
+    uint256 src_node;
+    uint256 dst_node;
+  }
+  function max_clique(node_info[] calldata) public pure virtual returns (uint256[] memory) {}
+  function max_clique(node_info2[] calldata) public pure virtual returns (uint256[] memory) {}
+}
 contract Chkey {
   function setKey(bytes calldata) public virtual {}
 }
@@ -178,6 +190,23 @@ contract builtinFunc {
     ret.to=address(0x8000000000000002);
     ret.t=0x12345678;
     ret.seq=0x123;
+  }
+
+  function bron_kerbosch() public pure returns (uint256[] memory) {
+    BronKerbosch.node_info[] memory n=new BronKerbosch.node_info[](3);
+    n[0].node_id=1;
+    n[0].nodes=new uint256[](2);
+    n[0].nodes[0]=2;
+    n[0].nodes[1]=3;
+    n[1].node_id=2;
+    n[1].nodes=new uint256[](2);
+    n[1].nodes[0]=1;
+    n[1].nodes[1]=3;
+    n[2].node_id=3;
+    n[2].nodes=new uint256[](2);
+    n[2].nodes[0]=2;
+    n[2].nodes[1]=3;
+    return BronKerbosch(address(0xAFFFFFFFFF000007)).max_clique(n);
   }
 
   function getTxs() public returns (tpCall memory) {

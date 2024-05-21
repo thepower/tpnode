@@ -11,6 +11,7 @@
 -export([transform_extra/1]).
 -export([ask_if_sponsor/1, ask_if_wants_to_pay/4,ask_if_wants_to_pay/3]).
 -export([preencode_tx/2]).
+-export([embedded_functions/0]).
 
 info() ->
 	{<<"evm">>, <<"EVM">>}.
@@ -742,7 +743,8 @@ embedded_functions() ->
     16#AFFFFFFFFF000003 => fun embedded_settings/2,
     16#AFFFFFFFFF000004 => fun embedded_blocks/2, %block service
     16#AFFFFFFFFF000005 => fun embedded_lstore/3, %lstore service
-    16#AFFFFFFFFF000006 => fun embedded_chkey/3 %key service
+    16#AFFFFFFFFF000006 => fun embedded_chkey/3, %key service
+    16#AFFFFFFFFF000007 => fun embedded_bronkerbosch/3 %bron_kerbosch
    }.
 
 embedded_blocks(<<1489993744:32/big,Bin/binary>>,#{getfun:=GetFun}=XAcc) -> %get_signatures(uint256 height)
@@ -824,6 +826,48 @@ embedded_chkey(<<16#218EBFA3:32/big,Bin/binary>>,
   catch Ec:Ee:S ->
           ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
           {0, <<"badarg">>, XAcc}
+  end.
+
+embedded_bronkerbosch(<<16#1C20CF3E:32/big,Bin/binary>>, #{}, XAcc) ->% max_clique((uint256,uint256[])[])
+  {Success, RetBin} = max_clique1(Bin),
+  {Success, RetBin, XAcc};
+
+embedded_bronkerbosch(<<16#85BC5446:32/big,Bin/binary>>, #{}, XAcc) ->% max_clique_list(uint256[2][])
+  {Success, RetBin} = max_clique2(Bin),
+  {Success, RetBin, XAcc}.
+
+max_clique1(<<Bin/binary>>) ->% (uint256,uint256[])[]
+  InABI=[{<<>>,
+          {darray,{tuple,[{<<"node_id">>,uint256},
+                          {<<"nodes">>,{darray,uint256}}]}}}],
+  try
+    [{<<>>,Data}]=contract_evm_abi:decode_abi(Bin,InABI),
+    Data1=[ {N,Ls} || [{<<"node_id">>,N},{<<"nodes">>,Ls}] <- Data ],
+    Res=bron_kerbosch:max_clique(Data1),
+    ?LOG_INFO("BronKerbosch(~p)=x ~p",[Data1, Res]),
+    BinRes=contract_evm_abi:encode_abi([Res],[{<<"max_clique">>,{darray,uint256}}]),
+    {1,BinRes}
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
+          {0, <<"badarg">>}
+  end.
+
+max_clique2(<<Bin/binary>>) ->% (uint256,uint256)[]
+  InABI=[{<<>>,{darray,{{fixarray,2},uint256}}}],
+  try
+    [{<<>>,Data}]=contract_evm_abi:decode_abi(Bin,InABI),
+    Data1=maps:to_list(
+            lists:foldl(
+              fun([A,B],Acc) ->
+                  maps:put(A,[B|maps:get(A,Acc,[])],Acc)
+              end, #{}, Data)),
+    Res=bron_kerbosch:max_clique(Data1),
+    ?LOG_INFO("BronKerbosch(~p)=x ~p",[Data1, Res]),
+    BinRes=contract_evm_abi:encode_abi([Res],[{<<"max_clique">>,{darray,uint256}}]),
+    {1,BinRes}
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
+          {0, <<"badarg">>}
   end.
 
 embedded_lstore(<<16#8D0FE062:32/big,Bin/binary>>,
@@ -1111,4 +1155,5 @@ callcd(BinFun, CArgs, FABI) ->
   true=(length(FABI)==length(CArgs)),
   BArgs=contract_evm_abi:encode_abi(CArgs,FABI),
   <<X:4/binary,BArgs/binary>>.
+
 
