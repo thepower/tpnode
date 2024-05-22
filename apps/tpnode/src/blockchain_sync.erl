@@ -260,9 +260,15 @@ handle_info({bbyb_sync, Hash}, State) ->
 handle_info(checksync, State) ->
   stout:log(runsync, [ {node, nodekey:node_name()}, {where, checksync} ]),
   flush_checksync(),
-  ?LOG_ERROR("ignore checksync"),
-  %%  self() ! runsync,
-  {noreply, State};
+  Now=erlang:system_time(second),
+  Last=maps:get(last_checksync,State,0),
+  if(Now-Last>2) -> %avoid running sync too often, min 2 sec
+      self() ! runsync,
+      {noreply, State#{last_checksync=>Now}};
+    true ->
+      ?LOG_ERROR("ignore checksync"),
+      {noreply, State}
+  end;
 
 handle_info({sync,PID,broken_sync,C1}, #{bbsync_pid:=BBSPid}=State) when PID==BBSPid ->
   synchronizer ! imready,
