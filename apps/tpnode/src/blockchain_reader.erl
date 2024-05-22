@@ -166,24 +166,23 @@ handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
                              <<"rel">>:=<<"child">>=Rel
                             }},
             #{ tmpblock:=#{ header:=#{ parent:=Hash } }=TmpBlock } = State) ->
-  MyRel = child,
   ?LOG_INFO("Pick temp block ~p ~p",[blkid(Hash),Rel]),
   BlockParts = block:split_packet(block:pack(TmpBlock)),
-  Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => MyRel}},
+  Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => Rel}},
   send_block(tpic, Origin, Map, BlockParts),
   {noreply, State};
 
-handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
-                             <<"hash">>:=Hash,
-                             <<"rel">>:=<<"child">>
-                            }},
-            #{tmpblock:=#{header:=#{parent:=Hash}}=TmpBlk} = State) ->
-  BinBlock=block:pack(TmpBlk),
-  ?LOG_INFO("I was asked for ~s for blk ~s: ~p",[child,blkid(Hash),TmpBlk]),
-  BlockParts = block:split_packet(BinBlock),
-  Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => child}},
-  send_block(tpic, Origin, Map, BlockParts),
-  {noreply, State};
+%handle_cast({tpic, Origin, #{null:=<<"pick_block">>,
+%                             <<"hash">>:=Hash,
+%                             <<"rel">>:=<<"child">>
+%                            }},
+%            #{tmpblock:=#{header:=#{parent:=Hash}}=TmpBlk} = State) ->
+%  BinBlock=block:pack(TmpBlk),
+%  ?LOG_INFO("I was asked for ~s for blk ~s: ~p",[child,blkid(Hash),TmpBlk]),
+%  BlockParts = block:split_packet(BinBlock),
+%  Map = #{null => <<"block">>, req => #{<<"hash">> => Hash, <<"rel">> => child}},
+%  send_block(tpic, Origin, Map, BlockParts),
+%  {noreply, State};
 
 
 handle_cast({tpic, Origin, #{null:=<<"pick_block">>,

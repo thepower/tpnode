@@ -523,9 +523,19 @@ end.
 is_block_valid(Blk, MinSigns) ->
   CheckFun =
     fun(PubKey, D) ->
-        ?LOG_INFO("check sign ~p", [PubKey]),
-        ?LOG_INFO("check  ~p", [D]),
-      chainsettings:is_our_node(PubKey) =/= false
+        NN=chainsettings:is_our_node(PubKey),
+        ?LOG_DEBUG("check sign ~p", [ PubKey ]),
+        ?LOG_INFO("check sig from node ~p: ~p", [NN,
+                                                 lists:map(
+                                                   fun({pubkey,Bin}) ->
+                                                       hex:encode(Bin);
+                                                      (Any) ->
+                                                       Any
+                                                   end,
+                                                   maps:get(extra,D,[])
+                                                  )
+                                                ]),
+        NN =/= false
     end,
 
   case block:verify(Blk, [hdronly, {checksig, CheckFun}]) of

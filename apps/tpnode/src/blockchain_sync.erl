@@ -315,6 +315,7 @@ handle_info({runsync, Candidates}, State) ->
   #{header:=#{height:=MyHeight,
               parent:=Parent
              }, hash:=MyLastHash}=MyLast=blockchain:last_meta(),
+  MyTmp=maps:get(temporary,MyLast,false),
 
   B=tpiccall(<<"blockchain">>,
              #{null=><<"sync_request">>},
@@ -333,9 +334,17 @@ handle_info({runsync, Candidates}, State) ->
                       undefined;
                     {ok, {CHandler1, #{chain:=_HisChain,
                                        last_hash:=_,
-                                       last_height:=_,
-                                       null:=<<"sync_available">>} = CInfo}} ->
-                      ?LOG_NOTICE("Hacked version of candidate selection was used"),
+                                       last_height:=H1,
+                                       null:=<<"sync_available">>} = CInfo}} when H1>MyHeight ->
+                      ?LOG_NOTICE("Hacked version of candidate selection was used (by height)"),
+                      {CHandler1, CInfo};
+                    {ok, {CHandler1, #{chain:=_HisChain,
+                                       last_hash:=_,
+                                       last_temp:=H1T,
+                                       last_height:=H1,
+                                       null:=<<"sync_available">>} = CInfo}} when H1==MyHeight
+                                                                          andalso H1T > MyTmp ->
+                      ?LOG_NOTICE("Hacked version of candidate selection was used (by tmp)"),
                       {CHandler1, CInfo};
                     _ ->
                       undefined
