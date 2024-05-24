@@ -171,7 +171,7 @@ die(Reason) ->
             application:set_env(tpnode,dead,Reason),
             Shutdown = [ discovery, synchronizer, chainkeeper, blockchain_updater,
                          blockchain_sync, blockvote, mkblock, txstorage, txqueue,
-                         txpool, txstatus, topology, ledger, tpnode_announcer,
+                         txpool, txstatus, topology, tpnode_announcer,
                          xchain_client, xchain_dispatcher, tpnode_vmsrv, tpnode_repl, repl_sup],
             _ = catch tpwdt:stop(),
             [ ?LOG_INFO("Terminate ~p: ~p",[S,catch supervisor:terminate_child(tpnode_sup,S)]) || S<- Shutdown ]
