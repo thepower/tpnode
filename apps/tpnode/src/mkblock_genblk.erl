@@ -259,7 +259,7 @@ run_generate(
           skip;
         throw:{'unsync',BestHeiHash,PHeiHash} ->
           ?LOG_NOTICE("Unsync best ~s parent ~s",[hex:encode(BestHeiHash),
-                                                  hex:decode(PHeiHash)]),
+                                                  hex:encode(PHeiHash)]),
           error;
         throw:Other:Stack ->
           ?LOG_NOTICE("Skip ~p @ ~p",[Other,hd(Stack)]),
