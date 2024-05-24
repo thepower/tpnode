@@ -166,13 +166,16 @@ logger_reconfig() ->
   ok.
 
 die(Reason) ->
-  ?LOG_ERROR("Node dead: ~p",[Reason]),
-  application:set_env(tpnode,dead,Reason),
-  Shutdown = [ discovery, synchronizer, chainkeeper, blockchain_updater,
-               blockchain_sync, blockvote, mkblock, txstorage, txqueue,
-               txpool, txstatus, topology, ledger, tpnode_announcer,
-               xchain_client, xchain_dispatcher, tpnode_vmsrv ],
-  [ supervisor:terminate_child(tpnode_sup,S) || S<- Shutdown ].
+  spawn(fun() ->
+            ?LOG_ERROR("Node dead: ~p",[Reason]),
+            application:set_env(tpnode,dead,Reason),
+            Shutdown = [ discovery, synchronizer, chainkeeper, blockchain_updater,
+                         blockchain_sync, blockvote, mkblock, txstorage, txqueue,
+                         txpool, txstatus, topology, ledger, tpnode_announcer,
+                         xchain_client, xchain_dispatcher, tpnode_vmsrv, tpnode_repl, repl_sup],
+            _ = catch tpwdt:stop(),
+            [ ?LOG_INFO("Terminate ~p: ~p",[S,catch supervisor:terminate_child(tpnode_sup,S)]) || S<- Shutdown ]
+        end), receive never -> done end.
 
 
 
