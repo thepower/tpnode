@@ -59,17 +59,14 @@ handle(<<"eth_getCode">>,[Address, Block]) ->
 
 handle(<<"eth_call">>,[{Params},Block]) ->
     ?LOG_INFO("Got req for eth_call arg1 ~p",[Params]),
-    To=proplists:get_value(<<"to">>,Params),
-    Data=proplists:get_value(<<"data">>,Params),
-    From=case proplists:get_value(<<"from">>,Params,null) of
-             null -> <<"0x">>;
-             NotNull1 -> NotNull1
-         end,
+    To=decode_addr(proplists:get_value(<<"to">>,Params)),
+    Data=hex:decode(proplists:get_value(<<"data">>,Params)),
+    From=decode_addr(proplists:get_value(<<"from">>,Params,null),null,<<0>>),
     case tpnode_evmrun:evm_run(
-           hex:decode(To),
+           To,
            <<"0x0">>,
-           [hex:decode(Data)],
-           #{caller=>hex:decode(From),
+           [Data],
+           #{caller=>From,
              gas=>2000000,
              block_height=>case Block of <<"latest">> -> undefined; _ -> hex2i(Block) end
             }
@@ -290,3 +287,18 @@ get_ledger(Address, Key, Path, <<"latest">>) ->
     mledger:get_kpvs(hex:decode(Address), Key, Path);
 get_ledger(Address, Key, Path, Block) ->
     mledger:get_kpvs_height(hex:decode(Address), Key, Path, hex2i(Block)).
+
+decode_addr(Null,Null,Dflt) ->
+  Dflt;
+decode_addr(A,_Null,_) ->
+  decode_addr(A).
+
+decode_addr(<<"0x000000000000000000000000",Addr:16/binary>>) ->
+  hex:decode(Addr);
+decode_addr(<<"0x",Addr:16/binary>>) ->
+  hex:decode(Addr);
+decode_addr(<<"0x",Addr:40/binary>>) ->
+  hex:decode(Addr);
+decode_addr(<<Addr:20/binary>>) ->
+  naddress:decode(Addr).
+

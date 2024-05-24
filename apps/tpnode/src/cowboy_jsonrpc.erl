@@ -6,13 +6,12 @@ init(Req0, {Target, Opts}) ->
     Method = cowboy_req:method(Req0),
     case Method of
       <<"POST">> ->
-    {ok, ReqBody, Req1} = cowboy_req:read_body(Req0),
-    case jsonrpc2:handle(ReqBody, fun Target:handle/2, fun jiffy:decode/1, fun jiffy:encode/1) of
-      {reply, RespBin} ->
-        {ok, cowboy_req:reply(200, #{}, RespBin, do_cors(Req1)), Opts}
-    end;
+        {ok, ReqBody, Req1} = cowboy_req:read_body(Req0),
+        case jsonrpc2:handle(ReqBody, fun Target:handle/2, fun jiffy:decode/1, fun jiffy:encode/1) of
+          {reply, RespBin} ->
+            {ok, cowboy_req:reply(200, #{}, RespBin, do_cors(Req1)), Opts}
+        end;
       <<"OPTIONS">> ->
-        
         {ok, cowboy_req:reply(200, #{}, <<>>, do_cors(Req0)), Opts};
       <<"GET">> ->
         {ok, cowboy_req:reply(400, #{}, <<"Bad request">>, Req0), Opts};
