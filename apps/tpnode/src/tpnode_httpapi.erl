@@ -657,6 +657,41 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
               )
   end;
 
+h(<<"GET">>, [<<"address">>, TAddr, <<"seq">>], _Req) ->
+  try
+    Addr=case TAddr of
+           <<"0x", Hex/binary>> -> hex:parse(Hex);
+           _ -> naddress:decode(TAddr)
+         end,
+    Ledger=mledger:get_kpv(Addr, seq, []),
+    case Ledger of
+      undefined ->
+          err(
+              10003,
+              <<"Not found">>,
+              #{result => <<"not_found">>},
+              #{http_code => 404}
+          );
+      {ok, Number} ->
+        {200, #{seq=>Number}}
+    end
+  catch
+    throw:{error, address_crc} ->
+              err(
+                  10004,
+                  <<"Invalid address">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              );
+          throw:bad_addr ->
+              err(
+                  10005,
+                  <<"Invalid address (2)">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              )
+  end;
+
 
 h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
   try

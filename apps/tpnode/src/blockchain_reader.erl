@@ -89,6 +89,9 @@ handle_call({get_block, last}, _From, #{tmpblock:=LB}=State) ->
 handle_call({get_block, last}, _From, #{lastblock:=LB}=State) ->
   {reply, LB, State};
 
+handle_call({get_block, last_permanent}, _From, #{lastblock:=LB}=State) ->
+  {reply, LB, State};
+
 handle_call({get_block, LBH}, _From, #{lastblock:=#{hash:=LBH}=LB}=State) ->
   {reply, LB, State};
 
@@ -618,6 +621,10 @@ mychain(State) ->
 
 get_block(BlockHash, Rel) ->
   gen_server:call(?SERVER,{get_block, BlockHash, Rel}).
+get_block(H=last_permanent) ->
+  gen_server:call(?SERVER,{get_block, H});
+get_block(H=last) ->
+  gen_server:call(?SERVER,{get_block, H});
 get_block(H) when is_integer(H) ->
   gen_server:call(?SERVER,{get_block, H}).
 

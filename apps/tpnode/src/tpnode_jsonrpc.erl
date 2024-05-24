@@ -2,7 +2,7 @@
 -include("include/tplog.hrl").
 -export([handle/2]).
 %% -----------------------------------------------------------------
-%% WARNING: This interface is highly experemental, only tiny part of 
+%% WARNING: This interface is highly experemental, only tiny part of
 %% ethereum RPC supported yet
 %% -----------------------------------------------------------------
 
@@ -21,76 +21,139 @@
 %    make_error_response(Code, Message, Data, Id);
 
 handle(<<"net_version">>,[]) ->
-  {reply,i2hex(1)};
+  i2hex(1);
 
 handle(<<"eth_sendRawTransaction">>,Params) ->
-    ?LOG_ERROR("Got req for eth_sendRawTransaction with ~p",[Params]),
+    ?LOG_INFO("Got req for eth_sendRawTransaction with ~p",[Params]),
     throw(server_error);
 
-handle(<<"eth_getTransactionCount">>,[Address,_Block]) ->
-    ?LOG_ERROR("Got req for eth_getTransactionCount for ~p",[Address]),
-    {reply,i2hex(0)};
+handle(<<"eth_getTransactionCount">>,[Address, Block]) ->
+    D=get_ledger(Address, seq, [], Block),
+    ?LOG_INFO("Got req for eth_getTransactionCount for ~p/~p = ~p",[Address, Block, D]),
+    case D of
+        [{seq,[],S}] ->
+            i2hex(S);
+        [] ->
+            i2hex(0)
+    end;
 
-handle(<<"eth_call">>,[{Params},_]) ->
-    ?LOG_ERROR("Got req for eth_call arg1 ~p",[Params]),
+handle(<<"eth_getStorageAt">>,[Address, Position, Block]) ->
+    D=get_ledger(Address, state, hex2bin(Position), Block),
+    ?LOG_INFO("Got req for eth_getStorageAt for ~p/~p = ~p",[Address, Block, D]),
+    case D of
+        [{state,_,Value}] ->
+            b2hex(Value);
+        [] ->
+            b2hex(<<>>)
+    end;
+
+handle(<<"eth_getCode">>,[Address, Block]) ->
+    D=get_ledger(Address, code, [], Block),
+    ?LOG_INFO("Got req for eth_getCode for ~p/~p = ~p",[Address, Block, D]),
+    case D of
+        [{code,[],S}] ->
+            b2hex(S);
+        [] ->
+            b2hex(<<>>)
+    end;
+
+handle(<<"eth_call">>,[{Params},Block]) ->
+    ?LOG_INFO("Got req for eth_call arg1 ~p",[Params]),
     To=proplists:get_value(<<"to">>,Params),
     Data=proplists:get_value(<<"data">>,Params),
-    From=proplists:get_value(<<"from">>,Params,<<"0x">>),
-  case tpnode_evmrun:evm_run(
-         hex:decode(To),
-         <<"0x0">>,
-         [hex:decode(Data)],
-         #{caller=>hex:decode(From),gas=>2000000}
-        ) of
-    #{bin:=Bin}=_es ->
-      {reply,<<"0x",(binary:encode_hex(Bin))/binary>>};
-    _ ->
-      throw(server_error)
-  end;
+    From=case proplists:get_value(<<"from">>,Params,null) of
+             null -> <<"0x">>;
+             NotNull1 -> NotNull1
+         end,
+    case tpnode_evmrun:evm_run(
+           hex:decode(To),
+           <<"0x0">>,
+           [hex:decode(Data)],
+           #{caller=>hex:decode(From),
+             gas=>2000000,
+             block_height=>case Block of <<"latest">> -> undefined; _ -> hex2i(Block) end
+            }
+          ) of
+        #{result:=revert, bin:=Bin}=_es ->
+            throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(Bin)});
+        #{bin:=Bin}=_es ->
+            hex:encodex(Bin);
+        _ ->
+            throw({jsonrpc2, 10000, <<"evm_run unexpected result">>})
+    end;
 
 
-handle(<<"eth_getBlockByNumber">>,Params) ->
-    ?LOG_ERROR("Got req for eth_getBlockByNumber args ~p",[Params]),
-    {reply, {[
+handle(<<"eth_getBlockByNumber">>,[Number,_Details]=Params) ->
+    Block=case Number of
+               <<"0x",N/binary>> ->
+                  blockchain_reader:get_block(binary_to_integer(N,16));
+               <<"latest">> ->
+                  blockchain_reader:get_block(last_permanent)
+          end,
+    ?LOG_INFO("Got req for eth_getBlockByNumber args ~p",[Params]),
+    case Block of
+        not_found ->
+            throw(server_error);
+        #{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=B ->
+            Txs=maps:get(txs,Block,[]),
+            ?LOG_ERROR("Hdr ~p~n",[B]),
+            {[
               {<<"difficulty">>,<<"0x1">>},
               {<<"extraData">>,<<"0x">>},
               {<<"gasLimit">>,<<"0x79f39e">>},
               {<<"gasUsed">>,<<"0x79ccd3">>},
-              {<<"logsBloom">>,<<"0x">>},
+              {<<"logsBloom">>,hex:encodex(proplists:get_value(log_hash,maps:get(roots,Hdr,[]),<<>>))},
               {<<"miner">>,<<"0x">>},
               {<<"nonce">>,<<"0x1">>},
-              {<<"number">>,<<"0x5bad55">>},
-              {<<"hash">>,<<"0xb3b20624f8f0f86eb50dd04688409e5cea4bd02d700bf6e79e9384d47d6a5a35">>},
-              {<<"mixHash">>,<<"0x3d1fdd16f15aeab72e7db1013b9f034ee33641d92f71c0736beab4e67d34c7a7">>},
-              {<<"stateRoot">>,<<"0xf5208fffa2ba5a3f3a2f64ebd5ca3d098978bedd75f335f56b705d8715ee2305">>},
-              {<<"parentHash">>,<<"0x61a8ad530a8a43e3583f8ec163f773ad370329b2375d66433eb82f005e1d6202">>},
-              {<<"receiptsRoot">>,<<"0x5eced534b3d84d3d732ddbc714f5fd51d98a941b28182b6efe6df3a0fe90004b">>},
-              {<<"transactionsRoot">>,<<"0xf98631e290e88f58a46b7032f025969039aa9b5696498efc76baf436fa69b262">>},
-              {<<"totalDifficulty">>,<<"0x12ac11391a2f3872fcd">>},
+              {<<"number">>,hex:encodex(Hei)},
+              {<<"hash">>,hex:encodex(Hash)},
+              {<<"mixHash">>,<<"0x0000000000000000000000000000000000000000000000000000000000000000">>},
+              {<<"stateRoot">>,hex:encodex(proplists:get_value(ledger_hash,maps:get(roots,Hdr,[]),<<>>))},
+              {<<"parentHash">>,hex:encodex(Parent)},
+              {<<"transactionsRoot">>,hex:encodex(proplists:get_value(txroot,maps:get(roots,Hdr,[]),<<>>))},
+              {<<"totalDifficulty">>,<<"0x1">>},
               {<<"sha3Uncles">>,<<"0x">>},
               {<<"size">>,<<"0x41c7">>},
-              {<<"timestamp">>,<<"0x5b541449">>},
-              {<<"transactions">>,[
-                                   <<"0x8784d99762bccd03b2086eabccee0d77f14d05463281e121a62abfebcf0d2d5f">>,
-                                   <<"0x241d89f7888fbcfadfd415ee967882fec6fdd67c07ca8a00f2ca4c910a84c7dd">>
-                                  ]},
+              {<<"timestamp">>,i2hex(binary:decode_unsigned(
+                                           proplists:get_value(mean_time,
+                                                               maps:get(roots,Hdr,[]),
+                                                               <<>>)))},
+              {<<"transactions">>, [ TxID || {TxID, _} <- Txs ] },
               {<<"uncles">>,[]}
-             ]}};
+             ]}
+    end;
 
-handle(<<"eth_getBalance">>,[<<"0x",Address/binary>>,BlkId]) ->
-    ?LOG_ERROR("Got req for eth_getBalance for address ~p blk ~p",[Address,BlkId]),
-    {reply,i2hex(trunc(123.0e18))};
+handle(<<"eth_getBalance">>,[<<Address/binary>>,Block,Token]) ->
+    D=get_ledger(Address, amount, [], Block),
+    ?LOG_INFO("Got req for eth_getBalance for address ~p blk ~p = ~p",[Address, Block, D]),
+    case D of
+        [{amount,[],Map}] ->
+            i2hex(maps:get(Token,Map,0));
+        [] ->
+            i2hex(0)
+    end;
+
+handle(<<"eth_getBalance">>,[<<Address/binary>>,Block]) ->
+    D=get_ledger(Address, amount, [], Block),
+    ?LOG_INFO("Got req for eth_getBalance for address ~p blk ~p = ~p",[Address, Block, D]),
+    case D of
+        [{amount,[],Map}] ->
+            i2hex(maps:get(<<"SK">>,Map,0));
+        [] ->
+            i2hex(0)
+    end;
+
 
 handle(<<"eth_blockNumber">>,[]) ->
     LBHei=maps:get(height,maps:get(header,blockchain:last_permanent_meta())),
-    {reply,i2hex(LBHei)};
+    i2hex(LBHei);
 
 handle(<<"eth_chainId">>,[]) ->
     Chid=maps:get(chain,maps:get(header,blockchain:last_permanent_meta()))+1000000000,
-    {reply,i2hex(Chid)};
+    i2hex(Chid);
 
 handle(<<"eth_gasPrice">>,[]) ->
-    {reply,i2hex(10)};
+    i2hex(10);
 
 handle(<<"eth_getLogs">>,[{PList}]) ->
     handle(<<"eth_getLogs">>,maps:from_list(PList));
@@ -104,7 +167,7 @@ handle(<<"eth_getLogs">>, #{<<"blockHash">>:=HexBlockHash}=Map) ->
     Addresses=[ hex2bin(A) || A <- maps:get(<<"address">>,Map,[]) ],
     Block=logs_db:get(BlockHash),
     logger:info("eth_getLogs ~p(~p)~n",[Topics,BlockHash]),
-    {reply,process_log(Block,Topics,Addresses)};
+    process_log(Block,Topics,Addresses);
 
 handle(<<"eth_getLogs">>, #{}=Map) ->
     #{header:=#{height:=LBH}}=blockchain:last_permanent_meta(),
@@ -144,10 +207,10 @@ handle(<<"eth_getLogs">>, #{}=Map) ->
                              {Cnt,Acc}
                       end
               end, {0,[]}, lists:seq(FromBlock,ToBlock)),
-    {reply,Res};
+    Res;
 
 handle(Method,_Params) ->
-    ?LOG_ERROR("Method ~s not found",[Method]),
+    ?LOG_ERROR("Method ~s(~p) not found",[Method,_Params]),
     throw(method_not_found).
 
 b2hex(B) when is_binary(B) ->
@@ -223,4 +286,7 @@ process_log_element(U, _Data, _Filter, _Addrs) ->
     logger:info("Unknown event ~p",[U]),
     false.
 
-
+get_ledger(Address, Key, Path, <<"latest">>) ->
+    mledger:get_kpvs(hex:decode(Address), Key, Path);
+get_ledger(Address, Key, Path, Block) ->
+    mledger:get_kpvs_height(hex:decode(Address), Key, Path, hex2i(Block)).

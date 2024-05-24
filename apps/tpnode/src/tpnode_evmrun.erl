@@ -338,7 +338,7 @@ run(Address, Code, Data) ->
               end,
 
   CallData = case maps:get(call, Data, undefined) of
-               {<<"0x0">>,[BinData]} when is_binary(BinData) andalso size(BinData)>=4 ->
+               {<<"0x0">>,[BinData]} when is_binary(BinData) ->
                  BinData;
                {Fun, Arg} ->
                  {ok,{{function,_},FABI,_}=S} = contract_evm_abi:parse_signature(Fun),
