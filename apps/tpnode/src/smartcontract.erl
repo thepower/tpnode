@@ -95,8 +95,10 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,{GNum,GDen}=GRate}, GetFun, Opaq
   %io:format("smartcontract Opaque ~p~n",[Opaque]),
   GasLimit=(GAmount*GNum) div GDen,
   Left=fun(GL) ->
-           ?LOG_INFO("VM run gas ~p -> ~p",[GasLimit,GL]),
-           {GCur, (GL*GDen) div GNum, GRate}
+           ?LOG_INFO("VM run gas ~p -> ~p (~p)",[GasLimit,GL, min(GasLimit,GL)]),
+           %use min, retrned gas might be greater than sent, because deleting data using sstore
+           %might return 15k gas.
+           {GCur, (min(GasLimit,GL)*GDen) div GNum, GRate}
        end,
   VM=try
        erlang:binary_to_existing_atom(<<"contract_", VMType/binary>>, utf8)

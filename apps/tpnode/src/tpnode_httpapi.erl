@@ -24,13 +24,17 @@
 
 
 
-add_address(Address, Map1) ->
-    HexAddress = <<"0x",(hex:encode(Address))/binary>>,
+add_address(<<Address:8/binary>>, Map1) ->
     TxtAddress = naddress:encode(Address),
 
     maps:merge(Map1, #{
-        <<"address">> => HexAddress,
-        <<"txtaddress">> => TxtAddress
+                       <<"address">> => hex:encodex(Address),
+                       <<"txtaddress">> => TxtAddress
+                      });
+
+add_address(Address, Map1) ->
+    maps:merge(Map1, #{
+        <<"address">> => hex:encodex(Address)
     }).
 
 
@@ -1630,9 +1634,11 @@ prettify_tx(#{ver:=2}=TXB, BinPacker) ->
           end, Fields);
        (extdata, V1) ->
         maps:fold(
-          fun(<<"addr">>,V2,Acc) ->
+          fun(<<"addr">>,<<V2:8/binary>>,Acc) ->
               [{<<"addr.txt">>,naddress:encode(V2)},
                {<<"addr">>,BinPacker(V2)} |Acc];
+             (<<"addr">>,V2,Acc) ->
+              [{<<"addr">>,BinPacker(V2)} |Acc];
              (<<"retval">>,V2,Acc) ->
               [{<<"retval">>,BinPacker(V2)}|Acc];
               (K2,V2,Acc) ->

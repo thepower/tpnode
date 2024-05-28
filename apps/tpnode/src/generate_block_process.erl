@@ -280,7 +280,6 @@ try_process([{TxID, #{
            end,
     if Verify -> ok;
        true ->
-         %error_?LOG_ERROR_msg("Unverified ~p",[Tx]),
          throw('unverified')
     end,
 
@@ -348,7 +347,6 @@ try_process([{TxID, #{
            end,
     if Verify -> ok;
        true ->
-         %error_?LOG_ERROR_msg("Unverified ~p",[Tx]),
          throw('unverified')
     end,
 
@@ -403,7 +401,6 @@ try_process([{TxID, #{
            end,
     if Verify -> ok;
        true ->
-         %error_?LOG_ERROR_msg("Unverified ~p",[Tx]),
          throw('unverified')
     end,
 
@@ -444,17 +441,14 @@ try_process([{TxID, #{
     try
       NewF1=mbal:put(vm, VMType, NewF),
       NewF2=mbal:put(code, Code, NewF1),
-      NewF3=case maps:find("view", TxExt) of
-              error -> NewF2;
-              {ok, View} ->
-                mbal:put(view, View, NewF2)
-            end,
       ?LOG_INFO("Deploy contract ~s for ~s to address ~s gas ~w",
                  [VM, naddress:encode(Owner), naddress:encode(NewAddr), Gas]),
       IGas=(GAmount*GNum) div GDen,
       Left=fun(GL) ->
-               ?LOG_INFO("VM run gas ~p -> ~p",[IGas,GL]),
-               {GCur, (GL*GDen) div GNum, GRate}
+               ?LOG_INFO("VM run gas ~p -> ~p (~p)",[IGas,GL, min(IGas,GL)]),
+               %use min, retrned gas might be greater than sent, because deleting data using sstore
+               %might return 15k gas.
+               {GCur, (min(IGas,GL)*GDen) div GNum, GRate}
            end,
       OpaqueState=#{aalloc=>AAlloc,
                     created=>[],
@@ -505,7 +499,7 @@ try_process([{TxID, #{
                   is_map(St1) ->
                     St1
                end,
-      AppliedState=mbal:put(mergestate, St1Dec, NewF3),
+      AppliedState=mbal:put(mergestate, St1Dec, NewF2),
       NewF4=maps:remove(keep,
                         if NewCode==undefined ->
                              AppliedState;
@@ -523,7 +517,7 @@ try_process([{TxID, #{
                        maps:put(Owner, XBal1, Addresses)
                    end,
 
-      %    NewAddresses=maps:put(Owner, NewF3, Addresses),
+      %    NewAddresses=maps:put(Owner, NewF2, Addresses),
 
       try_process(Rest,
                   savegas(Gas, GasLeft,
@@ -624,71 +618,6 @@ try_process([{TxID, #{
                      table => NewAddresses,
                      last => ok
                     }
-               )
-  catch error:{badkey,Owner} ->
-          try_process(Rest,
-                      Acc#{failed=>[{TxID, no_src_addr_loaded}|Failed],
-                           last => failed});
-        throw:X ->
-          ?LOG_INFO("Contract deploy failed ~p", [X]),
-          try_process(Rest,
-                      Acc#{failed=>[{TxID, X}|Failed],
-                           last => failed});
-        Ec:Ee:S ->
-          %S=erlang:get_stacktrace(),
-          ?LOG_INFO("Contract deploy failed ~p:~p", [Ec,Ee]),
-          lists:foreach(fun(SE) ->
-                            ?LOG_ERROR("@ ~p", [SE])
-                        end, S),
-          try_process(Rest,
-                      Acc#{failed=>[{TxID, other}|Failed],
-                           last => failed})
-  end;
-
-
-try_process([{TxID, #{
-                      ver:=2,
-                      kind:=deploy,
-                      from:=Owner,
-                      txext:=#{"view":=NewView}
-                     }=Tx} |Rest],
-%            SetState, Addresses, GetFun,
-            #{failed:=Failed,
-              table:=Addresses,
-              new_settings:=SetState,
-              get_settings:=GetFun,
-              success:=Success}=Acc) ->
-  try
-    Verify=try
-             #{sigverify:=#{valid:=SigValid}}=Tx,
-             SigValid>0
-           catch _:_ ->
-                   false
-           end,
-    if Verify -> ok;
-       true ->
-         %error_?LOG_ERROR_msg("Unverified ~p",[Tx]),
-         throw('unverified')
-    end,
-
-    Bal=maps:get(Owner, Addresses),
-
-    {NewF, _GasF, GotFee, Gas}=withdraw(Bal, Tx, GetFun, SetState, []),
-
-    NewF1=maps:remove(keep,
-                      mbal:put(view, NewView, NewF)
-                     ),
-
-    NewF2=return_gas(Gas, SetState, NewF1),
-    NewAddresses=maps:put(Owner, NewF2, Addresses),
-
-    try_process(Rest,
-                savefee(GotFee,
-                        Acc#{success=> [{TxID, Tx}|Success],
-                            table => NewAddresses,
-                            last => ok
-                            }
-                       )
                )
   catch error:{badkey,Owner} ->
           try_process(Rest,
@@ -1074,7 +1003,7 @@ try_process_local([{TxID,
 
     Ext=maps:get(txext,Tx,#{}),
     BSponsor=maps:get("sponsor",Ext,undefined),
-    ?LOG_INFO("Processing local =====[ ~s ]=======",[TxID]),
+    ?LOG_INFO("Processing local =====[ ~s ]======= ~s -> ~s",[TxID,hex:encode(From),hex:encode(To)]),
     Sponsor=case BSponsor of
               [<<SpAddr:8/binary>>] ->
                 MyChain=GetFun(mychain),
@@ -1213,11 +1142,13 @@ try_process_local([{TxID,
       Load=maps:get(loadaddr, Acc),
       try_process(TXL, Acc#{table=>Load({TxID,Tx}, Addresses)});
     throw:X:S ->
+      ?LOG_ERROR("~s throw ~p at ~p/~p",[TxID,X,hd(S),hd(tl(S))]),
       io:format("~s throw ~p at ~p/~p~n",[TxID,X,hd(S),hd(tl(S))]),
       try_process(Rest,
                   Acc#{failed=>[{TxID, fmterr(X)}|Failed],
                        last => failed});
     error:X:S ->
+      ?LOG_ERROR("~s throw ~p at ~p/~p",[TxID,X,hd(S),hd(tl(S))]),
       io:format("~s Error ~p at ~p/~p~n",[TxID,X,hd(S),hd(tl(S))]),
       try_process(Rest,
                   Acc#{failed=>[{TxID, fmterr(X)}|Failed],
@@ -1433,9 +1364,10 @@ deposit(TxID, Address, Addresses0, #{ver:=2}=Tx, GasLimit,
   end.
 
 withdraw(FBal0,
-         #{ver:=2, seq:=Seq, t:=Timestamp, from:=From}=Tx,
+         #{ver:=2, seq:=Seq, from:=From, kind:=Kind}=Tx,
          GetFun, Settings, Opts) ->
   try
+    Timestamp=maps:get(t,Tx,0),
     Sponsor = lists:member(sponsor,Opts),
     Contract_Issued=tx:get_ext(<<"contract_issued">>, Tx),
     IsContract=is_binary(mbal:get(vm, FBal0)) andalso Contract_Issued=={ok, From},
@@ -1448,6 +1380,11 @@ withdraw(FBal0,
     ?LOG_INFO("Withdraw ~p ~p", [IsContract, maps:without([body,sig],Tx)]),
     if Timestamp==0 andalso IsContract ->
          ok;
+       Kind == ether ->
+         case application:get_env(tpnode,ether,false) of
+           false ->
+             throw('ether_support_is_not_production_ready_yet')
+         end;
        Sponsor==true -> ok;
        is_integer(Timestamp) ->
          case GetFun({valid_timestamp, Timestamp}) of
@@ -1460,6 +1397,9 @@ withdraw(FBal0,
     end,
     LD=mbal:get(t, FBal0) div 86400000,
     CD=Timestamp div 86400000,
+    case From of
+      <<_:20/binary>> -> ok;
+      <<_:8/binary>> ->
     case naddress:parse(From) of
       #{type := private} -> ok;
       #{type := public} ->
@@ -1487,9 +1427,12 @@ withdraw(FBal0,
                   end
              end
         end
+        end
     end,
+    NoSeq=not maps:is_key(seq,FBal0),
     CurFSeq=mbal:get(seq, FBal0),
     if CurFSeq < Seq -> ok;
+       NoSeq andalso Seq==0 -> ok;
        Sponsor==true -> ok;
        Seq==0 andalso IsContract -> ok;
        true ->
@@ -1501,11 +1444,13 @@ withdraw(FBal0,
            end,
          ?LOG_ERROR("Bad seq addr ~p, cur ~p tx ~p, ledger ~p",
                      [From, CurFSeq, Seq, L]),
+         ?LOG_ERROR("FBal0 ~p",[FBal0]),
          %==== END DEBU CODE
          throw ('bad_seq')
     end,
     CurFTime=mbal:get(t, FBal0),
     if CurFTime < Timestamp -> ok;
+       Kind == ether -> ok;
        IsContract andalso Timestamp==0 -> ok;
        Sponsor==true -> ok;
        true -> throw ('bad_timestamp')
@@ -1586,6 +1531,11 @@ withdraw(FBal0,
 
     FBal1=maps:remove(keep,
                       if Sponsor==true -> FBal0;
+                         Kind==ether ->
+                           mbal:put(seq,
+                                    ?MAX(Seq,CurFSeq),
+                                    FBal0
+                                   );
                          true ->
                            mbal:mput(
                              ?MAX(Seq,CurFSeq),
@@ -1673,6 +1623,9 @@ return_gas({GCur, GAmount, _GRate}=_GasLeft, _Settings, Bal0) ->
     true ->
       Bal0
   end.
+
+addrcheck(<<_I:20/binary>>, _Set, _OC) ->
+  {true, private};
 
 addrcheck(Addr, Set, OC) ->
   case naddress:check(Addr) of

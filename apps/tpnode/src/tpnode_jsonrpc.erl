@@ -21,18 +21,28 @@
 %    make_error_response(Code, Message, Data, Id);
 
 handle(<<"net_version">>,[]) ->
-  i2hex(1);
+  ?LOG_INFO("Got req for net_version",[]),
+  i2hex(chain_id());
 
-handle(<<"eth_sendRawTransaction">>,Params) ->
-    ?LOG_INFO("Got req for eth_sendRawTransaction with ~p",[Params]),
-    throw(server_error);
+handle(<<"eth_sendRawTransaction">>,[Tx]) ->
+    ?LOG_INFO("Got req for eth_sendRawTransaction with ~p",[Tx]),
+    Decode=tx:construct_tx(#{tx=>hex:decode(Tx),
+                             chain_id=>chain_id()
+                            }),
+    ?LOG_INFO("Got req for eth_sendRawTransaction with ~p",[Decode]),
+    case txpool:new_tx(Decode) of
+        {ok,TxID} ->
+            TxID;
+        {error, Reason} ->
+            throw({jsonrpc2, 10001, list_to_binary(io_lib:format("~p",[Reason]))})
+    end;
 
 handle(<<"eth_getTransactionCount">>,[Address, Block]) ->
     D=get_ledger(Address, seq, [], Block),
     ?LOG_INFO("Got req for eth_getTransactionCount for ~p/~p = ~p",[Address, Block, D]),
     case D of
         [{seq,[],S}] ->
-            i2hex(S);
+            i2hex(S+1);
         [] ->
             i2hex(0)
     end;
@@ -57,9 +67,43 @@ handle(<<"eth_getCode">>,[Address, Block]) ->
             b2hex(<<>>)
     end;
 
+handle(<<"eth_estimateGas">>,[{Params},_Block]) ->
+    ?LOG_INFO("Got req for eth_call arg1 ~p",[Params]),
+    %To=try
+    %     decode_addr(proplists:get_value(<<"to">>,Params))
+    %   catch error:function_clause ->
+    %           throw({jsonrpc2, 32000, <<"missing trie node">>})
+    %   end,
+    %Data=hex:decode(proplists:get_value(<<"data">>,Params)),
+    %From=decode_addr(proplists:get_value(<<"from">>,Params,null),null,<<0>>),
+    %case tpnode_evmrun:evm_run(
+    %       To,
+    %       <<"0x0">>,
+    %       [Data],
+    %       #{caller=>From,
+    %         gas=>hex2i(proplists:get_value(<<"gas">>,Params,<<"0x7D00">>)),
+    %         block_height=>case Block of <<"latest">> -> undefined; _ -> hex2i(Block) end
+    %        }
+    %      ) of
+    %    #{result:=revert, bin:=Bin}=_es ->
+    %    ?LOG_INFO("Res revert"),
+    %        throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(Bin)});
+    %    #{bin:=Bin}=_es ->
+    %    ?LOG_INFO("Res ok"),
+    %        hex:encodex(Bin);
+    %    _Err ->
+    %    ?LOG_INFO("Res err: ~p",[_Err]),
+    %        throw({jsonrpc2, 10000, <<"evm_run unexpected result">>})
+    %end;
+    i2hex(25000);
+
 handle(<<"eth_call">>,[{Params},Block]) ->
     ?LOG_INFO("Got req for eth_call arg1 ~p",[Params]),
-    To=decode_addr(proplists:get_value(<<"to">>,Params)),
+    To=try
+         decode_addr(proplists:get_value(<<"to">>,Params))
+       catch error:function_clause ->
+               throw({jsonrpc2, 32000, <<"missing trie node">>})
+       end,
     Data=hex:decode(proplists:get_value(<<"data">>,Params)),
     From=decode_addr(proplists:get_value(<<"from">>,Params,null),null,<<0>>),
     case tpnode_evmrun:evm_run(
@@ -72,13 +116,18 @@ handle(<<"eth_call">>,[{Params},Block]) ->
             }
           ) of
         #{result:=revert, bin:=Bin}=_es ->
+        ?LOG_INFO("Res revert"),
             throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(Bin)});
         #{bin:=Bin}=_es ->
+        ?LOG_INFO("Res ok"),
             hex:encodex(Bin);
-        _ ->
+        _Err ->
+        ?LOG_INFO("Res err: ~p",[_Err]),
             throw({jsonrpc2, 10000, <<"evm_run unexpected result">>})
     end;
 
+handle(<<"eth_call">>,_) ->
+  throw({jsonrpc2, 32000, <<"incorrect arguments">>});
 
 handle(<<"eth_getBlockByNumber">>,[Number,_Details]=Params) ->
     Block=case Number of
@@ -91,9 +140,8 @@ handle(<<"eth_getBlockByNumber">>,[Number,_Details]=Params) ->
     case Block of
         not_found ->
             throw(server_error);
-        #{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=B ->
+        #{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr} ->
             Txs=maps:get(txs,Block,[]),
-            ?LOG_ERROR("Hdr ~p~n",[B]),
             {[
               {<<"difficulty">>,<<"0x1">>},
               {<<"extraData">>,<<"0x">>},
@@ -122,7 +170,7 @@ handle(<<"eth_getBlockByNumber">>,[Number,_Details]=Params) ->
 
 handle(<<"eth_getBalance">>,[<<Address/binary>>,Block,Token]) ->
     D=get_ledger(Address, amount, [], Block),
-    ?LOG_INFO("Got req for eth_getBalance for address ~p blk ~p = ~p",[Address, Block, D]),
+    ?LOG_INFO("Got req for eth_getBalance for token ~s address ~p blk ~p = ~p",[Token, Address, Block, D]),
     case D of
         [{amount,[],Map}] ->
             i2hex(maps:get(Token,Map,0));
@@ -146,11 +194,11 @@ handle(<<"eth_blockNumber">>,[]) ->
     i2hex(LBHei);
 
 handle(<<"eth_chainId">>,[]) ->
-    Chid=maps:get(chain,maps:get(header,blockchain:last_permanent_meta()))+1000000000,
-    i2hex(Chid);
+  ?LOG_INFO("Got req for eth_chainId = ~s / ~w",[i2hex(chain_id()),(chain_id())]),
+  i2hex(chain_id());
 
 handle(<<"eth_gasPrice">>,[]) ->
-    i2hex(10);
+    i2hex(0);
 
 handle(<<"eth_getLogs">>,[{PList}]) ->
     handle(<<"eth_getLogs">>,maps:from_list(PList));
@@ -301,4 +349,7 @@ decode_addr(<<"0x",Addr:40/binary>>) ->
   hex:decode(Addr);
 decode_addr(<<Addr:20/binary>>) ->
   naddress:decode(Addr).
+
+chain_id() ->
+  maps:get(chain,maps:get(header,blockchain:last_permanent_meta()))+1000000000.
 

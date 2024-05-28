@@ -14,6 +14,7 @@ run_generate(
   PreSig,
   MT,
   Ent) ->
+  logger:set_process_metadata(#{domain=>[tpnode,mkblock,generate_block]}),
   MyChain=blockchain:chain(),
   NodeName=nodekey:node_name(),
   BestHeiHash=case lists:sort(maps:keys(PreTXM)) of

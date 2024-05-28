@@ -58,6 +58,7 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
+  logger:set_process_metadata(#{domain=>[tpnode,txpool]}),
   State = #{
     queue => queue:new(),
     batch_no => 0,
@@ -110,30 +111,52 @@ handle_call({new_tx, BinTx}, _From, #{sync_timer:=_Tmr, queue:=_Queue}=State)
   when is_binary(BinTx) ->
     try
         case tx:verify(BinTx) of
-            {ok, _Tx} ->
-            case generate_txid(State) of
-              error ->
-                {reply, {error, cant_gen_txid}, State};
-              {ok, TxID} ->
-                case gen_server:call(txstorage, {new_tx, TxID, BinTx}) of
-                  ok ->
-                    {reply, {ok, TxID}, State};
-                  {error, Any} ->
-                    {reply, {error, Any}, State}
-                end
+          {ok, Tx} ->
+            case Tx of
+              #{from:=Addr, seq:=Seq} ->
+                LSeq=mledger:get_kpv(Addr,seq,'_'),
+                ?LOG_NOTICE("Addr ~p seq ~p (ledger ~p)",[Addr, Seq, LSeq]),
+                case LSeq of
+                  {ok,N} when Seq>N ->
+                    true;
+                  {ok, _N} ->
+                    throw({error, bad_seq});
+                  undefined ->
+                    true
+                end;
+              #{} -> %tx without from or seq, registration?
+                true
+            end,
+                 case generate_txid(State) of
+                   error ->
+                     {reply, {error, cant_gen_txid}, State};
+                   {ok, TxID} ->
+                     ?LOG_INFO("New tx received ~p (~p/~s/~w)",[TxID,
+                                                                maps:get(kind,Tx),
+                                                                hex:encode(maps:get(from,Tx,<<>>)),
+                                                                maps:get(seq,Tx,0)
+                                                               ]),
+                     case gen_server:call(txstorage, {new_tx, TxID, BinTx}) of
+                       ok ->
+                         {reply, {ok, TxID}, State};
+                       {error, Any} ->
+                         {reply, {error, Any}, State}
+                     end;
 
-%                Res=gen_server:cast(txqueue, {push_tx, TxID, BinTx}),
-%                ?LOG_INFO("New TX ~s cast in to queue ~p",[TxID,Res]),
-%                {reply, {ok, TxID},
-%                 State#{
-%                   %queue=>queue:in({TxID, BinTx}, Queue),
-%                   %sync_timer => update_sync_timer(Tmr)
-%                  }}
-            end;
-            Err ->
-                {reply, {error, Err}, State}
+                   %                Res=gen_server:cast(txqueue, {push_tx, TxID, BinTx}),
+                   %                ?LOG_INFO("New TX ~s cast in to queue ~p",[TxID,Res]),
+                   %                {reply, {ok, TxID},
+                   %                 State#{
+                   %                   %queue=>queue:in({TxID, BinTx}, Queue),
+                   %                   %sync_timer => update_sync_timer(Tmr)
+                   %                  }}
+                   Err ->
+                     {reply, {error, Err}, State}
+            end
         end
     catch
+      throw:{error,Reason} ->
+        {reply, {error, Reason}, State};
       Ec:Ee:S ->
         %S=erlang:get_stacktrace(),
         utils:print_error("error while processing new tx", Ec, Ee, S),

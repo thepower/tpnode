@@ -36,6 +36,7 @@ start_link() ->
 
 init(_Args) ->
   gen_server:cast(self(), settings),
+  logger:set_process_metadata(#{domain=>[tpnode,mkblock]}),
     {ok, #{
        nodeid=>nodekey:node_id(),
        preptxm=>#{},

@@ -219,6 +219,13 @@ new_tx(TxID, TxBody, nosync, #{my_ttl:=TTL, ets_name:=Table} = State) ->
 
 new_tx(TxID, TxBody, sync, #{my_ttl:=TTL, ets_name:=Table} = State) ->
   ValidUntil = os:system_time(second) + TTL,
+  ?LOG_ERROR("Store tx ~p",[TxID]),
+  case application:get_env(tpnode,store_txs_path) of
+    {ok,L} when is_list(L) ->
+      ?LOG_ERROR("save tx ~p: ~p",[filename:join(L,TxID),
+                                   file:write_file(filename:join(L,TxID),TxBody)]);
+    _ -> ok
+  end,
   ets:insert(Table, {TxID, TxBody, me, [], ValidUntil}),
   MS=chainsettings:get_val(minsig,30),
   %chainsettings:by_path([<<"current">>,<<"chain">>,<<"minsig">>]),
@@ -233,8 +240,15 @@ new_tx(TxID, TxBody, sync, #{my_ttl:=TTL, ets_name:=Table} = State) ->
 
 store_tx(TxID, TxBody, FromPeer, #{ets_ttl_sec:=TTL, ets_name:=Table} = State) ->
   ValidUntil = os:system_time(second) + TTL,
+  ?LOG_ERROR("Store tx ~p",[TxID]),
   case ets:lookup(Table, TxID) of
     [] ->
+      case application:get_env(tpnode,store_txs_path) of
+        {ok,L} when is_list(L) ->
+          ?LOG_ERROR("save tx ~p: ~p",[filename:join(L,TxID),
+                                file:write_file(filename:join(L,TxID),TxBody)]);
+        _ -> ok
+      end,
       ets:insert(Table, {TxID, TxBody, FromPeer, [], ValidUntil}),
       {ok, State};
     [{TxID, TxBody1, _, _, _}] when TxBody1 =/= TxBody ->

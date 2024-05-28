@@ -95,6 +95,18 @@ construct_tx(Any) ->
   construct_tx(Any,[]).
 
 construct_tx(#{
+               tx:=TxBody,
+               chain_id:=Chain
+              },_Params) ->
+  unpack_body(#{
+                ver=>2,
+                chain_id => Chain,
+                body=>TxBody,
+                sig=>[]
+               });
+
+
+construct_tx(#{
   ver:=2,
   kind:=patch,
   patches:=Patches
@@ -350,7 +362,37 @@ prepare_extra_args(_, _, {CE,CTx}) ->
 unpack_body(#{sig:=<<>>}=Tx) ->
   unpack_body(Tx#{sig:=[]});
 
-unpack_body(#{body:=Body}=Tx) ->
+unpack_body(#{body:= <<3:2/integer,_:6/integer,_/binary>>=Body,chain_id:=ChainId}=Tx) ->
+  Decode=eth:decode_tx(ChainId, Body),
+  {nonce, Nonce} = lists:keyfind(nonce,1,Decode),
+  {from, From} = lists:keyfind(from,1,Decode),
+  {to, To} = lists:keyfind(to,1,Decode),
+  {value, Value} = lists:keyfind(value,1,Decode),
+  {input, Data} = lists:keyfind(input,1,Decode),
+  {gas_price, GasPrice} = lists:keyfind(gas_price,1,Decode),
+  {gas_limit, Gas} = lists:keyfind(gas_limit,1,Decode),
+  DecodeAddr=fun(<<0:96/big,2:2/big,O0:6/big,PwrAddr:7/binary>>)  ->
+                 <<2:2/big,O0:6/big,PwrAddr:7/binary>>;
+                (<<Pwr:8/binary>>) ->
+                 Pwr;
+                (<<Eth:20/binary>>) ->
+                 Eth
+             end,
+  Tx#{
+    kind=>ether,
+    seq => Nonce,
+    from=>DecodeAddr(From),
+    to => DecodeAddr(To),
+    payload => [
+                #{amount=>Value, cur=><<"SK">>, purpose=>transfer },
+                #{amount=>GasPrice*Gas, cur=><<"SK">>, purpose=>gas }
+               ],
+    call => #{ function => "0x0",
+               args => [Data]
+             }
+   };
+
+unpack_body(#{body:= <<8:4/integer,_:4/integer,_/binary>>=Body}=Tx) ->
   case msgpack:unpack(Body,[{spec,new},{unpack_str, as_list}]) of
     {ok,#{"k":=IKind}=B} ->
       {Ver, Kind}=decode_kind(IKind),
@@ -620,6 +662,23 @@ verify(Tx) ->
 -spec verify(tx()|binary(), ['nocheck_ledger'| {ledger, pid()}]) ->
   {ok, tx()} | 'bad_sig' | 'bad_keys'.
 
+verify(#{kind:=ether,ver:=2,from:=From,body:=Body,chain_id:=ChainId}=Tx, _Opts) ->
+  Decode=eth:decode_tx(ChainId, Body),
+  {from, From1} = lists:keyfind(from,1,Decode),
+  {pubkey, PubKey} = lists:keyfind(pubkey,1,Decode),
+  if From==From1 ->
+       {ok, Tx#{
+              sigverify=>#{
+                           valid=>1,
+                           invalid=>0,
+                           pubkeys=>[PubKey]
+                          }
+             }
+       };
+     true ->
+       bad_sig
+  end;
+
 verify(#{
   kind:=GenericOrDeploy,
   from:=From,
@@ -870,6 +929,30 @@ pack(#{
    );
 
 pack(#{ ver:=2,
+        kind:=ether,
+        body:=Bin,
+        chain_id:=ChainId}=Tx, Opts) ->
+  T=#{"ver"=>2,
+      "body"=>Bin,
+      "chid"=>ChainId,
+      "sig"=>{array,[]}
+     },
+  io:format("Pack ether ~p with ~p~n",[lists:member(withext, Opts),maps:is_key(extdata, Tx)]),
+  T2=case lists:member(withext, Opts) andalso maps:is_key(extdata, Tx) of
+       false -> T;
+       true ->
+         T#{
+           "extdata" => maps:get(extdata,Tx)
+          }
+     end,
+  io:format("Packed ~p~n",[T2]),
+  msgpack:pack(T2,[
+                  {spec,new},
+                  {pack_str, from_list}
+                 ]);
+
+
+pack(#{ ver:=2,
         body:=Bin,
         sig:=PS}=Tx, Opts) ->
   T=#{"ver"=>2,
@@ -922,6 +1005,22 @@ unpack(BinTx,Opts) when is_binary(BinTx), is_list(Opts) ->
     {ok, Tx0}  ->
       Trusted=lists:member(trusted, Opts),
       case Tx0 of
+        #{<<"ver">>:=2, <<"body">>:=TxBody, <<"chid">>:=ChainId,<<"extdata">>:=Ext} when
+            Trusted==true ->
+          unpack_body( #{
+                         ver=>2,
+                         sig=>[],
+                         body=>TxBody,
+                         chain_id=>ChainId,
+                         extdata=>Ext
+                        });
+        #{<<"ver">>:=2, <<"body">>:=TxBody, <<"chid">>:=ChainId} ->
+          unpack_body( #{
+                         ver=>2,
+                         sig=>[],
+                         body=>TxBody,
+                         chain_id=>ChainId
+                        });
         #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv} ->
           unpack_body( #{
                          ver=>2,
@@ -972,7 +1071,7 @@ txlist_hash(List) ->
                                  end, [], lists:keysort(1, List)))).
 
 get_payload(#{ver:=2, kind:=Kind, payload:=Payload}=_Tx, Purpose)
-  when Kind==deploy; Kind==generic; Kind==tstore; Kind==lstore ->
+  when Kind==deploy; Kind==generic; Kind==tstore; Kind==lstore; Kind==ether ->
   lists:foldl(
     fun(#{amount:=_,cur:=_,purpose:=P1}=A, undefined) when P1==Purpose ->
         A;
@@ -984,7 +1083,7 @@ get_payload(#{ver:=2, kind:=Kind},_) ->
   throw({unknown_kind_for_get_payload,Kind}).
 
 get_payloads(#{ver:=2, kind:=Kind, payload:=Payload}=_Tx, Purpose)
-  when Kind==deploy; Kind==generic; Kind==tstore; Kind==lstore ->
+  when Kind==deploy; Kind==generic; Kind==tstore; Kind==lstore; Kind==ether ->
   lists:filter(
     fun(#{amount:=_,cur:=_,purpose:=P1}) ->
         P1==Purpose

@@ -8,6 +8,8 @@
       stdlib,
       tinymq,
       tiny_pq,
+      erlp,
+      ecrecover,
       jsx,
       cowboy,
       certifi,

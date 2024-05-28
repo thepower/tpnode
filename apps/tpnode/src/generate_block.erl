@@ -269,8 +269,8 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     {true, _} -> ok;
     false ->
       ?LOG_ERROR("Block is not verifiable after repacking!!!!"),
-      file:write_file("tmp/blk_repack_error.txt",
-                      io_lib:format("~p.~n", [Blk])
+      file:write_file("log/blk_repack_error.txt",
+                      io_lib:format("~w.~n", [Blk])
                      ),
 
       case block:verify(Blk) of
@@ -302,19 +302,21 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, Extra
     true -> ok
   end,
   _T6=erlang:system_time(),
-  ?LOG_INFO("Created block ~w ~s: txs: ~w, bals: ~w, LH: ~s, chain ~p temp ~p",
+  ?LOG_INFO("Created block ~w ~s...: txs: ~w, bals: ~w, LH: ~s, ch: ~p tmp: ~p time: ~p",
              [
               Parent_Height+1,
               block:blkid(maps:get(hash, Blk)),
               length(Success),
               maps:size(NewBal),
-              if LedgerHash==undefined ->
+              case LedgerHash of
+                undefined ->
                    "undefined";
-                 true ->
-                   hex:encode(LedgerHash)
+                 <<H:8/binary,_/binary>> ->
+                   [hex:encode(H),"..."]
               end,
               GetSettings(mychain),
-              proplists:get_value(temporary,Options)
+              proplists:get_value(temporary,Options),
+              MeanTime
              ]),
   ?LOG_DEBUG("Hdr ~p",[maps:get(header,Blk)]),
   ?LOG_DEBUG("BENCHMARK txs       ~w~n", [length(TXL)]),
@@ -467,7 +469,7 @@ replace_set({Key,_}=New,Settings) ->
   [New|lists:keydelete(Key, 1, Settings)].
 
 %this is only for depositing gathered fees
-depositf(Address, TBal, #{cur:=Cur, amount:=Amount}=Tx, _GetFun, _Settings, GasLimit, Acc) ->
+depositf(_Address, TBal, #{cur:=Cur, amount:=Amount}, _GetFun, _Settings, GasLimit, Acc) ->
   NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
   NewT=maps:remove(keep,
                    mbal:put_cur( Cur, NewTAmount, TBal)

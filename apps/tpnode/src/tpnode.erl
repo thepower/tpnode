@@ -133,9 +133,60 @@ logger_reconfig() ->
                           }),
       logger:update_handler_config(disk_debug_log,formatter,
                                    {logger_formatter,#{template => [time," ",file,":",line," ",level,": ",msg,"\n"]}});
-    true -> 
+    true ->
       ok
   end,
+
+  LogTopics=[
+             {disk_consensus_log,
+              consensus_log,
+              "log/consensus_"++Host++".log",
+              #{ filters => [
+                             {bv,{fun logger_filters:domain/2, {log,sub,[tpnode,blockvote]}}}
+                            ] } },
+             { disk_mkblock_log,
+               mkblock_log,
+               "log/mkblock_"++Host++".log",
+               #{ filters => [
+                              {mkblock,{fun logger_filters:domain/2, {log,sub,[tpnode,mkblock]}}}
+                            ] } },
+             { disk_chain_log,
+               chain_log,
+               "log/chain_"++Host++".log",
+               #{ filters => [
+                              {blockchain,{fun logger_filters:domain/2, {log,sub,[tpnode,blockchain]}}}
+                             ] } }
+            ],
+
+  lists:foreach(
+    fun({ID,Param,Dflt,Append}) ->
+        logger:remove_handler(ID),
+        case application:get_env(tpnode,Param,false) of
+          false -> ok;
+          Enable ->
+            Filename= case Enable of
+                        true -> Dflt;
+                        _ when is_list(Enable) ->
+                          Enable
+                      end,
+            logger:add_handler(ID, logger_std_h,
+                               maps:merge(
+                                 #{config => #{
+                                               file =>  Filename,
+                                               type => file,
+                                               max_no_files => 10,
+                                               max_no_bytes => 52428800 % 10 x 5mb
+                                              },
+                                   level => info,
+                                   filter_default=>stop,
+                                   formatter => {logger_formatter,#{template => [time,": ",msg,"\n"]
+                                                                   }}
+                                  },Append)
+                              )
+        end
+    end,
+    LogTopics),
+
 
   logger:remove_handler(disk_info_log),
   logger:add_handler(disk_info_log, logger_std_h,
@@ -171,7 +222,7 @@ die(Reason) ->
             application:set_env(tpnode,dead,Reason),
             Shutdown = [ discovery, synchronizer, chainkeeper, blockchain_updater,
                          blockchain_sync, blockvote, mkblock, txstorage, txqueue,
-                         txpool, txstatus, topology, tpnode_announcer,
+                         txpool, txstatus, topology, tpnode_announcer, vm_listener, wasm_vm,
                          xchain_client, xchain_dispatcher, tpnode_vmsrv, tpnode_repl, repl_sup],
             _ = catch tpwdt:stop(),
             [ ?LOG_INFO("Terminate ~p: ~p",[S,catch supervisor:terminate_child(tpnode_sup,S)]) || S<- Shutdown ]

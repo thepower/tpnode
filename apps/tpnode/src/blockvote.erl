@@ -37,6 +37,7 @@ start_link() ->
 init(_Args) ->
     ets_init(),
     self() ! init,
+    logger:set_process_metadata(#{domain=>[tpnode,blockvote]}),
     {ok, undefined}.
 
 handle_call(_, _From, undefined) ->
@@ -148,7 +149,7 @@ handle_cast({signature, BlockHash, Sigs},
 handle_cast({new_block, Blk, PID}, State) ->
   handle_cast({new_block, Blk, PID, #{}}, State);
 
-handle_cast({new_block, #{hash:=BlockHash, header:=#{chain:=Chain}, sign:=Sigs, txs:=Txs}=Blk, _PID, Extra},
+handle_cast({new_block, #{hash:=BlockHash, header:=#{chain:=Chain,roots:=Roots}, sign:=Sigs, txs:=Txs}=Blk, _PID, Extra},
             #{ candidates:=Candidates,
                candidatesig:=Candidatesig,
                candidatets := CandidateTS,
@@ -157,12 +158,13 @@ handle_cast({new_block, #{hash:=BlockHash, header:=#{chain:=Chain}, sign:=Sigs, 
 
     #{hash:=LBlockHash}=LastBlock=blockchain:last_meta(),
     Height=maps:get(height, maps:get(header, Blk)),
-    ?LOG_INFO("BV New block (~p/~p) arrived (~s/~s)",
+    ?LOG_DEBUG("BV New block (~p/~p) arrived (~s/~s) ~s",
                [
                 Height,
                 maps:get(height, maps:get(header, LastBlock)),
                 blkid(BlockHash),
-                blkid(LBlockHash)
+                blkid(LBlockHash),
+                lists:join(" ",[io_lib:format("~s:~s",[N,minhash(H)]) || {N,H} <- Roots ])
                ]),
     CSig0=maps:get(BlockHash, Candidatesig, #{}),
     CSig=checksig(BlockHash, Sigs, CSig0),
@@ -269,8 +271,13 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-blkid(<<X:8/binary, _/binary>>) ->
-    bin2hex:dbin2hex(X).
+blkid(X) ->
+    minhash(X).
+
+minhash(<<X:8/binary, _/binary>>) ->
+    binary:encode_hex(X);
+minhash(<<X/binary>>) ->
+    binary:encode_hex(X).
 
 %% ------------------------------------------------------------------
 
@@ -318,20 +325,24 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
         Blk0=maps:get(BlockHash, maps:get(candidates, State)),
         Blk1=Blk0#{sign=>maps:values(Sigs)},
         {true, {Success, _}}=block:verify(Blk1),
+        Names=signames(Success),
         T1=erlang:system_time(),
         Txs=maps:get(txs, Blk0, []),
-        ?LOG_DEBUG("TODO: Check keys ~p of ~p", [length(Success), MinSig]),
         if length(Success)<MinSig ->
-             ?LOG_INFO("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
+             ?LOG_INFO("BV New block ~w t ~w arrived ~s, txs ~b, verify ~w (~.3f ms) not_ready ~w:~s",
                   [maps:get(height, maps:get(header, Blk0)),
+                   maps:get(temporary, Blk0, false),
                    blkid(BlockHash),
                    length(Txs),
                    length(Success),
-                   (T1-T0)/1000000]),
+                   (T1-T0)/1000000,
+                    length(Names), lists:join(",", Names)
+                  ]),
              throw({notready, minsig});
            true ->
-             ?LOG_DEBUG("BV New block ~w arrived ~s, txs ~b, verify ~w (~.3f ms)",
+             ?LOG_INFO("BV New block ~w t ~w arrived ~s, txs ~b, verify ~w (~.3f ms) ready",
                   [maps:get(height, maps:get(header, Blk0)),
+                   maps:get(temporary, Blk0, false),
                    blkid(BlockHash),
                    length(Txs),
                    length(Success),
@@ -350,10 +361,10 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
             {header, maps:get(header, Blk)}
           ]),
 
-        ?LOG_INFO("BV enough confirmations. Installing new block ~s h= ~b (~.3f ms)",
-                   [blkid(BlockHash),
-                    Height,
-                    (T3-T0)/1000000
+        ?LOG_INFO("BV confirmed block ~s h=~b t=~w (~.3f ms) ~w:~s",
+                   [blkid(BlockHash), Height, maps:get(temporary,Blk,false),
+                    (T3-T0)/1000000,
+                    length(Names), lists:join(",", Names)
                    ]),
 
         blockchain_updater:new_block(Blk),
@@ -395,7 +406,7 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
          }
     end
   catch throw:{notready, Where} ->
-        ?LOG_INFO("Not ready ~s ~p", [blkid(BlockHash), Where]),
+        ?LOG_DEBUG("Not ready ~s ~p", [blkid(BlockHash), Where]),
         State;
       Ec:Ee:S ->
         ?LOG_ERROR("BV New_block error ~p:~p", [Ec, Ee]),
@@ -503,3 +514,13 @@ remove_expired_candidates(CandTS, Candidates, CandidateSig, Extras, TimeoutSec) 
     {CandTS, Candidates, CandidateSig, Extras},
     CandTS
   ).
+
+
+signames(Signatures) ->
+  [case lists:keyfind(pubkey,1, maps:get(extra,R,[])) of
+     {pubkey, PK} ->
+       chainsettings:is_our_node(PK);
+     false ->
+       unknown
+   end
+   || R<- Signatures ].
