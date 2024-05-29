@@ -212,7 +212,7 @@ handle_call({new_block, #{hash:=BlockHash,
               lastblock:=#{header:=#{parent:=Parent}=LBlockHdr, hash:=LBlockHash}=LastBlock,
               mychain:=MyChain
              }=State) ->
-  ?LOG_DEBUG("New block h=~p <- ~p hash ~s <- ~s localp ~s)",
+  ?LOG_INFO("New block h=~p <- ~p hash ~s <- ~s localp ~s)",
              [
               Hei,
               maps:get(height, LBlockHdr),

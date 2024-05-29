@@ -383,7 +383,7 @@ try_process([{TxID, #{
                       ver:=2,
                       kind:=deploy,
                       from:=Owner,
-                      txext:=#{"code":=Code,"vm":=VMType0}=TxExt
+                      txext:=#{"code":=Code,"vm":=VMType0}
                      }=Tx} |Rest],
             #{failed:=Failed,
               aalloc:=AAlloc0,
@@ -645,67 +645,26 @@ try_process([{TxID, #{ver:=2,
                       sig:=_Signatures,
                       sigverify:=#{
                                    valid:=_ValidSig,
-                                   pow_diff:=PD,
                                    pubkeys:=[PubKey|_]
                                   }
                      }=Tx} |Rest],
             #{failed:=Failed,
               table:=Addresses,
-              new_settings:=SetState,
-              %get_settings:=GetFun,
               aalloc:=AAl,
               success:=Success,
               settings:=_Settings }=Acc) ->
-  ?LOG_NOTICE("Ensure verified"),
   try
     %TODO: multisig fix here
-    RegSettings=settings:get([<<"current">>, <<"register">>], SetState),
-    Diff=maps:get(<<"diff">>,RegSettings,0),
-    Inv=maps:get(<<"invite">>,RegSettings,0),
-    ?LOG_INFO("Expected diff ~p ~p",[Diff,Inv]),
-    ?LOG_INFO("tx ~p",[Tx]),
-
-    if Inv=/=0 ->
-         Invite=maps:get(inv,Tx,<<>>),
-         Invites=maps:get(<<"invites">>,RegSettings,[]),
-         HI=case Inv of
-              1 ->
-                crypto:hash(md5,Invite);
-              2 ->
-                crypto:hash(sha256,Invite);
-              _ ->
-                throw('bad_invite_mode')
-            end,
-         InvFound=lists:member(HI,Invites),
-         ?LOG_INFO("Inv ~p ~p",[Invite,InvFound]),
-         if InvFound ->
-              ok;
-            true ->
-              throw(bad_invite_code)
-         end;
-       true ->
-         Tx
-    end,
-
-    if Diff=/=0 ->
-         if PD<Diff ->
-              throw({required_difficult,Diff});
-            true -> ok
-         end;
-       true -> ok
-    end,
-
     {ok, NewBAddr, AAl1} = aalloc(AAl),
-
-    ?LOG_INFO("Alloc address ~p ~s for key ~s",
+    ?LOG_INFO("Alloc address ~p ~s for key ~s tx ~s",
                [NewBAddr,
                 naddress:encode(NewBAddr),
-                hex:encode(PubKey)
+                hex:encode(PubKey),
+                TxID
                ]),
-
     NewF=mbal:put(pubkey, PubKey, mbal:new()),
     NewAddresses=maps:put(NewBAddr, NewF, Addresses),
-    NewTx=maps:remove(inv,tx:set_ext(<<"addr">>,NewBAddr,Tx)),
+    NewTx=tx:set_ext(<<"addr">>,NewBAddr,Tx),
     ?LOG_INFO("try process register tx [~p]: ~p", [NewBAddr, NewTx]),
     try_process(Rest,
                 Acc#{success => [{TxID, NewTx}|Success],
@@ -886,54 +845,6 @@ try_process_inbound([{TxID,
                            last => failed})
   end.
 
-%try_process_inbound([{TxID,
-%                      #{cur:=Cur, amount:=Amount, to:=To,
-%                        origin_block:=OriginBlock,
-%                        origin_block_height:=OriginHeight,
-%                        origin_block_hash:=OriginHash,
-%                        origin_chain:=ChID
-%                       }=Tx}
-%                     |Rest],
-%                    #{success:=Success,
-%                      table:=Addresses,
-%                      failed:=Failed,
-%                      pick_block:=PickBlock}=Acc) ->
-%  TBal=maps:get(To, Addresses),
-%  try
-%    ?LOG_DEBUG("Orig Block ~p", [OriginBlock]),
-%    if Amount >= 0 -> ok;
-%       true -> throw ('bad_amount')
-%    end,
-%    NewTAmount=mbal:get_cur(Cur, TBal) + Amount,
-%    NewT=maps:remove(keep,
-%                     mbal:put_cur(
-%                       Cur,
-%                       NewTAmount,
-%                       TBal)
-%                    ),
-%    NewAddresses=maps:put(To, NewT, Addresses),
-%    TxExt=maps:get(extdata,Tx,#{}),
-%    NewExt=TxExt#{
-%             <<"orig_bhei">>=>OriginHeight,
-%             <<"orig_bhash">>=>OriginHash,
-%             <<"orig_chain">>=>ChID
-%            },
-%    FixTX=maps:without(
-%            [origin_block,origin_block_height, origin_block_hash, origin_chain],
-%            Tx#{extdata=>NewExt}
-%           ),
-%    try_process(Rest,
-%                Acc#{success=>[{TxID, FixTX}|Success],
-%                     table => NewAddresses,
-%                     pick_block=>maps:put(OriginBlock, 1, PickBlock),
-%                     last => ok
-%                    })
-%  catch throw:X ->
-%          try_process(Rest,
-%                      Acc#{failed=>[{TxID, X}|Failed],
-%                           last => failed})
-%  end.
-
 try_process_outbound([{TxID,
                        #{
                          ver:=2,
@@ -1001,6 +912,8 @@ try_process_local([{TxID,
          throw('unverified')
     end,
 
+    T0=erlang:system_time(),
+
     Ext=maps:get(txext,Tx,#{}),
     BSponsor=maps:get("sponsor",Ext,undefined),
     ?LOG_INFO("Processing local =====[ ~s ]======= ~s -> ~s",[TxID,hex:encode(From),hex:encode(To)]),
@@ -1055,6 +968,7 @@ try_process_local([{TxID,
         ok
     end,
 
+    T1=erlang:system_time(),
     {Addresses1,GasF,GasAddr,GotFee,Gas}=case RSp of
                  {ok, SPData1} ->
                    OrigF=maps:get(From, Addresses),
@@ -1075,6 +989,7 @@ try_process_local([{TxID,
                    {NewF, GasF1, GotFee1, Gas1}=withdraw(OrigF, Tx, GetFun, SetState, []),
                    {maps:put(From, NewF, Addresses),GasF1,From,GotFee1,Gas1}
                end,
+    T2=erlang:system_time(),
 
     try
       {Addresses2, NewEmit, GasLeft, Acc1, AddEd}=deposit(TxID, To, Addresses1,
@@ -1116,7 +1031,10 @@ try_process_local([{TxID,
        },
       Acc3=savegas(Gas, GasLeft, savefee(GotFee, Acc2)),
 
+      T3=erlang:system_time(),
+      ?LOG_INFO("Tx ~s T1 ~w T2 ~w T3 ~w",[TxID, T1-T0,T2-T1,T3-T2]),
       try_process(Rest, Acc3#{last => ok})
+
     catch
       throw:insufficient_gas ->
         AddressesWoGas=maps:put(GasAddr, GasF, Addresses),

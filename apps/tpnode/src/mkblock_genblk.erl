@@ -14,6 +14,7 @@ run_generate(
   PreSig,
   MT,
   Ent) ->
+  T0=erlang:system_time(),
   logger:set_process_metadata(#{domain=>[tpnode,mkblock,generate_block]}),
   MyChain=blockchain:chain(),
   NodeName=nodekey:node_name(),
@@ -207,9 +208,8 @@ run_generate(
       Any ->
         ?LOG_NOTICE("What does mkblock_debug=~p mean?",[Any])
     end,
-    Timestamp=os:system_time(millisecond),
     ED=[
-        {timestamp, Timestamp},
+        {timestamp, T2},
         {createduration, T2-T1}
        ],
     SignedBlock=blocksign(Block, ED),
@@ -221,6 +221,7 @@ run_generate(
                {height, PHeight},
                {block_hdr, maps:with([hash,header,sign,temporary], SignedBlock)}
               ]),
+    ?LOG_INFO("T0 ~w T1-T0 ~.3f ms T2-T1 ~.3f ms",[T0,(T1-T0)/1000000,(T2-T1)/1000000]),
 
     gen_server:cast(blockvote, {new_block, SignedBlock, self(), #{log=>Log}}),
 
