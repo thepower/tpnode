@@ -677,7 +677,13 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"seq">>], _Req) ->
               #{http_code => 404}
           );
       {ok, Number} ->
-        {200, #{seq=>Number}}
+        answer(
+          #{
+            result => <<"ok">>,
+            seq => Number
+           },
+          #{address => Addr}
+         )
     end
   catch
     throw:{error, address_crc} ->
