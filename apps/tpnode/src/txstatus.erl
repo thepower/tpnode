@@ -120,6 +120,9 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% ------------------------------------------------------------------
 
+jsonfy({IsOK, #{block:=Blk,blockn:=N}=ExtData}) ->
+  R=jsonfy1({IsOK, maps:without([block,blockn],ExtData)}),
+  R#{ block=>hex:encode(Blk), blockn=>N };
 jsonfy({IsOK, #{block:=Blk}=ExtData}) ->
   R=jsonfy1({IsOK, maps:without([block],ExtData)}),
   R#{ block=>hex:encode(Blk) };

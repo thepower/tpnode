@@ -436,20 +436,20 @@ handle_call({new_block, #{hash:=BlockHash,
 
                   SendSuccess=lists:map(
                                 fun({TxID, #{register:=_, address:=Addr}}) ->
-                                    {TxID, #{address=>Addr, block=>BlockHash}};
+                                    {TxID, #{address=>Addr, block=>BlockHash, blockn=>Hei}};
                                    ({TxID, #{kind:=register, ver:=2, extdata:=#{<<"addr">>:=Addr}}}) ->
-                                    {TxID, #{address=>Addr, block=>BlockHash}};
+                                    {TxID, #{address=>Addr, block=>BlockHash, blockn=>Hei}};
                                    ({TxID, #{kind:=generic, ver:=2, extdata:=#{<<"retval">>:=RV}}}) ->
-                                    {TxID, #{retval=>RV, block=>BlockHash}};
+                                    {TxID, #{retval=>RV, block=>BlockHash, blockn=>Hei}};
                                    ({TxID, #{kind:=generic, ver:=2, extdata:=#{<<"revert">>:=RV}}}) ->
-                                    {TxID, #{revert=>RV, block=>BlockHash}};
+                                    {TxID, #{revert=>RV, block=>BlockHash, blockn=>Hei}};
                                    ({TxID, #{kind:=ether, ver:=2, extdata:=#{<<"retval">>:=RV}}}) ->
-                                    {TxID, #{retval=>RV, block=>BlockHash}};
+                                    {TxID, #{retval=>RV, block=>BlockHash, blockn=>Hei}};
                                    ({TxID, #{kind:=ether, ver:=2, extdata:=#{<<"revert">>:=RV}}}) ->
-                                    {TxID, #{revert=>RV, block=>BlockHash}};
+                                    {TxID, #{revert=>RV, block=>BlockHash, blockn=>Hei}};
                                    ({TxID, _Any}) ->
                                     ?LOG_INFO("TX ~p",[_Any]),
-                                    {TxID, #{block=>BlockHash}}
+                                    {TxID, #{block=>BlockHash, blockn=>Hei}}
                                 end, Txs),
 
                   stout:log(blockchain_success, [{result, SendSuccess}, {failed, nope}]),
