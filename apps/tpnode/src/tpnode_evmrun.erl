@@ -373,6 +373,6 @@ run(Address, Code, Data) ->
                     logger=>fun logger/4,
                     create => CreateFun,
                     embedded_code => contract_evm:embedded_functions(),
-                    trace=>whereis(eevm_tracer)
+                    trace=>whereis(evmrun_tracer)
                    }).
 
