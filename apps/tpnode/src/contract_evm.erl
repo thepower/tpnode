@@ -331,8 +331,12 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
        (timestamp,#{stack:=BIStack}=BIState) ->
          MT=maps:get(mean_time,Opaque,0),
          BIState#{stack=>[MT|BIStack]};
+       (selfbalance,#{stack:=BIStack,data:=#{address:=MyAddr},extra:=#{global_acc:=#{table:=CurT}}}=BIState) ->
+         %TODO: hot preload
+         MyAcc=maps:get(binary:encode_unsigned(MyAddr),CurT),
+         BIState#{stack=>[mbal:get_cur(<<"SK">>, MyAcc)|BIStack]};
        (BIInstr,BIState) ->
-         logger:error("Bad instruction ~p~n",[BIInstr]),
+         logger:error("Bad instruction ~p",[BIInstr]),
          {error,{bad_instruction,BIInstr},BIState}
      end,
 
