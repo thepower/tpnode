@@ -105,9 +105,17 @@ make_transaction(Node, From, To, Seq1, Currency, Amount, Message, FromKey, Opts)
                          from => From,
                          to => To,
                          t => os:system_time(millisecond),
-                         payload => [
-                                     #{purpose=>transfer, amount => Amount, cur => Currency}
-                                    ],
+                         payload => case lists:member(gas,Opts) of
+                                      false ->
+                                        [
+                                         #{purpose=>transfer, amount => Amount, cur => Currency}
+                                        ];
+                                      true ->
+                                        [
+                                         #{purpose=>gas, amount => 100, cur => <<"FTT">>},
+                                         #{purpose=>transfer, amount => Amount, cur => Currency}
+                                        ]
+                                    end,
                          txext =>#{
                                    msg=>Message
                                   },
@@ -181,9 +189,13 @@ evm_chainstate_test(Config) ->
   logger("endless address pk ~p ~n", [EPriv]),
 
   Priv = get_wallet_priv_key(),
+  logger("connect to ~p~n",[get_base_url()]),
   {ok,Node}=tpapi2:connect(get_base_url()),
 
-  {ok, Addr}= new_wallet(Node),
+  %{ok, Addr}= new_wallet(Node),
+  Addr=hex:decode("0x8001400004000013"),
+  %{ok, Addr_ChainFee}= new_wallet(Node),
+  Addr_ChainFee=hex:decode("0x8001400004000063"),
   Wallet = naddress:encode(Addr),
   {ok,Seq}=tpapi2:get_seq(Node, EAddr),
   logger("seq for wallet ~p is ~p ~n", [EAddr, Seq]),
@@ -204,6 +216,13 @@ evm_chainstate_test(Config) ->
                                  200, <<"Few SK 4 U">>, EPriv, [nowait]),
   logger("TxId0: ~p", [TxId0]),
 
+  logger("Chainfee ~s",[hex:encodex(Addr_ChainFee)]),
+  {ok, TxId0c} = make_transaction(Node,(EAddr), Addr_ChainFee, Seq+5, <<"FTT">>,
+                                 1000000, <<"FTT to Chainfee">>, EPriv, [nowait,gas]),
+  {ok, _TxId1c} = make_transaction(Node,(EAddr), Addr_ChainFee, Seq+6, <<"SK">>,
+                                 200, <<"Few SK 4 chainfee">>, EPriv, [nowait,gas]),
+  logger("TxId0c: ~p", [TxId0c]),
+
   {ok, MResTx0} = tpapi2:wait_tx(Node, MTxId0, erlang:system_time(second)+10),
   logger("MResTx0: ~p", [MResTx0]),
   {ok, MResTx1} = tpapi2:wait_tx(Node, MTxId1, erlang:system_time(second)+5),
@@ -215,12 +234,19 @@ evm_chainstate_test(Config) ->
   logger("ResTx1: ~p", [ResTx1]),
 
 
-  File=filename:join(
-             proplists:get_value("PWD",os:env(),"."),
-             "examples/evm_builtin/build/ChainState.bin-runtime"
-            ),
-  {ok,HexBin} = file:read_file(File),
-  Code=hex:decode(HexBin),
+  [Code,CodeCF]=lists:map(
+                  fun(File) ->
+                      {ok,HexBin} = file:read_file(File),
+                      hex:decode(HexBin)
+                  end,[
+                       filename:join(
+                         proplists:get_value("PWD",os:env(),"."),
+                         "examples/evm_builtin/build/ChainState.bin-runtime"
+                        ),
+                       filename:join(
+                         proplists:get_value("PWD",os:env(),"."),
+                         "examples/evm_builtin/build/ChainFee.bin"
+                        )]),
 
   DeployTx=tx:pack(
              tx:sign(
@@ -235,9 +261,70 @@ evm_chainstate_test(Config) ->
                 }
               ),Priv)),
 
+  DeployCFTx=tx:pack(
+             tx:sign(
+             tx:construct_tx(
+               #{ver=>2,
+                 kind=>deploy,
+                 from=>Addr_ChainFee,
+                 seq=>os:system_time(millisecond),
+                 t=>os:system_time(millisecond),
+                 call=>#{function=>"constructor(address)",args=>[Addr]},
+                 payload=>[#{purpose=>gas, amount=>150000, cur=><<"FTT">>}],
+                 txext=>#{ "code"=> CodeCF, "vm" => "evm" }
+                }
+              ),Priv)),
+
+  AutoRegTx=tx:pack(
+          tx:sign(
+            tx:construct_tx(
+              #{ver => 2,
+                kind=>generic,
+                from => Addr,
+                to => Addr,
+                seq=>os:system_time(millisecond)+1,
+                t=>os:system_time(millisecond)+1,
+                payload=>[#{purpose=>gas, amount=>150000, cur=><<"FTT">>}],
+                call => #{
+                          function => "allow_self_registration(bool)",
+                          args => [1]
+                         }
+               }),Priv)),
+  SetCFTx=tx:pack(
+          tx:sign(
+            tx:construct_tx(
+              #{ver => 2,
+                kind=>generic,
+                from => Addr,
+                to => Addr,
+                seq=>os:system_time(millisecond)+1,
+                t=>os:system_time(millisecond)+1,
+                payload=>[#{purpose=>gas, amount=>150000, cur=><<"FTT">>}],
+                call => #{
+                          function => "set_chainfee(address)",
+                          args => [Addr_ChainFee]
+                         }
+               }),Priv)),
+
+
   io:format("Deploy to address ~p~n",[Addr]),
-  {ok, #{<<"txid">> := TxID1, <<"res">>:=TxID1Res}} = tpapi2:submit_tx(Node, DeployTx),
-  io:format("Deploy txid ~p~n",[TxID1]),
+  {ok, TxID1 } = tpapi2:submit_tx(Node, DeployTx, [nowait]),
+  {ok, TxID2 } = tpapi2:submit_tx(Node, DeployCFTx, [nowait]),
+  {ok, TxIDA } = tpapi2:submit_tx(Node, AutoRegTx, [nowait]),
+  {ok, TxIDB } = tpapi2:submit_tx(Node, SetCFTx, [nowait]),
+  {ok, #{<<"res">>:=TxID1Res}} = tpapi2:wait_tx(Node,
+                                                TxID1,
+                                                erlang:system_time(second)+50),
+  {ok, #{<<"res">>:=_}=TxID2Res} = tpapi2:wait_tx(Node,
+                                                TxID2,
+                                                erlang:system_time(second)+50),
+  {ok, #{<<"res">>:=TxIDARes}} = tpapi2:wait_tx(Node,
+                                                TxIDA,
+                                                        erlang:system_time(second)+20),
+  io:format("Reg txid ~p res ~p~n",[TxIDA,TxIDARes]),
+  io:format("Deploy txid ~s~n",[TxID1]),
+  io:format("Deploy CF txid ~s~n",[TxID2]),
+  io:format("Deploy CF ~p~n",[TxID2Res]),
 
 
   Privs=[
@@ -280,29 +367,25 @@ evm_chainstate_test(Config) ->
   io:format("Patch txid ~p res ~p~n",[TxIDP,ResPatch]),
 
 
-  RegTx=tx:pack(
-          tx:sign(
-            tx:construct_tx(
-              #{ver => 2,
-                kind=>generic,
-                from => Addr,
-                to => Addr,
-                seq=>os:system_time(millisecond),
-                t=>os:system_time(millisecond),
-                payload=>[
-                         % #{purpose=>gas, amount=>150000, cur=><<"FTT">>}
-                         ],
-                call => #{
-                          function => "register()",
-                          args => []
-                         }
-               }),Priv)),
-  {ok, #{<<"txid">> := TxID2, <<"res">>:=TxID2Res}} = tpapi2:submit_tx(Node, RegTx),
-  io:format("Reg txid ~p res ~p~n",[TxID2,TxID2Res]),
-
-
-
-
+  %RegTx=tx:pack(
+  %        tx:sign(
+  %          tx:construct_tx(
+  %            #{ver => 2,
+  %              kind=>generic,
+  %              from => Addr,
+  %              to => Addr,
+  %              seq=>os:system_time(millisecond),
+  %              t=>os:system_time(millisecond),
+  %              payload=>[
+  %                       % #{purpose=>gas, amount=>150000, cur=><<"FTT">>}
+  %                       ],
+  %              call => #{
+  %                        function => "register()",
+  %                        args => []
+  %                       }
+  %             }),Priv)),
+  %{ok, #{<<"txid">> := TxID2, <<"res">>:=TxID2Res}} = tpapi2:submit_tx(Node, RegTx),
+  %io:format("Reg txid ~p res ~p~n",[TxID2,TxID2Res]),
 
   [
   ?assertMatch(<<"ok">>, TxID1Res),

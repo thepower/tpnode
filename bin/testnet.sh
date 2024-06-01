@@ -90,6 +90,7 @@ reset_node() {
     db_dir="db/db_${node_host}"
     ledger_dir="db/mledger_${node_host}.db"
     logs_dir="db/logs_db_${node_host}"
+    addr="db/myaddress_${node_host}"
 
     echo "removing ${db_dir}"
     rm -rf "${db_dir}"
@@ -97,6 +98,8 @@ reset_node() {
     rm -rf "${ledger_dir}"
     echo "removing ${logs_dir}"
     rm -rf "${logs_dir}"
+    echo "removing $addr"
+    rm -f "$addr"
 }
 
 reset_testnet() {

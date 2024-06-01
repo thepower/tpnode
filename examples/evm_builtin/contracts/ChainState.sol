@@ -45,6 +45,67 @@ contract BronKerbosch {
   function max_clique_list(uint256[2][] calldata) public pure virtual returns (uint256[] memory) {}
 }
 
+contract ChainFee {
+  ChainState cs;
+  uint256 pre_age_balance;
+  uint256 age;
+  bool epoch_payed;
+
+  constructor(address _cs) {
+    cs=ChainState(_cs);
+  }
+
+  receive() external payable {}
+
+  function new_epoch(uint256 _age) public returns (uint256 ret) {
+    //require(msg.sender==address(cs),"Only ChainState can call this");
+    require(_age>age,"epoch must be really new");
+    pre_age_balance=address(this).balance;
+    ret=age;
+    age=_age;
+    epoch_payed=false;
+  }
+  event CantSend(address,uint256);
+  event Payed(address,uint256);
+  event Burned(uint256);
+  event TryPayout(uint256,uint256,uint256);
+  event NotBurned(bytes);
+  function payout(address[] calldata _payto, uint256 _toburn) public returns (uint256 payed,
+                                                                              uint256 burned) {
+    //require(msg.sender==address(cs),"Only ChainState can call this");
+    require(epoch_payed==false,"Epoch already payed");
+    uint256 parts=_payto.length+_toburn;
+    uint256 part=pre_age_balance/parts;
+    emit TryPayout(pre_age_balance,parts,_toburn);
+
+    // Call returns a boolean value indicating success or failure.
+    // This is the current recommended method to use.
+    for(uint256 i=0;i<_payto.length;i++){
+      (bool sent, ) = _payto[i].call{value: part}("");
+      if (!sent) {
+        emit CantSend(_payto[i],part);
+        _toburn+=1;
+      }else{
+        payed+=part;
+        emit Payed(_payto[i],part);
+      }
+    }
+    if(_toburn>0){
+      uint256 burnsum=part*_toburn;
+      address bad=address(0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF);
+      (bool ok, bytes memory data) = bad.call{value: burnsum}("");
+      burned=burnsum;
+      if(ok)
+        emit Burned(burnsum);
+      else
+        emit NotBurned(data);
+    }
+    epoch_payed=true;
+
+  }
+
+}
+
 contract ChainState {
   struct blockSig {
     bytes node_id;
@@ -84,8 +145,24 @@ contract ChainState {
 
   uint256 public calc_till;
 
+  uint256 public constant MAX_BLOCK_TIME = 3600; //1 hour - maximum block interval
+  uint256 public constant MAX_EPOCH_TIME = 3600*2; //2 hours - maximum epoch duration
+  uint256 public constant EPOCH_BLOCKS = 100;
+  uint256 public constant REPORT_BLOCKS = 10;
+  uint256 public constant CALC_DELAY = REPORT_BLOCKS+2; //give 2 blocks extra time
+  uint256 public constant STORE_CLIQUE_BLOCKS = 500;
+
+  ChainFee public chainfee;
+
   event NewEpoch (uint256,uint256,uint256,uint256);
   event Blk (uint256 indexed,uint256 indexed);
+
+  constructor(bool _selfreg) {
+    self_registration=_selfreg;
+  }
+  function set_chainfee(address payable _new) public {
+    chainfee=ChainFee(_new);
+  }
 
   function allow_self_registration(bool allow) public {
     self_registration=allow;
@@ -94,11 +171,14 @@ contract ChainState {
     epoch+=1;
     epoch_last_start_blk=epoch_start_blk;
     epoch_start_blk = block.number+1;
-    epoch_end_blk = epoch_start_blk+10;
+    epoch_end_blk = epoch_start_blk+EPOCH_BLOCKS;
     uint256 timestamp = (block.timestamp / 1000);
-    epoch_end_time = timestamp+600;
+    epoch_end_time = timestamp+MAX_EPOCH_TIME;
     epoch_payed=false;
     emit NewEpoch(epoch_start_blk, epoch_end_blk, timestamp, epoch_end_time);
+    if (address(chainfee) != address(0)){
+      chainfee.new_epoch(epoch);
+    }
   }
 
   function info() public view returns (uint256 current_epoch, uint256 start_blk, uint256 end_blk,
@@ -112,25 +192,33 @@ contract ChainState {
 
   event Sigs(uint256, bytes32, uint256, int256);
   event AB(uint256);
+  event Calc(uint256, uint256);
 
   function afterBlock() public returns (uint256) {
 
-    next_block_on=(block.timestamp / 1000)+3600;
+    next_block_on=(block.timestamp / 1000)+MAX_BLOCK_TIME;
     if(next_report_blk<=block.number){
-      next_report_blk=block.number+10;
+      next_report_blk=block.number+REPORT_BLOCKS;
     }
-    if(block.number>=epoch_start_blk+1 && !epoch_payed){
+
+    {
+      uint256 blk=block.number-CALC_DELAY;
+      uint256 mask=calc_block(blk);
+      emit Calc(blk,mask);
+      block_clique[blk]=mask;
+      clean_block(blk);
+      calc_till=block.number-CALC_DELAY;
+      if(blk>STORE_CLIQUE_BLOCKS){ //cleanup after X blocks
+        block_clique[blk-STORE_CLIQUE_BLOCKS]=0;
+      }
+    }
+    if(calc_till>=epoch_start_blk && !epoch_payed){
       return _payout();
     }
     if(block.number>=epoch_end_blk){
       newEpoch();
       return 2;
     }
-    uint256 blk=block.number-12;
-    uint256 mask=calc_block(blk);
-    block_clique[blk]=mask;
-    clean_block(blk);
-    calc_till=block.number-12;
     return 0;
   }
 
@@ -141,7 +229,7 @@ contract ChainState {
     }
     return sl;
   }
-  function calc_block(uint256 number) public returns(uint256) {
+  function calc_block(uint256 number) public view returns(uint256) {
     uint sl=signatures[number].length;
     uint256[2][] memory n=new uint256[2][](sl);
     for(uint i=0;i<sl;i++){
@@ -156,23 +244,25 @@ contract ChainState {
     return mask;
   }
 
+  event Payout(uint256 blk0, uint256 blk1, uint256 and_mask, uint256 or_mask);
+  event PayoutRes(uint256 payed, uint256 burned);
   function _payout() public returns (uint256) {
     uint blkn;
+    uint cc_or=0;
+    uint cc_and=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
     for(blkn=epoch_last_start_blk;blkn<epoch_start_blk;blkn++){
-        emit Blk(blkn,signatures[blkn].length);
-        uint size=signatures[blkn].length;
-        if(size>0){
-          uint256[] memory times=new uint256[](size);
-          for(uint s_id=0;s_id<size;s_id++){
-            times[s_id]=signatures[blkn][s_id].timestamp;
-          }
-          /*int256 m = int256(median(times));
-          for(uint s_id=0;s_id<signatures[blkn].length;s_id++){
-            emit Sigs(blkn,s_id,int256(signatures[blkn][s_id].timestamp)-m);
-          }
-           */
-        }
+        emit Blk(blkn,block_clique[blkn]);
+        cc_or|=block_clique[blkn];
+        cc_and&=block_clique[blkn];
     }
+    emit Payout(epoch_last_start_blk,epoch_start_blk-1,cc_or,cc_and);
+    if (address(chainfee) != address(0)){
+      //function payout(address[] calldata _payto, uint256 _toburn) public returns (uint256 payed,
+      address[] memory a=new address[](0);
+      (uint256 payed, uint256 burned) = chainfee.payout(a,3);
+      emit PayoutRes(payed,burned);
+    }
+    epoch_payed=true;
     return 1;
   }
   event Debug(uint256 indexed,uint256 indexed);
@@ -202,8 +292,7 @@ contract ChainState {
   event Debug(bytes,uint256);
   function set_attrib(uint256[2][] calldata attribs) public returns(uint256) {
     bytes memory nodekey = getTx(address(0xAFFFFFFFFF000002)).get().signatures[0].pubkey;
-    uint256 slice=nodekey.length-32;
-    bytes memory shortkey=_slice(nodekey,slice,32);
+    bytes memory shortkey=_slice(nodekey,nodekey.length-32,32);
     uint256 nodeid=node_ids[shortkey];
     _set_attr(nodeid, attribs);
     return 1;
@@ -218,25 +307,25 @@ contract ChainState {
 
   function register() public returns (uint256) {
     bytes memory nodekey = getTx(address(0xAFFFFFFFFF000002)).get().signatures[0].pubkey;
-    uint256 slice=nodekey.length-32;
-    bytes memory shortkey=_slice(nodekey,slice,32);
-    emit Debug(nodekey,0);
-    emit Debug(shortkey,1);
+    bytes memory shortkey=_slice(nodekey,nodekey.length-32,32);
+    return _register(shortkey);
+  }
+
+  event RegisterNode(uint256,bytes);
+  function _register(bytes memory shortkey) internal returns (uint256) {
     if(node_ids[shortkey]==0){
-      nodes++;
+      require(nodes<254,"maximum number of nodes reached");
       node_ids[shortkey]=nodes;
       node_keys[nodes]=shortkey;
+      emit RegisterNode(nodes,shortkey);
+      nodes++;
     }
     return node_ids[shortkey];
   }
+
   function register(bytes calldata nodekey) public returns (uint256) {
     uint256 slice=nodekey.length-32;
-    if(node_ids[nodekey[slice:]]==0){
-      nodes++;
-      node_ids[nodekey[slice:]]=nodes;
-      node_keys[nodes]=nodekey[slice:];
-    }
-    return node_ids[nodekey[slice:]];
+    return _register(nodekey[slice:]);
   }
 
   function node_id(bytes calldata nodekey) public view returns (uint256) {
@@ -258,9 +347,11 @@ contract ChainState {
   }
   function updateData(hUpd[] calldata data) public returns (bool[] memory res) {
     bytes memory nodekey = getTx(address(0xAFFFFFFFFF000002)).get().signatures[0].rawkey;
+    uint256 nodeid=node_ids[nodekey];
+    require(nodeid>0,"unknown node");
     res=new bool[](data.length);
     for(uint i=0;i<data.length;i++){
-      res[i]=_updateData(node_ids[nodekey], data[i]);
+      res[i]=_updateData(nodeid, data[i]);
     }
   }
   function updateData(hUpd[] calldata data, uint256[2][] calldata attribs) public returns (bool[] memory res) {

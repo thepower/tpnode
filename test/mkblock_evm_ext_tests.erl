@@ -570,30 +570,31 @@ evm_embedded_gets_test() ->
                 }
               }
              ],
-      register(eevm_tracer,self()),
+      %register(eevm_tracer,self()),
       {ok,Log,#{bals:=B,txs:=Tx}=Blk}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       io:format("Bals ~p~n",[B]),
       io:format("st ~p~n",[[ maps:with([call,extdata],Body) || {_,Body} <- Tx]]),
       io:format("Block ~p~n",[block:minify(Blk)]),
-      unregister(eevm_tracer),
-      [{_,_,FABI}]=contract_evm_abi:find_function(<<"setAddr()">>,ABI),
-      _D=fun() -> receive {trace,{return,Data}} ->
-                           hex:hexdump(Data),
-                           io:format("dec ~p~n",[contract_evm_abi:decode_abi(Data,FABI)]),
-                           Data
-                 after 0 ->
-                         <<>>
-                 end end(),
-      fun FT() ->
-          receive
-            {trace,{stack,_,_}} ->
-              FT();
-            {trace,_Any} ->
-              %io:format("~p~n",[_Any]),
-              FT()
-          after 0 -> ok
-          end
-      end(),
+      %unregister(eevm_tracer),
+      %[{_,_,FABI}]=contract_evm_abi:find_function(<<"setAddr()">>,ABI),
+      %_D=fun() -> receive {trace,{return,Data}} ->
+      %                     hex:hexdump(Data),
+      %                     io:format("dec ~p~n",[contract_evm_abi:decode_abi(Data,FABI)]),
+      %                     Data
+      %           after 0 ->
+      %                   <<>>
+      %           end end(),
+      %Flushed=fun FT(N) ->
+      %    receive
+      %      {trace,{stack,_,_}} ->
+      %        FT(N+1);
+      %      {trace,_Any} ->
+      %        %io:format("~p~n",[_Any]),
+      %        FT(N+1)
+      %    after 0 -> {ok,N}
+      %    end
+      %end(0),
+      %io:format("Flush ~p~n",[Flushed]),
 
       Events=contract_evm_abi:sig_events(ABI),
 
