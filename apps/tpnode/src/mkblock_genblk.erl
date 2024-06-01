@@ -176,6 +176,18 @@ run_generate(
       _ -> ok
     end,
 
+    ?LOG_DEBUG("generating block ~p",
+               [ [PreTXL,
+                  {PHeight, PHash},
+                  PropsFun,
+                  AddrFun,
+                  [ {<<"prevnodes">>, PreNodes} ],
+                  [
+                   {temporary, Temporary},
+                   {entropy, Entropy},
+                   {mean_time, MeanTime}
+                  ]
+                 ]]),
     GB=generate_block:generate_block(PreTXL,
                                      {PHeight, PHash},
                                      PropsFun,
