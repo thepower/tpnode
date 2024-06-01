@@ -1353,18 +1353,7 @@ withdraw(FBal0,
        NoSeq andalso Seq==0 -> ok;
        Sponsor==true -> ok;
        Seq==0 andalso IsContract -> ok;
-       true ->
-         %==== DEBUG CODE
-         L=try
-             mledger:get(From)
-           catch _:_ ->
-                   cant_get_ledger
-           end,
-         ?LOG_ERROR("Bad seq addr ~p, cur ~p tx ~p, ledger ~p",
-                     [From, CurFSeq, Seq, L]),
-         ?LOG_ERROR("FBal0 ~p",[FBal0]),
-         %==== END DEBU CODE
-         throw ('bad_seq')
+       true -> throw ('bad_seq')
     end,
     CurFTime=mbal:get(t, FBal0),
     if CurFTime < Timestamp -> ok;
