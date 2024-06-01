@@ -273,7 +273,7 @@ get(Address, notrans) ->
 get(Address, trans) ->
   {atomic,List}=rockstable:transaction(mledger,
                   fun()->
-                      get(Address, notrans),
+                      get(Address, notrans)
                   end),
   List.
 
