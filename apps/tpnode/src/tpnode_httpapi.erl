@@ -391,7 +391,7 @@ h(<<"POST">>, [<<"node">>, <<"new_peer">>], Req) ->
   case apixiom:bodyjs(Req) of
     #{<<"host">>:=H, <<"port">>:=P}=Body ->
       %R=tpic2_cmgr:add_peers([{H,P}]),
-      R=tpic2_client:start(H,P,#{}),
+      R=tpic2_client:start(binary_to_list(H),P,#{}),
       ?LOG_INFO("new_peer Req ~p:~p~n",[Body,R]),
       answer(#{ result => ok, r=>list_to_binary(
                                    io_lib:format("~p",[R])
