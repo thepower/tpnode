@@ -60,7 +60,11 @@ run(Opts) ->
                Tx when is_map(Tx) ->
                    {ok,TxID}=gen_server:call(txpool,txid),
                    gen_server:cast(txqueue,{push_head,TxID,tx:pack(Tx)}),
+                   ?LOG_INFO("----[RUN TX ~s]----",[TxID]),
                    {ok, {TxID, Tx}};
+               noledger ->
+                   ?LOG_NOTICE("Ledger unavailable, ignoring"),
+                   ignore;
                ignore ->
                    ignore
            end;
@@ -136,13 +140,18 @@ set_attributes(ToContract, KVs) ->
     KVs1=[ [Ki, if is_integer(Vi) -> Vi;
                    is_binary(Vi) -> binary:decode_unsigned(Vi)
                 end ] || {Ki, Vi} <- KVs ],
+
+    Seq=case mledger:get_kpv(Address,seq,[]) of
+            {ok, ISeq} -> ISeq+1;
+            undefined -> 1
+        end,
     Tx0=tx:construct_tx(#{
       ver=>2,
       kind=>generic,
       to=>ToContract,
       from=>Address,
       t=>os:system_time(millisecond),
-      seq=>maps:get(seq,mledger:get(Address),0)+1,
+      seq=>Seq,
       payload=>[],
       call=>#{function=>"set_attrib(uint256[2][])",args=>[ KVs1 ]}
      }),
@@ -281,17 +290,25 @@ prepare(ToContract, Attributes, Opts) ->
                                      #{ gas=>50000 }) of
               #{result:=return, bin:= <<1:256/big>>} ->
                   {ok,Address} = get_account(),
-                  Tx0=tx:construct_tx(#{
-                                    ver=>2,
+                  Seq=case mledger:get_kpv(Address,seq,[]) of
+                          {ok, ISeq} -> ISeq+1;
+                          undefined -> undefined
+                      end,
+                  if Seq==undefined ->
+                         noledger;
+                     true ->
+                         Tx0=tx:construct_tx(#{
+                                               ver=>2,
                                     kind=>generic,
                                     to=>ToContract,
                                     from=>Address,
                                     t=>os:system_time(millisecond),
-                                    seq=>maps:get(seq,mledger:get(Address),0)+1,
+                                    seq=>Seq,
                                     payload=>[],
                                     call=>#{function=>"register()",args=>[]}
-                                   }),
-                  tx:sign(Tx0,nodekey:get_priv());
+                                              }),
+                         tx:sign(Tx0,nodekey:get_priv())
+                  end;
               _Any ->
                   nokey
           end
@@ -306,13 +323,17 @@ register(ToContract) ->
     %     #{result:=return, decode:=[Result2]} ->
     %         Result2
     % end
+    Seq=case mledger:get_kpv(Address,seq,[]) of
+            {ok, ISeq} -> ISeq+1;
+            undefined -> 1
+        end,
     Tx0=tx:construct_tx(#{
       ver=>2,
       kind=>generic,
       to=>ToContract,
       from=>Address,
       t=>os:system_time(millisecond),
-      seq=>maps:get(seq,mledger:get(Address),0)+1,
+      seq=>Seq,
       payload=>[
                %#{purpose=>gas,amount=>100,cur=><<"FTT">>}
                ],
@@ -334,13 +355,18 @@ prepare(ToContract, FromBlock, ToBlock, Attributes) ->
                    is_binary(Vi) -> binary:decode_unsigned(Vi)
                 end ] || {Ki, Vi} <- Attributes ],
     Args=[encode_data(BI, KVs1) ],
+    Seq=case mledger:get_kpv(Address,seq,[]) of
+            {ok, ISeq} -> ISeq+1;
+            undefined -> 1
+        end,
+
     tx:sign(tx:construct_tx(#{
       ver=>2,
       kind=>generic,
       to=>ToContract,
       from=>Address,
       t=>os:system_time(millisecond),
-      seq=>maps:get(seq,mledger:get(Address),1)+1,
+      seq=>Seq,
       payload=>[],
       call=>#{function=>"0x0",args=>Args}
      }),nodekey:get_priv()).
@@ -395,6 +421,7 @@ post_tx_and_wait(TXConstructed, Timeout) ->
 
 
 init(_Args) ->
+    logger:set_process_metadata(#{domain=>[tpnode,reporter]}),
   {ok, #{}}.
 
 handle_call(_Request, _From, State) ->
