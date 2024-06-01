@@ -219,10 +219,13 @@ get_kpv(Address, Key, Path) ->
       {ok, V}
   end.
 
+% This function returns mbal with follwing fields :
+% amount,lastblk,pubkey,seq,t,vm,ublk,code
+% no lstore and state!
 get(Address) ->
   get(Address,trans).
 
-get_kv(Address) ->
+get_kv(Address) -> %only for HTTP API [<<"address">>, TAddr, <<"verify">>]
   {atomic,Items}=rockstable:transaction(mledger,
     fun() ->
         get_raw(Address, notrans)
@@ -237,20 +240,28 @@ get_raw(Address, notrans) ->
                                  }).
 
 get(Address, notrans) ->
-  Raw=get_raw(Address, notrans),
+  Fields=[amount,lastblk,pubkey,seq,t,vm,ublk,code],
+  Raw=lists:flatten(
+    lists:foldl(
+      fun(Key,Acc) ->
+          [rockstable:get(mledger, env, #bal_items{
+                                           address=Address,
+                                           version=latest,
+                                           key=Key,
+                                           path=[],
+                                           _ ='_'
+                                          })|Acc]
+      end,[],Fields)),
   if Raw == [] ->
        undefined;
      true ->
        maps:remove(changes,
                    lists:foldl(
                      fun
+                       (not_found,A) ->
+                         A;
                        (#bal_items{key=code, path=_, value=Code}, A) ->
                          mbal:put(code,[], Code,A);
-                       (#bal_items{key=lstore, path=K, value=V1}, A) ->
-                         mbal:put(lstore, K, V1, A);
-                       (#bal_items{key=state, path=_K, value=_V1}, A) ->
-                         maps:merge(#{state=>#{}}, A);
-%                         mbal:put(state, K, V1, A);
                        (#bal_items{key=K, path=P, value=V},A) ->
                          mbal:put(K,P,V,A)
                      end,
@@ -262,7 +273,7 @@ get(Address, notrans) ->
 get(Address, trans) ->
   {atomic,List}=rockstable:transaction(mledger,
                   fun()->
-                      get(Address, notrans)
+                      get(Address, notrans),
                   end),
   List.
 
@@ -534,7 +545,6 @@ getfun({storage,Addr,Key}) ->
       Bin
   end;
 getfun({code,Addr}) ->
-  ?LOG_INFO("Load code for address ~p",[Addr]),
   case mledger:get_kpv(Addr,code,[]) of
     undefined ->
       <<>>;
@@ -543,13 +553,12 @@ getfun({code,Addr}) ->
   end;
 getfun({lstore,Addr,Path}) ->
   mledger:get_lstore_map(Addr,Path);
-getfun({Addr, _Cur}) -> %slow method to get everything of account
+getfun({Addr, _Cur}) -> %this method actually returns everything, except lstore and state
   case mledger:get(Addr) of
     #{amount:=_}=Bal -> maps:without([changes],Bal);
     undefined -> mbal:new()
   end;
-getfun(Addr) -> %slow method to get everything of account
-  ?LOG_DEBUG("Load everything for address ~p @ ~p",[Addr,tl(try throw(a) catch throw:a:S -> S end)]),
+getfun(Addr) -> %this method actually returns everything, except lstore and state
   case mledger:get(Addr) of
     #{amount:=_}=Bal -> maps:without([changes],Bal);
     undefined -> mbal:new()
