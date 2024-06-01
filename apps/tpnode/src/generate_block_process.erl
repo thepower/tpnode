@@ -442,7 +442,7 @@ try_process([{TxID, #{
       NewF1=mbal:put(vm, VMType, NewF),
       NewF2=mbal:put(code, Code, NewF1),
       ?LOG_INFO("Deploy contract ~s for ~s to address ~s gas ~w",
-                 [VM, naddress:encode(Owner), naddress:encode(NewAddr), Gas]),
+                 [VM, hex:encodex(Owner), hex:encodex(NewAddr), Gas]),
       IGas=(GAmount*GNum) div GDen,
       Left=fun(GL) ->
                ?LOG_INFO("VM run gas ~p -> ~p (~p)",[IGas,GL, min(IGas,GL)]),
@@ -658,7 +658,7 @@ try_process([{TxID, #{ver:=2,
     {ok, NewBAddr, AAl1} = aalloc(AAl),
     ?LOG_INFO("Alloc address ~p ~s for key ~s tx ~s",
                [NewBAddr,
-                naddress:encode(NewBAddr),
+                hex:encodex(NewBAddr),
                 hex:encode(PubKey),
                 TxID
                ]),

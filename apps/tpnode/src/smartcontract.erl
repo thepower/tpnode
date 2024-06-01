@@ -105,7 +105,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,{GNum,GDen}=GRate}, GetFun, Opaq
      catch error:badarg ->
              throw('unknown_vm')
      end,
-  ?LOG_INFO("run contract ~s for ~s gas limit ~p", [VM, naddress:encode(To),GasLimit]),
+  ?LOG_INFO("run contract ~s for ~s gas limit ~p", [VM, hex:encodex(To),GasLimit]),
   try
     CallRes=erlang:apply(VM,
                          handle_tx,

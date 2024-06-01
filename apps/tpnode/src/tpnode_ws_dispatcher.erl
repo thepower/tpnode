@@ -255,7 +255,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 
 format_reason(#{address:=Addr}=Reason) when is_binary(Addr) ->
-  Reason#{address=>naddress:encode(Addr)};
+  Reason#{address=>hex:encodex(Addr)};
 format_reason(Reason) when is_map(Reason) -> Reason;
 format_reason(Reason) when is_atom(Reason) -> Reason;
 format_reason(Reason) -> iolist_to_binary( io_lib:format("~p", [Reason])).
