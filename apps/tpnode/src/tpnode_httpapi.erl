@@ -667,15 +667,25 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"seq">>], _Req) ->
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    Ledger=mledger:get_kpv(Addr, seq, []),
-    case Ledger of
+    case mledger:get_kpv(Addr, seq, []) of
       undefined ->
+        case mledger:get_kpv(Addr, amount, []) of
+          undefined ->
           err(
               10003,
               <<"Not found">>,
               #{result => <<"not_found">>},
               #{http_code => 404}
           );
+          #{} ->
+            answer(
+              #{
+                result => <<"ok">>,
+                seq => 0
+               },
+              #{address => Addr}
+             )
+        end;
       {ok, Number} ->
         answer(
           #{
