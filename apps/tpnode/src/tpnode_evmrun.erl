@@ -1,5 +1,6 @@
 -module(tpnode_evmrun).
 -export([evm_run/4,decode_json_args/1]).
+-export([run/3]).
 
 decode_json_args(Args) ->
   lists:map(
@@ -20,7 +21,7 @@ decode_res(_,bytes32,V) ->
 decode_res(_,bytes4,V) ->
   hex:encodex(V);
 decode_res(_,uint256,V) ->
-  if(V>72057594037927936) ->
+  if(V>16#0100_0000_0000_0000) ->
       integer_to_binary(V);
     true ->
       V
@@ -63,7 +64,7 @@ evm_run(Address, Fun, Args, Ed) ->
     if is_binary(Code) -> ok;
        true -> throw('no_code')
     end,
-    Gas0=maps:get(gas,Ed,100000000),
+    Gas0=maps:get(gas,Ed,1000000),
     Res=run(Address, Code, Ed#{call => {Fun, Args}, gas=>Gas0}),
 
   FmtLog=fun(Logs) ->
