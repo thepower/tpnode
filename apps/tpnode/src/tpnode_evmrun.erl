@@ -227,7 +227,7 @@ run(Address, Code, Data) ->
         end,
   State0 = #{
              sload=>SLoad,
-             gas=>maps:get(gas,Data,100000000),
+             gas=>maps:get(gas,Data,100000),
              data=>#{
                      address=>binary:decode_unsigned(Address),
                      caller =>binary:decode_unsigned(
