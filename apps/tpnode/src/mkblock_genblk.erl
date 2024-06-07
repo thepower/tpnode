@@ -221,7 +221,7 @@ run_generate(
         ?LOG_NOTICE("What does mkblock_debug=~p mean?",[Any])
     end,
     ED=[
-        {timestamp, T2},
+        {timestamp, trunc(T2/1000000)},
         {createduration, T2-T1}
        ],
     SignedBlock=blocksign(Block, ED),
