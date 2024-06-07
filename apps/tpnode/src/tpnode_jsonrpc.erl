@@ -254,6 +254,9 @@ handle(<<"eth_getLogs">>, #{}=Map) ->
               end, {0,[]}, lists:seq(FromBlock,ToBlock)),
     Res;
 
+handle(<<"eth_accounts">>, _Params) ->
+    throw({jsonrpc2, -32042, <<"Method not supported">>});
+
 handle(Method,_Params) ->
     ?LOG_ERROR("Method ~s(~p) not found",[Method,_Params]),
     throw(method_not_found).
