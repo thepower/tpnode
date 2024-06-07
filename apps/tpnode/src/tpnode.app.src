@@ -10,6 +10,7 @@
       tiny_pq,
       erlp,
       ecrecover,
+      tpapi2,
       jsx,
       cowboy,
       certifi,

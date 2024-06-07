@@ -1,5 +1,11 @@
 -module(cowboy_jsonrpc).
+-include("include/tplog.hrl").
 -export([init/2]).
+-export([
+         websocket_init/1, websocket_handle/2,
+         websocket_info/2
+        ]).
+
 
 %% API
 init(Req0, {Target, Opts}) ->
@@ -14,8 +20,13 @@ init(Req0, {Target, Opts}) ->
       <<"OPTIONS">> ->
         {ok, cowboy_req:reply(200, #{}, <<>>, do_cors(Req0)), Opts};
       <<"GET">> ->
-        {ok, cowboy_req:reply(400, #{}, <<"Bad request">>, Req0), Opts};
-      _ ->
+        case cowboy_req:header(<<"upgrade">>,Req0) of
+          <<"websocket">> ->
+            {cowboy_websocket, Req0, #{}, #{ idle_timeout => 600000 }};
+          _ ->
+            {ok, cowboy_req:reply(400, #{}, <<"Bad request">>, Req0), Opts}
+        end;
+      _Any ->
         {ok, cowboy_req:reply(400, #{}, <<"Bad request">>, Req0), Opts}
     end.
 
@@ -29,3 +40,21 @@ do_cors(Req0) ->
                                   <<"86400">>, Req2),
   cowboy_req:set_resp_header(<<"access-control-allow-headers">>,
                                   <<"content-type">>, Req4).
+
+websocket_init(State0) ->
+  ?LOG_INFO("init websocket ~p",[State0]),
+  {ok, State0}.
+
+websocket_handle(ping, State) ->
+  {reply, pong, State};
+
+websocket_handle({text, Msg}, State) ->
+  case jsonrpc2:handle(Msg, fun tpnode_jsonrpc:handle/2, fun jiffy:decode/1, fun jiffy:encode/1) of
+    {reply, RespBin} ->
+      {reply, {text, RespBin}, State}
+  end.
+
+websocket_info(_Info, State) ->
+  ?LOG_INFO("websocket info ~p", [_Info]),
+  {ok, State}.
+
