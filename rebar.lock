@@ -113,7 +113,7 @@
   0},
  {<<"tpapi2">>,
   {git,"https://github.com/thepower/tpapi2.git",
-       {ref,"245923eb0209bd9d865166d6efbfc83ae70ffae1"}},
+       {ref,"d821ab64d31d6d8a9c387f2b6b3844b7a7a9adc7"}},
   0},
  {<<"tpecdsa">>,
   {git,"https://github.com/thepower/tpecdsa",
