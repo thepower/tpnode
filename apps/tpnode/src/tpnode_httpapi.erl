@@ -137,12 +137,13 @@ h(Method, [<<"execute">>,<<"script">>|Path], Req) ->
 h(<<"POST">>, [<<"execute">>,<<"call">>], Req) ->
   case apixiom:bodyjs(Req) of
     #{<<"call">>:=_Call, <<"to">>:=_To}=Map ->
-      B=maps:merge(#{loop=>1, <<"from">> => <<"0x8000000000000000">>, <<"args">> =>[]},Map),
-      h(<<"POST">>, B#{
-                      
-                      <<"value">> => 0,
-                      <<"gas">> => 1000000
-                     }, Req);
+      B=maps:merge(#{loop=>1,
+                     <<"from">> => <<"0x8000000000000000">>,
+                     <<"args">> =>[],
+                     <<"value">> => 0,
+                     <<"gas">> => 1000000
+                    },Map),
+      h(<<"POST">>, B, Req);
     _ ->
       {400, [], <<"bad argument">>}
   end;
@@ -677,7 +678,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"seq">>], _Req) ->
               #{result => <<"not_found">>},
               #{http_code => 404}
           );
-          #{} ->
+          {ok,#{}} ->
             answer(
               #{
                 result => <<"ok">>,
@@ -1522,14 +1523,11 @@ prettify_block(#{}=Block0, BinPacker) ->
              BinPacker(V);
              (roots, RootsProplist) ->
                lists:map(
-                 fun({mean_time, V})->
-                   {mean_time, BinPacker(V)};
-                   ({K, V}) when is_binary(V) andalso size(V) == 32 ->
+                 fun({K, V}) when is_binary(V) ->
                      {K, BinPacker(V)};
                    ({K, V}) ->
                      {K, V}
                  end, RootsProplist);
-
              (_K, V) when is_binary(V) andalso size(V) == 32 ->
                BinPacker(V);
              (_K, V) ->
