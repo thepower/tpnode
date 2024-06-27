@@ -1,5 +1,5 @@
 # Build stage 0
-FROM erlang:22
+FROM erlang:22.3.4-slim
 
 # Install some libs
 RUN apt-get update -y && apt-get install -y \
