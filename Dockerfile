@@ -2,8 +2,9 @@
 FROM erlang:22.3.4-slim
 
 # Install some libs
-RUN apt-get update -y && apt-get install -y \
-      libstdc++6 openssl libtinfo5 
+RUN apt-get update && \
+      apt-get install --no-install-recommends -y libstdc++6 openssl libtinfo5 && \
+      rm -rf /var/lib/apt/lists/* 
 
 # Set working directory
 WORKDIR /opt/thepower
