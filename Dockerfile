@@ -1,25 +1,38 @@
-# Build stage 0
-FROM erlang:22
+##
+# Build stage
+FROM --platform=linux/amd64 ubuntu:22.04 AS build
 
 # Install some libs
-RUN apt-get update -y && apt-get install -y \
-      libstdc++6 openssl libtinfo5 
+RUN apt-get update -yqq && \
+    apt-get install -yqq cmake clang libtool gcc git curl libssl-dev \
+    build-essential automake autoconf libncurses5-dev elixir iputils-ping \
+    erlang-base erlang-public-key erlang-asn1 erlang-ssl erlang-dev erlang-inets \
+    erlang-eunit erlang-common-test rebar3
 
 # Set working directory
 WORKDIR /opt/thepower
 
-RUN mkdir -p /opt/thepower/db
-
-# Copy Power_node application
 COPY . .
 
-# Set symlink
-RUN ln -s /usr/bin/openssl /usr/local/bin/openssl
+# Build binaries
+RUN rebar3 compile
+RUN rebar3 release
+RUN rebar3 tar
 
-# Expose relevant ports
-EXPOSE 49841
-EXPOSE 29841
+RUN mkdir -p build
 
-ENTRYPOINT [ "./bin/thepower" ] 
+# TODO: Copy only necessary resources for runtime: bin lib releases
+RUN cp -r bin build/
 
-CMD ["foreground"]
+##
+# Runtime stage: image for tpnode binary
+FROM erlang:22.3.4-slim AS runtime
+
+# Set working directory
+WORKDIR /opt/thepower
+
+# Copy tpnode binaries and config: bin, lib and releases
+COPY --from=build /opt/thepower/build/ .
+
+# TODO: confirm the behaviour of the binary to choose the accurate entrypoint
+ENTRYPOINT ["./bin/thepower"]
