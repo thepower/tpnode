@@ -474,7 +474,15 @@ apply_patch(Patches, {commit, HeiHash}) ->
 
 
 rollback(Height, ExpectedHash) ->
-  case
+	case application:get_env(tpnode,rollback_snapshot,false) of
+		true ->
+			Backup=utils:dbpath("rollback_"++integer_to_list(Height)++"_"++binary_to_list(hex:encodex(ExpectedHash))++"_bck"),
+			?LOG_NOTICE("Backup before rollback ~s",[Backup]),
+			rockstable:backup(mledger,Backup);
+		false ->
+			ok
+	end,
+	case
   rockstable:transaction(mledger,
     fun() ->
         ToDelete=rockstable:get(mledger,env,#bal_items{introduced=Height,_='_'}),
