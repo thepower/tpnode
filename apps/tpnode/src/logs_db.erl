@@ -37,7 +37,7 @@ deploy4test(TestFun) ->
   try
     TestFun(undefined)
   after
-    rockstable:close_db(mledger),
+    rockstable:close_db(logs_db),
     rm_rf(TmpDir)
   end.
 
