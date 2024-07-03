@@ -500,6 +500,7 @@ rollback(Height, ExpectedHash) ->
 
         lists:foreach(
           fun(#bal_items{}=BalItem) ->
+			  rockstable:del(mledger,env,BalItem),
               OldBal1=bi_set_ver(BalItem,latest),
               rockstable:put(mledger,env,OldBal1)
           end,
