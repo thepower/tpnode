@@ -998,45 +998,52 @@ unpack(BinTx) when is_binary(BinTx) ->
   unpack(BinTx,[]).
 
 unpack(BinTx,Opts) when is_binary(BinTx), is_list(Opts) ->
-  case msgpack:unpack(BinTx, [{known_atoms,
-                                      [type, sig, tx, patch, register,
-                                       register, address, block ] },
-                                     {unpack_str, as_binary}] ) of
-    {ok, Tx0}  ->
-      Trusted=lists:member(trusted, Opts),
-      case Tx0 of
-        #{<<"ver">>:=2, <<"body">>:=TxBody, <<"chid">>:=ChainId,<<"extdata">>:=Ext} when
-            Trusted==true ->
-          unpack_body( #{
-                         ver=>2,
-                         sig=>[],
-                         body=>TxBody,
-                         chain_id=>ChainId,
-                         extdata=>Ext
-                        });
-        #{<<"ver">>:=2, <<"body">>:=TxBody, <<"chid">>:=ChainId} ->
-          unpack_body( #{
-                         ver=>2,
-                         sig=>[],
-                         body=>TxBody,
-                         chain_id=>ChainId
-                        });
-        #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv} ->
-          unpack_body( #{
-                         ver=>2,
-                         sig=>Sign,
-                         body=>TxBody,
-                         inv=>Inv
-                        });
-        #{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody} ->
-          unpack_generic(Trusted, Tx0, TxBody, Sign);
-        _ ->
-          ?LOG_INFO("FIXME isTXv1: ~p", [Tx0]),
-          tx1:unpack_mp(Tx0)
-      end;
-    {error, Err} ->
-      {error, Err}
-  end.
+	Trusted=lists:member(trusted, Opts),
+	case msgpack:unpack(BinTx, [{known_atoms,
+								 [type, sig, tx, patch, register,
+								  register, address, block ] },
+								{unpack_str, as_binary}] ) of
+		{ok, #{<<"ver">>:=2, <<"body">>:=TxBody, <<"chid">>:=ChainId,<<"extdata">>:=Ext}}
+		  when Trusted==true ->
+			unpack_body( #{
+						   ver=>2,
+						   sig=>[],
+						   body=>TxBody,
+						   chain_id=>ChainId,
+						   extdata=>Ext
+						  });
+		{ok,#{<<"ver">>:=2, <<"body">>:=TxBody, <<"chid">>:=ChainId}} ->
+			unpack_body( #{
+						   ver=>2,
+						   sig=>[],
+						   body=>TxBody,
+						   chain_id=>ChainId
+						  });
+		{ok,#{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv, <<"extdata">>:=Ext}}
+		  when Trusted==true ->
+			unpack_body( #{
+						   ver=>2,
+						   sig=>Sign,
+						   body=>TxBody,
+						   inv=>Inv,
+						   extdata=>Ext
+						  });
+
+		{ok,#{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv}} ->
+			unpack_body( #{
+						   ver=>2,
+						   sig=>Sign,
+						   body=>TxBody,
+						   inv=>Inv
+						  });
+		{ok,#{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody}=Tx0} ->
+			unpack_generic(Trusted, Tx0, TxBody, Sign);
+		{ok, Tx0} ->
+			?LOG_INFO("FIXME isTXv1: ~p", [Tx0]),
+			tx1:unpack_mp(Tx0);
+		{error, Err} ->
+			{error, Err}
+	end.
 
 unpack_generic(Trusted, Tx0, TxBody, Sign) ->
   Ext=if Trusted ->

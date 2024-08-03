@@ -47,7 +47,7 @@ endif
 
 elixir:
 ifeq ($(ELIXIR),)
-$(error "elixir isn't available on this system")
+#$(error "elixir isn't available on this system")
 endif
 
 
@@ -71,7 +71,7 @@ dialyzer: rebar
 xref: rebar
 	$(REBAR) xref skip_deps=true
 
-tests: rebar
+tests: hostnamecheck rebar
 	$(TESTNET) start
 #	$(REBAR) as test ct skip_deps=true --cover --verbose
 #	$(REBAR) as test ct --cover --verbose
@@ -105,7 +105,7 @@ prepare_cover: sedcheck
 eunit: rebar prepare_cover
 	@REBAR_PROFILE=test $(REBAR) do eunit --cover
 
-cover: ctruncheck cleantest buildtest rebar prepare_cover eunit
+cover: hostnamecheck ctruncheck cleantest buildtest rebar prepare_cover eunit
 	@$(TESTNET) start
 	@$(CT_RUN) -pa _build/test/lib/*/ebin \
 	 		  -cover test/tpnode.coverspec \
@@ -115,7 +115,7 @@ cover: ctruncheck cleantest buildtest rebar prepare_cover eunit
 	 		  -noshell
 	@$(TESTNET) stop
 
-nocover: ctruncheck cleantest buildtest rebar
+nocover: hostnamecheck ctruncheck cleantest buildtest rebar
 	@$(TESTNET) start
 	@$(CT_RUN) -pa _build/test/lib/*/ebin \
 	 		  -logdir $(LOG_DIR) \
@@ -127,6 +127,12 @@ nocover: ctruncheck cleantest buildtest rebar
 reset: cleantest
 	@$(TESTNET) reset
 
+
+hostnamecheck:
+HOSTNAME = $(shell hostname)
+ifeq ($(HOSTNAME),)
+$(error "hostname required")
+endif
 
 sedcheck:
 ifeq ($(SED),)
