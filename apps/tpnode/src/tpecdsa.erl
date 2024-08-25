@@ -458,13 +458,13 @@ pem_decrypt(PEM, Password) ->
      end,
 
   lists:map(
-    fun({KeyType, DerKey, not_encrypted}=E0) ->
+    fun({_KeyType, _DerKey, not_encrypted}=E0) ->
         E0;
-       ({KeyType, _Payload, {_Algo, _Params}}=E0) ->
+       ({_KeyType, _Payload, {_Algo, _Params}}=E0) ->
         if(Password == undefined) ->
             throw('password_needed');
           true ->
-            {_,DerKey, not_encrypted}=E=decipher(E0, Password),
+            {_,_DerKey, not_encrypted}=E=decipher(E0, Password),
             E
         end
     end, DR).
