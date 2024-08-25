@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "contracts/lstore.sol";
+
 contract BronKerbosch {
   struct node_info {
     uint256 node_id;
@@ -267,9 +269,11 @@ contract builtinFunc {
       ) {
     return mapInt[_id];
   }
+  /*
   function setByPath(bytes[] calldata,uint256,skey calldata) public returns (uint256) {
-  return 0;
+	  return 0;
   }
+  */
 
   function setLStore(bytes[] calldata d) public returns (uint256) {
     address _addr=address(0xAFFFFFFFFF000005);
@@ -296,22 +300,22 @@ contract builtinFunc {
     return ret;
   }
 
-  function lstoreCheck(bytes i) public returns (bytes memory) {
+  function lstoreCheck(bytes calldata i) public returns (LStore.settings memory) {
     bytes[] memory path = new bytes[](3);
     path[0] = bytes('a');
     path[1] = bytes('b');
     path[2] = bytes('c');
 
     bytes memory val=hex'c0ffeedeadc0de';
+	address _addr=address(0xAFFFFFFFFF000005);
+	LStore lstore=LStore(_addr);
     require(lstore.setByPath(path,1,val)==1,"can't set lstore");
 
-    address _addr=address(0xAFFFFFFFFF000005);
     (bool success, bytes memory returnBytes) =
       _addr.staticcall(abi.encodeWithSignature("getByPath(bytes[])", path));
     require(success == true, "Call failed");
     emit textbin('getByPath',returnBytes);
     LStore.settings memory ret = abi.decode(returnBytes, (LStore.settings));
     return ret;
-
   }
 }

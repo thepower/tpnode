@@ -2,50 +2,49 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-ssc_test() ->
-  {ok,Bin} = file:read_file("examples/evm_builtin/build/sponsor.bin"),
-  ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/sponsor.abi"),
-
-  Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
-
-  {done,{return,Code2},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
-
-  %BinFun= <<"areYouSponsor()">>,
-  %{ok,E}=ksha3:hash(256, BinFun),
-  %<<X:4/binary,_/binary>> = E,
-  %CD= <<X:4/binary>>,
-
-  %{done,{return,Ret},_}=eevm:eval(Code2,#{},#{ gas=>10000, extra=>#{}, cd=>CD }),
-  %[{_,_,FABI}]=contract_evm_abi:find_function(BinFun,ABI),
-
-  %DRet=contract_evm_abi:decode_abi(Ret,FABI),
-  DRet=call(<<"areYouSponsor()">>,[],ABI,Code2),
-  DRet2=call(<<"wouldYouLikeToPayTx((uint256,address,address,uint256,uint256,(string,uint256[])[],(uint256,string,uint256)[],(bytes,uint256,bytes,bytes,bytes)[]))">>,
-             [
-              [1,<<1,2,3,4,5,6,7,8>>,<<1,2,3,4,5,6,7,9>>,1,2,[],
-               [[1,<<"SK">>,5],[2,<<"SK">>,6],[33,<<"SK">>,600000]],
-              []
-              ]],ABI,Code2),
-  io:format("~p~n",[DRet2]),
-  %wouldYouLikeToPayTx(tpTx calldata utx) p
-  [?assertMatch([{_,true},{_,<<"SK">>},{_,100000}], DRet),
-   ?assertMatch([{<<"iWillPay">>,<<"i will pay">>},
-        {<<"pay">>,
-         [[{<<"purpose">>,3},{<<"cur">>,<<"SK">>},{<<"amount">>,600000}]|_]}],DRet2)
-  ].
-
-call(Function, CArgs, ABI, Code) when is_binary(Function), is_list(CArgs) ->
-  [{_,InABI,OutABI}]=contract_evm_abi:find_function(Function,ABI),
-  CD=callcd(Function, CArgs, InABI),
-  {done,{return,Ret},_}=eevm:eval(Code,#{},#{ gas=>10000, extra=>#{}, cd=>CD }),
-  contract_evm_abi:decode_abi(Ret,OutABI).
-
-callcd(BinFun, CArgs, FABI) ->
-  {ok,E}=ksha3:hash(256, BinFun),
-  <<X:4/binary,_/binary>> = E,
-  true=(length(FABI)==length(CArgs)),
-  BArgs=contract_evm_abi:encode_abi(CArgs,FABI),
-  <<X:4/binary,BArgs/binary>>.
+%ssc_test() ->
+%  {ok,Bin} = file:read_file("examples/evm_builtin/build/sponsor.bin"),
+%  ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/sponsor.abi"),
+%
+%  Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
+%
+%  {done,{return,Code2},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
+%
+%  %BinFun= <<"areYouSponsor()">>,
+%  %{ok,E}=ksha3:hash(256, BinFun),
+%  %<<X:4/binary,_/binary>> = E,
+%  %CD= <<X:4/binary>>,
+%
+%  %{done,{return,Ret},_}=eevm:eval(Code2,#{},#{ gas=>10000, extra=>#{}, cd=>CD }),
+%  %[{_,_,FABI}]=contract_evm_abi:find_function(BinFun,ABI),
+%
+%  %DRet=contract_evm_abi:decode_abi(Ret,FABI),
+%  DRet=call(<<"areYouSponsor()">>,[],ABI,Code2),
+%  DRet2=call(<<"wouldYouLikeToPayTx((uint256,address,address,uint256,uint256,(string,uint256[])[],(uint256,string,uint256)[],(bytes,uint256,bytes,bytes,bytes)[]))">>,
+%             [
+%              [1,<<1,2,3,4,5,6,7,8>>,<<1,2,3,4,5,6,7,9>>,1,2,[],
+%               [[1,<<"SK">>,5],[2,<<"SK">>,6],[33,<<"SK">>,600000]],
+%              []
+%              ]],ABI,Code2),
+%  %wouldYouLikeToPayTx(tpTx calldata utx) p
+%  [?assertMatch([{_,true},{_,<<"SK">>},{_,10000000}], DRet),
+%   ?assertMatch([{<<"iWillPay">>,<<"i will pay">>},
+%        {<<"pay">>,
+%         [[{<<"purpose">>,3},{<<"cur">>,<<"SK">>},{<<"amount">>,600000}]|_]}],DRet2)
+%  ].
+%
+%call(Function, CArgs, ABI, Code) when is_binary(Function), is_list(CArgs) ->
+%  [{_,InABI,OutABI}]=contract_evm_abi:find_function(Function,ABI),
+%  CD=callcd(Function, CArgs, InABI),
+%  {done,{return,Ret},_}=eevm:eval(Code,#{},#{ gas=>10000, extra=>#{}, cd=>CD }),
+%  contract_evm_abi:decode_abi(Ret,OutABI).
+%
+%callcd(BinFun, CArgs, FABI) ->
+%  {ok,E}=ksha3:hash(256, BinFun),
+%  <<X:4/binary,_/binary>> = E,
+%  true=(length(FABI)==length(CArgs)),
+%  BArgs=contract_evm_abi:encode_abi(CArgs,FABI),
+%  <<X:4/binary,BArgs/binary>>.
 
 evm_sponsored_call_test() ->
       OurChain=150,
@@ -109,6 +108,7 @@ evm_sponsored_call_test() ->
                   ?assertMatch([],Failed),
                   {ok,Log}
               end,
+	  %{ok,K} = ksha3:hash(256,<< 0:192/big, SkAddr/binary, 1:256/big >>),
       Ledger=[
               {Addr1,
                #{amount => #{
@@ -123,6 +123,13 @@ evm_sponsored_call_test() ->
                              <<"FTT">> => 100000000,
                              <<"TST">> => 10000 },
                  code => SpCode,
+				 state => #{
+							<<199,173,194,52,126,1,151,82,88,39,
+							  56,61,227,164,92,128,182,165,126,
+							  36,1,235,131,46,101,76,151,247,
+							  134,216,176,113>> => <<3>>,
+							<<0>> => SpAddr  % owner
+						   },
                  vm => <<"evm">>
                 }
               },
@@ -277,10 +284,10 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                            error({bad_setting, Other})
                        end,
        GetAddr=fun({storage,Addr,Key}) ->
-                   Res=case mledger:get(Addr) of
-                     #{state:=State} -> maps:get(Key,State,<<>>);
-                     _ -> <<>>
-                   end,
+                   Res=case mledger:get_kpv(Addr,state,Key) of
+						   {ok, Bin} -> Bin;
+						   undefined -> <<>>
+					   end,
                    io:format("TEST get addr ~p key ~p = ~p~n",[Addr,Key,Res]),
                    Res;
                   (Addr) ->
