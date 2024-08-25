@@ -19,7 +19,7 @@
  {<<"cowlib">>,{pkg,<<"cowlib">>,<<"2.11.0">>},1},
  {<<"db_merkle_trees">>,
   {git,"https://github.com/cleverfox/db_merkle_trees.git",
-       {ref,"f9d691507ab4f999ab19ac1b228d0041e394aedf"}},
+       {ref,"25a03f61eac6b94feb018b4061891ee6ebf6d3e8"}},
   0},
  {<<"ecrecover">>,
   {git,"https://github.com/cleverfox/ecrecover",
