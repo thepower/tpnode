@@ -295,4 +295,23 @@ contract builtinFunc {
     //emit textset('getByPath',ret);
     return ret;
   }
+
+  function lstoreCheck(bytes i) public returns (bytes memory) {
+    bytes[] memory path = new bytes[](3);
+    path[0] = bytes('a');
+    path[1] = bytes('b');
+    path[2] = bytes('c');
+
+    bytes memory val=hex'c0ffeedeadc0de';
+    require(lstore.setByPath(path,1,val)==1,"can't set lstore");
+
+    address _addr=address(0xAFFFFFFFFF000005);
+    (bool success, bytes memory returnBytes) =
+      _addr.staticcall(abi.encodeWithSignature("getByPath(bytes[])", path));
+    require(success == true, "Call failed");
+    emit textbin('getByPath',returnBytes);
+    LStore.settings memory ret = abi.decode(returnBytes, (LStore.settings));
+    return ret;
+
+  }
 }
