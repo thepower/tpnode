@@ -2,29 +2,29 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-ledgersum(Ledger) when is_list(Ledger) ->
-  lists:foldl(
-    fun({_Addr, #{amount:=A}},Acc) ->
-        maps:fold(
-          fun(Cur, Val, Ac1) ->
-              maps:put(Cur,maps:get(Cur,Ac1,0)+Val,Ac1)
-          end, Acc, A)
-    end, #{}, Ledger);
+%ledgersum(Ledger) when is_list(Ledger) ->
+%  lists:foldl(
+%    fun({_Addr, #{amount:=A}},Acc) ->
+%        maps:fold(
+%          fun(Cur, Val, Ac1) ->
+%              maps:put(Cur,maps:get(Cur,Ac1,0)+Val,Ac1)
+%          end, Acc, A)
+%    end, #{}, Ledger);
+%
+%ledgersum(Ledger) when is_map(Ledger) ->
+%  maps:fold(
+%    fun(_Addr, #{amount:=A},Acc) ->
+%        maps:fold(
+%          fun(Cur, Val, Ac1) ->
+%              maps:put(Cur,maps:get(Cur,Ac1,0)+Val,Ac1)
+%          end, Acc, A)
+%    end, #{}, Ledger).
 
-ledgersum(Ledger) when is_map(Ledger) ->
-  maps:fold(
-    fun(_Addr, #{amount:=A},Acc) ->
-        maps:fold(
-          fun(Cur, Val, Ac1) ->
-              maps:put(Cur,maps:get(Cur,Ac1,0)+Val,Ac1)
-          end, Acc, A)
-    end, #{}, Ledger).
-
-allocport() ->
-  {ok,S}=gen_tcp:listen(0,[]),
-  {ok,{_,CPort}}=inet:sockname(S),
-  gen_tcp:close(S),
-  CPort.
+%allocport() ->
+%  {ok,S}=gen_tcp:listen(0,[]),
+%  {ok,{_,CPort}}=inet:sockname(S),
+%  gen_tcp:close(S),
+%  CPort.
 
 extcontract_template(OurChain, TxList, Ledger, CheckFun, _Workers) ->
     Test=fun(LedgerPID) ->

@@ -152,14 +152,15 @@ get_node(Name) ->
 wait_for_testnet(Trys) ->
     AllNodes = get_testnet_nodenames(),
     NodesCount = length(AllNodes),
-    Alive = lists:foldl(
+    AliveL = lists:foldl(
         fun(Name, ReadyNodes) ->
             NodeName = get_node(Name),
+			io:format("Ping ~p",[NodeName]),
             case net_adm:ping(NodeName) of
                 pong ->
                     case rpc:call(NodeName,blockchain,ready,[]) of
                       true ->
-                        ReadyNodes + 1;
+                        [NodeName|ReadyNodes];
                       _ ->
                         ReadyNodes
                     end;
@@ -167,10 +168,11 @@ wait_for_testnet(Trys) ->
                     io:fwrite("Node ~p answered ~p~n", [NodeName, _Answer]),
                     ReadyNodes
             end
-        end, 0, AllNodes),
-
+        end, [], AllNodes),
+	Alive=length(AliveL),
     if
         Trys<1 ->
+			io:fwrite("Alive ~w of ~w: ~p", [Alive, NodesCount, AliveL]),
             timeout;
         Alive =/= NodesCount ->
             io:fwrite("testnet starting timeout: alive ~p, need ~p", [Alive, NodesCount]),
