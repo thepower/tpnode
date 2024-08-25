@@ -168,6 +168,8 @@ init([]) ->
     case application:get_env(tpnode,watchdog,undefined) of
       true ->
         tpwdt:start();
+      false ->
+        ok;
       undefined ->
         ok
     end,

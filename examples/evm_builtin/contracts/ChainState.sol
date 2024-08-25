@@ -45,6 +45,39 @@ contract BronKerbosch {
   function max_clique_list(uint256[2][] calldata) public pure virtual returns (uint256[] memory) {}
 }
 
+contract FakeChainFee {
+  uint256 public age;
+  bool public epoch_payed;
+  constructor(address _cs) {
+  }
+
+  receive() external payable {}
+
+  event NewEpoch(uint256 indexed age);
+
+  function new_epoch(uint256 _age) public returns (uint256 ret) {
+    emit NewEpoch(_age);
+    ret=age;
+    age=_age;
+    epoch_payed=false;
+  }
+  event Pay(address);
+  event Burn(uint256);
+  function payout(address[] calldata _payto, uint256 _toburn) public returns (uint256 payed,
+  uint256 burned) {
+    require(epoch_payed==false, "Epoch already payed");
+    for(uint256 i=0;i<_payto.length;i++){
+      emit Pay(_payto[i]);
+    }
+    if(_toburn>0){
+      emit Burn(_toburn);
+    }
+    epoch_payed=true;
+    payed=_payto.length;
+    burned=_toburn;
+  }
+}
+
 contract ChainFee {
   ChainState cs;
   uint256 pre_age_balance;
@@ -73,7 +106,7 @@ contract ChainFee {
   function payout(address[] calldata _payto, uint256 _toburn) public returns (uint256 payed,
                                                                               uint256 burned) {
     //require(msg.sender==address(cs),"Only ChainState can call this");
-    require(epoch_payed==false,"Epoch already payed");
+    require(epoch_payed==false, "Epoch already payed");
     uint256 parts=_payto.length+_toburn;
     uint256 part=pre_age_balance/parts;
     emit TryPayout(pre_age_balance,parts,_toburn);
@@ -101,9 +134,7 @@ contract ChainFee {
         emit NotBurned(data);
     }
     epoch_payed=true;
-
   }
-
 }
 
 contract ChainState {
@@ -153,6 +184,7 @@ contract ChainState {
   uint256 public constant STORE_CLIQUE_BLOCKS = 500;
 
   ChainFee public chainfee;
+  mapping ( uint256 node_id => address ) public node_addr;
 
   event NewEpoch (uint256,uint256,uint256,uint256);
   event Blk (uint256 indexed,uint256 indexed);
@@ -258,8 +290,43 @@ contract ChainState {
     emit Payout(epoch_last_start_blk,epoch_start_blk-1,cc_or,cc_and);
     if (address(chainfee) != address(0)){
       //function payout(address[] calldata _payto, uint256 _toburn) public returns (uint256 payed,
-      address[] memory a=new address[](0);
-      (uint256 payed, uint256 burned) = chainfee.payout(a,3);
+      uint winners=0;
+      uint burn=0;
+      {
+        uint cc_or1=cc_or;
+        uint cc_and1=cc_and;
+        for(uint i=0;cc_or1>0||cc_and1>0;i++){
+          if(cc_or1 & 1 == 1){
+            if(cc_and1 & 1 == 1){
+              winners++;
+            }else{
+              burn++;
+            }
+          }
+          cc_or1>=1;
+          cc_and1>=1;
+        }
+      }
+      address[] memory a=new address[](winners);
+      {
+        uint cc_or1=cc_or;
+        uint cc_and1=cc_and;
+        for(uint i=0;cc_or1>0||cc_and1>0;i++){
+          if(cc_and1 & 1 == 1){
+            winners--;
+            if(attrib[i][1]>0){
+              a[winners]=address(uint160(attrib[i][i]));
+            }else{
+              a[winners]=node_addr[i];
+            }
+          }
+          cc_or1>=1;
+          cc_and1>=1;
+        }
+      }
+      require(winners==0,"something calculatd wrong");
+
+      (uint256 payed, uint256 burned) = chainfee.payout(a,burn);
       emit PayoutRes(payed,burned);
     }
     epoch_payed=true;
@@ -290,6 +357,7 @@ contract ChainState {
   }
   */
   event Debug(bytes,uint256);
+
   function set_attrib(uint256[2][] calldata attribs) public returns(uint256) {
     bytes memory nodekey = getTx(address(0xAFFFFFFFFF000002)).get().signatures[0].pubkey;
     bytes memory shortkey=_slice(nodekey,nodekey.length-32,32);
@@ -349,6 +417,7 @@ contract ChainState {
     bytes memory nodekey = getTx(address(0xAFFFFFFFFF000002)).get().signatures[0].rawkey;
     uint256 nodeid=node_ids[nodekey];
     require(nodeid>0,"unknown node");
+    node_addr[nodeid]=msg.sender;
     res=new bool[](data.length);
     for(uint i=0;i<data.length;i++){
       res[i]=_updateData(nodeid, data[i]);
@@ -358,6 +427,7 @@ contract ChainState {
     bytes memory nodekey = getTx(address(0xAFFFFFFFFF000002)).get().signatures[0].rawkey;
     uint256 nodeid=node_ids[nodekey];
     require(nodeid>0,"unknown node");
+    node_addr[nodeid]=msg.sender;
     res=new bool[](data.length);
     for(uint i=0;i<data.length;i++){
       res[i]=_updateData(nodeid, data[i]);
