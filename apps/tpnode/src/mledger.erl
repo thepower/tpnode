@@ -9,6 +9,7 @@
 -export([mb2item/1]).
 -export([get_lstore/2,get_lstore_map/2]).
 -export([getfun/1]).
+-export([getfun/2]).
 -export([get_kv/1]).
 -export([get_kpv/3, get_kpvs/4, get_kpvs/3]).
 -export([get_kpvs_height/5, get_kpvs_height/4]). % <- it's relative slow !!
@@ -17,6 +18,12 @@
 -export([apply_backup/1]).
 -export([tables/0]).
 -export([account_to_mt/2, account_mt_check/2]).
+
+%new API starts here
+-export([db_get_one/5, db_get_multi/5]).
+
+
+
 
 -record(bal_items, { address,version,key,path,introduced,value }).
 -record(address_storage, { address,key,value }).
@@ -202,10 +209,17 @@ get_kpvs_height(Address, Key, Path, BlockHeight, Opts) ->
       ]
   end.
 
-
+get_kpvs(Address, Key, Path) ->
+  db_get_multi(mledger, Address, Key, Path, []).
 
 get_kpvs(Address, Key, Path, Opts) ->
-  case rockstable:get(mledger,
+  db_get_multi(mledger, Address, Key, Path, Opts).
+
+get_kpv(Address, Key, Path) ->
+  db_get_one(mledger, Address, Key, Path, []).
+
+db_get_multi(DB, Address, Key, Path, Opts) ->
+  case rockstable:get(DB,
                       undefined,
                       #bal_items{address=Address,
                                  version=latest,
@@ -218,18 +232,14 @@ get_kpvs(Address, Key, Path, Opts) ->
       [ {K, P, V} || #bal_items{key=K,path=P,value=V} <- List]
   end.
 
-
-get_kpvs(Address, Key, Path) ->
-  get_kpvs(Address, Key, Path, []).
-
-get_kpv(Address, Key, Path) ->
-  case rockstable:get(mledger,
+db_get_one(DB, Address, Key, Path, Opts) ->
+  case rockstable:get(DB,
                       undefined,
                       #bal_items{address=Address,
                                  version=latest,
                                  key=Key,
                                  path=Path,
-                                 _='_'}) of
+                                 _='_'}, Opts) of
     not_found -> undefined;
     [] -> undefined;
     [#bal_items{value=V}] ->
@@ -612,7 +622,7 @@ rollback_internal(Table, Height) ->
                                  {mledger, ledger_tree}
                                 }).
 
-  
+
 rollback(Height, ExpectedHash) ->
   rollback(mledger, Height, ExpectedHash).
 
@@ -679,6 +689,110 @@ addr_proof(Address) ->
     end),
   Res.
 
+
+getfun({storage,Addr,Key}, DB) ->
+  case mledger:db_get_one(DB, Addr, state, Key, []) of
+    undefined ->
+      <<>>;
+    {ok, Bin} ->
+      Bin
+  end;
+getfun({code, Addr, _Path}, DB) ->
+  case mledger:db_get_one(DB, Addr, code, [], []) of
+    undefined ->
+      <<>>;
+    {ok, Bin} ->
+      Bin
+  end;
+getfun({balance,Addr,Token}, DB) ->
+  case mledger:db_get_one(DB, Addr, amount, [], []) of
+    undefined ->
+      0;
+    {ok, Map} when is_map(Map) ->
+      maps:get(Token, Map, 0)
+  end;
+
+getfun({lstore_raw,Addr,Path0},DB) -> %subtree match
+  RawData=case Path0 of
+            {Path} ->
+              rockstable:get(DB,
+                             undefined,
+                             #bal_items{address=Addr,
+                                        version=latest,
+                                        path=Path,
+                                        key=lstore,
+                                        _='_'},
+                             []
+                            );
+            Path ->
+              rockstable:get(DB,
+                             undefined,
+                             #bal_items{address=Addr,
+                                        version=latest,
+                                        key=lstore,
+                                        _='_'},
+                             [{pred,fun(#bal_items{path=P}) ->
+                                        lists:prefix(Path,P)
+                                    end}]
+                            )
+          end,
+
+  case RawData of
+    not_found -> [];
+    List ->
+      lists:map(
+        fun(#bal_items{key=lstore,path=P,value=Val}) ->
+            {P,Val}
+        end, List)
+  end;
+
+getfun({lstore,Addr,{Path}},DB) -> %exact path match
+  case rockstable:get(DB,
+                      undefined,
+                      #bal_items{address=Addr,
+                                 version=latest,
+                                 path=Path,
+                                 key=lstore,
+                                 _='_'},
+                      []
+                     ) of
+    not_found -> <<>>;
+    [#bal_items{key=lstore,path=Path,value=V}] -> V;
+    List ->
+      lists:foldl(
+        fun(#bal_items{key=lstore,path=Path1,value=V}, A) when Path1==Path ->
+            [V|A]
+        end, [], List)
+  end;
+
+getfun({lstore,Addr,Path},DB) -> %subtree match
+  case rockstable:get(DB,
+                      undefined,
+                      #bal_items{address=Addr,
+                                 version=latest,
+                                 key=lstore,
+                                 _='_'},
+                      [{pred,fun(#bal_items{path=P}) ->
+                                 lists:prefix(Path,P)
+                             end}]
+                     ) of
+    not_found -> <<>>;
+    [#bal_items{key=lstore,path=Path,value=V}] -> V;
+    List ->
+      %TODO: fix path handling, strip prefix before set
+      settings:get(Path,
+                   lists:foldl(
+                     fun(#bal_items{key=lstore,path=P,value=Val},A) ->
+                         settings:set(P,Val,A)
+                     end, #{},
+                     List
+                    )
+                  )
+  end.
+
+
+%legacy handler
+
 getfun({storage,Addr,Key}) ->
   case mledger:get_kpv(Addr,state,Key) of
     undefined ->
@@ -686,15 +800,26 @@ getfun({storage,Addr,Key}) ->
     {ok, Bin} ->
       Bin
   end;
+
 getfun({code,Addr}) ->
-  case mledger:get_kpv(Addr,code,[]) of
+  getfun({code,Addr,[]});
+%getfun({code, Addr, _}) -> %this is for compatibility
+%  case mledger:get_kpv(Addr,code,[]) of
+%    undefined ->
+%      <<>>;
+%    {ok, Bin} ->
+%      Bin
+%  end;
+getfun({balance,Addr,Token}) ->
+  case mledger:get_kpv(Addr,amount,[]) of
     undefined ->
-      <<>>;
-    {ok, Bin} ->
-      Bin
+      0;
+    {ok, Map} when is_map(Map) ->
+      maps:get(Token, Map, 0)
   end;
 getfun({lstore,Addr,Path}) ->
   mledger:get_lstore_map(Addr,Path);
+
 getfun({Addr, _Cur}) -> %this method actually returns everything, except lstore and state
   case mledger:get(Addr) of
     #{amount:=_}=Bal -> maps:without([changes],Bal);

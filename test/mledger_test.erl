@@ -71,15 +71,14 @@ mledger_test() ->
 			   ?assertMatch({ok,<<"old_value_to_update">>},mledger:get_kpv(Addr,state,<<"updated">>)),
 			   ?assertMatch(undefined,mledger:get_kpv(Addr,state,<<"created">>)),
 			   ?assertMatch({ok,#{ <<"FTT">> := 110, <<"SK">> := 10, <<"TST">> := 26 }},mledger:get_kpv(Addr,amount,[])),
+			   ?assertEqual(110, mledger:getfun({balance,Addr,<<"FTT">>})),
+			   ?assertEqual(10, mledger:getfun({balance,Addr,<<"SK">>})),
 			   ?assertEqual(LedgerHash0, LedgerHash3)
 			  ],
 		   T0++T1++T3
        end,
   Ledger=[
-          {Addr,
-		   D0
-           
-          }
+          {Addr, D0}
          ],
   mledger:deploy4test(Ledger, Test).
 
