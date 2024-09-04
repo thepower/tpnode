@@ -4,9 +4,23 @@
 
 -module(base58).
 
--export([encode/1, decode/1]).
+-export([encode/1, decode/1, binary_to_base58/1, base58_to_binary/1, check_base58/1]).
 
 -define(BASE58_TABLE, "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz").
+
+check_base58(Str) when is_list(Str) ->
+	try
+		_ = decode(list_to_binary(Str)),
+		true
+	catch error:_ ->
+			  false
+	end.
+
+base58_to_binary(List) ->
+	decode(list_to_binary(List)).
+
+binary_to_base58(Bin) ->
+	binary_to_list(encode(Bin)).
 
 encode(<<0, T/binary>>) ->
     TEnc = encode(T),

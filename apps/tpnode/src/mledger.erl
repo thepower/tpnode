@@ -803,13 +803,13 @@ getfun({storage,Addr,Key}) ->
 
 getfun({code,Addr}) ->
   getfun({code,Addr,[]});
-%getfun({code, Addr, _}) -> %this is for compatibility
-%  case mledger:get_kpv(Addr,code,[]) of
-%    undefined ->
-%      <<>>;
-%    {ok, Bin} ->
-%      Bin
-%  end;
+getfun({code, Addr, _}) -> %this is for compatibility
+  case mledger:get_kpv(Addr,code,[]) of
+    undefined ->
+      <<>>;
+    {ok, Bin} ->
+      Bin
+  end;
 getfun({balance,Addr,Token}) ->
   case mledger:get_kpv(Addr,amount,[]) of
     undefined ->
@@ -820,12 +820,12 @@ getfun({balance,Addr,Token}) ->
 getfun({lstore,Addr,Path}) ->
   mledger:get_lstore_map(Addr,Path);
 
-getfun({Addr, _Cur}) -> %this method actually returns everything, except lstore and state
+getfun({Addr, _Cur}) when is_binary(Addr) -> %this method actually returns everything, except lstore and state
   case mledger:get(Addr) of
     #{amount:=_}=Bal -> maps:without([changes],Bal);
     undefined -> mbal:new()
   end;
-getfun(Addr) -> %this method actually returns everything, except lstore and state
+getfun(Addr) when is_binary(Addr) -> %this method actually returns everything, except lstore and state
   case mledger:get(Addr) of
     #{amount:=_}=Bal -> maps:without([changes],Bal);
     undefined -> mbal:new()
