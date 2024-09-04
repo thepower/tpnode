@@ -2,7 +2,7 @@
 % vim: tabstop=2 shiftwidth=2 expandtab
 -include("include/tplog.hrl").
 -compile({no_auto_import,[get/1]}).
--export([start_db/0,deploy4test/2, put/2,get/1,get_vers/1,hash/1,hashl/1]).
+-export([start_db/0, deploy4test/3,  deploy4test/2, put/2,get/1,get_vers/1,hash/1,hashl/1]).
 -export([bi_create/6,bi_set_ver/2]).
 -export([bals2patch/1, apply_patch/2]).
 -export([dbmtfun/4]).
@@ -16,7 +16,7 @@
 -export([addr_proof/1, bi_decode/1]).
 -export([rollback/2]).
 -export([apply_backup/1]).
--export([tables/0]).
+-export([tables/1, tables/0]).
 -export([account_to_mt/2, account_mt_check/2]).
 
 %new API starts here
@@ -41,14 +41,17 @@
         }).
 
 tables() ->
+  tables(mledger).
+
+tables(DBName) ->
   [
-   table_descr(bal_items),
-   table_descr(ledger_tree),
-   table_descr(address_storage)
+   table_descr(DBName, bal_items),
+   table_descr(DBName, ledger_tree),
+   table_descr(DBName, address_storage)
   ].
 
 
-table_descr(bal_items) ->
+table_descr(_DBName, bal_items) ->
   {
    bal_items,
    record_info(fields, bal_items),
@@ -57,23 +60,23 @@ table_descr(bal_items) ->
    undefined
   };
 
-table_descr(ledger_tree) ->
+table_descr(DBName, ledger_tree) ->
   {
    ledger_tree,
    [key, value],
    [key],
    [],
    fun() ->
-       case rockstable:get(mledger,undefined,{ledger_tree,<<"R">>,'_'}) of
+       case rockstable:get(DBName,undefined,{ledger_tree,<<"R">>,'_'}) of
          not_found ->
-           rockstable:put(mledger,undefined,{ledger_tree,<<"R">>,db_merkle_trees2:empty()});
+           rockstable:put(DBName,undefined,{ledger_tree,<<"R">>,db_merkle_trees2:empty()});
          [{ledger_tree,<<"R">>,_}] ->
            ok
        end
    end
   };
 
-table_descr(address_storage) ->
+table_descr(_DBName, address_storage) ->
   {
    address_storage,
    record_info(fields, address_storage),
@@ -91,16 +94,19 @@ rm_rf(Dir) ->
     file:del_dir(Dir).
 
 deploy4test(LedgerData, TestFun) ->
+  deploy4test(mledger, LedgerData, TestFun).
+
+deploy4test(DBName, LedgerData, TestFun) ->
   application:start(rockstable),
-  TmpDir="/tmp/ledger_test."++(integer_to_list(os:system_time(),16)),
+  TmpDir="/tmp/"++atom_to_list(DBName)++"_test."++(integer_to_list(os:system_time(),16)),
   filelib:ensure_dir(TmpDir),
-  ok=rockstable:open_db(mledger,TmpDir,tables()),
+  ok=rockstable:open_db(DBName, TmpDir, tables(DBName)),
   try
     Patches=bals2patch(LedgerData),
-    {ok,_}=apply_patch(Patches,{commit,1}),
+    {ok,_}=apply_patch(DBName, Patches, {commit,1}),
     TestFun(undefined)
   after
-    rockstable:close_db(mledger),
+    rockstable:close_db(DBName),
     rm_rf(TmpDir)
   end.
 
@@ -467,18 +473,18 @@ account_to_mt(Table, Address) ->
   end.
 
 
-do_apply(Table, [], _) ->
+do_apply(DbName, [], _) ->
   {ok,
-   db_merkle_trees2:root_hash({fun dbmtfun/4, #{}, {Table, ledger_tree} })
+   db_merkle_trees2:root_hash({fun dbmtfun/4, #{}, {DbName, ledger_tree} })
   };
 
-do_apply(Table, [E1|_]=Patches, HeiHash) when is_record(E1, bal_items) ->
+do_apply(DbName, [E1|_]=Patches, HeiHash) when is_record(E1, bal_items) ->
   ChAddrs=lists:usort([ Address || #bal_items{address=Address} <- Patches ]),
 
   %ensure merkle tree for exists for all changed accounts
   lists:foreach(
     fun(Address) ->
-        account_to_mt(Table, Address)
+        account_to_mt(DbName, Address)
     end,
     ChAddrs
    ),
@@ -486,28 +492,28 @@ do_apply(Table, [E1|_]=Patches, HeiHash) when is_record(E1, bal_items) ->
   case HeiHash of
     _ when is_integer(HeiHash) ->
       lists:foreach( fun(E) ->
-                         write_with_height(Table,E,HeiHash)
+                         write_with_height(DbName,E,HeiHash)
                      end, Patches);
     {Height, Hash} when is_integer(Height), is_binary(Hash) ->
       lists:foreach( fun(E) ->
-                         write_with_height(Table,E, Height)
+                         write_with_height(DbName,E, Height)
                      end, Patches),
       lists:foreach(fun(Address) ->
-                        write_with_height(Table,
+                        write_with_height(DbName,
                                           bi_create(Address,latest,ublk,[],Height,Hash),
                                           Height
                                          )
                     end,ChAddrs);
     _ ->
       lists:foreach( fun (BalItem) ->
-                         rockstable:put(Table, env, BalItem),
-                         account_mt(Table, BalItem, undefined)
+                         rockstable:put(DbName, env, BalItem),
+                         account_mt(DbName, BalItem, undefined)
                      end, Patches)
   end,
-  NewMT=apply_mt(ChAddrs),
+  NewMT=apply_mt(DbName, ChAddrs),
   RH=db_merkle_trees2:root_hash({fun dbmtfun/4,
                    NewMT,
-                   {Table, ledger_tree}
+                   {DbName, ledger_tree}
                   }),
   {ok, RH};
 
@@ -537,18 +543,21 @@ write_with_height(Table,#bal_items{value=NewVal}=BalItem,Height) ->
 apply_backup(Patches) ->
   do_apply(mledger, Patches, undefined).
 
-apply_patch(Patches, check) ->
+apply_patch(Patches, Action) ->
+  apply_patch(mledger, Patches, Action).
+
+apply_patch(DBName, Patches, check) ->
   F=fun() ->
-        NewHash=do_apply(mledger, Patches, undefined),
+        NewHash=do_apply(DBName, Patches, undefined),
         throw({'abort',NewHash})
     end,
-  {aborted,{throw,{abort,NewHash}}}=rockstable:transaction(mledger,F),
+  {aborted,{throw,{abort,NewHash}}}=rockstable:transaction(DBName,F),
   %io:format("Check hash ~p~n",[NewHash]),
   NewHash;
 
-apply_patch(Patches, {commit, HeiHash, ExpectedHash}) ->
+apply_patch(DBName, Patches, {commit, HeiHash, ExpectedHash}) ->
   F=fun() ->
-        {ok,LH}=do_apply(mledger, Patches, HeiHash),
+        {ok,LH}=do_apply(DBName, Patches, HeiHash),
         case LH == ExpectedHash of
           true ->
             ?LOG_DEBUG("check and commit expected ~p actual ~p",
@@ -560,22 +569,22 @@ apply_patch(Patches, {commit, HeiHash, ExpectedHash}) ->
             throw({'abort',LH})
         end
     end,
-  case rockstable:transaction(mledger,F) of
+  case rockstable:transaction(DBName,F) of
     {atomic,Res} ->
       {ok, Res};
     {aborted,{throw,{abort,NewHash}}} ->
       {error, NewHash}
   end;
 
-apply_patch(Patches, {commit, HeiHash}) ->
+apply_patch(DBName, Patches, {commit, HeiHash}) ->
   %Filename="ledger_"++integer_to_list(os:system_time(millisecond))++atom_to_list(node()),
   %?LOG_INFO("Ledger dump ~s",[Filename]),
   %wrfile(Filename, Patches),
   %dump_ledger("pre",Filename),
-  {atomic,Res}=rockstable:transaction(mledger,
+  {atomic,Res}=rockstable:transaction(DBName,
                                       fun() ->
                                           try
-                                            do_apply(mledger, Patches, HeiHash)
+                                            do_apply(DBName, Patches, HeiHash)
                                           catch Ec:Ee:S ->
                                                   throw({Ec,Ee,S})
                                           end
@@ -591,9 +600,9 @@ apply_patch(Patches, {commit, HeiHash}) ->
 %                 ).
 
 
-rollback_internal(Table, Height) ->
-  ToDelete=rockstable:get(Table,env,#bal_items{introduced=Height,_='_'}),
-  ToRestore=rockstable:get(Table,env,#bal_items{version=Height,_='_'}),
+rollback_internal(DbName, Height) ->
+  ToDelete=rockstable:get(DbName,env,#bal_items{introduced=Height,_='_'}),
+  ToRestore=rockstable:get(DbName,env,#bal_items{version=Height,_='_'}),
 
   OldAddr=lists:usort([ Address || #bal_items{address=Address} <- ToRestore ]),
   NewAddr=lists:usort([ Address || #bal_items{address=Address} <- ToDelete ]),
@@ -601,22 +610,22 @@ rollback_internal(Table, Height) ->
 
   lists:foreach(
     fun(#bal_items{version=latest}=BalItem) ->
-        rockstable:del(Table,env,BalItem),
-        account_mt(Table, BalItem#bal_items{value= <<>>},undefined)
+        rockstable:del(DbName,env,BalItem),
+        account_mt(DbName, BalItem#bal_items{value= <<>>},undefined)
     end,
     ToDelete),
 
   lists:foreach(
     fun(#bal_items{}=BalItem) ->
-        rockstable:del(Table,env,BalItem),
+        rockstable:del(DbName,env,BalItem),
         OldBal1=bi_set_ver(BalItem,latest),
-        rockstable:put(Table,env,OldBal1),
-        account_mt(Table, OldBal1,undefined)
+        rockstable:put(DbName,env,OldBal1),
+        account_mt(DbName, OldBal1,undefined)
     end,
     ToRestore),
 
   del_mt(Addr2Del),
-  NewMT=apply_mt(OldAddr),
+  NewMT=apply_mt(DbName, OldAddr),
   db_merkle_trees2:root_hash({fun dbmtfun/4,
                                  NewMT,
                                  {mledger, ledger_tree}
@@ -626,17 +635,17 @@ rollback_internal(Table, Height) ->
 rollback(Height, ExpectedHash) ->
   rollback(mledger, Height, ExpectedHash).
 
-rollback(Table, Height, ExpectedHash) ->
+rollback(DbName, Height, ExpectedHash) ->
   case application:get_env(tpnode,rollback_snapshot,false) of
     true ->
-      Backup=utils:dbpath("rollback_"++atom_to_list(Table)++"_"++integer_to_list(Height)++"_"++binary_to_list(hex:encodex(ExpectedHash))++"_bck"),
-      ?LOG_NOTICE("Backup ~p before rollback ~s",[Table, Backup]),
-      rockstable:backup(Table,Backup);
+      Backup=utils:dbpath("rollback_"++atom_to_list(DbName)++"_"++integer_to_list(Height)++"_"++binary_to_list(hex:encodex(ExpectedHash))++"_bck"),
+      ?LOG_NOTICE("Backup ~p before rollback ~s",[DbName, Backup]),
+      rockstable:backup(DbName,Backup);
     false ->
       ok
   end,
   Trans=fun() ->
-            RH=rollback_internal(Table, Height),
+            RH=rollback_internal(DbName, Height),
             if(RH==ExpectedHash) ->
                 {ok, RH};
               true ->
@@ -644,7 +653,7 @@ rollback(Table, Height, ExpectedHash) ->
             end
         end,
   case
-    rockstable:transaction(Table, Trans) of
+    rockstable:transaction(DbName, Trans) of
     {atomic, {ok, Hash}} -> {ok, Hash};
     {aborted, Err} -> {error,Err}
   end.
@@ -658,54 +667,57 @@ del_mt(ChAddrs) ->
                       })
     end, #{}, ChAddrs).
 
-apply_mt(ChAddrs) ->
+apply_mt(DbName, ChAddrs) ->
   lists:foldl(
     fun(Addr,Acc) ->
       db_merkle_trees2:balance({fun dbmtfun/4,
                     #{},
-                    {mledger, address_storage, Addr}
+                    {DbName, address_storage, Addr}
                    }),
       Hash=db_merkle_trees2:root_hash(
            {fun mledger:dbmtfun/4,
           #{},
-          {mledger, address_storage, Addr}
+          {DbName, address_storage, Addr}
            }),
       db_merkle_trees2:enter(Addr, Hash, {fun dbmtfun/4,
                         Acc,
-                        {mledger, ledger_tree}
+                        {DbName, ledger_tree}
                          })
   end, #{}, ChAddrs),
   db_merkle_trees2:balance({fun dbmtfun/4,
               #{},
-              {mledger, ledger_tree}
+              {DbName, ledger_tree}
                }).
 
 addr_proof(Address) ->
-  {atomic,Res}=rockstable:transaction(mledger,
+  addr_proof(mledger, Address).
+
+addr_proof(DbName, Address) ->
+  {atomic,Res}=rockstable:transaction(DbName,
     fun() -> {
-    db_merkle_trees2:root_hash({fun dbmtfun/4, #{}, {mledger, ledger_tree}}),
-    db_merkle_trees2:merkle_proof(Address,{fun dbmtfun/4, #{}, {mledger, ledger_tree}})
+    db_merkle_trees2:root_hash({fun dbmtfun/4, #{}, {DbName, ledger_tree}}),
+    db_merkle_trees2:merkle_proof(Address,{fun dbmtfun/4, #{}, {DbName, ledger_tree}})
         }
     end),
   Res.
 
 
 getfun({storage,Addr,Key}, DB) ->
-  case mledger:db_get_one(DB, Addr, state, Key, []) of
+  case db_get_one(DB, Addr, state, Key, []) of
     undefined ->
       <<>>;
     {ok, Bin} ->
       Bin
   end;
 getfun({code, Addr, _Path}, DB) ->
-  case mledger:db_get_one(DB, Addr, code, [], []) of
+  case db_get_one(DB, Addr, code, [], []) of
     undefined ->
       <<>>;
     {ok, Bin} ->
       Bin
   end;
 getfun({balance,Addr,Token}, DB) ->
-  case mledger:db_get_one(DB, Addr, amount, [], []) of
+  case db_get_one(DB, Addr, amount, [], []) of
     undefined ->
       0;
     {ok, Map} when is_map(Map) ->
@@ -794,7 +806,7 @@ getfun({lstore,Addr,Path},DB) -> %subtree match
 %legacy handler
 
 getfun({storage,Addr,Key}) ->
-  case mledger:get_kpv(Addr,state,Key) of
+  case get_kpv(Addr,state,Key) of
     undefined ->
       <<>>;
     {ok, Bin} ->
@@ -804,21 +816,21 @@ getfun({storage,Addr,Key}) ->
 getfun({code,Addr}) ->
   getfun({code,Addr,[]});
 getfun({code, Addr, _}) -> %this is for compatibility
-  case mledger:get_kpv(Addr,code,[]) of
+  case get_kpv(Addr,code,[]) of
     undefined ->
       <<>>;
     {ok, Bin} ->
       Bin
   end;
 getfun({balance,Addr,Token}) ->
-  case mledger:get_kpv(Addr,amount,[]) of
+  case get_kpv(Addr,amount,[]) of
     undefined ->
       0;
     {ok, Map} when is_map(Map) ->
       maps:get(Token, Map, 0)
   end;
 getfun({lstore,Addr,Path}) ->
-  mledger:get_lstore_map(Addr,Path);
+  get_lstore_map(Addr,Path);
 
 getfun({Addr, _Cur}) when is_binary(Addr) -> %this method actually returns everything, except lstore and state
   case mledger:get(Addr) of
