@@ -1,29 +1,31 @@
 -module(mledger).
 % vim: tabstop=2 shiftwidth=2 expandtab
 -include("include/tplog.hrl").
+
+%new API starts here
+-export([tables/1, deploy4test/3]).
+-export([db_get_one/5, db_get_multi/5]).
+-export([apply_patch/3]).
+-export([apply_backup/2]).
+-export([getfun/2]).
+
+%OLD API
 -compile({no_auto_import,[get/1]}).
--export([start_db/0, deploy4test/3,  deploy4test/2, put/2,get/1,get_vers/1,hash/1,hashl/1]).
+-export([start_db/0,  deploy4test/2, put/2,get/1,get_vers/1,hash/1,hashl/1]).
 -export([bi_create/6,bi_set_ver/2]).
 -export([bals2patch/1, apply_patch/2]).
 -export([dbmtfun/4]).
 -export([mb2item/1]).
 -export([get_lstore/2,get_lstore_map/2]).
 -export([getfun/1]).
--export([getfun/2]).
 -export([get_kv/1]).
 -export([get_kpv/3, get_kpvs/4, get_kpvs/3]).
 -export([get_kpvs_height/5, get_kpvs_height/4]). % <- it's relative slow !!
 -export([addr_proof/1, bi_decode/1]).
 -export([rollback/2]).
 -export([apply_backup/1]).
--export([tables/1, tables/0]).
+-export([tables/0]).
 -export([account_to_mt/2, account_mt_check/2]).
-
-%new API starts here
--export([db_get_one/5, db_get_multi/5]).
-
-
-
 
 -record(bal_items, { address,version,key,path,introduced,value }).
 -record(address_storage, { address,key,value }).
@@ -111,8 +113,11 @@ deploy4test(DBName, LedgerData, TestFun) ->
   end.
 
 start_db() ->
-  Path=utils:dbpath(mledger),
-  case rockstable:open_db(mledger,Path,tables()) of
+  start_db(mledger).
+
+start_db(DbName) ->
+  Path=utils:dbpath(DbName),
+  case rockstable:open_db(DbName,Path,tables(DbName)) of
     ok -> ok;
     {error,alias_in_use} -> ok
   end.
@@ -539,6 +544,9 @@ write_with_height(Table,#bal_items{value=NewVal}=BalItem,Height) ->
           account_mt(Table, BalItem, undefined)
       end
   end.
+
+apply_backup(DbName, Patches) ->
+  do_apply(DbName, Patches, undefined).
 
 apply_backup(Patches) ->
   do_apply(mledger, Patches, undefined).

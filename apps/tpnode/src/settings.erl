@@ -6,25 +6,17 @@
 -export([verify/1]).
 -export([upgrade/1]).
 -export([make_meta/2, clean_meta/1]).
+-export([merge/2]).
 
-%sign(Patch, PrivKey) when is_list(Patch) ->
-%    BinPatch=mp(Patch),
-%    sign(#{patch=>BinPatch, sig=>[]}, PrivKey);
-%sign(Patch, PrivKey) when is_binary(Patch) ->
-%    sign(#{patch=>Patch, sig=>[]}, PrivKey);
-%
-%sign(#{patch:=LPatch}=Patch, PrivKey) ->
-%    BPatch=if is_list(LPatch) -> mp(LPatch);
-%                is_binary(LPatch) -> LPatch
-%             end,
-%    Sig=bsig:signhash(
-%          crypto:hash(sha256, BPatch),
-%          [{timestamp, os:system_time(millisecond)}],
-%          PrivKey),
-%    #{ patch=>BPatch,
-%        sig => [Sig|maps:get(sig, Patch, [])]
-%     }.
-%
+merge(Bottom, Top) ->
+	maps:fold(
+	  fun(Key, Value, BAcc) when is_map(Value) ->
+			  Merged = merge(maps:get(Key,BAcc,#{}),Value),
+			  maps:put(Key, Merged, BAcc);
+		 (Key, Value, BAcc) ->
+			  maps:put(Key, Value, BAcc)
+	  end, Bottom, Top).
+
 verify(#{patch:=LPatch, sig:=HSig}=Patch, VerFun) ->
   BinPatch=if is_list(LPatch) -> mp(LPatch);
               is_binary(LPatch) -> LPatch
