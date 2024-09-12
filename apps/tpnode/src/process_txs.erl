@@ -3,6 +3,7 @@
 		 process_tx/3, %process with gas and fee calculation
 		 process_tx/4,
 		 process_itx/7,
+		 process_code_itx/8,
 		 new_state/2
 		]).
 -include("include/tplog.hrl").
@@ -16,62 +17,16 @@ new_state(GetFun, GetFunArg) ->
 	  log => []
 	 }.
 
-%process_tx(Tx#{txex, State0, _Opts) ->
-%Ext=maps:get(txext,Tx,#{}),
-%    BSponsor=maps:get("sponsor",Ext,undefined),
-%    ?LOG_INFO("Processing local =====[ ~s ]======= ~s -> ~s",[TxID,hex:encode(From),hex:encode(To)]),
-%    Sponsor=case BSponsor of
-%              [<<SpAddr:8/binary>>] ->
-%                MyChain=GetFun(mychain),
-%                {true,{chain,SChain}}=addrcheck(SpAddr, SetState, MyChain),
-%                if(SChain==MyChain) ->
-%                    SpAddr;
-%                  true ->
-%                    false
-%                end;
-%              undefined -> false;
-%              Other ->
-%                ?LOG_ERROR("Invalid sponsor ~p",[Other]),
-%                throw('invalid_sponsor')
-%            end,
-%    RSp=if is_binary(Sponsor) ->
-%         case maps:is_key(Sponsor, Addresses) of
-%           false ->
-%             throw('sponsor_not_loaded');
-%           true ->
-%             SPAcc=maps:get(Sponsor, Addresses),
-%             case contract_evm:ask_ERC165(Sponsor,<<16#1B,16#97,16#71,16#2B>>,GetAddr) of
-%               true ->
-%                 ask_if_wants_to_pay(SPAcc, Tx, 30000,Sponsor);
-%               false ->
-%                 IsSponsor=ask_if_sponsor(SPAcc),
-%                 case IsSponsor of
-%                   {true, {Token, Amount}} ->
-%                     case to_gas(#{amount=>Amount, cur=>Token}, SetState) of
-%                       {ok, {_Tkn,TknAm,{Num,Den}}} ->
-%                         ?LOG_NOTICE("fixme: save gas here"),
-%                         ask_if_wants_to_pay(SPAcc, Tx, (TknAm*Num) div Den,Sponsor);
-%                       _ ->
-%                         {false, invalid_gas_specified}
-%                     end;
-%                   _ ->
-%                     {false, no_sponsor}
-%                 end
-%             end
-%         end;
-%       true ->
-%         false
-%    end,
-%    case RSp of
-%      {ok, SPData} ->
-%        ?LOG_INFO("sponsoring ~p from ~p",[SPData,Sponsor]);
-%      {false,N} when is_binary(Sponsor) ->
-%        ?LOG_NOTICE("not sponsoring from ~p: ~p",[Sponsor,N]);
-%      _ ->
-%        ok
-%    end,
+process_tx(#{txext:=#{"sponsor":=Sponsors}=E}=Tx, State0, Opts) ->
+	?LOG_INFO("Process sponsors ~p",[Sponsors]),
+	{NewPayloads,State1} = process_txs_sponsor:process_sponsors(Sponsors,Tx,State0),
+	process_tx(Tx#{
+				 payload=>NewPayloads,
+				 txext=>maps:remove("sponsor",E)
+				},State1, Opts);
 
 process_tx(#{from:=From}=Tx, State0, Opts) ->
+	?LOG_INFO("Process generic from ~s",[hex:encodex(From)]),
 	try
 	SettingsToLoad=#{
 			   freegas => [<<"freegas2">>,maps:get(to,Tx,undefined)],
@@ -169,13 +124,13 @@ process_tx(#{from:=From}=Tx, State0, Opts) ->
 
 return_gas(GasLeft, [], State, Acc) ->
 	{GasLeft, Acc, State};
-return_gas(GasLeft, [#{g:=TotalG, amount:=A, cur:=C, sponsor:=Sponsor}=P|Rest], State, Acc) when GasLeft > TotalG ->
+return_gas(GasLeft, [#{g:=TotalG, amount:=A, cur:=C, sponsor:=Sponsor}|Rest], State, Acc) when GasLeft > TotalG ->
 	return_gas(GasLeft-TotalG,
 			   Rest,
 			   transfer(<<"escrow">>, Sponsor, A, C, State),
 			   Acc
 			  );
-return_gas(GasLeft, [#{k:={N,D}, amount:=A, cur:=C, sponsor:=Sponsor}=P|Rest], State, Acc) ->
+return_gas(GasLeft, [#{k:={N,D}, amount:=A, cur:=C, sponsor:=Sponsor}|Rest], State, Acc) ->
 	ReturnTokens=min(trunc(GasLeft*D/N),A),
 	ReturnGas=ReturnTokens*N div D,
 
@@ -218,6 +173,12 @@ to_gas1(#{amount:=A, cur:=C}=P, Settings) ->
 
 process_tx(#{from:=From, to:=To}=Tx,
 		   GasLimit, State0, Opts) ->
+	?LOG_INFO("Process internal gas ~p ",[GasLimit]),
+	if(GasLimit==0) ->
+		  ?LOG_INFO(" | -> Process int ~p ",[maps:without([body],Tx)]);
+	  true -> ok 
+	end,
+
 	Value=tx_value(Tx,<<"SK">>),
 	State1=lists:foldl(
 			 fun(#{amount:=Amount,cur:=Cur,purpose:=_},StateC) ->
@@ -249,22 +210,34 @@ process_tx(#{from:=From,
 			 txext:=#{
 					  "code":=Code,
 					  "vm":="evm"
-					 }
+					 } = TxExt
 			}=Tx,
 		   GasLimit, State, Opts) when is_binary(Code) ->
+	?LOG_INFO("Process deploy internal gas ~p ",[GasLimit]),
 	Value=tx_value(Tx,<<"SK">>),
-	D2Hash=erlp:encode([From,binary:encode_unsigned(Nonce)]),
-	{ok,<<_:12/binary,Address:20/binary>>}=ksha3:hash(256, D2Hash),
-	io:format("Deploy to address ~p~n",[Address]),
+	Address = case TxExt of
+				  #{ "deploy":= "inplace"} ->
+					  From;
+				  _ ->
+					  D2Hash=erlp:encode([From,binary:encode_unsigned(Nonce)]),
+					  {ok,<<_:12/binary,EVMAddress:20/binary>>}=ksha3:hash(256, D2Hash),
+					  EVMAddress
+			  end,
+	?LOG_INFO("Deploy to address ~p gas ~p~n",[Address, GasLimit]),
 	case process_code_itx(Code, From, Address,
 						  Value, <<>>, GasLimit-3200, State#{cur_tx=>Tx}, Opts) of
-		{1, DeployedCode, GasLeft, Xtra1} ->
-			State2=pstate:set_state(Address, code, [], DeployedCode, Xtra1),
+		{1, DeployedCode, GasLeft, State1} ->
+			State2=pstate:set_state(Address, code, [], DeployedCode, State1),
+			?LOG_INFO("Deploy to address ~p success",[Address]),
 			{1, <<>>, GasLeft,
 			 maps:without([cur_tx,tstorage], State2)
 			};
-		{0, _, GasLeft, _} ->
-			{1, <<>>, GasLeft,
+		{0, <<>>, 0, _} ->
+			{0, <<"nogas">>, 0,
+			 maps:without([cur_tx,tstorage], State)
+			};
+		{0, Reason, GasLeft, _} ->
+			{0, Reason, GasLeft,
 			 maps:without([cur_tx,tstorage], State)
 			}
 	end;
@@ -276,6 +249,7 @@ process_tx(#{
 			 patches:=Patch
 			}=_Tx,
 		   GasLimit, State, _Opts) ->
+	?LOG_INFO("Process lstore internal gas ~p ",[GasLimit]),
 	LSP=lists:map(
 		  fun(#{<<"t">>:=<<"set">>, <<"p">>:=Path, <<"v">>:=Val}) ->
 				  {Path, set, Val};
@@ -300,44 +274,59 @@ process_tx(_Tx, _GasLimit, _State, _Opts) ->
 	throw('invalid_tx').
 
 process_itx(From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opts) ->
-	{ok, Code, State1, _} = evm_code(binary:decode_unsigned(To), State0, #{}),
+	{ok, Code, State1, _} = process_evm:evm_code(binary:decode_unsigned(To), State0, #{}),
 	process_code_itx(Code, From, To, Value, CallData, GasLimit, State1, Opts).
 
 process_code_itx(<<>>,From, To, Value, _CallData, GasLimit, #{acc:=_}=State0, _Opts) ->
 	State1=transfer(From, To, Value, <<"SK">>, State0),
 	{ 1, <<>>, GasLimit, State1};
 
+process_code_itx(_Code,_From, _To, Value, _CallData, GasLimit, State0=#{static:=_}, _) when
+	  Value>0 ->
+	{ 0, <<"static_call_with_value">>, GasLimit, State0};
+
 process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, _Opts) ->
+	?LOG_INFO("Call proc code size ~p",[size(Code)]),
+
 	State1=transfer(From, To, Value, <<"SK">>, State0),
 	Result = eevm:eval(Code, #{},
-					   #{
-						 gas=>GasLimit,
-						 sload=>fun evm_sload/4,
-						 sstore=>fun evm_sstore/5,
-						 custom_call => fun evm_custom_call/7,
-						 extra=>State1,
-						 bad_instruction=>fun evm_instructions/2,
-						 return=><<>>,
-						 get=>#{
-								code => fun evm_code/3,
-								balance => fun evm_balance/3
-							   },
-						 %create => CreateFun,
-						 data=>#{
-								 address=>binary:decode_unsigned(To),
-								 callvalue=>Value,
-								 caller=>binary:decode_unsigned(From),
-								 gasprice=>1,
-								 origin=>binary:decode_unsigned(From)
-								},
-						 cd => CallData,
-						 logger=>fun evm_logger/4,
-						 trace=>whereis(eevm_tracer)
-						}),
+					   maps:merge(
+						 maps:with([static],State0),
+						 #{
+						   gas=>GasLimit,
+						   sload=>fun process_evm:evm_sload/4,
+						   sstore=>fun process_evm:evm_sstore/5,
+						   custom_call => fun process_evm:evm_custom_call/7,
+						   extra=>State1,
+						   bad_instruction=>fun process_evm:evm_instructions/2,
+						   return=><<>>,
+						   get=>#{
+								  code => fun process_evm:evm_code/3,
+								  balance => fun process_evm:evm_balance/3
+								 },
+						   %create => CreateFun,
+						   data=>#{
+								   address=>binary:decode_unsigned(To),
+								   callvalue=>Value,
+								   caller=>binary:decode_unsigned(From),
+								   gasprice=>1,
+								   origin=>binary:decode_unsigned(From)
+								  },
+						   cd => CallData,
+						   logger=>fun process_evm:evm_logger/4,
+						   trace=>whereis(eevm_tracer)
+						  })),
 
 	?LOG_INFO("Call ~s (~s) ret {~p,~p,...}",
 			  [hex:encodex(To), hex:encode(CallData),
-			   element(1,Result),element(2,Result)
+			   element(1,Result),
+			   case element(2,Result) of
+				   {return, Bin} when size(Bin)<128 ->
+					   {return, hex:encodex(Bin)};
+				   {return, <<Hdr:100/binary,_/binary>>}  ->
+					   {return, hex:encodex(Hdr), more};
+				   Other -> Other
+			   end
 			  ]),
 	case Result of
 		{done, {return,RetVal}, #{gas:=GasLeft, extra:=State3}} ->
@@ -394,7 +383,6 @@ tx_value(#{payload:=_}=Tx, Cur) ->
 			0
 	end.
 
-
 tx_cd(#{call:=#{function:="0x0",args:=[Arg1]}}) when is_binary(Arg1) ->
 	Arg1;
 tx_cd(#{call:=#{function:=FunNameID,args:=CArgs}}) when is_list(FunNameID),
@@ -407,75 +395,6 @@ tx_cd(#{call:=#{function:=FunNameID,args:=CArgs}}) when is_list(FunNameID),
 	<<X:4/binary,BArgs/binary>>;
 tx_cd(_) ->
 	<<>>.
-
-
-evm_instructions(chainid, #{stack:=Stack}=BIState) ->
-	BIState#{stack=>[16#c0de00000000|Stack]};
-evm_instructions(number,#{stack:=BIStack}=BIState) ->
-	BIState#{stack=>[100+1|BIStack]};
-evm_instructions(timestamp,#{stack:=BIStack}=BIState) ->
-	MT=1,
-	BIState#{stack=>[MT|BIStack]};
-evm_instructions(selfbalance,#{stack:=BIStack,data:=#{address:=MyAddr},extra:=#{global_acc:=#{table:=CurT}}}=BIState) ->
-	%TODO: hot preload
-	MyAcc=maps:get(binary:encode_unsigned(MyAddr),CurT),
-	BIState#{stack=>[mbal:get_cur(<<"SK">>, MyAcc)|BIStack]};
-
-evm_instructions(create, #{stack:=[Value,MemOff,Len|Stack],
-						   memory:=RAM,
-						   gas:=G,
-						   extra:=#{acc:=_}=Xtra}=BIState) ->
-  case Xtra of
-	  #{cur_tx:=#{from:=SrcAddr, seq:=Nonce}} ->
-		  Code=eevm_ram:read(RAM,MemOff,Len),
-		  D2Hash=erlp:encode([SrcAddr,binary:encode_unsigned(Nonce)]),
-		  {ok,<<_:12/binary,Address:20/binary>>}=ksha3:hash(256, D2Hash),
-		  io:format("Deploy to address ~p~n",[Address]),
-		  createX(Address, Code, Value, BIState#{stack=>Stack});
-	  _ ->
-		  BIState#{stack=>[0|Stack], gas=>G, extra=>Xtra}
-  end;
-
-evm_instructions(create2, #{stack:=[Value,MemOff,Len,Salt|Stack],
-							data:=#{address:=From},
-							memory:=RAM,
-							extra:=#{acc:=_}}=BIState) ->
-	Code=eevm_ram:read(RAM,MemOff,Len),
-	{ok,CodeHash}=ksha3:hash(256, Code),
-	D2Hash= <<255, From:160/big, Salt:256/big, CodeHash>>,
-	{ok,<<_:12/binary,Address:20/binary>>}=ksha3:hash(256, D2Hash),
-	io:format("Deploy to address ~p~n",[Address]),
-	createX(Address, Code, Value, BIState#{stack=>Stack});
-
-evm_instructions(tload, #{stack:=[Addr|Stack],
-						  data:=#{address:=From},
-						  gas:=G,
-						  extra:=#{tstorage:=TSM}}=BIState) ->
-	BIState#{stack=>[maps:get({From,Addr},TSM,0)|Stack], gas=>G-100};
-
-evm_instructions(tstore, #{stack:=[Addr,Value|Stack],
-						  data:=#{address:=From},
-						  gas:=G,
-						  extra:=#{tstorage:=TSM}=Extra}=BIState) ->
-	BIState#{stack=>Stack,
-			 extra=>Extra#{
-					  tstorage=>maps:put({From,Addr},Value,TSM)
-					 },
-			 gas=>G-100};
-
-evm_instructions(BIInstr,BIState) ->
-	logger:error("Bad instruction ~p",[BIInstr]),
-	{error,{bad_instruction,BIInstr},BIState}.
-
-createX(Address, Code, Value, #{stack:=Stack, data:=#{address:=From}, gas:=G, extra:=Xtra}=BIState) ->
-	case process_code_itx(Code, binary:encode_unsigned(From), Address,
-						  Value, <<>>, G-3200, Xtra, []) of
-		{1, DeployedCode, GasLeft, Xtra1} ->
-			Xtra2=pstate:set_state(Address, code, [], DeployedCode, Xtra1),
-			BIState#{stack=>[binary:decode_unsigned(Address)|Stack], gas=>GasLeft, extra=>Xtra2};
-		{0, _, GasLeft, _} ->
-			BIState#{stack=>[0|Stack], gas=>GasLeft, extra=>Xtra}
-	end.
 
 transfer(_, _, 0, _Cur, State) ->
 	State;
@@ -490,66 +409,4 @@ transfer(From, To, Value, Cur, State0) when Value > 0 ->
 	pstate:set_state(To, balance, Cur, Dst1, State3).
 
 
-evm_balance(IAddr, State, _) ->
-	{Value, Cached, State2} = pstate:get_state(binary:encode_unsigned(IAddr),
-										balance,
-										<<"SK">>,
-										State),
-	{'ok', Value, State2, not Cached}.
-
-evm_code(IAddr, State, _) ->
-	{Value, Cached, State2} = pstate:get_state(binary:encode_unsigned(IAddr),
-											   code,
-											   [],
-											   State),
-	{'ok', Value, State2, not Cached}.
-
-
-evm_sload(IAddr, IKey, State, _) ->
-	{Value, Cached, State2} = pstate:get_state(binary:encode_unsigned(IAddr),
-											   storage,
-											   binary:encode_unsigned(IKey),
-											   State),
-	{'ok', binary:decode_unsigned(Value), State2, not Cached}.
-
-
-evm_sstore(IAddr, IKey, IValue, State, _) ->
-	{OldValue, _, State2} = pstate:get_state(
-							  binary:encode_unsigned(IAddr),
-							  storage,
-							  binary:encode_unsigned(IKey),
-							  State),
-	State3 = pstate:set_state(
-			   binary:encode_unsigned(IAddr),
-			   storage,
-			   binary:encode_unsigned(IKey),
-			   binary:encode_unsigned(IValue),
-			   State2
-			  ),
-	{'ok', State3, OldValue=/=<<>>}.
-
-evm_custom_call(CallType, IFrom, ITo, Value, CallData, Gas, Extra) ->
-	Static=case CallType of
-			   staticcall -> true;
-			   delegatecall -> false;
-			   callcode -> false;
-			   call -> false
-		   end,
-	process_itx(binary:encode_unsigned(IFrom),
-				binary:encode_unsigned(ITo),
-				Value,
-				CallData,
-				Gas,
-				Extra,
-				if Static==true ->
-					   #{ static => true };
-				   true ->
-					   #{}
-				end).
-
-evm_logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}) ->
-  LArgs=[binary:encode_unsigned(I) || I <- LArgs0],
-  ?LOG_INFO("EVM log ~p ~p",[Message,LArgs]),
-  %io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
-  Xtra#{log=>[([evm,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog]}.
 
