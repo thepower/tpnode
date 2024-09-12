@@ -9,7 +9,7 @@
 
 set_state(Address, lstore, Path, Value, #{getfun:=_, getfunarg:=_, acc:=_}=State) ->
 	pstate_lstore:patch(Address, 
-						[ #{<<"p">> => Path,<<"t">> => <<"set">>,<<"v">> => Value} ],
+						[ {Path,set,Value} ],
 						State);
 
 set_state(Address, Field, Path, Value, #{getfun:=GetFun, getfunarg:=GFA, acc:=Acc}=State) ->
@@ -27,6 +27,7 @@ get_state(Address, Field, Path, #{getfun:=GetFun, getfunarg:=GFA, acc:=Acc}=Stat
 new_state(GetFun, GetFunArg) when is_function(GetFun,2) ->
 	#{
 	  acc => #{}, %accounts accumulator
+	  lstore_patches => #{},
 	  getfun => GetFun,
 	  getfunarg => GetFunArg
 	 }.
@@ -35,7 +36,9 @@ patch(#{acc:=Acc}) ->
 	maps:fold(
 	  fun(Address, Data, A0) ->
 			  maps:fold(
-				fun(_, {_, undefined}, A1) ->
+				fun(lstore_map, _, A1) -> %lstore_map is just a cache. Ignore it
+						A1;
+				   (_, {_, undefined}, A1) ->
 						A1;
 				   (_, {OldValue, NewValue}, A1) when OldValue == NewValue ->
 						A1;

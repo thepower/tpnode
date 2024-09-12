@@ -1111,7 +1111,7 @@ rate1(#{extradata:=ED}, Cur, TxAmount, GetRateFun) ->
       tip => max(0, TxAmount - Cost)
     }}.
 
-rate2(#{body:=Body}=_Tx, Cur, TxAmount, GetRateFun) ->
+rate2(#{body:=Body}=_Tx, #{cur:=Cur, amount:=TxAmount}=E, GetRateFun) ->
   case GetRateFun(Cur) of
     #{<<"base">>:=Base,
       <<"kb">>:=KB}=Rates ->
@@ -1120,10 +1120,9 @@ rate2(#{body:=Body}=_Tx, Cur, TxAmount, GetRateFun) ->
       ExtCur=max(0, BodySize-BaseEx),
       Cost=Base+trunc(ExtCur*KB/1024),
       {TxAmount >= Cost,
-       #{ cur=>Cur,
-          cost=>Cost,
-          tip => max(0, TxAmount - Cost)
-        }};
+	   E#{ cost=>Cost,
+		   tip => max(0, TxAmount - Cost)
+		 }};
     _Any ->
       throw('unsupported_fee_cur')
   end.
@@ -1131,12 +1130,12 @@ rate2(#{body:=Body}=_Tx, Cur, TxAmount, GetRateFun) ->
 rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
   try
     case get_payload(Tx, srcfee) of
-      #{cur:=Cur, amount:=TxAmount} ->
-        rate2(Tx, Cur, TxAmount, GetRateFun);
+      #{cur:=_Cur, amount:=_TxAmount}=Fee ->
+        rate2(Tx, Fee, GetRateFun);
       _ ->
         case GetRateFun({params, <<"feeaddr">>}) of
           X when is_binary(X) ->
-            rate2(Tx, <<"none">>, 0, GetRateFun);
+            rate2(Tx, #{cur=><<"none">>, amount=>0}, GetRateFun);
             %{false, #{ cost=>null } };
           _ ->
             {true, #{ cost=>0, tip => 0, cur=><<"none">> }}

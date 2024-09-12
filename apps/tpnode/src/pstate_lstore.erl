@@ -60,15 +60,11 @@ get(Address, Path, #{getfun:=GetFun, getfunarg:=GFA, acc:=Acc}=State) ->
 	AccLStore=maps:get(lstore_map,AddrAcc,#{}),
 	case maps:is_key({lstore,Path}, AddrAcc) of
 		true ->
-			CacheGot=settings:get(Path, AccLStore),
+			CacheGot=lstore:get(Path, AccLStore),
 			response_get(CacheGot, true, State);
 		false ->
 			DataGot=GetFun({lstore_raw,Address,Path},GFA),
-			GotMap=lists:foldl(
-					 fun({P,V}, LAcc) ->
-							 settings:set(P,V,LAcc) end,
-					 #{},
-					 DataGot),
+			GotMap=lstore:patch(DataGot, #{}),
 			HasChildren=lists:foldl(
 						  fun(_, true) -> true;
 							 ({P,_}, false) ->
@@ -76,7 +72,7 @@ get(Address, Path, #{getfun:=GetFun, getfunarg:=GFA, acc:=Acc}=State) ->
 						  end,
 						  false,
 						  DataGot),
-			AccLStore1=settings:merge(
+			AccLStore1=lstore:merge(
 						 GotMap,
 						 AccLStore
 						),
@@ -102,27 +98,96 @@ get(Address, Path, #{getfun:=GetFun, getfunarg:=GFA, acc:=Acc}=State) ->
 					   AddrAcc1,
 					   DataGot),
 			response_get(
-			  settings:get(Path, AccLStore1),
+			  lstore:get(Path, AccLStore1),
 			  false,
 			  State#{acc=>maps:put(Address,AddrAcc2,Acc)}
 			 )
 	end.
 
+get_int(Path, AddrAcc, {Address, GetFun, GFA}) ->
+	AccLStore=maps:get(lstore_map,AddrAcc,#{}),
+	case maps:is_key({lstore,Path}, AddrAcc) of
+		true ->
+			CacheGot=lstore:get(Path, AccLStore),
+			{CacheGot, true, AddrAcc};
+		false ->
+			DataGot=GetFun({lstore_raw,Address,Path},GFA),
+			GotMap=lists:foldl(
+					 fun({P,V}, LAcc) ->
+							 lstore:set(P,V,LAcc) end,
+					 #{},
+					 DataGot),
+			HasChildren=lists:foldl(
+						  fun(_, true) -> true;
+							 ({P,_}, false) ->
+								  (length(P) > length(Path))
+						  end,
+						  false,
+						  DataGot),
+			AccLStore1=lstore:merge(
+						 GotMap,
+						 AccLStore
+						),
+			io:format("get_int ~p~n~p~n",[HasChildren, AccLStore1]),
+			AddrAcc1 = if HasChildren ->
+							  maps:put({lstore,Path},{undefined,undefined},
+									   AddrAcc#{
+										 lstore_map=>AccLStore1
+										});
+						  true ->
+							  AddrAcc#{
+								lstore_map=>AccLStore1
+							   }
+					   end,
+			AddrAcc2=lists:foldl(
+					   fun({P,V}, UAcc) ->
+							   case maps:is_key({lstore,P},UAcc) of
+								   true ->
+									   UAcc;
+								   false ->
+									   maps:put({lstore,P},{V,undefined},UAcc)
+							   end
+					   end,
+					   AddrAcc1,
+					   DataGot),
+			{
+			 lstore:get(Path, AccLStore1),
+			 false,
+			 AddrAcc2
+			}
+	end.
+
+
 -spec patch(binary(), list(), #{acc:=map()}) -> {ok, map()} | {'error', atom()}.
 
-do_apply({Path, set, Value}, {#{lstore_map:=Map}=AddrAcc, List, {_Address, _GetFun, _GFA}=Handler}) ->
+do_apply({Path, compare, Value}, {AddrAcc, List, {_Address, _GetFun, _GFA}=Handler}) ->
+	{Value2,_Cached,AddrAcc1} = get_int(Path, AddrAcc, Handler),
+	if(Value2=/=Value) ->
+		  throw({compare, Path});
+	  true ->
+		  {
+		   AddrAcc1,
+		   List,
+		   Handler
+		  }
+	end;
+
+do_apply({Path, set, Value}, {AddrAcc, List, {_Address, _GetFun, _GFA}=Handler}) ->
 	IsLeaf = is_leaf(Path, AddrAcc, Handler),
+	io:format("do_apply ~p leaf ~p~n",[Path, IsLeaf]),
 	case IsLeaf of
-		{true, V0, AddrAcc1} when is_integer(V0) orelse is_binary(V0) ->
+		{true, V0, AddrAcc1} when is_integer(V0) orelse is_binary(V0) orelse is_list(V0) ->
+			Map=maps:get(lstore_map,AddrAcc1,#{}),
 			{
-			 AddrAcc1#{lstore_map => settings:set(Path, Value, Map),
-					  {lstore,Path} => {undefined,Value}},
+			 AddrAcc1#{lstore_map => lstore:set(Path, Value, Map),
+					  {lstore,Path} => {V0,Value}},
 			 [{Path, set, Value}|List],
 			 Handler
 			};
 		{false, AddrAcc1} ->
+			Map=maps:get(lstore_map,AddrAcc1,#{}),
 			{
-			 AddrAcc1#{lstore_map => settings:set(Path, Value, Map),
+			 AddrAcc1#{lstore_map => lstore:set(Path, Value, Map),
 					  {lstore,Path} => {undefined,Value}},
 			 [{Path, set, Value}|List],
 			 Handler
