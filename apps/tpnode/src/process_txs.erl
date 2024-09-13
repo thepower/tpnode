@@ -4,9 +4,27 @@
 		 process_tx/4,
 		 process_itx/7,
 		 process_code_itx/8,
-		 new_state/2
+		 new_state/2,
+		 upgrade_settings/3
 		]).
 -include("include/tplog.hrl").
+
+upgrade_settings(Settings, GetFun, GetFunArg) ->
+	State0 = new_state(GetFun, GetFunArg),
+	LStoreMap=settings:clean_meta(maps:with(
+									[<<"fee">>,<<"freegas2">>,<<"gas">>],
+									Settings
+								   )),
+
+	Addr0=lists:foldl(
+		 fun(#{<<"p">> := P, <<"t">> := <<"set">>, <<"v">> := V}, A) ->
+				 maps:put({lstore,P}, {V,undefined}, A)
+		 end,
+		 #{ lstore_map => LStoreMap },
+		 settings:get_patches(LStoreMap)
+		),
+
+	State0#{acc=>#{<<0>> => Addr0 }}.
 
 new_state(GetFun, GetFunArg) ->
 	S0=pstate:new_state(GetFun, GetFunArg),

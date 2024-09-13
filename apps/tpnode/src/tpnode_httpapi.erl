@@ -1346,71 +1346,182 @@ h(<<"POST">>, [<<"tx">>, <<"batch">>], Req) ->
 
 h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 	{RemoteIP, _Port}=cowboy_req:peer(Req),
+	QS=cowboy_req:parse_qs(Req),
+	WithAcc=proplists:get_value(<<"acc">>, QS) =/= undefined,
+
 	Body=apixiom:bodyjs(Req),
 	?LOG_DEBUG("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
-	BinTx=if Body == undefined ->
+	BinTxs=if Body == undefined ->
 				 {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
 				 ReqBody;
 			 is_map(Body) ->
 				 case maps:get(<<"tx">>, Body, undefined) of
 					 <<"0x", BArr/binary>> ->
-						 hex:parse(BArr);
-					 Any ->
-						 base64:decode(Any)
+						 [hex:parse(BArr)];
+					 Any when is_binary(Any) ->
+						 [base64:decode(Any)];
+					 undefined ->
+						 lists:map(
+						   fun(<<"0x", BArr/binary>>) ->
+								   hex:parse(BArr);
+							  (Any) when is_binary(Any) ->
+								   base64:decode(Any)
+						   end,
+						   maps:get(<<"txs">>, Body, [])
+						  )
 				 end
 		  end,
-	case tx:verify(BinTx) of
-		{ok, Tx} ->
-			State0=process_txs:new_state(fun mledger:getfun/2, mledger),
-			{Ret,RetData,State1}=process_txs:process_tx(Tx, State0, #{}),
-			answer(
-			  #{ result => <<"ok">>,
-				 ret => Ret,
-				 data => hex:encodex(RetData),
-				 changes =>
-				 lists:map(
-				   fun({Address,Field,Path,Old,New}) ->
-						   [hex:encodex(Address),
-							atom_to_binary(Field,utf8),
-							if Field==balance ->
-								   Path;
-							   is_binary(Path) ->
-								   hex:encodex(Path);
-							   is_list(Path) ->
-								   lists:map(fun hex:encodex/1, Path)
-							end,
-							if is_integer(Old) -> Old;
-							   is_binary(Old) ->
-								   hex:encodex(Old)
-							end,
-							if is_integer(New) -> New;
-							   is_binary(New) ->
-								   hex:encodex(New)
-							end
-							]
+	State0=process_txs:upgrade_settings(
+			 chainsettings:by_path([<<"current">>]),
+			 fun mledger:getfun/2,
+			 mledger
+			),
+	{Res,State2}=lists:foldl(
+				   fun(BinTx, {Acc,State}) ->
+						   case tx:verify(BinTx) of
+							   {ok, Tx} ->
+								   {Ret,RetData,State1}=process_txs:process_tx(Tx, State, #{}),
+								   {[{Ret,RetData}|Acc],State1};
+							   Err ->
+								   {[{error, iolist_to_binary(io_lib:format("bad_tx:~p", [Err]))}|Acc], State}
+						   end
 				   end,
-				   pstate:patch(State1)
-				  ),
-				 log =>
-				 list_to_binary(io_lib:format("~p",[maps:get(log,State1)])),
-				 transaction_receipt =>
-				 list_to_binary(
-				   io_lib:format("~p",[maps:get(transaction_receipt,State1)])
-				  ),
-				 acc_tree=> list_to_binary(
-				   io_lib:format("~p",[maps:get(acc,State1)])
-				  )
-			   }
-			 );
-		Err ->
-			?LOG_INFO("error ~p", [Err]),
-			err(
-			  10008,
-			  iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
-			  #{},
-			  #{http_code=>500}
-			 )
-	end;
+				   {[], State0},
+				   BinTxs),
+	Fmt=fun (_,undefined) ->
+				null;
+			(code,<<Code:64/binary,_/binary>>) ->
+				<<(hex:encodex(Code))/binary,"...">>;
+			(code,Code) ->
+				hex:encodex(Code);
+			(storage,Code) ->
+				hex:encodex(Code);
+			(lstore,Value) when is_integer(Value) ->
+				Value;
+			(lstore,Value) when is_binary(Value) ->
+				hex:encodex(Value);
+			(lstore_key,Value) when is_list(Value) ->
+				FormatedList=lists:map(
+							   fun(<<Int:64/big>>=X)
+									 when is_integer(Int) andalso Int >= 9223372036854775808
+										  andalso Int < 13835058055282163712 ->
+									   hex:encodex(X);
+								  (<<_:20/binary>>=X) ->
+									   hex:encodex(X);
+								  (<<_:32/binary>>=X) ->
+									   hex:encodex(X);
+								  (X) when is_binary(X), size(X) < 16 ->
+									   X;
+								  (X) when is_binary(X) ->
+									   hex:encodex(X);
+								  (X) when is_integer(X) ->
+									   X
+							   end, Value),
+				list_to_binary(["lstore:", lists:join(",", FormatedList)]);
+			(_,Value) ->
+				list_to_binary(
+				  io_lib:format("~p",[Value])
+				 )
+		end,
+	JsonAcc = if WithAcc ->
+					 FormatField = fun(lstore_map,Map,A) ->
+										   maps:put(<<"lstore_map">>,
+													Map,
+													A);
+
+									  ({code,[]},{Old,New},A) ->
+										   maps:put(<<"code">>,
+													[Fmt(code,Old),
+													 Fmt(code,New)],A);
+									  ({storage,BinKey},{Old,New},A) ->
+										   maps:put(<<"storage:",(hex:encodex(BinKey))/binary>>,
+													[Fmt(storage,Old),
+													 Fmt(storage,New)],A);
+									  ({lstore,Path}, {V0,V1}, A) ->
+										   maps:put(
+											 Fmt(lstore_key,Path),
+											 [
+											  Fmt(lstore,V0),
+											  Fmt(lstore,V1)
+											 ], A);
+
+									  (Key, {V0,V1}, A) ->
+										   maps:put(
+											 list_to_binary(
+											   io_lib:format("~p",[Key])
+											  ),
+											 [
+											  list_to_binary(
+												io_lib:format("~p",[V0])
+											   ),
+											  list_to_binary(
+												io_lib:format("~p",[V1])
+											   )
+											 ], A)
+								   end,
+
+					 MF=fun(Addr, IMap, Acc) ->
+								V=maps:fold( FormatField, #{}, IMap),
+								maps:put(hex:encodex(Addr), V, Acc)
+						end,
+					 maps:fold( MF, #{}, maps:get(acc,State2));
+				 true ->
+					 #{}
+			  end,
+
+	BinPacker=packer(Req),
+	EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
+              Conf1=jsx_config:list_to_config(Conf),
+              jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+                                State, Handler, Stack, Conf1)
+          end,
+	answer(
+	  #{ result => <<"ok">>,
+		 ret => lists:map(
+				  fun({error, Reason}) ->
+						  ["ERROR",Reason];
+					 ({Ret, RetData}) ->
+						  [Ret, hex:encodex(RetData)]
+				  end, Res),
+		 changes =>
+		 lists:map(
+		   fun({Address,Field,Path,Old,New}) ->
+				   [hex:encodex(Address),
+					atom_to_binary(Field,utf8),
+					if Field==balance ->
+						   Path;
+					   is_binary(Path) ->
+						   hex:encodex(Path);
+					   is_list(Path) ->
+						   lists:map(fun hex:encodex/1, Path)
+					end,
+					if is_integer(Old) -> Old;
+					   is_binary(Old) ->
+						   hex:encodex(Old)
+					end,
+					if is_integer(New) -> New;
+					   is_binary(New) ->
+						   hex:encodex(New)
+					end
+				   ]
+		   end,
+		   pstate:patch(State2)
+		  ),
+		 log => lists:map(
+				  fun([H|LogEntry]) ->
+						  [H |[ hex:encodex(E) || E<-LogEntry]]
+				  end,
+				  maps:get(log,State2)
+				 ),
+
+		 transaction_receipt =>
+		 list_to_binary(
+		   io_lib:format("~p",[maps:get(transaction_receipt,State2)])
+		  ),
+		 acc_tree=> JsonAcc
+	   },
+	  #{jsx=>[ strict, {error_handler, EHF} ]}
+	 );
 
 h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
   case application:get_env(tpnode,replica,false) of
