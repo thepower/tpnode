@@ -706,33 +706,10 @@ verify(#{
         {true, _IAddr} ->
           VerFun=case lists:member(nocheck_ledger,Opts) of
                    false ->
-                     LedgerInfo=mledger:get_kpvs(From,pubkey,[]),
-                     case LedgerInfo of
-                       [{pubkey,_,PK}] when is_binary(PK) ->
-                         fun(PubKey, Constraints, _) ->
-                             %io:format("Constraints ~p~n",[Constraints]),
-                             %io:format("Pubkey ~p~n PK ~p~n",[PubKey,PK]),
-                             case tpecdsa:cmp_pubkey(PK)==tpecdsa:cmp_pubkey(PubKey) of
-                               false ->
-                                 false;
-                               true ->
-                                 maps:fold(
-                                   fun(_,_,false) ->
-                                       false;
-                                      (tmin,Timestamp,true) ->
-                                       Timestamp<os:system_time(millisecond);
-                                      (tmax,Expire,true) ->
-                                       Expire>os:system_time(millisecond);
-                                      (Key,Val,true) ->
-                                       logger:notice("Can't check constraint ~p:~p~n",[Key,Val]),
-                                       false
-                                   end, true, Constraints)
-                             end
-
-                         end;
-                       _ ->
-                         throw({ledger_err, From})
-                     end;
+					 ActiveLedger=proplists:get_value(ledger,Opts,mledger),
+					 LedgerInfo=mledger:db_get_multi(ActiveLedger, From, pubkey, [], []),
+                     %LedgerInfo=mledger:get_kpvs(From,pubkey,[]),
+					 verify_ledger_fun(From, LedgerInfo);
                    true ->
                      undefined
                  end,
@@ -1265,3 +1242,27 @@ upgrade(#{
     txext => TxExt
    }).
 
+verify_ledger_fun(_From, [{pubkey,_,PK}]) when is_binary(PK) ->
+	fun(PubKey, Constraints, _) ->
+			%io:format("Constraints ~p~n",[Constraints]),
+			%io:format("Pubkey ~p~n PK ~p~n",[PubKey,PK]),
+			case tpecdsa:cmp_pubkey(PK)==tpecdsa:cmp_pubkey(PubKey) of
+				false ->
+					false;
+				true ->
+					maps:fold(
+					  fun(_,_,false) ->
+							  false;
+						 (tmin,Timestamp,true) ->
+							  Timestamp<os:system_time(millisecond);
+						 (tmax,Expire,true) ->
+							  Expire>os:system_time(millisecond);
+						 (Key,Val,true) ->
+							  logger:notice("Can't check constraint ~p:~p~n",[Key,Val]),
+							  false
+					  end, true, Constraints)
+			end
+	end;
+
+verify_ledger_fun(From, _) ->
+	throw({ledger_err, From}).
