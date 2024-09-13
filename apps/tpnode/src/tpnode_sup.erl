@@ -6,7 +6,7 @@
 -export([start_link/0]).
 
 %% Supervisor callbacks
--export([init/1, check_key/0, try_restore_db/0]).
+-export([init/1, check_key/0, try_restore_db/1, try_restore_db/0]).
 
 %% Helper macro for declaring children of supervisor
 -define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
@@ -44,6 +44,32 @@ check_key() ->
   end.
 
 try_restore_db() ->
+	try_restore_db([]).
+
+try_fetch_backup(_, [], _) ->
+	false;
+
+try_fetch_backup(0, [_|Next], Retry) ->
+	try_fetch_backup(Retry, Next, Retry);
+
+try_fetch_backup(N, [Host|_]=List, Retry) ->
+	logger:info("Trying to fetch backup from ~s try ~p",[Host,Retry - N + 1]),
+	try
+		Bin = tpapi2:httpget(Host,<<"/api/node/backup.zip">>),
+		true=is_binary(Bin),
+		DBPath=application:get_env(tpnode,dbpath,"db"),
+		file:write_file(DBPath++"/backup.zip", Bin),
+		true
+	catch Ec:Ee ->
+			  logger:notice("Beckup fetch from ~s errror Ec:Ee",[Host, Ec,Ee]),
+			  try_fetch_backup(N-1, List, Retry)
+	end.
+
+try_fetch_backup(N, List) ->
+	try_fetch_backup(N, List, N).
+
+
+try_restore_db(FetchFrom) ->
   ExistsDBPath=filelib:is_dir(utils:dbpath(db)),
   ExistsLedgerPath=filelib:is_dir(utils:dbpath(mledger)),
 
@@ -60,10 +86,17 @@ try_restore_db() ->
         false ->
           case filelib:is_file(DBPath++"/backup.zip") of
             false ->
-              false;
+				  io:format("Trying to fetch from ~p~n",[FetchFrom]),
+				  try_fetch_backup(2, FetchFrom),
+				  case filelib:is_regular(DBPath++"/backup.zip") of
+					  false -> false;
+					  true ->
+						  zip:extract(DBPath++"/backup.zip", [{cwd,RPath}]),
+						  true
+				  end;
             true ->
-              zip:extract(DBPath++"/backup.zip", [{cwd,RPath}]),
-              true
+				  zip:extract(DBPath++"/backup.zip", [{cwd,RPath}]),
+				  true
           end
       end,
       Res=case file:consult(RPath++"/backup.txt") of
@@ -134,7 +167,7 @@ init([]) ->
                application:set_env(tpnode,vmport,XPort),
                XPort
            end,
-    RestRes=try_restore_db(),
+    RestRes=try_restore_db(application:get_env(tpnode,upstream, [])),
     logger:info("Restore result ~p",[RestRes]),
 
     filelib:ensure_dir( utils:dbpath(db) ),
