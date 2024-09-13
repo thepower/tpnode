@@ -106,7 +106,7 @@ deploy4test(DBName, LedgerData, TestFun) ->
   try
     Patches=bals2patch(LedgerData),
     {ok,_}=apply_patch(DBName, Patches, {commit,1}),
-    TestFun(undefined)
+    TestFun(DBName)
   after
     rockstable:close_db(DBName),
     rm_rf(TmpDir)
