@@ -1344,6 +1344,74 @@ h(<<"POST">>, [<<"tx">>, <<"batch">>], Req) ->
      }
    );
 
+h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
+	{RemoteIP, _Port}=cowboy_req:peer(Req),
+	Body=apixiom:bodyjs(Req),
+	?LOG_DEBUG("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
+	BinTx=if Body == undefined ->
+				 {ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
+				 ReqBody;
+			 is_map(Body) ->
+				 case maps:get(<<"tx">>, Body, undefined) of
+					 <<"0x", BArr/binary>> ->
+						 hex:parse(BArr);
+					 Any ->
+						 base64:decode(Any)
+				 end
+		  end,
+	case tx:verify(BinTx) of
+		{ok, Tx} ->
+			State0=process_txs:new_state(fun mledger:getfun/2, mledger),
+			{Ret,RetData,State1}=process_txs:process_tx(Tx, State0, #{}),
+			answer(
+			  #{ result => <<"ok">>,
+				 ret => Ret,
+				 data => hex:encodex(RetData),
+				 changes =>
+				 lists:map(
+				   fun({Address,Field,Path,Old,New}) ->
+						   [hex:encodex(Address),
+							atom_to_binary(Field,utf8),
+							if Field==balance ->
+								   Path;
+							   is_binary(Path) ->
+								   hex:encodex(Path);
+							   is_list(Path) ->
+								   lists:map(fun hex:encodex/1, Path)
+							end,
+							if is_integer(Old) -> Old;
+							   is_binary(Old) ->
+								   hex:encodex(Old)
+							end,
+							if is_integer(New) -> New;
+							   is_binary(New) ->
+								   hex:encodex(New)
+							end
+							]
+				   end,
+				   pstate:patch(State1)
+				  ),
+				 log =>
+				 list_to_binary(io_lib:format("~p",[maps:get(log,State1)])),
+				 transaction_receipt =>
+				 list_to_binary(
+				   io_lib:format("~p",[maps:get(transaction_receipt,State1)])
+				  ),
+				 acc_tree=> list_to_binary(
+				   io_lib:format("~p",[maps:get(acc,State1)])
+				  )
+			   }
+			 );
+		Err ->
+			?LOG_INFO("error ~p", [Err]),
+			err(
+			  10008,
+			  iolist_to_binary(io_lib:format("bad_tx:~p", [Err])),
+			  #{},
+			  #{http_code=>500}
+			 )
+	end;
+
 h(<<"POST">>, [<<"tx">>, <<"new">>], Req) ->
   case application:get_env(tpnode,replica,false) of
     true -> %slave node
