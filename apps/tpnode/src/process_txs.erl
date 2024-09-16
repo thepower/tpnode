@@ -43,6 +43,42 @@ process_tx(#{txext:=#{"sponsor":=Sponsors}=E}=Tx, State0, Opts) ->
 				 txext=>maps:remove("sponsor",E)
 				},State1, Opts);
 
+process_tx(#{kind:=register,
+			 sigverify:=#{
+						  invalid:=0,
+						  valid:=1,
+						  pubkeys:=[PubKey|_]
+						 }
+			}, State0, Opts) ->
+	try
+		ChainSettingsAddress=maps:get(chainsettings_address,Opts,<<0>>),
+		{Alloc, _, State1} = pstate:get_state(
+							 ChainSettingsAddress,
+							 lstore,
+							 [<<"allocblock">>],
+							 State0),
+		case Alloc of
+			#{<<"block">> := Blk,
+			  <<"group">> := Grp,
+			  <<"last">> := Last} when Last < 16#FFFFF0 ->
+				NewBAddr=naddress:construct_public(Grp, Blk, Last+1),
+				Patch={[<<"allocblock">>,<<"last">>],set,Last+1},
+				case pstate_lstore:patch(ChainSettingsAddress, [Patch], State1) of
+					{ok, State2} ->
+						State3=pstate:set_state(NewBAddr, pubkey, [], PubKey, State2),
+						{1, <<0:192/big,NewBAddr/binary>>, State3};
+					{error, FReason} ->
+						{0, atom_to_binary(FReason), State1}
+				end;
+			_ ->
+				{0, <<"unallocable">>, State1}
+		end
+	catch throw:Reason when is_atom(Reason) ->
+			  {0, atom_to_binary(Reason, utf8), State0};
+		  throw:Reason when is_binary(Reason) ->
+			  {0, Reason, State0}
+	end;
+
 process_tx(#{from:=From}=Tx, State0, Opts) ->
 	?LOG_INFO("Process generic from ~s",[hex:encodex(From)]),
 	try
@@ -55,7 +91,11 @@ process_tx(#{from:=From}=Tx, State0, Opts) ->
 
 	{State1, LoadedSettings}=maps:fold(
 					fun(Opt, Path, {CState,Acc}) ->
-							{Val, _, CState1} = pstate:get_state(ChainSettingsAddress, lstore, Path, CState),
+							{Val, _, CState1} = pstate:get_state(
+												  ChainSettingsAddress,
+												  lstore,
+												  Path,
+												  CState),
 							{CState1, maps:put(Opt,Val,Acc)}
 					end, {State0,#{}}, SettingsToLoad),
 	FeeSettings=maps:get(fee, LoadedSettings),

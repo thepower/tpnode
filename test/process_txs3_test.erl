@@ -7,8 +7,53 @@ read_contract(Filename) ->
 
 default_settings() ->
 	{<<0>>,
-	 #{ lstore => #{ <<"fee">> => #{ <<"params">>=> #{ <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>> }, <<"FTT">> => #{ <<"base">> => 1, <<"baseextra">> => 64, <<"kb">> => 10 } }, <<"gas">> => #{ <<"FTT">> => #{ <<"gas">> => 35000, <<"tokens">> => 10 }, <<"SK">> => #{ <<"gas">> => 50000, <<"tokens">> => 1 } } } }
+	 #{ lstore => #{
+					<<"fee">> => #{
+								   <<"params">>=> #{ <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>> },
+								   <<"FTT">> => #{ <<"base">> => 1, <<"baseextra">> => 64, <<"kb">> => 10 }
+								  },
+					<<"gas">> => #{
+								   <<"FTT">> => #{ <<"gas">> => 35000, <<"tokens">> => 10 },
+								   <<"SK">> => #{ <<"gas">> => 50000, <<"tokens">> => 1 }
+								  },
+					<<"allocblock">> => #{
+										  <<"block">> => 10,
+										  <<"group">> => 2,
+										  <<"last">> => 3
+										 }
+				   }
+	  }
 	}.
+
+process_register_test() ->
+	Ledger=[default_settings()],
+	Pvt=crypto:hash(sha256,<<"test">>),
+	Pub=tpecdsa:calc_pub(Pvt),
+
+	{ok,Tx}= tx:verify(tx:sign(tx:construct_tx(
+		  #{kind=>register,
+			ver=>2,
+			t=>1,
+			keys=>[Pub]
+		   }),Pvt)),
+
+
+	Test=fun(DB) ->
+			 State0=process_txs:new_state(fun mledger:getfun/2, DB),
+			 {Ret,RetData,State1}=process_txs:process_tx(Tx,
+														 State0,
+														 #{}),
+			 Patch=pstate:patch(State1),
+			 {Ret,RetData,Patch}
+	 end,
+
+	DB=test3_ptx,
+	{Res, <<0:192/big,Address:8/binary>>, Patch} = mledger:deploy4test(DB, Ledger, Test),
+	[?assertEqual(1, Res),
+	 ?assertMatch({_,lstore,[<<"allocblock">>,<<"last">>],_,_}, lists:keyfind(lstore,2,Patch)),
+	 ?assertMatch({Address,pubkey,[],_,Pub}, lists:keyfind(pubkey,2,Patch))
+	].
+
 
 process_embedded_lstore_write_test() ->
 	UserAddr= <<128,1,64,0,2,0,0,1>>,
