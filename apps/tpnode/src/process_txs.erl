@@ -97,7 +97,7 @@ process_tx(#{from:=From}=Tx, State0, Opts) ->
 						 fun(#{amount:=0, cur:= <<"NORUN">>}, _) ->
 								 {State2, [], norun};
 							(_,{_,_,norun}=A) ->
-								A; 
+								A;
 							(Payload, {_CState, _T, _GasAcc}=A) ->
 								 to_gas(maps:merge(
 										  #{sponsor=>From},
@@ -110,7 +110,7 @@ process_tx(#{from:=From}=Tx, State0, Opts) ->
 	io:format("Gas collected ~p~n", [GasLimit]),
 	io:format("Taken ~p~n", [Taken]),
 
-	
+
 	try
 		{Valid, Data, GasLeft, State4} = process_tx(Tx, GasLimit, State3, Opts),
 
@@ -125,18 +125,18 @@ process_tx(#{from:=From}=Tx, State0, Opts) ->
 
 		{Valid, Data, State6}
 
-	catch throw:Reason1 when is_atom(Reason1) -> 
+	catch throw:Reason1 when is_atom(Reason1) ->
 			  % in case of something went wrong, take only fee, and return gas
 			  {0, atom_to_binary(Reason1, utf8), State2};
-		  throw:Reason1 when is_binary(Reason1) -> 
+		  throw:Reason1 when is_binary(Reason1) ->
 			  % in case of something went wrong, take only fee, and return gas
 			  {0, Reason1, State2}
 	end
 
 
-	catch throw:Reason when is_atom(Reason) -> 
+	catch throw:Reason when is_atom(Reason) ->
 			  {0, atom_to_binary(Reason, utf8), State0};
-		  throw:Reason when is_binary(Reason) -> 
+		  throw:Reason when is_binary(Reason) ->
 			  {0, Reason, State0}
 	end.
 
@@ -194,7 +194,7 @@ process_tx(#{from:=From, to:=To}=Tx,
 	?LOG_INFO("Process internal gas ~p ",[GasLimit]),
 	if(GasLimit==0) ->
 		  ?LOG_INFO(" | -> Process int ~p ",[maps:without([body],Tx)]);
-	  true -> ok 
+	  true -> ok
 	end,
 
 	Value=tx_value(Tx,<<"SK">>),
@@ -207,7 +207,7 @@ process_tx(#{from:=From, to:=To}=Tx,
 			),
 	%transfer all except first SK transfer, which will be transfered in process_itx
 
-	CD=tx_cd(Tx),
+	CD=contract_evm:tx_cd(Tx),
 	{Valid, Return, GasLeft, State2} = process_itx(
 										 From,
 										 To,
@@ -290,6 +290,55 @@ process_tx(#{
 
 process_tx(_Tx, _GasLimit, _State, _Opts) ->
 	throw('invalid_tx').
+
+-define (ASSERT_NOVAL,
+		 if Value>0 ->
+				throw({revert,<<"embedded called with value">>});
+			Value == 0 ->
+				ok
+		 end).
+
+process_itx(_From, <<16#AFFFFFFFFF000000:64/big>>=_To, Value, _CallData, GasLimit, State0, _Opts) ->
+	?ASSERT_NOVAL,
+	%this probably will not work yet, sync with consensus layer
+	MT=maps:get(mean_time,State0,0),
+	Ent=case maps:get(entropy,State0,<<>>) of
+			Ent1 when is_binary(Ent1) ->
+				Ent1;
+			_ ->
+				<<>>
+		end,
+	{1,<<MT:256/big,Ent/binary>>, GasLimit-10, State0};
+
+process_itx(_From, <<16#AFFFFFFFFF000001:64/big>>=_To, Value, CallData, GasLimit, State0, _Opts) ->
+	?ASSERT_NOVAL,
+	{1,list_to_binary( lists:reverse( binary_to_list(CallData))), GasLimit-10, State0};
+
+process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value, _CallData, GasLimit,
+			#{cur_tx:=Tx}=State0, _Opts) ->
+	?ASSERT_NOVAL,
+	RBin= contract_evm:encode_tx(Tx,[]),
+	{1, RBin, GasLimit-100, State0};
+
+process_itx(From, <<16#AFFFFFFFFF000003:64/big>>, Value, CallData, GasLimit, State0, Opts) ->
+	?ASSERT_NOVAL,
+	process_embedded:settings_service(From, CallData, GasLimit, State0, Opts);
+
+process_itx(From, <<16#AFFFFFFFFF000004:64/big>>, Value, CallData, GasLimit, State0, Opts) ->
+	?ASSERT_NOVAL,
+	process_embedded:block_service(From, CallData, GasLimit, State0, Opts);
+
+process_itx(From, <<16#AFFFFFFFFF000005:64/big>>, Value, CallData, GasLimit, State0, Opts) ->
+	?ASSERT_NOVAL,
+	process_embedded:lstore_service(From, CallData, GasLimit, State0, Opts);
+
+process_itx(From, <<16#AFFFFFFFFF000006:64/big>>, Value, CallData, GasLimit, State0, Opts) ->
+	?ASSERT_NOVAL,
+	process_embedded:chkey_service(From, CallData, GasLimit, State0, Opts);
+
+process_itx(From, <<16#AFFFFFFFFF000007:64/big>>, Value, CallData, GasLimit, State0, Opts) ->
+	?ASSERT_NOVAL,
+	process_embedded:bronkerbosch_service(From, CallData, GasLimit, State0, Opts);
 
 process_itx(From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opts) ->
 	{ok, Code, State1, _} = process_evm:evm_code(binary:decode_unsigned(To), State0, #{}),
@@ -400,19 +449,6 @@ tx_value(#{payload:=_}=Tx, Cur) ->
 		_ ->
 			0
 	end.
-
-tx_cd(#{call:=#{function:="0x0",args:=[Arg1]}}) when is_binary(Arg1) ->
-	Arg1;
-tx_cd(#{call:=#{function:=FunNameID,args:=CArgs}}) when is_list(FunNameID),
-														is_list(CArgs) ->
-	BinFun=list_to_binary(FunNameID),
-	{ok,<<X:4/binary,_/binary>>}=ksha3:hash(256, BinFun),
-	{ok,{{function,_},FABI,_}} = contract_evm_abi:parse_signature(BinFun),
-	true=(length(FABI)==length(CArgs)),
-	BArgs=contract_evm_abi:encode_abi(CArgs,FABI),
-	<<X:4/binary,BArgs/binary>>;
-tx_cd(_) ->
-	<<>>.
 
 transfer(_, _, 0, _Cur, State) ->
 	State;

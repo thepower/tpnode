@@ -724,6 +724,13 @@ getfun({code, Addr, _Path}, DB) ->
     {ok, Bin} ->
       Bin
   end;
+getfun({pubkey, Addr, _Path}, DB) ->
+  case db_get_one(DB, Addr, pubkey, [], []) of
+    undefined ->
+      <<>>;
+    {ok, Bin} ->
+      Bin
+  end;
 getfun({balance,Addr,Token}, DB) ->
   case db_get_one(DB, Addr, amount, [], []) of
     undefined ->

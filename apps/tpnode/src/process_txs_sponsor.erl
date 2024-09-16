@@ -27,14 +27,13 @@ process_sponsors([_|Rest],Tx,State0) ->
 
 
 sponsor_pays(Address, Tx, State0) ->
-	Function= "wouldYouLikeToPayTx("
-	"(uint256,address,address,uint256,uint256,"
-	"(string,uint256[])[],"
+	Function= "sponsor_tx("
+	"(uint256,address,address,uint256,uint256,bytes,"
 	"(uint256,string,uint256)[],"
 	"(bytes,uint256,bytes,bytes,bytes)[])"
 	")",
 	try
-		OutABI=[{<<"iWillPay">>,string},{<<"pay">>,{darray,{tuple,[{<<"purpose">>,uint256},{<<"cur">>,string},{<<"amount">>,uint256}]}}}],
+		OutABI=[{<<"pays">>,uint256},{<<"pay">>,{darray,{tuple,[{<<"purpose">>,uint256},{<<"cur">>,string},{<<"amount">>,uint256}]}}}],
 		{ok,PTx}=contract_evm:preencode_tx(Tx,[]),
 		CallData = contract_evm_abi:encode_abi_call([PTx], Function),
 
@@ -43,7 +42,7 @@ sponsor_pays(Address, Tx, State0) ->
 				{false, [], State1};
 			{1, Ret, _GasLeft, State1} ->
 				case contract_evm_abi:decode_abi(Ret,OutABI) of
-					[{<<"iWillPay">>,<<"i will pay">>},{<<"pay">>,WillPay}] ->
+					[{<<"pays">>,1},{<<"pay">>,WillPay}] ->
 						R=lists:foldr(
 							fun([{<<"purpose">>,P},{<<"cur">>,Cur},{<<"amount">>,Amount}],A) ->
 									[#{sponsor=>Address,
@@ -52,7 +51,7 @@ sponsor_pays(Address, Tx, State0) ->
 									   amount=>Amount}|A]
 							end, maps:get(payload,Tx), WillPay),
 						{true, R, State1};
-					[{<<"iWillPay">>,<<"no">>},_] ->
+					[{<<"pays">>,0},_] ->
 						?LOG_INFO("Sponsor is not willing to pay for tx"),
 						{false, [], State1};
 					Any ->

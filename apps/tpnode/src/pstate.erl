@@ -64,6 +64,7 @@ get_state_int(Address, Field, Path, Acc, GetFun, GFA) when
 	  Field==storage ;
 	  Field==code ;
 	  Field==balance ;
+	  Field==pubkey ;
 	  Field==lstore ->
 	case get_from_acc(Address, Field, Path, Acc) of
 		undefined ->
@@ -79,6 +80,7 @@ set_state_int(Address, Field, Path, Acc, Value, GetFun, GFA) when
 	  Field==storage ;
 	  Field==code ;
 	  Field==balance ;
+	  Field==pubkey ;
 	  Field==lstore ->
 
 	{OldValue, _, _, Acc1} = get_state_int(
