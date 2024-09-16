@@ -128,7 +128,6 @@ get_int(Path, AddrAcc, {Address, GetFun, GFA}) ->
 						 GotMap,
 						 AccLStore
 						),
-			io:format("get_int ~p~n~p~n",[HasChildren, AccLStore1]),
 			AddrAcc1 = if HasChildren ->
 							  maps:put({lstore,Path},{undefined,undefined},
 									   AddrAcc#{
@@ -174,7 +173,6 @@ do_apply({Path, compare, Value}, {AddrAcc, List, {_Address, _GetFun, _GFA}=Handl
 
 do_apply({Path, set, Value}, {AddrAcc, List, {_Address, _GetFun, _GFA}=Handler}) ->
 	IsLeaf = is_leaf(Path, AddrAcc, Handler),
-	io:format("do_apply ~p leaf ~p~n",[Path, IsLeaf]),
 	case IsLeaf of
 		{true, V0, AddrAcc1} when is_integer(V0) orelse is_binary(V0) orelse is_list(V0) ->
 			Map=maps:get(lstore_map,AddrAcc1,#{}),
