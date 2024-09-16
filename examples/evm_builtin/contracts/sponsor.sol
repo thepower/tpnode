@@ -4,10 +4,10 @@ pragma solidity ^0.8.0;
 import {ERC165} from "contracts/utils/introspection/ERC165.sol";
 
 contract Sponsor is ERC165 {
-  struct tpCall {
+  /*struct tpCall {
     string func;
     uint256[] args;
-  }
+  }*/
   struct tpSig {
     bytes raw;
     uint256 timestamp;
@@ -21,7 +21,8 @@ contract Sponsor is ERC165 {
     address to;
     uint256 t;
     uint256 seq;
-    tpCall[] call;
+	bytes call;
+    //tpCall[] call;
     tpPayload[] payload;
     tpSig[] signatures;
   }
@@ -63,6 +64,42 @@ contract Sponsor is ERC165 {
     require(msg.sender==owner ||
             (allowed[msg.sender] & 0x100000000) == 0x100000000,"Not allowed");
     return allowed[to]=(allowed[to] & ~(uint(del))) | uint(add);
+  }
+
+  function sponsor_tx(tpTx calldata utx) public view returns(bool, tpPayload[] memory pay) {
+    if((allowed[utx.from] & 1) == 0 && (allowed[utx.to] & 2) == 0){
+      return(false,new tpPayload[](0));
+    }
+    uint i=0;
+    uint found_fee_hint=0;
+    uint found_gas_hint=0;
+    for (i=0;i<utx.payload.length;i++){
+      if(utx.payload[i].purpose==33){
+        found_fee_hint=i+1;
+      }
+      if(utx.payload[i].purpose==35){
+        found_gas_hint=i+1;
+      }
+    }
+
+    uint c=0;
+    if(found_fee_hint>0) c++;
+    if(found_gas_hint>0) c++;
+
+    tpPayload[] memory payload1=new tpPayload[](c);
+    if(c==2){
+      payload1[0]=utx.payload[found_fee_hint-1];
+      payload1[0].purpose=1;
+      payload1[1]=utx.payload[found_gas_hint-1];
+      payload1[1].purpose=3;
+    }else if(c==1 && found_gas_hint>0){
+      payload1[0]=utx.payload[found_gas_hint-1];
+      payload1[0].purpose=3;
+    }else if(c==1 && found_fee_hint>0){
+      payload1[0]=utx.payload[found_fee_hint-1];
+      payload1[0].purpose=1;
+    }
+    return (true,payload1);
   }
 
   function wouldYouLikeToPayTx(tpTx calldata utx) public view returns(string memory iWillPay, tpPayload[] memory pay) {

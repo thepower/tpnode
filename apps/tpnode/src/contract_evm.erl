@@ -4,6 +4,7 @@
 -export([deploy/5, handle_tx/5, getters/0, get/3, info/0, call/3, call/4, call_i/4]).
 -export([encode_tx/2,decode_tx/2]).
 -export([tx_abi/0]).
+-export([tx_cd/1, cd/2]).
 -export([enc_settings1/1]).
 -export([callcd/3]).
 -export([ask_ERC165/3]).
@@ -62,25 +63,26 @@ deploy(#{from:=From,txext:=#{"code":=Code}=_TE}=Tx, Ledger, GasLimit, GetFun, Op
                       0
                   end
               end,
-  ACD=try
-        case Tx of
-          #{call:=#{function:="ABI",args:=CArgs}} ->
-            abi_encode_simple(CArgs);
-          #{call:=#{function:="0x0",args:=[Bin]}} when is_binary(Bin) ->
-            Bin;
-          #{call:=#{function:=FunNameID,args:=CArgs}} when is_list(FunNameID) ->
-            BinFun=list_to_binary(FunNameID),
-            {ok,{{function,_},FABI,_}} = contract_evm_abi:parse_signature(BinFun),
-            true=(length(FABI)==length(CArgs)),
-            contract_evm_abi:encode_abi(CArgs,FABI);
-          _ ->
-            <<>>
-        end
-      catch Ec:Ee:S ->
-              ?LOG_ERROR("ABI encode error: ~p:~p @~p",[Ec,Ee,hd(S)]),
-              <<>>
-      end,
-
+%  ACD=try
+%        case Tx of
+%          #{call:=#{function:="ABI",args:=CArgs}} ->
+%            abi_encode_simple(CArgs);
+%          #{call:=#{function:="0x0",args:=[Bin]}} when is_binary(Bin) ->
+%            Bin;
+%          #{call:=#{function:=FunNameID,args:=CArgs}} when is_list(FunNameID) ->
+%            BinFun=list_to_binary(FunNameID),
+%            {ok,{{function,_},FABI,_}} = contract_evm_abi:parse_signature(BinFun),
+%            true=(length(FABI)==length(CArgs)),
+%            contract_evm_abi:encode_abi(CArgs,FABI);
+%          _ ->
+%            <<>>
+%        end
+%      catch Ec:Ee:S ->
+%              ?LOG_ERROR("ABI encode error: ~p:~p @~p",[Ec,Ee,hd(S)]),
+%              <<>>
+%      end,
+%
+  ACD = tx_cd(Tx),
   BI=fun
        (chainid, #{stack:=Stack}=BIState) ->
          BIState#{stack=>[16#c0de00000000|Stack]};
@@ -216,31 +218,32 @@ handle_tx_int(#{to:=To,from:=From}=Tx, #{code:=Code}=Ledger,
             end
         end,
 
-  CD=case Tx of
-       #{call:=#{function:="0x0",args:=[Arg1]}} when is_binary(Arg1) ->
-         Arg1;
-       #{call:=#{function:="0x"++FunID,args:=CArgs}} ->
-         FunHex=hex:decode(FunID),
-         %lists:foldl(fun encode_arg/2, <<FunHex:4/binary>>, CArgs);
-         BArgs=abi_encode_simple(CArgs),
-         <<FunHex:4/binary,BArgs/binary>>;
-       #{call:=#{function:=FunNameID,args:=CArgs}} when is_list(FunNameID) ->
-         BinFun=list_to_binary(FunNameID),
-         {ok,E}=ksha3:hash(256, BinFun),
-         <<X:4/binary,_/binary>> = E,
-         try
-           {ok,{{function,_},FABI,_}} = contract_evm_abi:parse_signature(BinFun),
-           true=(length(FABI)==length(CArgs)),
-           BArgs=contract_evm_abi:encode_abi(CArgs,FABI),
-           <<X:4/binary,BArgs/binary>>
-         catch EEc:EEe ->
-           ?LOG_ERROR("abiencode error: ~p:~p function ~p args ~p",[EEc,EEe,FunNameID,CArgs]),
-           BArgs2=abi_encode_simple(CArgs),
-           <<X:4/binary,BArgs2/binary>>
-         end;
-       _ ->
-         <<>>
-     end,
+  %CD=case Tx of
+  %     #{call:=#{function:="0x0",args:=[Arg1]}} when is_binary(Arg1) ->
+  %       Arg1;
+  %     #{call:=#{function:="0x"++FunID,args:=CArgs}} ->
+  %       FunHex=hex:decode(FunID),
+  %       %lists:foldl(fun encode_arg/2, <<FunHex:4/binary>>, CArgs);
+  %       BArgs=abi_encode_simple(CArgs),
+  %       <<FunHex:4/binary,BArgs/binary>>;
+  %     #{call:=#{function:=FunNameID,args:=CArgs}} when is_list(FunNameID) ->
+  %       BinFun=list_to_binary(FunNameID),
+  %       {ok,E}=ksha3:hash(256, BinFun),
+  %       <<X:4/binary,_/binary>> = E,
+  %       try
+  %         {ok,{{function,_},FABI,_}} = contract_evm_abi:parse_signature(BinFun),
+  %         true=(length(FABI)==length(CArgs)),
+  %         BArgs=contract_evm_abi:encode_abi(CArgs,FABI),
+  %         <<X:4/binary,BArgs/binary>>
+  %       catch EEc:EEe ->
+  %         ?LOG_ERROR("abiencode error: ~p:~p function ~p args ~p",[EEc,EEe,FunNameID,CArgs]),
+  %         BArgs2=abi_encode_simple(CArgs),
+  %         <<X:4/binary,BArgs2/binary>>
+  %       end;
+  %     _ ->
+  %       <<>>
+  %   end,
+  CD=tx_cd(Tx),
 
   SLoad=fun(Addr, IKey, Ex0=#{get_addr:=GAFun}) ->
             %io:format("=== sLoad key 0x~s:~p~n",[hex:encode(binary:encode_unsigned(Addr)),IKey]),
@@ -468,22 +471,23 @@ call(Address, LedgerMap, Method, Args) ->
   call_i(Address, Method, Args, #{sload=>SLoad, getcode=>GetCode}).
 
 call_i(Address, Method, Args, #{sload:=SLoad, getcode:=GetCode}=Opts) ->
-  CD=case Method of
-       "0x0" ->
-         list_to_binary(Args);
-       "0x"++FunID ->
-         FunHex=hex:decode(FunID),
-         BArgs=abi_encode_simple(Args),
-         <<FunHex:4/binary,BArgs/binary>>;
-       FunNameID when is_list(FunNameID) ->
-         {ok,{{function,_},FABI,_}=S} = contract_evm_abi:parse_signature(FunNameID),
-         if(length(FABI)==length(Args)) -> ok;
-           true -> throw("amount of arguments does not match with signature")
-         end,
-         BArgs=contract_evm_abi:encode_abi(Args,FABI),
-         X=contract_evm_abi:sig32(contract_evm_abi:mk_sig(S)),
-         <<X:32/big,BArgs/binary>>
-     end,
+  %CD=case Method of
+  %     "0x0" ->
+  %       list_to_binary(Args);
+  %     "0x"++FunID ->
+  %       FunHex=hex:decode(FunID),
+  %       BArgs=abi_encode_simple(Args),
+  %       <<FunHex:4/binary,BArgs/binary>>;
+  %     FunNameID when is_list(FunNameID) ->
+  %       {ok,{{function,_},FABI,_}=S} = contract_evm_abi:parse_signature(FunNameID),
+  %       if(length(FABI)==length(Args)) -> ok;
+  %         true -> throw("amount of arguments does not match with signature")
+  %       end,
+  %       BArgs=contract_evm_abi:encode_abi(Args,FABI),
+  %       X=contract_evm_abi:sig32(contract_evm_abi:mk_sig(S)),
+  %       <<X:32/big,BArgs/binary>>
+  %   end,
+  CD=cd(Method,Args),
 
   Code=GetCode(binary:decode_unsigned(Address),#{}),
   Result = eevm:eval(Code,
@@ -599,15 +603,18 @@ get(_,_,_Ledger) ->
   throw("unknown method").
 
 tx_abi() ->
+	%((uint256,address,address,uint256,uint256,(string,uint256[])[],(uint256,string,uint256)[],(bytes,uint256,bytes,bytes,bytes)[]))
+	%((uint256,address,address,uint256,uint256,bytes,(uint256,string,uint256)[],(bytes,uint256,bytes,bytes,bytes)[]))
   [{<<"tx">>,
     {tuple,[{<<"kind">>,uint256},
             {<<"from">>,address},
             {<<"to">>,address},
             {<<"t">>,uint256},
             {<<"seq">>,uint256},
-            {<<"call">>,
-             {darray,{tuple,[{<<"func">>,string},
-                            {<<"args">>,{darray,uint256}}]}}},
+            {<<"call">>,bytes
+             %{darray,{tuple,[{<<"func">>,string},
+             %               {<<"args">>,{darray,uint256}}]}}
+			},
             {<<"payload">>,
              {darray,{tuple, [
                              {<<"purpose">>,uint256},
@@ -662,6 +669,8 @@ decode_tx(BinTx,_Opts) ->
           },
 
       T1=case Call of
+		   B when is_binary(B) ->
+             T0#{call=>#{function=>"0x0", args=>[B]}};
            [[{<<"func">>,F},{<<"args">>,A}]] ->
              T0#{call=>#{function=>binary_to_list(F), args=>A}};
            _ ->
@@ -679,18 +688,7 @@ decode_tx(BinTx,_Opts) ->
 
 preencode_tx(#{kind:=Kind,ver:=Ver,from:=From,to:=To,t:=T,seq:=Seq,sig:=Sig,payload:=RPayload}=Tx,_Opts) ->
   K=tx:encode_kind(Ver,Kind),
-  Call=case Tx of
-         #{call:=#{function:=F, args:=A}} ->
-           case lists:all(fun(E) -> is_integer(E) end,A) of
-             true ->
-               [[F,A]];
-             false ->
-               %% TODO: figure out what to do with args!!!! How to encode them in ABI
-               [[F,[]]]
-           end;
-         _ ->
-           []
-       end,
+  Call=tx_cd(Tx),
   Payload=lists:map(
             fun(#{amount := Am, cur := Token, purpose := Purp}) ->
                 [tx:encode_purpose(Purp),Token,Am]
@@ -977,7 +975,8 @@ enc_settings1(SRes) ->
 ask_if_wants_to_pay(Code, Tx, Gas, From) ->
   Function= <<"wouldYouLikeToPayTx("
   "(uint256,address,address,uint256,uint256,"
-  "(string,uint256[])[],"
+  %"(string,uint256[])[],"
+  "bytes,"
   "(uint256,string,uint256)[],"
   "(bytes,uint256,bytes,bytes,bytes)[])"
   ")">>,
@@ -990,7 +989,8 @@ ask_if_wants_to_pay(Code, Tx, Gas, From) ->
                          {<<>>,address},
                          {<<>>,uint256},
                          {<<>>,uint256},
-                         {<<>>,{darray,{tuple,[{<<>>,string},{<<>>,{darray,uint256}}]}}},
+						 %{<<>>,{darray,{tuple,[{<<>>,string},{<<>>,{darray,uint256}}]}}},
+						 {<<>>,bytes},
                          {<<>>,{darray,{tuple,[{<<>>,uint256},{<<>>,string},{<<>>,uint256}]}}},
                          {<<>>,{darray,{tuple,[
                                               {<<>>,bytes},
@@ -1056,7 +1056,8 @@ ask_if_wants_to_pay(Code, Tx, Gas, From) ->
 ask_if_wants_to_pay(Address, Tx, GetFun) ->
   Function= <<"wouldYouLikeToPayTx("
   "(uint256,address,address,uint256,uint256,"
-  "(string,uint256[])[],"
+  %"(string,uint256[])[],"
+  "bytes,"
   "(uint256,string,uint256)[],"
   "(bytes,uint256,bytes,bytes,bytes)[])"
   ")">>,
@@ -1159,5 +1160,28 @@ callcd(BinFun, CArgs, FABI) ->
   true=(length(FABI)==length(CArgs)),
   BArgs=contract_evm_abi:encode_abi(CArgs,FABI),
   <<X:4/binary,BArgs/binary>>.
+
+tx_cd(#{call:=#{function:=Function,args:=Args}}) ->
+	cd(Function, Args);
+
+tx_cd(#{}) ->
+	<<>>.
+
+cd("0x0",[Arg1]) when is_binary(Arg1) ->
+	Arg1;
+cd("0x"++FunID,CArgs) ->
+	 FunHex=hex:decode(FunID),
+	 BArgs=abi_encode_simple(CArgs),
+	 <<FunHex:4/binary,BArgs/binary>>;
+cd(FunNameID,CArgs) when is_list(FunNameID),
+							is_list(CArgs) ->
+	BinFun=list_to_binary(FunNameID),
+	{ok,<<X:4/binary,_/binary>>}=ksha3:hash(256, BinFun),
+	{ok,{{function,_},FABI,_}} = contract_evm_abi:parse_signature(BinFun),
+	true=(length(FABI)==length(CArgs)),
+	BArgs=contract_evm_abi:encode_abi(CArgs,FABI),
+	<<X:4/binary,BArgs/binary>>;
+cd(_,_) ->
+	<<>>.
 
 

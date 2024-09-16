@@ -20,10 +20,12 @@ contract Chkey {
 }
 
 contract builtinFunc {
+	/*
   struct tpCall {
     string func;
     uint256[] args;
   }
+  */
   struct tpSig {
     bytes raw;
     uint256 timestamp;
@@ -37,7 +39,8 @@ contract builtinFunc {
     address to;
     uint256 t;
     uint256 seq;
-    tpCall[] call;
+    //tpCall[] call;
+    bytes call;
     tpPayload[] payload;
     tpSig[] signatures;
   }
@@ -82,6 +85,7 @@ contract builtinFunc {
 
   constructor() {}
 
+  /*
   function retcl() public returns (tpCall[] memory){
     tpCall[] memory call1=new tpCall[](2);
     uarr.push(1);
@@ -89,20 +93,22 @@ contract builtinFunc {
     uarr.push(5);
     call1[0] = tpCall("test", uarr);
     return call1;
-  }
+  }*/
 
  
   function rettx() public returns (tpTx memory){
-    tpCall[] memory call1=new tpCall[](1);
-    uarr.push(1);
-    uarr.push(3);
-    uarr.push(5);
-    call1[0] = tpCall("test", uarr);
+    //tpCall[] memory call1=new tpCall[](1);
+    //uarr.push(1);
+    //uarr.push(3);
+    //uarr.push(5);
+    //call1[0] = tpCall("test", uarr);
     uint8 len=3;
     tpSig[] memory sigs=new tpSig[](len);
     sigs[0]=tpSig("",1,"bytes112345678923456789uebwryeyreriewuyrewbruewyrwyroewrybewoyrewyirewybriweyriuqweybrewqyrybqbytes112345678923456789uebwryeyreriewuyrewbruewyrwyroewrybewoyrewyirewybriweyriuqweybrewqyryq","raw","signature");
     tpPayload[] memory payload1=new tpPayload[](1);
     payload1[0]=tpPayload(0,"SK",10);
+
+	bytes memory call1 = abi.encodePacked(uint256(1),uint256(2),uint256(3));
 
     return tpTx({
       kind:4100,
@@ -211,7 +217,7 @@ contract builtinFunc {
     return BronKerbosch(address(0xAFFFFFFFFF000007)).max_clique(n);
   }
 
-  function getTxs() public returns (tpCall memory) {
+  function getTxs() public returns (bytes memory) {
     address _addr=address(0xAFFFFFFFFF000002);
     emit callFunction("a0");
     (bool success, bytes memory returnBytes) = _addr.staticcall("");
@@ -224,7 +230,7 @@ contract builtinFunc {
     for(i=0;i<ret.signatures.length;i++){
       emit sig(ret.signatures[i].rawkey);
     }
-    return ret.call[0];
+    return ret.call;
   }
 
   function callText(address _addr, uint256 id) public returns (uint256){

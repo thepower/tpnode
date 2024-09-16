@@ -146,19 +146,6 @@ after
   end.
 
 
-eabi_test() ->
-  Self=self(),
-  Pid=erlang:spawn(fun() -> timer:sleep(10000), exit(Self,stop) end),
-  ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
-  [{_,_,FABI}]=contract_evm_abi:find_function(<<"retcl">>,ABI),
-  Bin=contract_evm_abi:encode_abi([[["test",[1,3,5]], ["",[]]]],FABI),
-  io:format("FABI ~p~n",[FABI]),
-  hex:hexdump(Bin),
-  D=contract_evm_abi:decode_abi(Bin,FABI),
-  exit(Pid,stop),
-  D.
-
-
 eabi2_test() ->
   %Self=self(),
   %Pid=erlang:spawn(fun() -> timer:sleep(10000), exit(Self,stop) end),
@@ -444,18 +431,22 @@ evm_embedded_abicall_test() ->
                 }
               }
              ],
-      io:format("whereis ~p~n",[whereis(eevm_tracer)]),
       register(eevm_tracer,self()),
+      io:format("whereis ~p~n",[whereis(eevm_tracer)]),
       try
       {ok,Log,Failed}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
       [{_,_,FABI}]=contract_evm_abi:find_function(<<"getTxs()">>,ABI),
-      D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> throw(no_return) end end(),
       io:format("Filed ~p~n",[Failed]),
-      hex:hexdump(D),
+      D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> no_return end end(),
+			case D of
+				no_return -> error;
+				_ when is_binary(D) ->
+					hex:hexdump(D)
+			end,
       fun FT() -> receive {trace,{stack,_,_}} -> FT();
                           {trace,_Any} ->
-                            io:format("Flush ~p~n",[_Any]),
+                            %io:format("Flush ~p~n",[_Any]),
                             [_Any|FT()] after 0 -> [] end end(),
 
       %io:format("2dec ~p~n",[D]),
