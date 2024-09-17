@@ -717,15 +717,13 @@ getfun({storage,Addr,Key}, DB) ->
     {ok, Bin} ->
       Bin
   end;
-getfun({code, Addr, _Path}, DB) ->
-  case db_get_one(DB, Addr, code, [], []) of
-    undefined ->
-      <<>>;
-    {ok, Bin} ->
-      Bin
-  end;
-getfun({pubkey, Addr, _Path}, DB) ->
-  case db_get_one(DB, Addr, pubkey, [], []) of
+getfun({Field, Addr, _Path}, DB) when Field == pubkey;
+                                      Field == code;
+                                      Field == vm;
+                                      Field == lastblk;
+                                      Field == seq;
+                                      Field == t ->
+  case db_get_one(DB, Addr, Field, [], []) of
     undefined ->
       <<>>;
     {ok, Bin} ->
