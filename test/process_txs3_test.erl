@@ -30,12 +30,14 @@ process_register_test() ->
 	Pvt=crypto:hash(sha256,<<"test">>),
 	Pub=tpecdsa:calc_pub(Pvt),
 
-	{ok,Tx}= tx:verify(tx:sign(tx:construct_tx(
-		  #{kind=>register,
-			ver=>2,
-			t=>1,
-			keys=>[Pub]
-		   }),Pvt)),
+	{ok,Tx}= tx:verify(
+			   tx:sign(
+				 tx:construct_tx(
+				   #{kind=>register,
+					 ver=>2,
+					 t=>1,
+					 keys=>[Pub]
+					}),Pvt)),
 
 
 	Test=fun(DB) ->

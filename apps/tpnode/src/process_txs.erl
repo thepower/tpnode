@@ -32,6 +32,7 @@ new_state(GetFun, GetFunArg) ->
 	  transaction_result => [],
 	  transaction_receipt => [],
 	  tstorage => #{},
+	  cumulative_gas => 0,
 	  log => []
 	 }.
 
@@ -79,7 +80,7 @@ process_tx(#{kind:=register,
 			  {0, Reason, State0}
 	end;
 
-process_tx(#{from:=From}=Tx, State0, Opts) ->
+process_tx(#{from:=From,seq:=Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts) ->
 	?LOG_INFO("Process generic from ~s",[hex:encodex(From)]),
 	try
 	SettingsToLoad=#{
@@ -88,6 +89,7 @@ process_tx(#{from:=From}=Tx, State0, Opts) ->
 			   gas => [ <<"gas">> ]
 			  },
 	ChainSettingsAddress=maps:get(chainsettings_address,Opts,<<0>>),
+	EscrowAddress=maps:get(chainsettings_address,Opts,<<"escrow">>),
 
 	{State1, LoadedSettings}=maps:fold(
 					fun(Opt, Path, {CState,Acc}) ->
@@ -130,7 +132,7 @@ process_tx(#{from:=From}=Tx, State0, Opts) ->
 				_ -> 0
 			end,
 	GasPayloads=tx:get_payloads(Tx,gas),
-	io:format("GasPayloads ~p~n", [GasPayloads]),
+	?LOG_DEBUG("GasPayloads ~p~n", [GasPayloads]),
 
 	GasSettings=maps:get(gas, LoadedSettings),
 	{State3,Taken,GasLimit}=lists:foldl(
@@ -139,7 +141,7 @@ process_tx(#{from:=From}=Tx, State0, Opts) ->
 							(_,{_,_,norun}=A) ->
 								A;
 							(Payload, {_CState, _T, _GasAcc}=A) ->
-								 to_gas(maps:merge(
+								 to_gas(EscrowAddress, maps:merge(
 										  #{sponsor=>From},
 										  Payload), GasSettings, A)
 						 end,
@@ -147,65 +149,79 @@ process_tx(#{from:=From}=Tx, State0, Opts) ->
 						 GasPayloads
 						),
 
-	io:format("Gas collected ~p~n", [GasLimit]),
-	io:format("Taken ~p~n", [Taken]),
+	?LOG_DEBUG("Gas collected ~p taken ~p~n", [GasLimit, Taken]),
 
 
-	try
-		{Valid, Data, GasLeft, State4} = process_tx(Tx, GasLimit, State3, Opts),
+	State4=pstate:set_state(From, seq, [], Seq, State3),
 
-		{GasLeft2, Collected, State5}  = return_gas(GasLeft, Taken, State4, []),
-		io:format("Gas left ~p~n", [GasLeft]),
-		io:format("Gas left2 ~p / ~p~n", [GasLeft2, Collected]),
-		State6 = lists:foldl(
-		  fun(Token, State) ->
-				  {Src0, _, _} = pstate:get_state(<<"escrow">>, balance, Token, State),
-				  transfer(<<"escrow">>, FeeReceiver, Src0, Token, State)
-		  end, State5, Collected),
+	if GasLimit == norun ->
+		   To=maps:get(to, Tx),
+		   State5=lists:foldl(
+					fun(#{amount:=Amount,cur:=Cur,purpose:=_},StateC) ->
+							transfer(From, To, Amount, Cur, StateC)
+					end,
+					State4,
+					tx:get_payloads(Tx, transfer)
+				   ),
+		   {1, <<>>, State5#{last_tx_gas => 0}};
+	   true ->
 
-		{Valid, Data, State6}
+		   try
+			   {Valid, Data, GasLeft, State5} = process_tx(Tx, GasLimit, State4, Opts),
 
-	catch throw:Reason1 when is_atom(Reason1) ->
-			  % in case of something went wrong, take only fee, and return gas
-			  {0, atom_to_binary(Reason1, utf8), State2};
-		  throw:Reason1 when is_binary(Reason1) ->
-			  % in case of something went wrong, take only fee, and return gas
-			  {0, Reason1, State2}
+			   {GasLeft2, Collected, State6}  = return_gas(EscrowAddress, GasLeft, Taken, State5, []),
+			   ?LOG_DEBUG("Gas left ~p left2 ~p / ~p~n", [GasLeft, GasLeft2, Collected]),
+			   State7 = lists:foldl(
+						  fun(Token, State) ->
+								  {Src0, _, _} = pstate:get_state(EscrowAddress, balance, Token, State),
+								  transfer(EscrowAddress, FeeReceiver, Src0, Token, State)
+						  end, State6, Collected),
+
+			   GasUsed = GasLimit - GasLeft,
+			   {Valid, Data, State7#{cumulative_gas => GasC0 + GasUsed,
+									 last_tx_gas => GasUsed }}
+		   catch throw:Reason1 when is_atom(Reason1) ->
+					 % in case of something went completely wrong, take only fee, and full return gas
+					 {0, atom_to_binary(Reason1, utf8), State2#{last_tx_gas => 0 }};
+				 throw:Reason1 when is_binary(Reason1) ->
+					 % in case of something went completely wrong, take only fee, and full return gas
+					 {0, Reason1, State2#{last_tx_gas => 0 }}
+		   end
 	end
 
 
 	catch throw:Reason when is_atom(Reason) ->
-			  {0, atom_to_binary(Reason, utf8), State0};
+			  {0, atom_to_binary(Reason, utf8), State0#{last_tx_gas => 0 }};
 		  throw:Reason when is_binary(Reason) ->
-			  {0, Reason, State0}
+			  {0, Reason, State0#{last_tx_gas => 0 }}
 	end.
 
-return_gas(GasLeft, [], State, Acc) ->
+return_gas(_EscrowAddress, GasLeft, [], State, Acc) ->
 	{GasLeft, Acc, State};
-return_gas(GasLeft, [#{g:=TotalG, amount:=A, cur:=C, sponsor:=Sponsor}|Rest], State, Acc) when GasLeft > TotalG ->
-	return_gas(GasLeft-TotalG,
+return_gas(EscrowAddress, GasLeft, [#{g:=TotalG, amount:=A, cur:=C, sponsor:=Sponsor}|Rest], State, Acc) when GasLeft > TotalG ->
+	return_gas(EscrowAddress, GasLeft-TotalG,
 			   Rest,
-			   transfer(<<"escrow">>, Sponsor, A, C, State),
+			   transfer(EscrowAddress, Sponsor, A, C, State),
 			   Acc
 			  );
-return_gas(GasLeft, [#{k:={N,D}, amount:=A, cur:=C, sponsor:=Sponsor}|Rest], State, Acc) ->
+return_gas(EscrowAddress, GasLeft, [#{k:={N,D}, amount:=A, cur:=C, sponsor:=Sponsor}|Rest], State, Acc) ->
 	ReturnTokens=min(trunc(GasLeft*D/N),A),
 	ReturnGas=ReturnTokens*N div D,
 
-	io:format("gas left ~p return ~p / ~p ~p to ~p~n",
+	?LOG_DEBUG("gas left ~p return ~p / ~p ~p to ~p~n",
 			  [GasLeft, ReturnGas, ReturnTokens, C, Sponsor]),
 
-	return_gas(GasLeft-ReturnGas,
+	return_gas(EscrowAddress, GasLeft-ReturnGas,
 			   Rest,
-			   transfer(<<"escrow">>, Sponsor, ReturnTokens, C, State),
+			   transfer(EscrowAddress, Sponsor, ReturnTokens, C, State),
 			   [C|Acc]
 			  ).
 
-to_gas(#{sponsor:=Sponsor, amount:=A, cur:=C}=Payload, GasSettings, {CState, T, GasAcc}) ->
+to_gas(EscrowAddress, #{sponsor:=Sponsor, amount:=A, cur:=C}=Payload, GasSettings, {CState, T, GasAcc}) ->
 	case to_gas1(Payload,GasSettings) of
 		{ok, P1, G} when G>0 ->
 			{
-			transfer(Sponsor, <<"escrow">>, A, C, CState),
+			transfer(Sponsor, EscrowAddress, A, C, CState),
 			[P1|T], GasAcc+G
 			};
 		_ ->
@@ -262,6 +278,8 @@ process_tx(#{from:=From, to:=To}=Tx,
 	 maps:without([cur_tx,tstorage], State2)
 	};
 
+
+
 process_tx(#{from:=From,
 			 seq:=Nonce,
 			 kind:=deploy,
@@ -281,14 +299,25 @@ process_tx(#{from:=From,
 					  {ok,<<_:12/binary,EVMAddress:20/binary>>}=ksha3:hash(256, D2Hash),
 					  EVMAddress
 			  end,
-	?LOG_INFO("Deploy to address ~p gas ~p~n",[Address, GasLimit]),
+	?LOG_INFO("Deploy to address ~p gas ~p transfer ~p~n",
+			  [Address, GasLimit,
+			   tx:get_payloads(Tx, transfer)
+			  ]),
+	State0=State#{cur_tx=>Tx},
+	State1=lists:foldl(
+			 fun(#{amount:=Amount,cur:=Cur,purpose:=_},StateC) ->
+					 transfer(From, Address, Amount, Cur, StateC)
+			 end,
+			 State0,
+			 tx:get_payloads(Tx, transfer)
+			),
 	case process_code_itx(Code, From, Address,
-						  Value, <<>>, GasLimit-3200, State#{cur_tx=>Tx}, Opts) of
-		{1, DeployedCode, GasLeft, State1} ->
-			State2=pstate:set_state(Address, code, [], DeployedCode, State1),
+						  Value, <<>>, GasLimit-3200, State1, Opts) of
+		{1, DeployedCode, GasLeft, State2} ->
+			State3=pstate:set_state(Address, code, [], DeployedCode, State2),
 			?LOG_INFO("Deploy to address ~p success",[Address]),
-			{1, <<>>, GasLeft,
-			 maps:without([cur_tx,tstorage], State2)
+			{1, Address, GasLeft,
+			 maps:without([cur_tx,tstorage], State3)
 			};
 		{0, <<>>, 0, _} ->
 			{0, <<"nogas">>, 0,
@@ -329,6 +358,7 @@ process_tx(#{
 
 
 process_tx(_Tx, _GasLimit, _State, _Opts) ->
+	?LOG_INFO("Invalid tx ~p",[_Tx]),
 	throw('invalid_tx').
 
 -define (ASSERT_NOVAL,
@@ -340,7 +370,6 @@ process_tx(_Tx, _GasLimit, _State, _Opts) ->
 
 process_itx(_From, <<16#AFFFFFFFFF000000:64/big>>=_To, Value, _CallData, GasLimit, State0, _Opts) ->
 	?ASSERT_NOVAL,
-	%this probably will not work yet, sync with consensus layer
 	MT=maps:get(mean_time,State0,0),
 	Ent=case maps:get(entropy,State0,<<>>) of
 			Ent1 when is_binary(Ent1) ->
@@ -385,6 +414,7 @@ process_itx(From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opts) ->
 	process_code_itx(Code, From, To, Value, CallData, GasLimit, State1, Opts).
 
 process_code_itx(<<>>,From, To, Value, _CallData, GasLimit, #{acc:=_}=State0, _Opts) ->
+	io:format("== process without code ~p~n",[To]),
 	State1=transfer(From, To, Value, <<"SK">>, State0),
 	{ 1, <<>>, GasLimit, State1};
 
@@ -403,7 +433,7 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, _Op
 						   gas=>GasLimit,
 						   sload=>fun process_evm:evm_sload/4,
 						   sstore=>fun process_evm:evm_sstore/5,
-						   custom_call => fun process_evm:evm_custom_call/7,
+						   custom_call => fun process_evm:evm_custom_call/8,
 						   extra=>State1,
 						   bad_instruction=>fun process_evm:evm_instructions/2,
 						   return=><<>>,
@@ -492,14 +522,17 @@ tx_value(#{payload:=_}=Tx, Cur) ->
 
 transfer(_, _, 0, _Cur, State) ->
 	State;
+transfer(From, To, _, _Cur, State) when From==To ->
+	State;
 transfer(From, To, Value, Cur, State0) when Value > 0 ->
 	%get_state(From, balance, <<"SK">>, Acc, GetFun, GFA)
 	{Src0, _, State1} = pstate:get_state(From, balance, Cur, State0),
-	{Dst0, _, State2} = pstate:get_state(To, balance, Cur, State1),
 	Src1=Src0-Value,
 	if(Src1<0) -> throw(insuffucient_fund); true -> ok end,
+	State2=pstate:set_state(From, balance, Cur, Src1, State1),
+	{Dst0, _, State3} = pstate:get_state(To, balance, Cur, State2),
 	Dst1=Dst0+Value,
-	State3=pstate:set_state(From, balance, Cur, Src1, State2),
+	?LOG_INFO("trasfer ~s -> ~s ~w ~s",[hex:encodex(From),hex:encodex(To),Value,Cur]),
 	pstate:set_state(To, balance, Cur, Dst1, State3).
 
 

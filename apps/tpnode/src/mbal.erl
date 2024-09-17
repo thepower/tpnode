@@ -211,6 +211,9 @@ put(state, P, V, Bal) ->
   Bal#{state=>#{P=>V},
        changes=>[state|maps:get(changes, Bal, [])]};
 
+put(amount, N, V, #{amount:=PA} = Bal) when is_integer(V) ->
+	Bal#{amount => maps:put(N, V, PA)};
+
 put(K, [], V, Bal) ->
   put(K,V,Bal).
 

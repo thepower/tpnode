@@ -14,6 +14,7 @@
 -export([start_db/0,  deploy4test/2, put/2,get/1,get_vers/1,hash/1,hashl/1]).
 -export([bi_create/6,bi_set_ver/2]).
 -export([bals2patch/1, apply_patch/2]).
+-export([patch_pstate2mledger/1]).
 -export([dbmtfun/4]).
 -export([mb2item/1]).
 -export([get_lstore/2,get_lstore_map/2]).
@@ -332,6 +333,14 @@ hashl(BIs) when is_list(BIs) ->
 hash(Address) when is_binary(Address) ->
   BIs=get_raw(Address,notrans),
   hashl(BIs).
+
+patch_pstate2mledger([]) ->
+  [];
+
+patch_pstate2mledger([{Address,Field,Path,_OldValue,NewValue}|Rest]) ->
+  Res = bi_create(Address, latest, Field, Path, here, NewValue),
+  [ Res | patch_pstate2mledger(Rest)].
+
 
 bals2patch(Data) ->
   bals2patch(Data,[]).

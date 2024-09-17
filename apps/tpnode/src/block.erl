@@ -580,12 +580,23 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
                 [{failed,gb_merkle_trees:root_hash(FailMT)}|TempRoot]
            end,
 
+  RecieptRoot=case maps:get(receipt, Req, undefined) of
+				undefined ->
+				  [];
+				[] -> [];
+				L when is_list(L) ->
+				  Hash=receipt_hash(L),
+				  [{receipt_root, Hash}]
+			  end,
+
+  TailRoots=FailRoot++RecieptRoot,
+
   HeaderItems0=[{txroot, TxRoot},
                 {etxroot, ETxRoot},
                 {balroot, BalsRoot},
                 {ledger_hash, LH},
                 {setroot, SettingsRoot}
-                |FailRoot],
+                |TailRoots],
   HeaderItems =
     case maps:get(settings_hash, Req, unknown) of
       unknown ->
@@ -633,8 +644,14 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
       maps:put(extdata, List3, Block2)
   end,
   Block4=maps:put(failed, Failed, Block3),
-  maps:put(etxs,ETxsl, Block4).
 
+  Block5=maps:put(etxs,ETxsl, Block4),
+  case maps:get(receipt, Req, undefined) of
+	  undefined ->
+		  Block5;
+	  Lr when is_list(Lr) ->
+		  maps:put(receipt, Lr, Block5)
+  end.
 
 %mkblock(#{ txs:=Txs, parent:=Parent, height:=H, bals:=Bals, settings:=Settings }=Req) ->
 %  LH=maps:get(ledger_hash, Req, undefined),
@@ -1006,3 +1023,16 @@ glue_packet(List) ->
        throw(broken)
   end.
 
+receipt_hash(L) ->
+  Mapped=lists:map(
+		   fun(Reciept) ->
+			   [ if is_integer(I) ->
+					  binary:encode_unsigned(I);
+					is_binary(I) ->
+					  I;
+					is_list(I) ->
+					  I
+				 end || I <- Reciept ]
+		   end,
+		   L),
+  crypto:hash(sha256, Mapped).

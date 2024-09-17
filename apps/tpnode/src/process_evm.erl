@@ -5,7 +5,7 @@
 		 evm_code/3,
 		 evm_sload/4,
 		 evm_sstore/5,
-		 evm_custom_call/7,
+		 evm_custom_call/8,
 		 evm_logger/4,
 		 evm_instructions/2,
 		 static/2, static/3,
@@ -50,39 +50,58 @@ evm_sstore(IAddr, IKey, IValue, State, _) ->
 			  ),
 	{'ok', State3, OldValue=/=<<>>}.
 
-evm_custom_call(CallType, IFrom, ITo, Value, CallData, Gas, Extra) ->
-	Static=case CallType of
-			   staticcall -> true;
-			   delegatecall -> false;
-			   callcode -> false;
-			   call -> false
-		   end,
-	if Static==true ->
-		   static(
-			 fun(S) ->
-					 process_txs:process_itx(binary:encode_unsigned(IFrom),
-											 binary:encode_unsigned(ITo),
-											 Value,
-											 CallData,
-											 Gas,
-											 S,
-											 #{})
-			 end, Extra);
-	   Static == false ->
-		   process_txs:process_itx(binary:encode_unsigned(IFrom),
-								   binary:encode_unsigned(ITo),
-								   Value,
-								   CallData,
-								   Gas,
-								   Extra,
-								   #{})
-	end.
+evm_custom_call(staticcall, IFrom, ITo, Value, CallData, Gas, Extra, _InternalState) ->
+	static(
+	  fun(S) ->
+			  process_txs:process_itx(binary:encode_unsigned(IFrom),
+									  binary:encode_unsigned(ITo),
+									  Value,
+									  CallData,
+									  Gas,
+									  S,
+									  #{})
+	  end, Extra);
+
+evm_custom_call(callcode, IFrom, ITo, Value, CallData, Gas, Extra, _InternalState) ->
+	{ok, Code, Extra1, _} = process_evm:evm_code(ITo, Extra, #{}),
+	process_txs:process_code_itx(
+	  Code,
+	  binary:encode_unsigned(IFrom),
+	  binary:encode_unsigned(IFrom),
+	  Value,
+	  CallData,
+	  Gas,
+	  Extra1,
+	  #{});
+
+evm_custom_call(delegatecall, _IFrom, ITo, Value, CallData, Gas, Extra,
+				#{data:=#{address:=OrigTo, caller:=OrigFrom}} =_InternalState) ->
+	{ok, Code, Extra1, _} = process_evm:evm_code(ITo, Extra, #{}),
+	process_txs:process_code_itx(
+	  Code,
+	  binary:encode_unsigned(OrigFrom),
+	  binary:encode_unsigned(OrigTo),
+	  Value,
+	  CallData,
+	  Gas,
+	  Extra1,
+	  #{});
+
+evm_custom_call(call, IFrom, ITo, Value, CallData, Gas, Extra, _InternalState) ->
+	process_txs:process_itx(
+	  binary:encode_unsigned(IFrom),
+	  binary:encode_unsigned(ITo),
+	  Value,
+	  CallData,
+	  Gas,
+	  Extra,
+	  #{}).
 
 evm_logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}) ->
   LArgs=[binary:encode_unsigned(I) || I <- LArgs0],
   ?LOG_INFO("EVM log ~p ~p",[Message,LArgs]),
   %io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
-  Xtra#{log=>[([evm,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog]}.
+  Xtra#{log=>[([<<"evm">>,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog]}.
 
 evm_instructions(chainid, #{stack:=Stack}=BIState) ->
 	BIState#{stack=>[16#c0de00000000|Stack]};
@@ -105,7 +124,7 @@ evm_instructions(create, #{stack:=[Value,MemOff,Len|Stack],
 		  Code=eevm_ram:read(RAM,MemOff,Len),
 		  D2Hash=erlp:encode([SrcAddr,binary:encode_unsigned(Nonce)]),
 		  {ok,<<_:12/binary,Address:20/binary>>}=ksha3:hash(256, D2Hash),
-		  io:format("Deploy to address ~p~n",[Address]),
+		  ?LOG_DEBUG("Deploy to address ~p~n",[Address]),
 		  createX(Address, Code, Value, BIState#{stack=>Stack});
 	  _ ->
 		  BIState#{stack=>[0|Stack], gas=>G, extra=>Xtra}
@@ -119,7 +138,7 @@ evm_instructions(create2, #{stack:=[Value,MemOff,Len,Salt|Stack],
 	{ok,CodeHash}=ksha3:hash(256, Code),
 	D2Hash= <<255, From:160/big, Salt:256/big, CodeHash>>,
 	{ok,<<_:12/binary,Address:20/binary>>}=ksha3:hash(256, D2Hash),
-	io:format("Deploy to address ~p~n",[Address]),
+	?LOG_DEBUG("Deploy to address ~p~n",[Address]),
 	createX(Address, Code, Value, BIState#{stack=>Stack});
 
 evm_instructions(tload, #{stack:=[Addr|Stack],
