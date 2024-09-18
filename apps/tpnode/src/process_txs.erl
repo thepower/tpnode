@@ -248,10 +248,6 @@ to_gas1(#{amount:=A, cur:=C}=P, Settings) ->
 process_tx(#{from:=From, to:=To}=Tx,
 		   GasLimit, State0, Opts) ->
 	?LOG_INFO("Process internal gas ~p ",[GasLimit]),
-	if(GasLimit==0) ->
-		  ?LOG_INFO(" | -> Process int ~p ",[maps:without([body],Tx)]);
-	  true -> ok
-	end,
 
 	Value=tx_value(Tx,<<"SK">>),
 	State1=lists:foldl(
@@ -467,19 +463,19 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, _Op
 			  ]),
 	case Result of
 		{done, {return,RetVal}, #{gas:=GasLeft, extra:=State3}} ->
-			{ 1, RetVal, GasLeft, State3};
+			{ 1, RetVal, gas_left(GasLeft,GasLimit), State3};
 		{done, 'stop', #{gas:=GasLeft, extra:=State3}} ->
-			{ 1, <<>>, GasLeft, State3};
+			{ 1, <<>>, gas_left(GasLeft,GasLimit), State3};
 		{done, 'eof', #{gas:=GasLeft, extra:=State3}} ->
-			{ 1, <<>>, GasLeft, State3};
+			{ 1, <<>>, gas_left(GasLeft,GasLimit), State3};
 		{done, 'invalid', #{gas:=GasLeft, extra:=_FailState}} ->
-			{ 0, <<>>, GasLeft,
+			{ 0, <<>>, gas_left(GasLeft,GasLimit),
 			  append_log(
 				[<<"evm:invalid">>,To,From,<<>>],
 				State1)
 			};
 		{done, {revert, Revert}, #{ gas:=GasLeft}} ->
-			{ 0, Revert, GasLeft,
+			{ 0, Revert, gas_left(GasLeft,GasLimit),
 			  append_log(
 				[<<"evm:revert">>,To,From,Revert],
 				State1)
@@ -490,7 +486,7 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, _Op
 				[<<"evm:nogas">>,To,From,<<>>],
 				State1)};
 		{error, {jump_to,_}, #{gas:=GasLeft}} ->
-			{ 0, <<>>, GasLeft,
+			{ 0, <<>>, gas_left(GasLeft,GasLimit),
 			  append_log(
 				[<<"evm:bad_jump">>,To,From,<<>>],
 				State1)
@@ -506,6 +502,14 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, _Op
 				State1)
 			}
 	end.
+
+gas_left(GasLeft, GasLimit) when GasLeft < GasLimit ->
+	GasLeft;
+gas_left(_GasLeft, GasLimit) ->
+	Stack = try throw(ok) catch throw:ok:S -> S end,
+	?LOG_ERROR("Gas mismatch ~w sent but ~w returned! @ ~p",[GasLimit, _GasLeft, Stack]),
+	GasLimit.
+
 
 append_log(LogEntry, #{log:=PreLog}=State) ->
 	State#{log=>[LogEntry|PreLog]}.

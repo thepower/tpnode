@@ -337,6 +337,10 @@ hash(Address) when is_binary(Address) ->
 patch_pstate2mledger([]) ->
   [];
 
+patch_pstate2mledger([{Address,storage,Path,_OldValue,NewValue}|Rest]) ->
+  Res = bi_create(Address, latest, state, Path, here, NewValue),
+  [ Res | patch_pstate2mledger(Rest)];
+
 patch_pstate2mledger([{Address,Field,Path,_OldValue,NewValue}|Rest]) ->
   Res = bi_create(Address, latest, Field, Path, here, NewValue),
   [ Res | patch_pstate2mledger(Rest)].

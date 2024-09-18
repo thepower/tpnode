@@ -45,7 +45,11 @@ evm_sstore(IAddr, IKey, IValue, State, _) ->
 			   binary:encode_unsigned(IAddr),
 			   storage,
 			   binary:encode_unsigned(IKey),
-			   binary:encode_unsigned(IValue),
+			   if IValue==0 ->
+					  <<>>;
+				  true ->
+					  binary:encode_unsigned(IValue)
+			   end,
 			   State2
 			  ),
 	{'ok', State3, OldValue=/=<<>>}.

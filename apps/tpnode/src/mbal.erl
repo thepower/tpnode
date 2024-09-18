@@ -190,18 +190,18 @@ put(lstore, P, V, Bal) ->
                    }
   );
 
-put(state, <<>>, V, Bal) ->
-  put(state, V, Bal#{
-                  changes=>[state|maps:get(changes, Bal, [])]
-                 }
-     );
+%put(state, <<>>, V, Bal) ->
+%  put(state, V, Bal#{
+%                  changes=>[state|maps:get(changes, Bal, [])]
+%                 }
+%     );
 
-put(state, P, <<>>, #{state:=PV}=Bal) ->
-  Bal#{state=>maps:remove(P,PV),
-       changes=>[state|maps:get(changes, Bal, [])]};
-
-put(state, _P, <<>>, Bal) ->
-  Bal;
+%put(state, P, <<>>, #{state:=PV}=Bal) ->
+%  Bal#{state=>maps:remove(P,PV),
+%       changes=>[state|maps:get(changes, Bal, [])]};
+%
+%put(state, _P, <<>>, Bal) ->
+%  Bal;
 
 put(state, P, V, #{state:=PV}=Bal) ->
   Bal#{state=>PV#{P=>V},
