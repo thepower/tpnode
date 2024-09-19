@@ -405,6 +405,19 @@ process_itx(From, <<16#AFFFFFFFFF000007:64/big>>, Value, CallData, GasLimit, Sta
 	?ASSERT_NOVAL,
 	process_embedded:bronkerbosch_service(From, CallData, GasLimit, State0, Opts);
 
+process_itx(From, From, 0, CallData, GasLimit,
+			#{acc:=_,
+			  cur_tx:=#{ txext:=#{ "code":=Code, "vm":="evm" } }
+			 }=State0, Opts) ->
+	process_code_itx(Code, From, From, 0, CallData, GasLimit, State0, Opts);
+
+process_itx(From, From, 0, CallData, GasLimit,
+			#{acc:=_,
+			  cur_tx:=#{ txext:=#{ "callcode" := CodeAddr } }
+			 }=State0, Opts) ->
+	{ok, Code, State1, _} = process_evm:evm_code(binary:decode_unsigned(CodeAddr), State0, #{}),
+	process_code_itx(Code, From, From, 0, CallData, GasLimit, State1, Opts);
+
 process_itx(From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opts) ->
 	{ok, Code, State1, _} = process_evm:evm_code(binary:decode_unsigned(To), State0, #{}),
 	process_code_itx(Code, From, To, Value, CallData, GasLimit, State1, Opts).

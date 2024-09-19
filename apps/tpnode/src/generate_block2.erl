@@ -36,7 +36,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Extr
 			  }),
 	#{transaction_receipt:=Receipt,
 	  patch := Patch,
-	  process_state  := #{ acc:= _GAcc, cumulative_gas := CumulativeGas},
+	  process_state  := #{ acc:= _GAcc, cumulative_gas := CumulativeGas}=PS,
 	  block_logs := Logs
 	 } = process_all(PreTXL, State0),
 	%[Receipt, Patch].
@@ -65,6 +65,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Extr
 									   Patch
 									  ),
 									 check),
+	io:format("Block receipt ~p~n",[Receipt]),
 	BlkData=#{
             txs=>PreTXL, %Success, %[{TxID,TxBody}|_]
 			receipt => Receipt,
@@ -119,11 +120,21 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Extr
               MeanTime
              ]),
   ?LOG_DEBUG("Hdr ~p",[maps:get(header,Blk)]),
-  #{block=>Blk,
-    failed=>[],
-    emit=>[],
-    log=>Logs
-   }.
+  case lists:keyfind(extract_state,1,Options) of
+	  false ->
+		  #{block=>Blk,
+			failed=>[],
+			emit=>[],
+			log=>Logs
+		   };
+	  _ ->
+		  #{block=>Blk,
+			failed=>[],
+			emit=>[],
+			log=>Logs,
+			extracted_state => patch2bal( pstate:extract_state(PS), #{})
+		   }
+  end.
 
 process_all([], #{transaction_receipt:=Rec, block_logs := BL0} = Acc) ->
 	#{transaction_receipt=>lists:reverse(Rec),
@@ -161,14 +172,18 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 					   }).
 
 patch2bal([], Map) -> Map;
-patch2bal([{Address,seq,[],_OldValue,NewValue}|Rest], Map) ->
+patch2bal([{Address,Field,[],_OldValue,NewValue}|Rest], Map) when
+	  Field == seq;
+	  Field == t;
+	  Field == pubkey;
+	  Field == code ->
 	ABal=maps:get(Address, Map, mbal:new()),
-	ABal1=mbal:put(seq, NewValue, ABal),
+	ABal1=mbal:put(Field, NewValue, ABal),
 	patch2bal(Rest, maps:put(Address, ABal1, Map));
 
-patch2bal([{Address,code,[],_OldValue,NewValue}|Rest], Map) ->
+patch2bal([{Address,lstore,Path,_OldValue,NewValue}|Rest], Map) ->
 	ABal=maps:get(Address, Map, mbal:new()),
-	ABal1=mbal:put(code, NewValue, ABal),
+	ABal1=mbal:put(lstore, Path, NewValue, ABal),
 	patch2bal(Rest, maps:put(Address, ABal1, Map));
 
 patch2bal([{Address,balance,Key,_OldValue,NewValue}|Rest], Map) ->

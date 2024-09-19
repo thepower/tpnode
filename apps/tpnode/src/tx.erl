@@ -9,6 +9,7 @@
 -export([unpack_naked/1]).
 -export([complete_tx/2]).
 -export([hashdiff/1,upgrade/1]).
+-export([hash/1]).
 
 -include("apps/tpnode/include/tx_const.hrl").
 
@@ -159,6 +160,7 @@ construct_tx(#{
               mine_sha512(InvBody, 0, I)
           end,
 
+  hash(
   case Tx0 of
     #{inv:=Invite1} ->
       maps:remove(keys,
@@ -177,7 +179,7 @@ construct_tx(#{
                     keysh=>KeysH,
                     sig=>[]
                    })
-  end;
+  end);
 
 construct_tx(#{
   ver:=2,
@@ -236,12 +238,12 @@ construct_tx(#{
     "pa"=>EP,
     "e"=>Ext
    },
-  Tx#{
+  hash(Tx#{
     kind=>lstore,
     body=>pack_body(E0),
     patches=>settings:dmp(EP),
     sig=>[]
-   };
+   });
 
 construct_tx(#{
   ver:=2,
@@ -268,11 +270,12 @@ construct_tx(#{
     "e"=>Ext
    },
   {E1,Tx1}=maps:fold(fun prepare_extra_args/3, {E0, Tx}, Tx),
+  hash(
   Tx1#{
     kind=>Kind,
     body=>msgpack:pack(E1,[{spec,new},{pack_str, from_list}]),
     sig=>[]
-   };
+   });
 
 construct_tx(#{
   ver:=2,
@@ -326,11 +329,12 @@ construct_tx(#{
    },
 
   {E1,Tx1}=maps:fold(fun prepare_extra_args/3, {E0, Tx}, Tx),
+  hash(
   Tx1#{
     kind=>generic,
     body=>msgpack:pack(E1,[{spec,new},{pack_str, from_list}]),
     sig=>[]
-   }.
+   }).
 
 prepare_extra_args(call, #{function:=Fun,args:=Args}, {CE,CTx}) when
     is_list(Fun), is_list(Args) ->
@@ -358,38 +362,43 @@ prepare_extra_args(not_before, _Int, {CE,CTx}) ->
 prepare_extra_args(_, _, {CE,CTx}) ->
   {CE,CTx}.
 
+parse_address(<<0:96/big,2:2/big,O0:6/big,PwrAddr:7/binary>>)  ->
+	<<2:2/big,O0:6/big,PwrAddr:7/binary>>;
+parse_address(<<Pwr:8/binary>>) ->
+	Pwr;
+parse_address(<<Eth:20/binary>>) ->
+	Eth;
+parse_address(<<"0x",Hex:16/binary>>) ->
+	hex:decode(Hex);
+parse_address(<<"0x",Hex:40/binary>>) ->
+	hex:decode(Hex).
 
 unpack_body(#{sig:=<<>>}=Tx) ->
   unpack_body(Tx#{sig:=[]});
 
-unpack_body(#{body:= <<3:2/integer,_:6/integer,_/binary>>=Body,chain_id:=ChainId}=Tx) ->
+unpack_body(#{body:= <<2, 3:2/integer,_:6/integer,_/binary>>=Body,chain_id:=ChainId}=Tx) ->
   Decode=eth:decode_tx(ChainId, Body),
   {nonce, Nonce} = lists:keyfind(nonce,1,Decode),
   {from, From} = lists:keyfind(from,1,Decode),
   {to, To} = lists:keyfind(to,1,Decode),
   {value, Value} = lists:keyfind(value,1,Decode),
   {input, Data} = lists:keyfind(input,1,Decode),
-  {gas_price, GasPrice} = lists:keyfind(gas_price,1,Decode),
-  {gas_limit, Gas} = lists:keyfind(gas_limit,1,Decode),
-  DecodeAddr=fun(<<0:96/big,2:2/big,O0:6/big,PwrAddr:7/binary>>)  ->
-                 <<2:2/big,O0:6/big,PwrAddr:7/binary>>;
-                (<<Pwr:8/binary>>) ->
-                 Pwr;
-                (<<Eth:20/binary>>) ->
-                 Eth
-             end,
+  {maxFeePerGas, GasPrice} = lists:keyfind(maxFeePerGas,1,Decode),
+  {gas, Gas} = lists:keyfind(gas,1,Decode),
+  {hash, Digest} = lists:keyfind(hash,1,Decode),
   Tx#{
     kind=>ether,
     seq => Nonce,
-    from=>DecodeAddr(From),
-    to => DecodeAddr(To),
+    from=>parse_address(From),
+    to => parse_address(To),
     payload => [
                 #{amount=>Value, cur=><<"SK">>, purpose=>transfer },
                 #{amount=>GasPrice*Gas, cur=><<"SK">>, purpose=>gas }
                ],
     call => #{ function => "0x0",
                args => [Data]
-             }
+             },
+	hash=>Digest
    };
 
 unpack_body(#{body:= <<8:4/integer,_:4/integer,_/binary>>=Body}=Tx) ->
@@ -412,6 +421,11 @@ unpack_body(#{body:= <<8:4/integer,_:4/integer,_/binary>>=Body}=Tx) ->
           unpack_body(Tx#{ver=>Ver, kind=>Kind},B)
       end
   end.
+
+hash(Tx=#{hash:=_}) -> Tx;
+hash(Tx=#{body:=Body}) ->
+	Digest=crypto:hash(sha256,Body),
+	Tx#{hash=>Digest}.
 
 unpack_addr(<<_:64/big>>=From,_) -> From;
 unpack_addr(<<_:160/big>>=From,_) -> From;

@@ -182,13 +182,11 @@ put(lstore, [], V, Bal) ->
   put(lstore, V, Bal);
 
 %TODO: fix lstore
-put(lstore, P, V, Bal) ->
-  D=get(lstore, Bal),
-  D1=settings:patch([#{<<"p">>=>P,<<"t">>=><<"set">>,<<"v">>=>V}],D),
-  put(lstore, D1, Bal#{
-                    changes=>[lstore|maps:get(changes, Bal, [])]
-                   }
-  );
+put(lstore, Path, V, Bal) ->
+	PLS=maps:get(lstore,Bal,#{}),
+	LS1=lstore:set(Path, V, PLS),
+	Bal#{lstore=>LS1,
+		 changes=>[lstore|maps:get(changes, Bal, [])]};
 
 %put(state, <<>>, V, Bal) ->
 %  put(state, V, Bal#{
@@ -202,6 +200,7 @@ put(lstore, P, V, Bal) ->
 %
 %put(state, _P, <<>>, Bal) ->
 %  Bal;
+
 
 put(state, P, V, #{state:=PV}=Bal) ->
   Bal#{state=>PV#{P=>V},

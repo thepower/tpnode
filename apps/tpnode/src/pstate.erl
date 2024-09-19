@@ -4,7 +4,8 @@
 		 get_state/4,
 		 set_state/5,
 		 new_state/2,
-		 patch/1
+		 patch/1,
+		 extract_state/1 %useful for tests
 		]).
 
 set_state(Address, lstore, Path, Value, #{getfun:=_, getfunarg:=_, acc:=_}=State) ->
@@ -42,6 +43,19 @@ patch(#{acc:=Acc}) ->
 						A1;
 				   (_, {OldValue, NewValue}, A1) when OldValue == NewValue ->
 						A1;
+				   ({Field, Path}, {OldValue, NewValue}, A1) ->
+						[{Address,Field,Path,OldValue,NewValue}|A1]
+				end, A0, Data)
+	  end, [], Acc).
+
+extract_state(#{acc:=Acc}) ->
+	maps:fold(
+	  fun(Address, Data, A0) ->
+			  maps:fold(
+				fun(lstore_map, _, A1) -> %lstore_map is just a cache. Ignore it
+						A1;
+				   ({Field, Path}, {OldValue, undefined}, A1) ->
+						[{Address,Field,Path,OldValue,OldValue}|A1];
 				   ({Field, Path}, {OldValue, NewValue}, A1) ->
 						[{Address,Field,Path,OldValue,NewValue}|A1]
 				end, A0, Data)
