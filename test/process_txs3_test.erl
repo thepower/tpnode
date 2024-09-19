@@ -304,6 +304,107 @@ process_embedded_test() ->
 	DB=test3_ptx,
 	[?assertEqual({1,<<"deverp">>},mledger:deploy4test(DB, Ledger, Test))].
 
+process_sponsor_callcode_test() ->
+	Admin = <<128,1,64,0,2,0,0,2>>,
+	Sponsor = hex:decode("0x15DE8BB840CB47788A6378CC6DA51B572F38A86A"),
+	User = <<128,1,64,0,2,0,0,1>>,
+	CAddr= <<128,1,64,0,2,0,0,3>>,
+
+	Ledger=[
+			{<<0>>,
+			 #{ lstore => #{ <<"fee">> => #{ <<"params">>=> #{ <<"feeaddr">> => <<160, 0, 0, 0, 0, 0, 0, 1>> }, <<"FTT">> => #{ <<"base">> => 1, <<"baseextra">> => 64, <<"kb">> => 10 } }, <<"gas">> => #{ <<"FTT">> => #{ <<"gas">> => 35000, <<"tokens">> => 10 }, <<"SK">> => #{ <<"gas">> => 50000, <<"tokens">> => 1 } }, <<"freegas2">> => #{ CAddr => 1000 } } }
+			},
+			{Admin, #{amount => #{ <<"SK">> => 1000,
+									  <<"TEST1">> => 2,
+									  <<"FTT">> => 3000,
+									  <<"TEST2">> => 3
+									}}},
+			{CAddr, #{amount => #{},
+					  code =>
+					  eevm_asm:asm(
+						[{push,1,0},
+						 sload,
+						 {push,1,1},
+						 add,
+						 {dup,1},
+						 {push,1,0},
+						 sstore,
+						 {push,1,0},
+						 mstore,
+						 calldatasize,
+						 {dup,1},
+						 {push,1,0},
+						 {push,1,0},
+						 calldatacopy,
+						 {push,1,0},
+						 return]
+					   )
+					 }
+			}
+		   ],
+
+	TXs= [
+		  tx:construct_tx(
+			#{kind=>deploy,
+			  ver=>2,
+			  from=>Admin,
+			  seq=>1,
+			  t=>1,
+			  payload=>[
+						#{amount=>99,cur=> <<"FTT">>,purpose=>srcfee},
+						#{amount=>500,cur=> <<"FTT">>,purpose=>gas},
+						#{amount=>2000,cur=> <<"FTT">>,purpose=>transfer}
+					   ],
+			  txext=>#{"vm"=>"evm",
+					   "code"=> read_contract(
+								  filename:join(
+									proplists:get_value("PWD",os:env(),"."),
+									"examples/evm_builtin/build/Sponsor.bin"
+								   )
+								 )
+					  }
+			 }),
+		  tx:construct_tx(
+			#{kind=>generic,
+			  ver=>2,
+			  from=>Admin,
+			  to=>Sponsor,
+			  call => #{
+						function => "allow(address,uint32,uint32)",
+						args => [ CAddr, 3, 0 ]
+					   },
+			  seq=>2,
+			  t=>2,
+			  payload=>[
+						#{amount=>100,cur=> <<"FTT">>,purpose=>gas},
+						#{amount=>10,cur=> <<"FTT">>,purpose=>srcfee}
+					   ]
+			 }),
+		  tx:construct_tx(
+			#{kind=>generic,
+			  ver=>2,
+			  from=>User,
+			  to=>User,
+			  seq=>2,
+			  t=>2,
+			  txext => #{
+						 "sponsor" => [Sponsor],
+						 "callcode" => CAddr
+						},
+			  payload=>[
+						#{amount=>100,cur=> <<"FTT">>,purpose=>gashint},
+						#{amount=>10,cur=> <<"FTT">>,purpose=>srcfeehint}
+					   ]
+			 })
+		 ],
+	{Patch, _, Res} = do_test3(Ledger, TXs),
+	[?assertMatch([{User,storage,<<0>>,<<>>,<<1>>}],
+				  lists:filter(fun({A,storage,_,_,_}) ->
+									   A==User;(_) -> false
+							   end,Patch)),
+	 ?assertMatch([{1,_},{1,_},{1,_}],Res)
+	].
+
 process_txs3_test() ->
 	Sponsor = <<128,1,64,0,2,0,0,200>>,
 	UserAddr= <<128,1,64,0,2,0,0,2>>,
@@ -502,15 +603,15 @@ do_test3(Ledger, TXs) ->
 	DB=test3_ptx,
 	Test=fun(_) ->
 				 State0=process_txs:new_state(fun mledger:getfun/2, DB),
-				 StateE=lists:foldl(
-								 fun(Tx, State) ->
+				 {StateE,Res}=lists:foldl(
+								 fun(Tx, {State,ResAcc}) ->
 										 io:format(" = > Exec tx ~100p~n",[maps:with([from,to,kind],Tx)]),
 										 {Ret,RetData,State1}=process_txs:process_tx(Tx,
 																					 State,
 																					 #{}),
 										 io:format(" < = Ret ~w: ~p~n",[Ret, RetData]),
-										 State1
-								 end, State0,
+										 {State1,[{Ret,RetData}|ResAcc]}
+								 end, {State0,[]},
 								 TXs),
 				 Patch=pstate:patch(StateE),
 				 io:format("--- [ ~w txs done ] ---~n",[length(TXs)]),
@@ -538,8 +639,7 @@ do_test3(Ledger, TXs) ->
 										   [hex:encodex(Address),Field,Path,Old,New])
 						   end
 				   end, Patch),
-				 %{Patch, StateE}
-				 StateE
+				 {Patch, StateE, Res}
 		 end,
 	mledger:deploy4test(DB, Ledger, Test).
 

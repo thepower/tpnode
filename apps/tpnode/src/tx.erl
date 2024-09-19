@@ -1146,7 +1146,7 @@ rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
                                          ])]),
           ?LOG_ERROR("Calc fee error ~p~ntx ~p",[{throw,Ee},Tx]),
           lists:foreach(fun(SE) ->
-                            ?LOG_ERROR("@ ~p", [SE])
+                            ?LOG_DEBUG("@ ~p", [SE])
                         end, S),
           throw(Ee);
         Ec:Ee:S ->

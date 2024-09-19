@@ -3,16 +3,18 @@
 -include("include/tplog.hrl").
 
 process_sponsors([],#{payload:=P},State0) ->
-	{P, State0};
+	{P, maps:remove(cur_tx,State0)};
 
-process_sponsors([<<Sponsor:8/binary>>|Rest],Tx,State0) ->
-	case process_evm:check_EIP165(Sponsor,<<16#1B,16#97,16#71,16#2B>>,State0) of
+process_sponsors([Sponsor|Rest],Tx,State0) when is_binary(Sponsor),
+												size(Sponsor)==8 orelse size(Sponsor)==20 ->
+	case process_evm:check_EIP165(Sponsor,<<16#A44EFBE7:32/big>>,State0) of
 		{false, State1} ->
 			?LOG_INFO("~s not a sponsor",[hex:encodex(Sponsor)]),
 			process_sponsors(Rest,Tx,State1);
 		{true, State1} ->
-			case sponsor_pays(Sponsor, Tx, State1) of
+			case sponsor_pays(Sponsor, Tx, State1#{cur_tx=>Tx}) of
 				{false, _, State2} ->
+					?LOG_INFO("Sponsor ~s not pays",[hex:encodex(Sponsor)]),
 					process_sponsors(Rest,Tx,State2);
 				{true, Payloads, State2} ->
 					process_sponsors(Rest,

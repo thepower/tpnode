@@ -36,9 +36,9 @@ new_state(GetFun, GetFunArg) ->
 	  log => []
 	 }.
 
-process_tx(#{txext:=#{"sponsor":=Sponsors}=E}=Tx, State0, Opts) ->
-	?LOG_INFO("Process sponsors ~p",[Sponsors]),
+process_tx(#{txext:=#{"sponsor":=Sponsors}=E,payload:=OldP}=Tx, State0, Opts) ->
 	{NewPayloads,State1} = process_txs_sponsor:process_sponsors(Sponsors,Tx,State0),
+	?LOG_INFO("Process sponsors ~p pay ~p",[Sponsors,NewPayloads--OldP]),
 	process_tx(Tx#{
 				 payload=>NewPayloads,
 				 txext=>maps:remove("sponsor",E)
@@ -379,9 +379,39 @@ process_itx(_From, <<16#AFFFFFFFFF000001:64/big>>=_To, Value, CallData, GasLimit
 	?ASSERT_NOVAL,
 	{1,list_to_binary( lists:reverse( binary_to_list(CallData))), GasLimit-10, State0};
 
+%getTx() returns ((uint256,address,address,uint256,uint256,bytes,(uint256,string,uint256)[],(bytes,uint256,bytes,bytes,bytes)[]))
+process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value, <<2285013609:32/big>>, GasLimit,
+			#{cur_tx:=Tx}=State0, _Opts) ->
+	?ASSERT_NOVAL,
+	RBin= contract_evm:encode_tx(Tx,[]),
+	{1, RBin, GasLimit-100, State0};
+
+%getExtra(string keyname) returns (uint256, bytes)
+process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value,
+			<<1404481427:32/big,CallData/binary>>, GasLimit,
+			#{cur_tx:=Tx}=State0, _Opts) ->
+	?ASSERT_NOVAL,
+	[{<<>>,String}] = contract_evm_abi:decode_abi(CallData,[{<<>>,string}]),
+	TxExt = maps:get(txext, Tx, #{}),
+	io:format("Ext ~p~n",[TxExt]),
+	Ret = case maps:get(binary_to_list(String),TxExt,<<>>) of
+			  <<>> ->
+				  [0, <<>>];
+			  [I|_]=L when is_integer(I) ->
+				  [1,list_to_binary(L)];
+			  B when is_binary(B) ->
+				  [2,B];
+			  [B|_]=L when is_binary(B) -> %list of binary
+				  [3,erlp:encode(L)]
+		  end,
+	io:format("Return ~p~n",[Ret]),
+	RBin=contract_evm_abi:encode_abi(Ret, [{<<>>,uint256},{<<>>,bytes}]),
+	{1, RBin, GasLimit-100, State0};
+
 process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value, _CallData, GasLimit,
 			#{cur_tx:=Tx}=State0, _Opts) ->
 	?ASSERT_NOVAL,
+	hex:hexdump(_CallData),
 	RBin= contract_evm:encode_tx(Tx,[]),
 	{1, RBin, GasLimit-100, State0};
 

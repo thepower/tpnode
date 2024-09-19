@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "contracts/lstore.sol";
+import "contracts/GetTx.sol";
 
 contract BronKerbosch {
   struct node_info {
@@ -184,6 +185,9 @@ contract builtinFunc {
     return c;
   }
 
+  function getExtra(string memory ex) public view returns (uint256, bytes memory) {
+		return GetTx(address(0xAFFFFFFFFF000002)).getExtra(ex);
+  }
   function getTx() public view returns (tpTx memory) {
     address _addr=address(0xAFFFFFFFFF000002);
     (bool success, bytes memory returnBytes) = _addr.staticcall("");
