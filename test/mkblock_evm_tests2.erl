@@ -789,11 +789,29 @@ return
 					  }
              }), Pvt1),
 
+	  TX5=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>deploy,
+              from=>Addr1,
+              seq=>6,
+              t=>os:system_time(millisecond),
+              payload=>[
+                        #{purpose=>srcfee, amount=>1100, cur=><<"FTT">>},
+                        #{purpose=>gas, amount=>30000, cur=><<"FTT">>}
+                       ],
+              txext=>#{ "code"=> <<Deploycode/binary,Code/binary>>,
+						"vm" => "evm",
+						"setkey" => <<1,2,3,4>>
+					  }
+             }), Pvt1),
+
       TxList1=[
                {<<"1testdeploy">>, maps:put(sigverify,#{valid=>1},TX1)},
                {<<"2call">>, maps:put(sigverify,#{valid=>1},TX2)},
                {<<"3call">>, maps:put(sigverify,#{valid=>1},TX3)},
-			   {<<"4deploy_w_transfer">>, maps:put(sigverify,#{valid=>1},TX4)}
+			   {<<"4deploy_w_transfer">>, maps:put(sigverify,#{valid=>1},TX4)},
+			   {<<"5deploy_w_key">>, maps:put(sigverify,#{valid=>1},TX5)}
               ],
       TestFun=fun(#{block:=Block,
                     emit:=_Emit,
@@ -830,17 +848,22 @@ return
 		   ([_,<<"3call">>,_,Res,Addr|_], A) ->
 				A#{tx3_res => Res,
 				   tx3_addr => Addr};
+		   ([_,<<"5deploy_w_key">>,_,Res,Addr|_], A) ->
+				A#{tx5_res => Res,
+				   tx5_addr => Addr};
 		   (_,A) ->
 				A
 		end, #{}, S1),
       %io:format("Logs ~p~n",[S1]),
-      %io:format("Res ~p~n",[LogExtract]),
-	  io:format("LedgerSum1 ~p~n",[ledger_sum(Ledger)]),
-	  io:format("LedgerSum2 ~p~n",[ledger_sum(L1)]),
+      io:format("Res ~p~n",[LogExtract]),
+	  LS1=ledger_sum(Ledger),
+	  LS2=ledger_sum(L1),
 	  ExtractAddr = fun(<<0:96/big,Address:20/binary,_:32/binary>>) ->
 							Address
 					end,
       [
+	   ?assertEqual(maps:get(<<"FTT">>,LS1),maps:get(<<"FTT">>,LS2)),
+	   ?assertEqual(maps:get(<<"SK">>,LS1),maps:get(<<"SK">>,LS2)),
 	   ?assertMatch(1,maps:get(tx1_res, LogExtract)),
 	   ?assertMatch(1,maps:get(tx2_res, LogExtract)),
 	   ?assertMatch(<<_:64/binary>>,maps:get(tx2_addr, LogExtract)),
@@ -855,7 +878,9 @@ return
 	   ?assertEqual(
 					maps:get(code,maps:get(maps:get(tx1_addr, LogExtract),L1)),
 					maps:get(code,maps:get(maps:get(tx4_addr, LogExtract),L1))
-		 )
+		 ),
+	   ?assertMatch(1,maps:get(tx5_res, LogExtract)),
+	   ?assertMatch(#{pubkey:=<<1,2,3,4>>},maps:get( maps:get(tx5_addr, LogExtract) ,L1))
       ].
 
 

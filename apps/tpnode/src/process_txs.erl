@@ -312,9 +312,14 @@ process_tx(#{from:=From,
 		{1, DeployedCode, GasLeft, State2} ->
 			State3=pstate:set_state(Address, code, [], DeployedCode, State2),
 			?LOG_INFO("Deploy to address ~p success",[Address]),
-			{1, Address, GasLeft,
-			 maps:without([cur_tx,tstorage], State3)
-			};
+			State4=maps:without([cur_tx,tstorage], State3),
+			case TxExt of
+				#{ "setkey":= Key } when is_binary(Key) ->
+					State5=pstate:set_state(Address, pubkey, [], Key, State4),
+					{1, Address, GasLeft, State5};
+				_ ->
+					{1, Address, GasLeft, State4}
+			end;
 		{0, <<>>, 0, _} ->
 			{0, <<"nogas">>, 0,
 			 maps:without([cur_tx,tstorage], State)
@@ -393,7 +398,6 @@ process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value,
 	?ASSERT_NOVAL,
 	[{<<>>,String}] = contract_evm_abi:decode_abi(CallData,[{<<>>,string}]),
 	TxExt = maps:get(txext, Tx, #{}),
-	io:format("Ext ~p~n",[TxExt]),
 	Ret = case maps:get(binary_to_list(String),TxExt,<<>>) of
 			  <<>> ->
 				  [0, <<>>];
@@ -404,7 +408,6 @@ process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value,
 			  [B|_]=L when is_binary(B) -> %list of binary
 				  [3,erlp:encode(L)]
 		  end,
-	io:format("Return ~p~n",[Ret]),
 	RBin=contract_evm_abi:encode_abi(Ret, [{<<>>,uint256},{<<>>,bytes}]),
 	{1, RBin, GasLimit-100, State0};
 
@@ -453,7 +456,7 @@ process_itx(From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opts) ->
 	process_code_itx(Code, From, To, Value, CallData, GasLimit, State1, Opts).
 
 process_code_itx(<<>>,From, To, Value, _CallData, GasLimit, #{acc:=_}=State0, _Opts) ->
-	io:format("== process without code ~p~n",[To]),
+	?LOG_INFO("== process call without code ~p~n",[To]),
 	State1=transfer(From, To, Value, <<"SK">>, State0),
 	{ 1, <<>>, GasLimit, State1};
 
