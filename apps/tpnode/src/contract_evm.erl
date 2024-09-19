@@ -511,6 +511,8 @@ call_i(Address, Method, Args, #{sload:=SLoad, getcode:=GetCode}=Opts) ->
   case Result of
     {done, {return,RetVal}, _X1} ->
       {ok, RetVal};
+    {done, 'eof', _} ->
+      {ok, eof};
     {done, 'stop', _} ->
       {ok, stop};
     {done, 'invalid', _} ->
