@@ -259,7 +259,7 @@ balance_test() ->
                     failed:=Failed}=R) ->
 io:format("R ~p~n",[R]),
                   ?assertMatch([],Failed),
-                  Bals=maps:get(bals, Block),
+                  Bals=maps:get(bals, block:downgrade(Block)),
                   Sets=maps:get(settings, Block),
                   {ok,Bals,Sets}
               end,
@@ -344,7 +344,7 @@ return
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  Bals=maps:get(bals, Block),
+                  Bals=maps:get(bals, block:downgrade(Block)),
                   Receipt=maps:get(receipt, Block),
                   {ok,Bals,Receipt}
               end,
@@ -444,7 +444,7 @@ return
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  Bals=maps:get(bals, Block),
+                  Bals=maps:get(bals, block:downgrade(Block)),
                   Sets=maps:get(settings, Block),
                   {ok,Bals,Sets}
               end,
@@ -520,7 +520,7 @@ return
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  Bals=maps:get(bals, Block),
+                  Bals=maps:get(bals, block:downgrade(Block)),
                   Sets=maps:get(settings, Block),
                   {ok,Bals,Sets}
               end,
@@ -646,7 +646,7 @@ return
                   io:format("Block ~p~n",[Block]),
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  Bals=maps:get(bals, Block),
+                  Bals=maps:get(bals, block:downgrade(Block)),
                   Sets=maps:get(settings, Block),
                   {ok,Bals,Sets}
               end,
@@ -817,7 +817,7 @@ return
                     emit:=_Emit,
                     failed:=Failed}) ->
                   ?assertMatch([],Failed),
-                  Bals=maps:get(bals, Block),
+                  Bals=maps:get(bals, block:downgrade(Block)),
                   {ok,Bals,maps:get(receipt,Block)}
               end,
       Ledger=[
@@ -936,7 +936,7 @@ return
                     emit:=_Emit,
                     failed:=Failed}) ->
                   ?assertMatch([],Failed),
-                  Bals=maps:get(bals, Block),
+                  Bals=maps:get(bals, block:downgrade(Block)),
                   Sets=maps:get(settings, Block),
                   {ok,Bals,Sets}
               end,
@@ -997,7 +997,7 @@ SSTORE
                     emit:=_Emit,
                     failed:=Failed}) ->
                   ?assertMatch([],Failed),
-                  Bals=maps:get(bals, Block),
+                  Bals=maps:get(bals, block:downgrade(Block)),
                   Hdr=maps:get(header, Block),
                   {ok,Bals,Hdr}
               end,
@@ -1093,7 +1093,7 @@ return
                     emit:=_Emit,
                     failed:=Failed}) ->
                   ?assertMatch([],Failed),
-                  Bals=maps:get(bals, Block),
+                  Bals=maps:get(bals, block:downgrade(Block)),
                   Rec=maps:get(receipt, Block),
                   {ok,Bals,Rec}
               end,
@@ -1253,7 +1253,7 @@ tether_test() ->
                     emit:=_Emit,
                     failed:=Failed}) ->
                   ?assertMatch([],Failed),
-                  Bals=maps:get(bals, Block),
+                  Bals=maps:get(bals, block:downgrade(Block)),
 				  Rec=maps:get(receipt, Block),
                   {ok,Bals,Rec}
               end,
@@ -1670,7 +1670,7 @@ return
                   io:format("Failed ~p~n",[Failed]),
                   io:format("txs ~p~n",[maps:get(txs,Block)]),
                   ?assertMatch([],Failed),
-                  Bals=maps:get(bals, Block),
+                  Bals=maps:get(bals, block:downgrade(Block)),
                   Sets=maps:get(settings, Block),
                   {ok,Bals,Sets}
               end,

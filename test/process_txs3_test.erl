@@ -50,7 +50,7 @@ process_register_test() ->
 	 end,
 
 	DB=test3_ptx,
-	{Res, <<0:192/big,Address:8/binary>>, Patch} = mledger:deploy4test(DB, Ledger, Test),
+	{Res, <<Address:8/binary>>, Patch} = mledger:deploy4test(DB, Ledger, Test),
 	[?assertEqual(1, Res),
 	 ?assertMatch({_,lstore,[<<"allocblock">>,<<"last">>],_,_}, lists:keyfind(lstore,2,Patch)),
 	 ?assertMatch({Address,pubkey,[],_,Pub}, lists:keyfind(pubkey,2,Patch))

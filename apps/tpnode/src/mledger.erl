@@ -878,8 +878,9 @@ field_to_id(seq)    -> 2;
 field_to_id(code)   -> 3;
 field_to_id(storage)-> 4;
 field_to_id(pubkey) -> 5;
-field_to_id(t)      -> 6;
-field_to_id(vm)     -> 7;
+field_to_id(lstore) -> 6;
+field_to_id(t)      -> 7;
+field_to_id(vm)     -> 8;
 field_to_id(view)   -> 64;
 field_to_id(lastblk)-> 65;
 field_to_id(_) -> 0.
@@ -889,8 +890,9 @@ id_to_field(2) -> seq;
 id_to_field(3) -> code;
 id_to_field(4) -> storage;
 id_to_field(5) -> pubkey;
-id_to_field(6) -> t;
-id_to_field(7) -> vm;
+id_to_field(6) -> lstore;
+id_to_field(7) -> t;
+id_to_field(8) -> vm;
 id_to_field(64) -> view;
 id_to_field(65) -> lastblk;
 id_to_field(_) -> throw(unknown).

@@ -544,17 +544,20 @@ prepare_ledger_patch([{Address,Field,Key,OldVal,NewVal}|Rest],Acc,Hash) ->
 	  Hash1 = crypto:hash_update(Hash, [Address,
 										<<N:16/big>>,
 										Key,
-										if is_binary(OldVal) -> OldVal;
-										   is_integer(OldVal) ->
-											 binary:encode_unsigned(OldVal)
-										end,
-										if is_binary(NewVal) -> NewVal;
-										   is_integer(NewVal) ->
-											 binary:encode_unsigned(NewVal)
-										end
+										data2hash(OldVal),
+										data2hash(NewVal)
 									   ]),
 	  prepare_ledger_patch(Rest, Acc1, Hash1 )
   end.
+
+%data2hash(false) -> <<0>>;
+%data2hash(true) -> <<1>>;
+data2hash(undefined) -> <<>>;
+data2hash(Val) when is_binary(Val) -> Val;
+data2hash(Val) when is_integer(Val) -> binary:encode_unsigned(Val);
+data2hash(List) when is_list(List) ->
+  [ data2hash(Vi) || Vi <- List].
+
 
 mkblock2(#{ txs:=Txs, parent:=Parent,
             height:=H,
@@ -1124,7 +1127,9 @@ downgrade(#{ledger_patch:=LP,receipt:=Rec,txs:=Txs}=Block) ->
 				 {TxID,tx:set_ext(<<"revert">>,Reason,Tx)};
 			   _ ->
 				 {TxID, Tx}
-			 end
+			 end;
+			({TxID, Any}) ->
+			 {TxID, Any}
 		 end,
 		 Txs),
 

@@ -618,7 +618,7 @@ evm_embedded_gets_test() ->
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  {ok,Log,Block}
+                  {ok,Log,block:downgrade(Block)}
               end,
       Ledger=[
               {Addr1,
@@ -713,9 +713,9 @@ evm_embedded_lstore_test() ->
              patches => [
                          #{<<"t">>=><<"set">>, <<"p">>=>[<<"a">>,<<"int">>], <<"v">>=>$b},
                          #{<<"t">>=><<"set">>, <<"p">>=>[<<"a">>,<<"bin">>], <<"v">>=><<"bin">>},
-                         #{<<"t">>=><<"set">>, <<"p">>=>[<<"a">>,<<"atom">>], <<"v">>=>true},
+                         #{<<"t">>=><<"set">>, <<"p">>=>[<<"a">>,<<"atom">>], <<"v">>=>1},
                          #{<<"t">>=><<"set">>, <<"p">>=>[<<"a">>,<<"array">>],
-                           <<"v">>=>[1,true,<<1,2,33>>]}
+                           <<"v">>=>[1,2,<<1,2,33>>]}
                         ]
             }), Pvt1),
 
@@ -770,7 +770,7 @@ evm_embedded_lstore_test() ->
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  {ok,Log,Block}
+                  {ok,Log,block:downgrade(Block)}
               end,
       Ledger=[
               {Addr1,
@@ -877,7 +877,7 @@ evm_embedded_chkey_test() ->
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  {ok,Log,Block}
+                  {ok,Log,block:downgrade(Block)}
               end,
       Ledger=[
               {Addr1,
@@ -944,7 +944,7 @@ evm_caller_test() ->
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  {ok,Log,Block}
+                  {ok,Log,block:downgrade(Block)}
               end,
       Ledger=[
               {Addr1,
@@ -1060,7 +1060,7 @@ evm_call_with_callcode_test() ->
                     log:=Log,
                     failed:=Failed}) ->
                   ?assertMatch([],Failed),
-                  {ok,Log,Block}
+                  {ok,Log,block:downgrade(Block)}
               end,
       Ledger=[
               {Addr2, #{amount=>#{},code=>Code}},
@@ -1133,7 +1133,7 @@ evm_callwithcode_test() ->
                     log:=Log,
                     failed:=Failed}) ->
                   ?assertMatch([],Failed),
-                  {ok,Log,Block}
+                  {ok,Log,block:downgrade(Block)}
               end,
       Ledger=[
               {Addr1,
@@ -1210,7 +1210,7 @@ evm_weth9_test() ->
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  {ok,Log,Block}
+                  {ok,Log,block:downgrade(Block)}
               end,
       Ledger=[
               {Addr1,
@@ -1422,7 +1422,7 @@ storage_messing_up_test() ->
                    }) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  {ok,Log,Block,St2}
+                  {ok,Log,block:downgrade(Block),St2}
               end,
       Ledger=[
               {Addr1,   #{

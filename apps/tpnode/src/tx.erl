@@ -990,6 +990,7 @@ unpack(BinTx) when is_binary(BinTx) ->
 
 unpack(BinTx,Opts) when is_binary(BinTx), is_list(Opts) ->
 	Trusted=lists:member(trusted, Opts),
+
 	case msgpack:unpack(BinTx, [{known_atoms,
 								 [type, sig, tx, patch, register,
 								  register, address, block ] },
@@ -1014,7 +1015,7 @@ unpack(BinTx,Opts) when is_binary(BinTx), is_list(Opts) ->
 		  when Trusted==true ->
 			hash(unpack_body( #{
 						   ver=>2,
-						   sig=>Sign,
+						   sig=>fix_sig_unpack(Sign),
 						   body=>TxBody,
 						   inv=>Inv,
 						   extdata=>Ext
@@ -1023,17 +1024,29 @@ unpack(BinTx,Opts) when is_binary(BinTx), is_list(Opts) ->
 		{ok,#{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv}} ->
 			hash(unpack_body( #{
 						   ver=>2,
-						   sig=>Sign,
+						   sig=>fix_sig_unpack(Sign),
 						   body=>TxBody,
 						   inv=>Inv
 						  }));
 		{ok,#{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody}=Tx0} ->
-			hash(unpack_generic(Trusted, Tx0, TxBody, Sign));
+			hash(unpack_generic(Trusted, Tx0, TxBody, fix_sig_unpack(Sign)));
 		{ok, Tx0} ->
 			?LOG_INFO("FIXME isTXv1: ~p", [Tx0]),
 			tx1:unpack_mp(Tx0);
 		{error, Err} ->
 			{error, Err}
+	end.
+
+fix_sig_unpack(Sig) ->
+	if is_list(Sig) ->
+		   Sig;
+	   Sig==#{} ->
+		   [];
+	   Sig==<<>> ->
+		   [];
+	   true ->
+		   io:format("Bad signature ~p~n",[Sig]),
+		   throw(invalid_tx_sig_format)
 	end.
 
 unpack_generic(Trusted, Tx0, TxBody, Sign) ->
