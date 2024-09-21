@@ -423,8 +423,8 @@ unpack_body(#{body:= <<8:4/integer,_:4/integer,_/binary>>=Body}=Tx) ->
   end.
 
 hash(Tx=#{hash:=_}) -> Tx;
-hash(Tx=#{body:=Body}) ->
-	Digest=crypto:hash(sha256,Body),
+hash(Tx=#{body:=Body,sig:=Signatures}) ->
+	Digest=crypto:hash(sha256,[Body,Signatures]),
 	Tx#{hash=>Digest}.
 
 unpack_addr(<<_:64/big>>=From,_) -> From;
@@ -640,7 +640,7 @@ sign(#{kind:=_Kind,
        body:=Body,
        sig:=PS}=Tx, PrivKey, ED) when is_binary(PrivKey), is_list(ED) ->
   Sig=bsig:signhash(Body,ED,PrivKey),
-  Tx#{sig=>[Sig|PS]};
+  hash(maps:remove(hash,Tx#{sig=>[Sig|PS]}));
 
 sign(#{patch:=Patch}, PrivKey, ED) ->
   sign(tx:construct_tx(#{patches=>Patch, kind=>patch, ver=>2}), PrivKey, ED);
@@ -1012,23 +1012,23 @@ unpack(BinTx,Opts) when is_binary(BinTx), is_list(Opts) ->
 						  });
 		{ok,#{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv, <<"extdata">>:=Ext}}
 		  when Trusted==true ->
-			unpack_body( #{
+			hash(unpack_body( #{
 						   ver=>2,
 						   sig=>Sign,
 						   body=>TxBody,
 						   inv=>Inv,
 						   extdata=>Ext
-						  });
+						  }));
 
 		{ok,#{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody, <<"inv">>:=Inv}} ->
-			unpack_body( #{
+			hash(unpack_body( #{
 						   ver=>2,
 						   sig=>Sign,
 						   body=>TxBody,
 						   inv=>Inv
-						  });
+						  }));
 		{ok,#{<<"ver">>:=2, sig:=Sign, <<"body">>:=TxBody}=Tx0} ->
-			unpack_generic(Trusted, Tx0, TxBody, Sign);
+			hash(unpack_generic(Trusted, Tx0, TxBody, Sign));
 		{ok, Tx0} ->
 			?LOG_INFO("FIXME isTXv1: ~p", [Tx0]),
 			tx1:unpack_mp(Tx0);
@@ -1278,5 +1278,5 @@ verify_ledger_fun(_From, [{pubkey,_,PK}]) when is_binary(PK) ->
 			end
 	end;
 
-verify_ledger_fun(From, _) ->
+verify_ledger_fun(From, []) ->
 	throw({ledger_err, From}).

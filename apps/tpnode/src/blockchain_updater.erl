@@ -12,6 +12,7 @@
 -export([apply_block_conf/2,
          apply_block_conf_meta/2,
          apply_ledger/2,
+         apply_ledger/3,
          backup/1, restore/1]).
 
 %% ------------------------------------------------------------------
@@ -850,8 +851,24 @@ load_sets(LDB, LastBlock) ->
       settings:upgrade(binary_to_term(Bin))
   end.
 
-apply_ledger(Action, #{bals:=S, hash:=BlockHash, header:=#{height:=Height}}) ->
-  Patch=maps:fold(
+apply_ledger(Action, Block) ->
+	apply_ledger(mledger, Action, Block).
+
+apply_ledger(DBName, Action, #{ledger_patch:=LP, header:=#{height:=Height}}) ->
+	Patch = mledger:patch_pstate2mledger(LP),
+	LR=case Action of
+       {checkput, Hash} ->
+         mledger:apply_patch(DBName, Patch, {commit, Height, Hash});
+       check ->
+         mledger:apply_patch(DBName, Patch, check);
+       put ->
+         mledger:apply_patch(DBName, Patch, {commit, Height})
+     end,
+  ?LOG_DEBUG("Apply ~p ~p", [Action, LR]),
+  LR;
+
+apply_ledger(DBName, Action, #{bals:=S, hash:=BlockHash, header:=#{height:=Height}}) ->
+  PrePatch=maps:fold(
           fun(_Addr, #{chain:=_NewChain}, Acc) ->
               Acc;
              (Addr, #{amount:=_}=V, Acc) -> %modern format
@@ -867,15 +884,14 @@ apply_ledger(Action, #{bals:=S, hash:=BlockHash, header:=#{height:=Height}}) ->
                  )
                }|Acc]
           end, [], S),
-  %?LOG_INFO("Apply bals ~p", [Patch]),
-  %?LOG_INFO("Apply patches ~p", [mledger:bals2patch(Patch)]),
+  %?LOG_INFO("Apply bals ~p", [PrePatch]),
+  Patch = mledger:bals2patch(PrePatch),
+  %?LOG_INFO("Apply patches ~p", [Patch]),
   LR=case Action of
        {checkput, Hash} ->
-         mledger:apply_patch(mledger:bals2patch(Patch), {commit, {Height, BlockHash}, Hash});
-%       check ->
-%         mledger:apply_patch(mledger:bals2patch(Patch), check);
+         mledger:apply_patch(DBName, Patch, {commit, {Height, BlockHash}, Hash});
        put ->
-         {ok,mledger:apply_patch(mledger:bals2patch(Patch), {commit, {Height, BlockHash}})}
+         mledger:apply_patch(DBName, Patch, {commit, {Height, BlockHash}})
      end,
   ?LOG_DEBUG("Apply ~p ~p", [Action, LR]),
   LR.

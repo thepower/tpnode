@@ -7,13 +7,15 @@
 generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, ExtraData) ->
   generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, ExtraData, []).
 
-generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, ExtraData, Options) ->
+generate_block(PreTXL0, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, ExtraData, Options) ->
 	LedgerName = case lists:keyfind(ledger_pid, 1, Options) of
 					 {ledger_pid, N} when is_atom(N) ->
 						 N;
 					 _Default ->
 						 mledger
 				 end,
+
+	{PreTXL, Failed} = ensure_verified(PreTXL0, LedgerName),
 
 	Entropy=proplists:get_value(entropy, Options, <<>>),
 	MeanTime=proplists:get_value(mean_time, Options, 0),
@@ -40,7 +42,7 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Extr
 	  block_logs := Logs
 	 } = process_all(PreTXL, State0),
 	%[Receipt, Patch].
-	
+
 	Roots=if Logs==[] ->
              [
               {entropy, Entropy},
@@ -57,25 +59,25 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Extr
              ]
         end,
 
-	%io:format("Patch ~p~n",[Patch]),
-	NewBal=patch2bal(Patch, #{}),
+	%NewBal=patch2bal(Patch, #{}),
 	%io:format("Bal ~p~n",[NewBal]),
 	{ok, LedgerHash} = mledger:apply_patch(LedgerName,
 									 mledger:patch_pstate2mledger(
 									   Patch
 									  ),
 									 check),
-	io:format("Block receipt ~p~n",[Receipt]),
+	%io:format("Block receipt ~p~n",[Receipt]),
 	BlkData=#{
             txs=>PreTXL, %Success, %[{TxID,TxBody}|_]
 			receipt => Receipt,
             parent=>Parent_Hash,
             mychain=>GetSettings(mychain),
             height=>Parent_Height+1,
-            bals=>NewBal,
-            failed=>[],
+            %bals=>NewBal,
+            failed=>Failed,
             temporary=>proplists:get_value(temporary,Options),
             ledger_hash=>LedgerHash,
+			ledger_patch=>Patch,
             settings=>[],
             extra_roots=>Roots,
             extdata=>ExtraData
@@ -103,12 +105,12 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Extr
   end,
 
   _T6=erlang:system_time(),
-  ?LOG_INFO("Created block ~w ~s...: txs: ~w, bals: ~w, LH: ~s, ch: ~p tmp: ~p time: ~p",
+  ?LOG_INFO("Created block ~w ~s...: txs: ~w, patch: ~w, LH: ~s, ch: ~p tmp: ~p time: ~p",
              [
               Parent_Height+1,
               block:blkid(maps:get(hash, Blk)),
               length(PreTXL),
-              maps:size(NewBal),
+			  length(Patch),
               case LedgerHash of
                 undefined ->
                    "undefined";
@@ -120,19 +122,20 @@ generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Extr
               MeanTime
              ]),
   ?LOG_DEBUG("Hdr ~p",[maps:get(header,Blk)]),
+  ?LOG_DEBUG("Block patch ~p",[Patch]),
   case lists:keyfind(extract_state,1,Options) of
 	  false ->
 		  #{block=>Blk,
-			failed=>[],
+			failed=>Failed,
 			emit=>[],
 			log=>Logs
 		   };
 	  _ ->
 		  #{block=>Blk,
-			failed=>[],
+			failed=>Failed,
 			emit=>[],
 			log=>Logs,
-			extracted_state => patch2bal( pstate:extract_state(PS), #{})
+			extracted_state => block:patch2bal( pstate:extract_state(PS), #{})
 		   }
   end.
 
@@ -171,28 +174,21 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 						block_logs => BL1
 					   }).
 
-patch2bal([], Map) -> Map;
-patch2bal([{Address,Field,[],_OldValue,NewValue}|Rest], Map) when
-	  Field == seq;
-	  Field == t;
-	  Field == pubkey;
-	  Field == code ->
-	ABal=maps:get(Address, Map, mbal:new()),
-	ABal1=mbal:put(Field, NewValue, ABal),
-	patch2bal(Rest, maps:put(Address, ABal1, Map));
 
-patch2bal([{Address,lstore,Path,_OldValue,NewValue}|Rest], Map) ->
-	ABal=maps:get(Address, Map, mbal:new()),
-	ABal1=mbal:put(lstore, Path, NewValue, ABal),
-	patch2bal(Rest, maps:put(Address, ABal1, Map));
 
-patch2bal([{Address,balance,Key,_OldValue,NewValue}|Rest], Map) ->
-	ABal=maps:get(Address, Map, mbal:new()),
-	ABal1=mbal:put(amount, Key, NewValue, ABal),
-	patch2bal(Rest, maps:put(Address, ABal1, Map));
+ensure_verified([], _) ->
+	{[], []};
 
-patch2bal([{Address,storage,Key,_OldValue,NewValue}|Rest], Map) ->
-	ABal=maps:get(Address, Map, mbal:new()),
-	ABal1=mbal:put(state, Key, NewValue, ABal),
-	patch2bal(Rest, maps:put(Address, ABal1, Map)).
+ensure_verified([{TxID, TxBody=#{sigverify:=_}}|Rest], LedgerName) ->
+	{PreS, PreF} = ensure_verified(Rest, LedgerName),
+	{[{TxID, TxBody}|PreS], PreF};
+
+ensure_verified([{TxID, TxBody}|Rest], LedgerName) ->
+	{PreS, PreF} = ensure_verified(Rest, LedgerName),
+	case tx:verify(TxBody,[{ledger,LedgerName}]) of
+		{ok, Verified} ->
+			{[{TxID, Verified}|PreS], PreF};
+		bad_sig ->
+			{PreS, [{TxID,bad_sig}|PreF]}
+	end.
 

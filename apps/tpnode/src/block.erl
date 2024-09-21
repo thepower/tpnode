@@ -11,6 +11,7 @@
 -export([outward_chain/2, outward_ptrs/2]).
 -export([pack_mproof/1, unpack_mproof/1]).
 -export([ledger_hash/1]).
+-export([downgrade/1, patch2bal/2]).
 
 -export([bals2bin/1]).
 -export([minify/1]).
@@ -147,7 +148,7 @@ unpack(Block) when is_binary(Block) ->
          balroot, ledger_hash, height, parent, txroot, tx_proof,
          amount, lastblk, seq, t, child, setroot, tmp, ver,
          inbound_blocks, chain, extdata, roots, failed,
-         mean_time, entropy, etxroot],
+		 receipt, mean_time, entropy, etxroot, ledger_patch],
   case msgpack:unpack(Block, [{known_atoms, Atoms}]) of
     {ok, DMP} ->
       ConvertFun=fun (header, #{roots:=RootsList}=Header) ->
@@ -358,6 +359,14 @@ verify(#{ header:=#{parent:=Parent, %blkv2
            true -> ok
         end,
         {failed, NewHash};
+	  ({<<"receipt_root">>,Hash}) ->
+		NewHash=receipt_hash(maps:get(receipt, Blk, [])),
+		if (NewHash =/= Hash) ->
+			 io:format("receipt root mismatch~n"),
+			 ?LOG_NOTICE("receipt root mismatch");
+		   true -> ok
+		end,
+		{receipt_root, NewHash};
       ({ledger_hash, Hash}) ->
         {ledger_hash, Hash};
       ({tmp, IsTmp}) ->
@@ -519,18 +528,44 @@ pack_patch(#{ kind:=patch, ver:=2, patches:=_, body:=_ }=Patch) ->
 pack_patch(#{ kind:=patch, ver:=2, patches:=_ }=Patch) ->
   tx:pack(tx:construct_tx(Patch)).
 
+prepare_ledger_patch(Data) ->
+  prepare_ledger_patch(Data, [], crypto:hash_init(sha256)).
+
+prepare_ledger_patch([], Acc, Hash) ->
+  {lists:reverse(Acc), crypto:hash_final(Hash)};
+
+prepare_ledger_patch([{Address,Field,Key,OldVal,NewVal}|Rest],Acc,Hash) ->
+  case mledger:field_to_id(Field) of
+	0 ->
+	  throw({'unknown_ledger_field',Field});
+	N
+	->
+	  Acc1 = [[Address,N,Key,OldVal,NewVal]|Acc],
+	  Hash1 = crypto:hash_update(Hash, [Address,
+										<<N:16/big>>,
+										Key,
+										if is_binary(OldVal) -> OldVal;
+										   is_integer(OldVal) ->
+											 binary:encode_unsigned(OldVal)
+										end,
+										if is_binary(NewVal) -> NewVal;
+										   is_integer(NewVal) ->
+											 binary:encode_unsigned(NewVal)
+										end
+									   ]),
+	  prepare_ledger_patch(Rest, Acc1, Hash1 )
+  end.
+
 mkblock2(#{ txs:=Txs, parent:=Parent,
-            height:=H, bals:=Bals0,
+            height:=H,
             settings:=Settings,
             mychain:=Chain
           }=Req) ->
+
   TempID=case maps:get(temporary, Req, false) of
            X when is_integer(X) -> X;
            _ -> false
          end,
-  Bals=if TempID==false -> Bals0;
-          true -> #{} %avoid calculating bals_root on temporary block
-       end,
   LH=maps:get(ledger_hash, Req, undefined),
 
   ETxsl=lists:keysort(1, lists:usort(maps:get(etxs, Req, []))),
@@ -549,9 +584,22 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
   TxMT=gb_merkle_trees:from_list(BTxs),
   TxRoot=gb_merkle_trees:root_hash(TxMT),
 
-  BalsBin=bals2bin(Bals),
-  BalsMT=gb_merkle_trees:from_list(BalsBin),
-  BalsRoot=gb_merkle_trees:root_hash(BalsMT),
+
+  {BalRoot,BlockBal}
+  = case Req of
+	  #{bals:=Bals} when TempID==false ->
+		BalsBin=bals2bin(Bals),
+		BalsMT=gb_merkle_trees:from_list(BalsBin),
+		BalsRoot=gb_merkle_trees:root_hash(BalsMT),
+		{ [{balroot, BalsRoot}], #{bals=>Bals} };
+	  #{bals:=_} when TempID==true ->
+		%avoid calculating bals_root on temporary block
+		{ [],#{}};
+	  #{ledger_patch:=LP0} ->
+		{LP,PatchHash}=prepare_ledger_patch(LP0),
+		{ [{ledger_patch_root, PatchHash}], #{ledger_patch=>LP}}
+	end,
+
 
   BSettings=binarize_settings(Settings),
   SettingsMT=gb_merkle_trees:from_list(BSettings),
@@ -591,9 +639,8 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
 
   TailRoots=FailRoot++RecieptRoot,
 
-  HeaderItems0=[{txroot, TxRoot},
+  HeaderItems0=BalRoot++[{txroot, TxRoot},
                 {etxroot, ETxRoot},
-                {balroot, BalsRoot},
                 {ledger_hash, LH},
                 {setroot, SettingsRoot}
                 |TailRoots],
@@ -606,12 +653,13 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
     end,
   {BHeader, Hdr}=build_header2(HeaderItems, Parent, H, Chain),
 
-  Block=#{header=>Hdr,
-          hash=>crypto:hash(sha256, BHeader),
-          txs=>Txsl,
-          bals=>Bals,
-          settings=>Settings,
-          sign=>[] },
+  Block=maps:merge(
+		  BlockBal,
+		  #{header=>Hdr,
+			hash=>crypto:hash(sha256, BHeader),
+			txs=>Txsl,
+			settings=>Settings,
+			sign=>[] }),
   Block0=if TempID == false -> Block;
             true ->
               Block#{temporary=>TempID}
@@ -1036,3 +1084,77 @@ receipt_hash(L) ->
 		   end,
 		   L),
   crypto:hash(sha256, Mapped).
+
+downgrade(#{bals:=_}=Block) ->
+  Block; %no downgrade required
+
+downgrade(#{ledger_patch:=LP,receipt:=Rec,txs:=Txs}=Block) ->
+  TxData=lists:foldl(fun([_Index,TxID,_Hash, Res, Ret | _],A) ->
+				  maps:put(TxID,{Res,Ret},A)
+			  end, #{}, Rec),
+  Txs1=lists:map(
+		 fun({TxID, #{kind:=register}=Tx}) ->
+			 case maps:get(TxID, TxData) of
+			   {1, <<NewBAddr:8/binary>>} ->
+				 {TxID,tx:set_ext(<<"addr">>,NewBAddr,Tx)};
+			   _ ->
+				 {TxID, Tx}
+			 end;
+			({TxID, #{kind:=generic}=Tx}) ->
+			 case maps:get(TxID, TxData) of
+			   {1, <<Int:256/big>>} when Int < 16#10000000000000000 ->
+				 {TxID,tx:set_ext(<<"retval">>,Int,Tx)};
+			   {1, RetVal} when is_binary(RetVal) ->
+				 {TxID,tx:set_ext(<<"retval">>,RetVal,Tx)};
+			   {0, <<16#08C379A0:32/big,
+					 16#20:256/big,
+					 Len:256/big,
+					 Str:Len/binary,_/binary>>} ->
+				 {TxID,tx:set_ext(<<"revert">>,Str,Tx)};
+			   {0, Reason} ->
+				 {TxID,tx:set_ext(<<"revert">>,Reason,Tx)};
+			   _ ->
+				 {TxID, Tx}
+			 end;
+			({TxID, #{kind:=deploy}=Tx}) ->
+			 case maps:get(TxID, TxData) of
+			   {1, Address} when size(Address)==8; size(Address)==20 ->
+				 {TxID,tx:set_ext(<<"addr">>,Address,Tx)};
+			   {0, Reason} ->
+				 {TxID,tx:set_ext(<<"revert">>,Reason,Tx)};
+			   _ ->
+				 {TxID, Tx}
+			 end
+		 end,
+		 Txs),
+
+  Block#{bals=>patch2bal(LP,#{}), txs=>Txs1}.
+
+patch2bal([], Map) -> Map;
+patch2bal([[Address,FieldId,Path,OldValue,NewValue]|Rest], Map) when is_integer(FieldId) ->
+  patch2bal([{Address,mledger:id_to_field(FieldId),Path,OldValue,NewValue}|Rest], Map);
+
+patch2bal([{Address,Field,[],_OldValue,NewValue}|Rest], Map) when
+	  Field == seq;
+	  Field == t;
+	  Field == pubkey;
+	  Field == code ->
+	ABal=maps:get(Address, Map, mbal:new()),
+	ABal1=mbal:put(Field, NewValue, ABal),
+	patch2bal(Rest, maps:put(Address, ABal1, Map));
+
+patch2bal([{Address,lstore,Path,_OldValue,NewValue}|Rest], Map) ->
+	ABal=maps:get(Address, Map, mbal:new()),
+	ABal1=mbal:put(lstore, Path, NewValue, ABal),
+	patch2bal(Rest, maps:put(Address, ABal1, Map));
+
+patch2bal([{Address,balance,Key,_OldValue,NewValue}|Rest], Map) ->
+	ABal=maps:get(Address, Map, mbal:new()),
+	ABal1=mbal:put(amount, Key, NewValue, ABal),
+	patch2bal(Rest, maps:put(Address, ABal1, Map));
+
+patch2bal([{Address,storage,Key,_OldValue,NewValue}|Rest], Map) ->
+	ABal=maps:get(Address, Map, mbal:new()),
+	ABal1=mbal:put(state, Key, NewValue, ABal),
+	patch2bal(Rest, maps:put(Address, ABal1, Map)).
+

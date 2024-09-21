@@ -8,6 +8,8 @@
 -export([apply_patch/3]).
 -export([apply_backup/2]).
 -export([getfun/2]).
+-export([field_to_id/1]).
+-export([id_to_field/1]).
 
 %OLD API
 -compile({no_auto_import,[get/1]}).
@@ -337,6 +339,9 @@ hash(Address) when is_binary(Address) ->
 patch_pstate2mledger([]) ->
   [];
 
+patch_pstate2mledger([[Address,FieldId,Path,OldValue,NewValue]|Rest]) when is_integer(FieldId) ->
+  patch_pstate2mledger([{Address,id_to_field(FieldId),Path,OldValue,NewValue}|Rest]);
+
 patch_pstate2mledger([{Address,storage,Path,_OldValue,NewValue}|Rest]) ->
   Res = bi_create(Address, latest, state, Path, here, NewValue),
   [ Res | patch_pstate2mledger(Rest)];
@@ -344,7 +349,6 @@ patch_pstate2mledger([{Address,storage,Path,_OldValue,NewValue}|Rest]) ->
 patch_pstate2mledger([{Address,Field,Path,_OldValue,NewValue}|Rest]) ->
   Res = bi_create(Address, latest, Field, Path, here, NewValue),
   [ Res | patch_pstate2mledger(Rest)].
-
 
 bals2patch(Data) ->
   bals2patch(Data,[]).
@@ -868,5 +872,27 @@ getfun(Addr) when is_binary(Addr) -> %this method actually returns everything, e
     #{amount:=_}=Bal -> maps:without([changes],Bal);
     undefined -> mbal:new()
   end.
+
+field_to_id(balance)-> 1;
+field_to_id(seq)    -> 2;
+field_to_id(code)   -> 3;
+field_to_id(storage)-> 4;
+field_to_id(pubkey) -> 5;
+field_to_id(t)      -> 6;
+field_to_id(vm)     -> 7;
+field_to_id(view)   -> 64;
+field_to_id(lastblk)-> 65;
+field_to_id(_) -> 0.
+
+id_to_field(1) -> balance;
+id_to_field(2) -> seq;
+id_to_field(3) -> code;
+id_to_field(4) -> storage;
+id_to_field(5) -> pubkey;
+id_to_field(6) -> t;
+id_to_field(7) -> vm;
+id_to_field(64) -> view;
+id_to_field(65) -> lastblk;
+id_to_field(_) -> throw(unknown).
 
 

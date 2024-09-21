@@ -67,7 +67,7 @@ process_tx(#{kind:=register,
 				case pstate_lstore:patch(ChainSettingsAddress, [Patch], State1) of
 					{ok, State2} ->
 						State3=pstate:set_state(NewBAddr, pubkey, [], PubKey, State2),
-						{1, <<0:192/big,NewBAddr/binary>>, State3};
+						{1, NewBAddr, State3};
 					{error, FReason} ->
 						{0, atom_to_binary(FReason), State1}
 				end;
@@ -313,13 +313,13 @@ process_tx(#{from:=From,
 			State3=pstate:set_state(Address, code, [], DeployedCode, State2),
 			?LOG_INFO("Deploy to address ~p success",[Address]),
 			State4=maps:without([cur_tx,tstorage], State3),
-			case TxExt of
-				#{ "setkey":= Key } when is_binary(Key) ->
-					State5=pstate:set_state(Address, pubkey, [], Key, State4),
-					{1, Address, GasLeft, State5};
-				_ ->
-					{1, Address, GasLeft, State4}
-			end;
+			State5=case TxExt of
+					   #{ "setkey":= Key } when is_binary(Key) ->
+						   pstate:set_state(Address, pubkey, [], Key, State4);
+					   _ ->
+						   State4
+				   end,
+			{1, Address, GasLeft, State5};
 		{0, <<>>, 0, _} ->
 			{0, <<"nogas">>, 0,
 			 maps:without([cur_tx,tstorage], State)
@@ -456,7 +456,9 @@ process_itx(From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opts) ->
 	process_code_itx(Code, From, To, Value, CallData, GasLimit, State1, Opts).
 
 process_code_itx(<<>>,From, To, Value, _CallData, GasLimit, #{acc:=_}=State0, _Opts) ->
-	?LOG_INFO("== process call without code ~p~n",[To]),
+	if GasLimit == 0 -> ok;
+	   true -> ?LOG_INFO("== process call without code ~p~n",[To])
+	end,
 	State1=transfer(From, To, Value, <<"SK">>, State0),
 	{ 1, <<>>, GasLimit, State1};
 
