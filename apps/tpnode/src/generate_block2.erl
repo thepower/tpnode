@@ -21,7 +21,7 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Ext
 	MeanTime=proplists:get_value(mean_time, Options, 0),
 
 	State0=maps:merge(
-			 process_txs:upgrade_settings(
+			 process_txs:upgrade_settings_persist(
 			   % chainsettings:by_path([<<"current">>]),
 			   maps:get(<<"current">>,GetSettings(settings)),
 			   fun mledger:getfun/2,
@@ -158,7 +158,7 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 		   maps:get(hash,TxBody,<<0:256/big>>),
 		   Ret,
 		   RetData,
-		   maps:get(last_tx_gas, State1),
+		   maps:get(last_tx_gas, State1,0),
 		   maps:get(cumulative_gas, State1),
 		   lists:reverse(maps:get(log,State1))
 		  ] | Rec],

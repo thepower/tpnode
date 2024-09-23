@@ -1,5 +1,25 @@
 -module(debug_tools).
 -export([display_address_storage/2]).
+-export([compare_pstate/2]).
+
+compare_pstate(S0, S1) when S0==S1 ->
+  #{};
+
+compare_pstate(S0, S1) ->
+  Keys=lists:usort(maps:keys(S0)++maps:keys(S1)),
+  io:format("compare_pstate keys ~p~n",[Keys]),
+  lists:foldl(
+    fun(Key, A) ->
+        V0=maps:get(Key,S0,undefined),
+        V1=maps:get(Key,S1,undefined),
+        if V0==V1 ->
+            A;
+          is_map(V0) andalso is_map(V1) ->
+            maps:put(Key,compare_pstate(V0,V1),A);
+          true ->
+            maps:put(Key,{V0,V1},A)
+        end
+    end, #{}, Keys).
 
 dpad(N) ->
 	lists:flatten([ "| " || _ <- lists:seq(1,N) ]).

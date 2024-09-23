@@ -5,10 +5,34 @@
 		 process_itx/7,
 		 process_code_itx/8,
 		 new_state/2,
-		 upgrade_settings/3
+		 upgrade_settings/3,
+		 upgrade_settings_persist/3
 		]).
 -include("include/tplog.hrl").
 
+upgrade_settings_persist(Settings, GetFun, GetFunArg) ->
+	ChainSettingsAddress= <<0>>,
+
+	State0 = new_state(GetFun, GetFunArg),
+	{Configured, _, _} = pstate:get_state(ChainSettingsAddress, lstore, [<<"configured">>], State0),
+	case Configured of
+		1 ->
+			State0;
+		#{} ->
+			LStoreMap=settings:clean_meta(
+						maps:with(
+						  [<<"fee">>,<<"freegas2">>,<<"gas">>,<<"allocblock">>],
+						  Settings
+						 )),
+			State1=lists:foldl(
+					 fun(#{<<"p">> := P, <<"t">> := <<"set">>, <<"v">> := V}, A) ->
+							 pstate:set_state(ChainSettingsAddress, lstore, P, V, A)
+					 end,
+					 State0,
+					 settings:get_patches(LStoreMap)
+					),
+			pstate:set_state(ChainSettingsAddress, lstore, [<<"configured">>], 1, State1)
+	end.
 upgrade_settings(Settings, GetFun, GetFunArg) ->
 	State0 = new_state(GetFun, GetFunArg),
 	LStoreMap=settings:clean_meta(maps:with(
@@ -181,9 +205,11 @@ process_tx(#{from:=From,seq:=Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts)
 			   {Valid, Data, State7#{cumulative_gas => GasC0 + GasUsed,
 									 last_tx_gas => GasUsed }}
 		   catch throw:Reason1 when is_atom(Reason1) ->
+					 ?LOG_DEBUG("tx failed ~p revert to ~p",[Reason1, debug_tools:compare_pstate(State0,State2)]),
 					 % in case of something went completely wrong, take only fee, and full return gas
 					 {0, atom_to_binary(Reason1, utf8), State2#{last_tx_gas => 0 }};
 				 throw:Reason1 when is_binary(Reason1) ->
+					 ?LOG_DEBUG("tx failed ~p revert to ~p",[Reason1, debug_tools:compare_pstate(State0,State2)]),
 					 % in case of something went completely wrong, take only fee, and full return gas
 					 {0, Reason1, State2#{last_tx_gas => 0 }}
 		   end
@@ -191,8 +217,10 @@ process_tx(#{from:=From,seq:=Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts)
 
 
 	catch throw:Reason when is_atom(Reason) ->
+			  ?LOG_DEBUG("tx failed ~p",[Reason]),
 			  {0, atom_to_binary(Reason, utf8), State0#{last_tx_gas => 0 }};
 		  throw:Reason when is_binary(Reason) ->
+			  ?LOG_DEBUG("tx failed ~p",[Reason]),
 			  {0, Reason, State0#{last_tx_gas => 0 }}
 	end.
 
@@ -520,24 +548,24 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, _Op
 			{ 0, <<>>, gas_left(GasLeft,GasLimit),
 			  append_log(
 				[<<"evm:invalid">>,To,From,<<>>],
-				State1)
+				State0)
 			};
 		{done, {revert, Revert}, #{ gas:=GasLeft}} ->
 			{ 0, Revert, gas_left(GasLeft,GasLimit),
 			  append_log(
 				[<<"evm:revert">>,To,From,Revert],
-				State1)
+				State0)
 			};
 		{error, nogas, #{}} ->
 			{ 0, <<>>, 0,
 			  append_log(
 				[<<"evm:nogas">>,To,From,<<>>],
-				State1)};
+				State0)};
 		{error, {jump_to,_}, #{gas:=GasLeft}} ->
 			{ 0, <<>>, gas_left(GasLeft,GasLimit),
 			  append_log(
 				[<<"evm:bad_jump">>,To,From,<<>>],
-				State1)
+				State0)
 			};
 		{error, {bad_instruction,I}, #{pc:=PC}} ->
 			{ 0, <<>>, 0,
@@ -547,11 +575,11 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, _Op
 				   io_lib:format("~p@~w",[I,PC])
 				  )
 				],
-				State1)
+				State0)
 			}
 	end.
 
-gas_left(GasLeft, GasLimit) when GasLeft < GasLimit ->
+gas_left(GasLeft, GasLimit) when GasLeft =< GasLimit ->
 	GasLeft;
 gas_left(_GasLeft, GasLimit) ->
 	Stack = try throw(ok) catch throw:ok:S -> S end,

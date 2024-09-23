@@ -188,17 +188,17 @@ run_generate(
                    {mean_time, MeanTime}
                   ]
                  ]]),
-    GB=generate_block:generate_block(PreTXL,
-                                     {PHeight, PHash},
-                                     PropsFun,
-                                     AddrFun,
-                                     [ {<<"prevnodes">>, PreNodes} ],
-                                     [
-                                      {temporary, Temporary},
-                                      {entropy, Entropy},
-                                      {mean_time, MeanTime}
-                                     ]
-                                    ),
+	GB=generate_block2:generate_block(PreTXL,
+									  {PHeight, PHash},
+									  PropsFun,
+									  AddrFun,
+									  [ {<<"prevnodes">>, PreNodes} ],
+									  [
+									   {temporary, Temporary},
+									   {entropy, Entropy},
+									   {mean_time, MeanTime}
+									  ]
+									 ),
     #{block:=Block, failed:=Failed, log:=Log}=GB,
     %?LOG_INFO("NewS block ~p",[maps:get(bals,Block)]),
     T2=erlang:system_time(),

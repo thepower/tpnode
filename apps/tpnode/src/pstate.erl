@@ -9,9 +9,10 @@
 		]).
 
 set_state(Address, lstore, Path, Value, #{getfun:=_, getfunarg:=_, acc:=_}=State) ->
-	pstate_lstore:patch(Address, 
-						[ {Path,set,Value} ],
-						State);
+	{ok,State1}=pstate_lstore:patch(Address,
+									[ {Path,set,Value} ],
+									State),
+	State1;
 
 set_state(Address, Field, Path, Value, #{getfun:=GetFun, getfunarg:=GFA, acc:=Acc}=State) ->
 	State#{
@@ -85,7 +86,7 @@ get_state_int(Address, Field, Path, Acc, GetFun, GFA) when
 	case get_from_acc(Address, Field, Path, Acc) of
 		undefined ->
 			DBValue=GetFun({Field,Address,Path}, GFA),
-			{DBValue, DBValue, false, store_to_acc(Address, Field, Path, Acc, {DBValue,undefined})}; 
+			{DBValue, DBValue, false, store_to_acc(Address, Field, Path, Acc, {DBValue,undefined})};
 		{Value,undefined} when is_binary(Value) ; is_integer(Value) ->
 			{Value, Value, true, Acc};
 		{OldValue,Value} when is_binary(Value) ; is_integer(Value) ->

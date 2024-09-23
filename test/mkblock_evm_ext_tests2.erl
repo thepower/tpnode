@@ -709,7 +709,7 @@ evm_embedded_lstore_test() ->
              seq => 2,
              from => SkAddr,
              ver => 2,
-             payload => [ ],
+             payload => [ #{purpose=>srcfee, amount=>1, cur=><<"FTT">>} ],
              patches => [
                          #{<<"t">>=><<"set">>, <<"p">>=>[<<"a">>,<<"int">>], <<"v">>=>$b},
                          #{<<"t">>=><<"set">>, <<"p">>=>[<<"a">>,<<"bin">>], <<"v">>=><<"bin">>},
@@ -733,7 +733,8 @@ evm_embedded_lstore_test() ->
                       %args => [ <<175,255,255,255,255,0,0,2>>, 1025 ]
                },
               payload=>[
-                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>1, cur=><<"FTT">>}
                        ],
               seq=>3,
               t=>os:system_time(millisecond)
@@ -754,7 +755,8 @@ evm_embedded_lstore_test() ->
                       %args => [ <<175,255,255,255,255,0,0,2>>, 1025 ]
                },
               payload=>[
-                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>1, cur=><<"FTT">>}
                        ],
               seq=>4,
               t=>os:system_time(millisecond)
@@ -765,9 +767,10 @@ evm_embedded_lstore_test() ->
                {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)},
                {<<"tx2">>, maps:put(sigverify,#{valid=>1},TX2)}
               ],
-      TestFun=fun(#{block:=Block,
+      TestFun=fun(#{block:=Block=#{receipt:=Rec},
                     log:=Log,
                     failed:=Failed}) ->
+                  io:format("Receipt ~p~n",[Rec]),
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
                   {ok,Log,block:downgrade(Block)}
@@ -864,7 +867,9 @@ evm_embedded_chkey_test() ->
                       function => "changeKey1()",
                       args => []
                     },
-             payload => [ #{purpose=>gas,amount=>2,cur=><<"SK">>}
+             payload => [
+                         #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
+                         #{purpose=>gas,amount=>2,cur=><<"SK">>}
                           %,#{purpose=>transfer,amount=>3,cur=><<"SK">>}
                         ]
             }), Pvt1),
@@ -1048,7 +1053,10 @@ evm_call_with_callcode_test() ->
               from=>Addr1,
               to=>Addr1,
               call=>#{ function => "test(bytes)", args => [<<1,2,3,4>>] },
-              payload=>[ #{purpose=>gas, amount=>55300, cur=><<"FTT">>} ],
+              payload=>[
+                        #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
+                       ],
               seq=>3,
               txext => #{ "callcode" => Addr2 },
               t=>os:system_time(millisecond)
@@ -1117,6 +1125,7 @@ evm_callwithcode_test() ->
                       function => "test(bytes)", args => [<<1,2,3,4>>]
                },
               payload=>[
+                        #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
                         #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
                        ],
               seq=>3,
@@ -1178,6 +1187,7 @@ evm_weth9_test() ->
               %        args => [ SkAddr1, 1234 ]
               %},
               payload=>[
+                        #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
                         #{purpose=>transfer, amount=>10, cur => <<"SK">>},
                         #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
                        ],
@@ -1195,6 +1205,7 @@ evm_weth9_test() ->
                       args => [ 5 ]
               },
               payload=>[
+                        #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
                         #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
                        ],
               seq=>4,
@@ -1207,9 +1218,12 @@ evm_weth9_test() ->
               ],
       TestFun=fun(#{block:=Block,
                     log:=Log,
+                    extracted_state:=ESt,
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
+                  io:format("Receipt ~p~n",[maps:get(receipt,Block)]),
                   ?assertMatch([],Failed),
+                  io:format("ESt ~p~n",[ESt]),
                   {ok,Log,block:downgrade(Block)}
               end,
       Ledger=[
@@ -1337,6 +1351,7 @@ storage_messing_up_test() ->
                       args => [ SkAddr1, contract_evm_abi:encode_abi_call([10],"test(uint256)") ]
               },
               payload=>[
+                        #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
                         #{purpose=>gas, amount=>trunc(1.0e5), cur=><<"SK">>}
                        ],
               seq=>4,
@@ -1353,6 +1368,7 @@ storage_messing_up_test() ->
                       args => [ 5 ]
               },
               payload=>[
+                        #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
                         #{purpose=>gas, amount=>trunc(1.0e5), cur=><<"SK">>}
                        ],
               seq=>5,
@@ -1373,6 +1389,7 @@ storage_messing_up_test() ->
                               ]
               },
               payload=>[
+                        #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
                         #{purpose=>gas, amount=>trunc(1.0e5), cur=><<"SK">>}
                        ],
               seq=>6,
@@ -1398,6 +1415,7 @@ storage_messing_up_test() ->
                               ]
               },
               payload=>[
+                        #{purpose=>srcfee, amount=>10, cur=><<"FTT">>},
                         #{purpose=>gas, amount=>trunc(1.0e5), cur=><<"SK">>}
                        ],
               seq=>7,
@@ -1426,7 +1444,7 @@ storage_messing_up_test() ->
               end,
       Ledger=[
               {Addr1,   #{
-                          amount => #{ <<"SK">> => trunc(1.0e10) }
+                          amount => #{ <<"SK">> => trunc(1.0e10), <<"FTT">>=>10 }
                          } },
               {SkAddr1, #{
                           amount => #{ <<"SK">> => trunc(1.0e10) },

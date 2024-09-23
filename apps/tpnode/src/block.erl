@@ -11,7 +11,7 @@
 -export([outward_chain/2, outward_ptrs/2]).
 -export([pack_mproof/1, unpack_mproof/1]).
 -export([ledger_hash/1]).
--export([downgrade/1, patch2bal/2]).
+-export([downgrade/1, downgrade_txs/2, downgrade_bals/1, patch2bal/2]).
 
 -export([bals2bin/1]).
 -export([minify/1]).
@@ -1088,54 +1088,66 @@ receipt_hash(L) ->
 		   L),
   crypto:hash(sha256, Mapped).
 
+
+downgrade_txs(Txs, Rec) ->
+  TxData=lists:foldl(fun([_Index,TxID,_Hash, Res, Ret | _],A) ->
+				  maps:put(TxID,{Res,Ret},A)
+			  end, #{}, Rec),
+  lists:map(
+	fun({TxID, #{kind:=register}=Tx}) ->
+		case maps:get(TxID, TxData) of
+		  {1, <<NewBAddr:8/binary>>} ->
+			{TxID,tx:set_ext(<<"addr">>,NewBAddr,Tx)};
+		  _ ->
+			{TxID, Tx}
+		end;
+	   ({TxID, #{kind:=generic}=Tx}) ->
+		case maps:get(TxID, TxData) of
+		  {1, <<Int:256/big>>} when Int < 16#10000000000000000 ->
+			{TxID,tx:set_ext(<<"retval">>,Int,Tx)};
+		  {1, RetVal} when is_binary(RetVal) ->
+			{TxID,tx:set_ext(<<"retval">>,RetVal,Tx)};
+		  {0, <<16#08C379A0:32/big,
+				16#20:256/big,
+				Len:256/big,
+				Str:Len/binary,_/binary>>} ->
+			{TxID,tx:set_ext(<<"revert">>,Str,Tx)};
+		  {0, Reason} ->
+			{TxID,tx:set_ext(<<"revert">>,Reason,Tx)};
+		  _ ->
+			{TxID, Tx}
+		end;
+	   ({TxID, #{kind:=deploy}=Tx}) ->
+		case maps:get(TxID, TxData) of
+		  {1, Address} when size(Address)==8; size(Address)==20 ->
+			{TxID,tx:set_ext(<<"addr">>,Address,Tx)};
+		  {0, Reason} ->
+			{TxID,tx:set_ext(<<"revert">>,Reason,Tx)};
+		  _ ->
+			{TxID, Tx}
+		end;
+	   ({TxID, Any}) ->
+		{TxID, Any}
+	end,
+	Txs).
+
+downgrade_bals(LedgerPatch) ->
+  patch2bal(LedgerPatch,#{}).
+
 downgrade(#{bals:=_}=Block) ->
   Block; %no downgrade required
 
 downgrade(#{ledger_patch:=LP,receipt:=Rec,txs:=Txs}=Block) ->
-  TxData=lists:foldl(fun([_Index,TxID,_Hash, Res, Ret | _],A) ->
-				  maps:put(TxID,{Res,Ret},A)
-			  end, #{}, Rec),
-  Txs1=lists:map(
-		 fun({TxID, #{kind:=register}=Tx}) ->
-			 case maps:get(TxID, TxData) of
-			   {1, <<NewBAddr:8/binary>>} ->
-				 {TxID,tx:set_ext(<<"addr">>,NewBAddr,Tx)};
-			   _ ->
-				 {TxID, Tx}
-			 end;
-			({TxID, #{kind:=generic}=Tx}) ->
-			 case maps:get(TxID, TxData) of
-			   {1, <<Int:256/big>>} when Int < 16#10000000000000000 ->
-				 {TxID,tx:set_ext(<<"retval">>,Int,Tx)};
-			   {1, RetVal} when is_binary(RetVal) ->
-				 {TxID,tx:set_ext(<<"retval">>,RetVal,Tx)};
-			   {0, <<16#08C379A0:32/big,
-					 16#20:256/big,
-					 Len:256/big,
-					 Str:Len/binary,_/binary>>} ->
-				 {TxID,tx:set_ext(<<"revert">>,Str,Tx)};
-			   {0, Reason} ->
-				 {TxID,tx:set_ext(<<"revert">>,Reason,Tx)};
-			   _ ->
-				 {TxID, Tx}
-			 end;
-			({TxID, #{kind:=deploy}=Tx}) ->
-			 case maps:get(TxID, TxData) of
-			   {1, Address} when size(Address)==8; size(Address)==20 ->
-				 {TxID,tx:set_ext(<<"addr">>,Address,Tx)};
-			   {0, Reason} ->
-				 {TxID,tx:set_ext(<<"revert">>,Reason,Tx)};
-			   _ ->
-				 {TxID, Tx}
-			 end;
-			({TxID, Any}) ->
-			 {TxID, Any}
-		 end,
-		 Txs),
+  Block#{bals=>downgrade_bals(LP), txs=>downgrade_txs(Txs, Rec)}.
 
-  Block#{bals=>patch2bal(LP,#{}), txs=>Txs1}.
-
-patch2bal([], Map) -> Map;
+patch2bal([], Map) ->
+  maps:map(
+	fun(_,B=#{changes:=L}) ->
+		B#{changes=>lists:usort(L)};
+	   (_,B) ->
+		B
+	end,
+	Map);
 patch2bal([[Address,FieldId,Path,OldValue,NewValue]|Rest], Map) when is_integer(FieldId) ->
   patch2bal([{Address,mledger:id_to_field(FieldId),Path,OldValue,NewValue}|Rest], Map);
 

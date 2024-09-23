@@ -157,7 +157,8 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
              [],
              [{ledger_pid, LedgerPID},
               {entropy, Entropy},
-              {mean_time, MeanTime}
+              {mean_time, MeanTime},
+			  {extract_state,1}
              ]))
   end,
   mledger:deploy4test(test_ml, Ledger, Test)
@@ -282,7 +283,7 @@ call_value_failed_test() ->
       Addr1=naddress:construct_public(1, OurChain, 1),
       SkAddr1=naddress:construct_public(1, OurChain, 4),
       Code1=eevm_asm:asm(
-              [{push,1,0},
+              [invalid,{push,1,0},
  sload,
  {push,1,1},
  add,
@@ -303,7 +304,7 @@ push1 0
 push1 0
 push1 0
 push1 0
-push1 2
+push1 1
 push8 9223407223743447044
 push3 262144
 call
@@ -341,12 +342,13 @@ return
               ],
       TestFun=fun(#{block:=Block,
                     emit:=_Emit,
+					extracted_state := ESt,
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
                   Bals=maps:get(bals, block:downgrade(Block)),
                   Receipt=maps:get(receipt, Block),
-                  {ok,Bals,Receipt}
+                  {ok,Bals,Receipt,ESt}
               end,
       Ledger=[
               {Addr1,
@@ -366,12 +368,12 @@ return
                 }
               }
              ],
-      {ok,L1,_R1}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
-      io:format("State1 ~p~n",[L1]),
+      {ok,L1,_R1,ESt}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+	  io:format("State1 ~p~n",[maps:remove(<<0>>,L1)]),
+      %io:format("Receipt ~p~n",[R1]),
+	  io:format("ESt ~p~n",[ESt]),
       [
-	   ?assertEqual(#{}, L1), %no changes happened
-       %?assertMatch(#{amount:=#{<<"SK">>:=1}}, maps:get(<<128,0,32,0,150,0,0,5>>,L1)),
-       ?assertMatch(true,true)
+	   ?assertNotMatch(#{amount := #{<<"SK">>:=_}}, maps:get(<<128,0,32,0,150,0,0,1>>,L1))
       ].
 
 

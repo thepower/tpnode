@@ -213,13 +213,14 @@ handle_call({new_block, #{hash:=BlockHash,
               lastblock:=#{header:=#{parent:=Parent}=LBlockHdr, hash:=LBlockHash}=LastBlock,
               mychain:=MyChain
              }=State) ->
-  ?LOG_INFO("New block h=~p <- ~p hash ~s <- ~s localp ~s)",
+  ?LOG_INFO("New block h=~p <- ~p hash ~s <- ~s localp ~s) keys ~p",
              [
               Hei,
               maps:get(height, LBlockHdr),
               blkid(BlockHash),
               blkid(LBlockHash),
-              blkid(Parent)
+              blkid(Parent),
+			  maps:keys(Blk)
              ]),
   try
     LDB=if is_pid(PID) -> LDB0;
@@ -435,24 +436,9 @@ handle_call({new_block, #{hash:=BlockHash,
 
                   gen_server:cast(tpnode_reporter, {new_block, maps:get(height, maps:get(header, Blk)), maps:get(temporary,Blk,false)}),
 
-                  SendSuccess=lists:map(
-                                fun({TxID, #{register:=_, address:=Addr}}) ->
-                                    {TxID, #{address=>Addr, block=>BlockHash, blockn=>Hei}};
-                                   ({TxID, #{kind:=register, ver:=2, extdata:=#{<<"addr">>:=Addr}}}) ->
-                                    {TxID, #{address=>Addr, block=>BlockHash, blockn=>Hei}};
-                                   ({TxID, #{kind:=generic, ver:=2, extdata:=#{<<"retval">>:=RV}}}) ->
-                                    {TxID, #{retval=>RV, block=>BlockHash, blockn=>Hei}};
-                                   ({TxID, #{kind:=generic, ver:=2, extdata:=#{<<"revert">>:=RV}}}) ->
-                                    {TxID, #{revert=>RV, block=>BlockHash, blockn=>Hei}};
-                                   ({TxID, #{kind:=ether, ver:=2, extdata:=#{<<"retval">>:=RV}}}) ->
-                                    {TxID, #{retval=>RV, block=>BlockHash, blockn=>Hei}};
-                                   ({TxID, #{kind:=ether, ver:=2, extdata:=#{<<"revert">>:=RV}}}) ->
-                                    {TxID, #{revert=>RV, block=>BlockHash, blockn=>Hei}};
-                                   ({TxID, _Any}) ->
-                                    ?LOG_INFO("TX ~p",[_Any]),
-                                    {TxID, #{block=>BlockHash, blockn=>Hei}}
-                                end, Txs),
 
+				  SendSuccess=send_success(Blk),
+				 
                   stout:log(blockchain_success, [{result, SendSuccess}, {failed, nope}]),
                   gen_server:cast(txqueue, {done, SendSuccess}),
                   case maps:get(failed, MBlk, []) of
@@ -1099,3 +1085,56 @@ signames(Signatures) ->
        unknown
    end
    || R<- Signatures ].
+
+send_success(#{receipt:=Rec,txs:=Txs,hash:=BlockHash,header:=#{height:=Hei}}) ->
+	TxKinds = lists:foldl(
+				fun({TxID, #{kind:=Kind}}, A) ->
+						maps:put(TxID, Kind, A)
+				end, #{}, Txs),
+	lists:map(
+	  fun([Index,TxID,_Hash, Res, Ret | _]) ->
+			  Tpl=#{block=>BlockHash,
+					blockn=>Hei,
+					index=>Index,
+					success=>Res},
+			  case maps:get(TxID,TxKinds,undefined) of
+				  register when Res==1 ->
+					  {TxID, Tpl#{address=>Ret}};
+				  register when Res==0 ->
+					  {TxID, Tpl#{revert=>Ret}};
+				  generic when Res==1 ->
+					  {TxID, Tpl#{retval=>Ret}};
+				  generic when Res==0 ->
+					  {TxID, Tpl#{revert=>Ret}};
+				  ether when Res==1 ->
+					  {TxID, Tpl#{retval=>Ret}};
+				  ether when Res==0 ->
+					  {TxID, Tpl#{revert=>Ret}};
+				  ({TxID, _Any}) ->
+					  ?LOG_INFO("Unknwon tx status ~p",[_Any]),
+					  {TxID, Tpl}
+			  end
+	  end, Rec);
+
+send_success(#{bals:=_,txs:=Txs,hash:=BlockHash,header:=#{height:=Hei}}) ->
+	lists:map(
+	  fun({TxID, #{register:=_, address:=Addr}}) ->
+			  {TxID, #{address=>Addr, block=>BlockHash, blockn=>Hei}};
+		 ({TxID, #{kind:=register, ver:=2, extdata:=#{<<"addr">>:=Addr}}}) ->
+			  {TxID, #{address=>Addr, block=>BlockHash, blockn=>Hei}};
+		 ({TxID, #{kind:=generic, ver:=2, extdata:=#{<<"retval">>:=RV}}}) ->
+			  {TxID, #{retval=>RV, block=>BlockHash, blockn=>Hei}};
+		 ({TxID, #{kind:=generic, ver:=2, extdata:=#{<<"revert">>:=RV}}}) ->
+			  {TxID, #{revert=>RV, block=>BlockHash, blockn=>Hei}};
+		 ({TxID, #{kind:=ether, ver:=2, extdata:=#{<<"retval">>:=RV}}}) ->
+			  {TxID, #{retval=>RV, block=>BlockHash, blockn=>Hei}};
+		 ({TxID, #{kind:=ether, ver:=2, extdata:=#{<<"revert">>:=RV}}}) ->
+			  {TxID, #{revert=>RV, block=>BlockHash, blockn=>Hei}};
+		 ({TxID, _Any}) ->
+			  ?LOG_INFO("TX ~p",[_Any]),
+			  {TxID, #{block=>BlockHash, blockn=>Hei}}
+	  end,
+	  Txs
+	 ).
+				  
+
