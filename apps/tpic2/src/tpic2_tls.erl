@@ -34,7 +34,11 @@ connection_process(Parent, Ref, Socket, Transport, Opts) ->
     {ok, Proto} ->
       ?LOG_DEBUG("tpic2_tls protocol ~s",[Proto]),
       conn_proto(Parent, Ref, Socket, Transport, Opts, Proto, PeerPK);
-    _ ->
+    {error,protocol_not_negotiated} ->
+      %by default make it HTTPS
+      conn_proto(Parent, Ref, Socket, Transport, Opts, <<"http/1.1">>, PeerPK);
+    _Any ->
+      ?LOG_DEBUG("tpic2_tls no protocol ~p",[_Any]),
       ssl:send(Socket,msgpack:pack(#{null=><<"no_protocol">>})),
       Transport:close(Socket)
   end.

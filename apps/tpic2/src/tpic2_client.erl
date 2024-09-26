@@ -45,7 +45,8 @@ connection_process(Parent, Host, Port, Opts) ->
   SSLOpts=[
            {alpn_advertised_protocols, [<<"tpic2">>]},
            {client_preferred_next_protocols, {client, [<<"tpic2">>]}},
-           {active, true}
+           {active, true},
+           {sni, "tpnode"}
            | tpic2:certificate()
           ],
   {Opts1,NAddr}=case inet:parse_address(Host) of
@@ -68,8 +69,21 @@ connection_process(Parent, Host, Port, Opts) ->
                    %?LOG_ERROR("Address ~p error: ~p",[Host, Err]),
                    throw({parse_addr,Err})
                end,
-    case gen_tcp:connect(NAddr, Port, [binary, {packet,4}]++Opts1) of
+  {ConnHost,ConnPort,ProxyTo}
+  = case application:get_env(tpic2,proxy_connect,undefined) of
+      undefined ->
+        {NAddr, Port, undefined};
+      {PHost,PPort} ->
+        {PHost,PPort,{NAddr, Port}}
+    end,
+  case gen_tcp:connect(ConnHost, ConnPort, Opts1) of
       {ok, TCPSocket} ->
+        case ProxyTo of
+          undefined -> ok;
+          {ToHost, ToPort} ->
+            ok=proxy_connect:proxy_connect(TCPSocket, ToHost, ToPort)
+        end,
+        inet:setopts(TCPSocket, [binary, {packet,4}]),
         ?LOG_DEBUG("Opts ~p~n",[SSLOpts]),
         {ok, Socket} = ssl:connect(TCPSocket, SSLOpts),
         ssl:setopts(Socket, [{active, once}]),

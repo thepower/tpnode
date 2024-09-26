@@ -1,6 +1,6 @@
 -module(tpic2).
 -export([childspec/1,childspec/0,certificate/0,cert/2,extract_cert_info/1, verfun/3,
-        node_addresses/0, alloc_id/0]).
+        node_addresses/0, alloc_id/0, yggname/1]).
 -export([peers/0,peerstreams/0,cast/2,cast/3,call/2,call/3,cast_prepare/1]).
 -include_lib("public_key/include/public_key.hrl").
 -include("include/tplog.hrl").
@@ -298,9 +298,24 @@ node_addresses() ->
         end end, TPICAddr,
     IA).
 
+yggname(<<Naked:32/binary>>) ->
+  string:lowercase(<<(binary:encode_hex(Naked))/binary,".pk.ygg">>);
+
+yggname(PubKey) ->
+  {pub,ed25519,<<Naked:32/binary>>} = tpecdsa:rawkey(PubKey),
+  yggname(Naked).
+
 cert(Key, Subject) ->
   Env=application:get_env(tpnode,tpic,#{}),
   OpenSSL=maps:get(openssl,Env,os:find_executable("openssl")),
+  YName=try
+          Name=binary_to_list(yggname(tpecdsa:calc_pub(Key))),
+          ["-addext", "subjectAltName = DNS:"++Name]
+        catch Ec:Ee ->
+                ?LOG_INFO("No ygg name: ~p:~p",[Ec,Ee]),
+                []
+        end,
+
   H=erlang:open_port(
       {spawn_executable, OpenSSL},
       [{args, [
@@ -308,7 +323,7 @@ cert(Key, Subject) ->
                "-key", "/dev/stdin",
                "-days", "366",
                "-nodes", "-subj", "/CN="++binary_to_list(Subject)
-              ]},
+              ]++YName},
        eof,
        binary,
        stderr_to_stdout
