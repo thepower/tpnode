@@ -45,6 +45,8 @@ lstore_service(From, <<2956342894:32/big,Bin/binary>>, GasLimit, State0, _Opts) 
 	  [{<<"p">>,Path},{<<"t">>,Type},{<<"v">>,ValB}]=contract_evm_abi:decode_abi(Bin,InABI),
 	  Patch=case Type of
 				1 -> [{Path,set,ValB}];
+				2 -> if(size(ValB)>32) -> throw('badarg'); true -> ok end,
+					 [{Path,set,binary:decode_unsigned(ValB)}];
 				_ -> []
 			end,
 	  case pstate_lstore:patch(From, Patch, State0) of

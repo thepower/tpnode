@@ -1062,12 +1062,12 @@ unpack(<<254, _Rest/binary>> = Packed, Opts) ->
                    true ->
                      #{ pubkey => PubKey };
                    false ->
-                     case chainsettings:is_net_node(PubKey) of
-                       {true, Name} ->
-                         #{node_name => Name,
-                           pubkey => PubKey};
+                     case chainsettings:is_our_node(PubKey) of
                        false ->
-                         throw({'untrusted_annouce',PubKey})
+                         throw({'untrusted_annouce',PubKey});
+                       Name ->
+                         #{node_name => Name,
+                           pubkey => PubKey}
                      end
                  end;
                false ->

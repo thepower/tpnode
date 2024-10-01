@@ -290,7 +290,9 @@ handle_call({new_block, #{hash:=BlockHash,
              end,
         SigLen=length(maps:get(sign, MBlk)),
         ?LOG_DEBUG("Signs ~p", [Success]),
-        MinSig=getset(<<"minsig">>,State),
+        %MinSig=getset(<<"minsig">>,State),
+		MinSig=chainsettings:get_val(minsig),
+
         if SigLen>=MinSig ->
              IsTemp=maps:get(temporary,Blk,false) =/= false,
              Header=maps:get(header, Blk),
@@ -953,9 +955,6 @@ store_mychain(MyName, ChainNodes, MyChain) ->
   replace(mychain, MyChain),
   %ets:insert(blockchain,[{myname,MyName},{chainnodes,ChainNodes},{mychain,MyChain}]).
   ok.
-
-getset(Name,#{settings:=Sets, mychain:=MyChain}=_State) ->
-  chainsettings:get(Name, Sets, fun()->MyChain end).
 
 backup(Dir) ->
   {ok,DBH}=gen_server:call(blockchain_updater,get_dbh),

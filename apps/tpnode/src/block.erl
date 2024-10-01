@@ -595,7 +595,7 @@ mkblock2(#{ txs:=Txs, parent:=Parent,
 		BalsMT=gb_merkle_trees:from_list(BalsBin),
 		BalsRoot=gb_merkle_trees:root_hash(BalsMT),
 		{ [{balroot, BalsRoot}], #{bals=>Bals} };
-	  #{bals:=_} when TempID==true ->
+	  #{bals:=_} when is_integer(TempID) ->
 		%avoid calculating bals_root on temporary block
 		{ [],#{}};
 	  #{ledger_patch:=LP0} ->
@@ -1158,6 +1158,12 @@ patch2bal([{Address,Field,[],_OldValue,NewValue}|Rest], Map) when
 	  Field == code ->
 	ABal=maps:get(Address, Map, mbal:new()),
 	ABal1=mbal:put(Field, NewValue, ABal),
+	patch2bal(Rest, maps:put(Address, ABal1, Map));
+
+patch2bal([{Address,Field,Path,_OldValue,NewValue}|Rest], Map) when
+	  Field == lastblk ->
+	ABal=maps:get(Address, Map, mbal:new()),
+	ABal1=mbal:put(Field, Path, NewValue, ABal),
 	patch2bal(Rest, maps:put(Address, ABal1, Map));
 
 patch2bal([{Address,lstore,Path,_OldValue,NewValue}|Rest], Map) ->

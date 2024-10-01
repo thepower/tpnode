@@ -64,8 +64,25 @@ is_our_node(PubKey, Settings) ->
   maps:get(tpecdsa:cmp_pubkey(tpecdsa:upgrade_pubkey(PubKey)), ChainNodes, false).
 
 is_our_node(PubKey) when is_binary(PubKey) ->
-  {ok, NMap} = chainsettings:get_setting(chainnodes),
-  maps:get(tpecdsa:cmp_pubkey(tpecdsa:upgrade_pubkey(PubKey)), NMap, false).
+  case mledger:db_get_one(mledger,<<0>>,lstore,[<<"chainstate">>],[]) of
+    undefined ->
+      {ok, NMap} = chainsettings:get_setting(chainnodes),
+      maps:get(tpecdsa:cmp_pubkey(tpecdsa:upgrade_pubkey(PubKey)), NMap, false);
+    {ok, Address} ->
+      {1,<<Id:256/big>>,_,_}=process_txs:process_itx(<<>>,
+                                                     Address,
+                                                     0,
+                                                     contract_evm_abi:encode_abi_call([PubKey],
+                                                                                      "node_id(bytes)"),
+                                                     10000,
+                                                     process_txs:new_state( fun mledger:getfun/2, mledger),
+                                                     #{}),
+      if Id==0 ->
+           false;
+         true ->
+           <<"Node:",(integer_to_binary(Id))/binary>>
+      end
+  end.
 
 get_setting(Named) ->
   case ets:lookup(blockchain,Named) of
@@ -231,13 +248,48 @@ get_val(mychain) ->
 get_val(Name) ->
   get_val(Name, undefined).
 
-get_val(Name, Default) when Name==minsig; Name==patchsig ->
+get_val(minsig, Default) ->
+  case mledger:db_get_one(mledger,<<0>>,lstore,[<<"chainstate">>],[]) of
+    undefined ->
+      Name=minsig,
+      Val=by_path([<<"current">>,<<"chain">>,atom_to_binary(Name,utf8)]),
+      if is_integer(Val) -> Val;
+         true ->
+           case ets:lookup(blockchain,chainnodes) of
+             [{chainnodes,Map}] ->
+               S=try throw(ok) catch throw:ok:S1 -> S1 end,
+               ?LOG_ERROR("No ~s specified!!!!! ~p",[Name,S]),
+               (maps:size(Map) div 2)+1;
+             _ ->
+               Default
+           end
+      end;
+    {ok, Address} ->
+      {1,<<Id:256/big>>,_,_}=process_txs:process_itx(<<>>,
+                                                     Address,
+                                                     0,
+                                                     contract_evm_abi:encode_abi_call([],
+                                                                                      "minsig()"),
+                                                     10000,
+                                                     process_txs:new_state(
+                                                       fun mledger:getfun/2,
+                                                       mledger
+                                                      ),
+                                                     []),
+      ?LOG_INFO("Minsig ~p~n",[Id]),
+      true=Id>0,
+      Id
+  end;
+
+
+get_val(Name, Default) when Name==patchsig ->
   Val=by_path([<<"current">>,<<"chain">>,atom_to_binary(Name,utf8)]),
   if is_integer(Val) -> Val;
      true ->
        case ets:lookup(blockchain,chainnodes) of
          [{chainnodes,Map}] ->
-           ?LOG_ERROR("No ~s specified!!!!!",[Name]),
+           S=try throw(ok) catch throw:ok:S1 -> S1 end,
+           ?LOG_ERROR("No ~s specified!!!!! ~p",[Name,S]),
            (maps:size(Map) div 2)+1;
          _ ->
            Default

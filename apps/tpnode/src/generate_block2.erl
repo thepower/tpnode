@@ -2,12 +2,9 @@
 
 -include("include/tplog.hrl").
 
--export([generate_block/5, generate_block/6]).
+-export([generate_block/4]).
 
-generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, ExtraData) ->
-  generate_block(PreTXL, {Parent_Height, Parent_Hash}, GetSettings, GetAddr, ExtraData, []).
-
-generate_block(PreTXL0, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, ExtraData, Options) ->
+generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
 	LedgerName = case lists:keyfind(ledger_pid, 1, Options) of
 					 {ledger_pid, N} when is_atom(N) ->
 						 N;
@@ -15,32 +12,74 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Ext
 						 mledger
 				 end,
 
-	{PreTXL, Failed} = ensure_verified(PreTXL0, LedgerName),
+	{PreTXL1, Failed1} = ensure_verified(PreTXL0, LedgerName),
 
 	Entropy=proplists:get_value(entropy, Options, <<>>),
 	MeanTime=proplists:get_value(mean_time, Options, 0),
+	MyChain=proplists:get_value(chain,Options,65535),
 
-	State0=maps:merge(
-			 process_txs:upgrade_settings_persist(
-			   % chainsettings:by_path([<<"current">>]),
-			   maps:get(<<"current">>,GetSettings(settings)),
-			   fun mledger:getfun/2,
-			   LedgerName
-			  ),
-			 #{
-			   entropy=>Entropy,
-			   mean_time=>MeanTime,
-			   parent=>Parent_Hash,
-			   height=>Parent_Height+1,
-			   transaction_receipt => [],
-			   block_logs => [],
-			   transaction_index=>0
-			  }),
+	State0=case lists:keyfind(migrate_settings, 1, Options) of
+			   {migrate_settings, Settings} ->
+				   process_txs:upgrade_settings_persist(
+					 maps:get(<<"current">>,Settings),
+					 fun mledger:getfun/2,
+					 LedgerName
+					);
+			   false ->
+				   process_txs:new_state(
+					 fun mledger:getfun/2,
+					 LedgerName
+					)
+		   end,
+
+	State1=maps:merge(State0,
+					  #{
+						entropy=>Entropy,
+						mean_time=>MeanTime,
+						parent=>Parent_Hash,
+						height=>Parent_Height+1,
+						transaction_receipt => [],
+						block_logs => [],
+						failed => Failed1,
+						transaction_index=>0
+					   }),
+
+	PreTXL
+	= if PreTXL1==[] ->
+			 PreTXL1;
+		 true ->
+			 case pstate:get_state(<<0>>, lstore,
+								   [ <<"autorun">>, <<"afterBlock">> ],
+								   State0) of
+				 {AutoRunAddr, _, _S1} when is_binary(AutoRunAddr) ->
+					 PreTXL1++[{<<"~afterBlock">>,
+								maps:merge(
+								  tx:construct_tx(
+									#{
+									  call => #{args => [],function => "afterBlock()"},
+									  from => <<0>>,
+									  kind => generic,
+									  payload => [],
+									  seq => Parent_Height+1,
+									  t => MeanTime,
+									  to => AutoRunAddr,
+									  txext => #{},
+									  ver => 2}),
+								  #{
+									sig => [],
+									sigverify => #{invalid => 0, pubkeys => [<<>>], valid => 1}
+								   })}];
+				 _ -> PreTXL1
+			 end
+	  end,
+
+
 	#{transaction_receipt:=Receipt,
 	  patch := Patch,
+	  failed := Failed2,
 	  process_state  := #{ acc:= _GAcc, cumulative_gas := CumulativeGas}=PS,
 	  block_logs := Logs
-	 } = process_all(PreTXL, State0),
+	 } = process_all(PreTXL, State1),
 	%[Receipt, Patch].
 
 	Roots=if Logs==[] ->
@@ -67,14 +106,15 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Ext
 									  ),
 									 check),
 	%io:format("Block receipt ~p~n",[Receipt]),
+	%
 	BlkData=#{
             txs=>PreTXL, %Success, %[{TxID,TxBody}|_]
 			receipt => Receipt,
             parent=>Parent_Hash,
-            mychain=>GetSettings(mychain),
+            mychain=>MyChain,
             height=>Parent_Height+1,
             %bals=>NewBal,
-            failed=>Failed,
+            failed=>Failed2,
             temporary=>proplists:get_value(temporary,Options),
             ledger_hash=>LedgerHash,
 			ledger_patch=>Patch,
@@ -117,7 +157,7 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Ext
                  <<H:8/binary,_/binary>> ->
                    [hex:encode(H),"..."]
               end,
-              GetSettings(mychain),
+              MyChain,
               proplists:get_value(temporary,Options),
               MeanTime
              ]),
@@ -126,53 +166,82 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, GetSettings, _GetAddr, Ext
   case lists:keyfind(extract_state,1,Options) of
 	  false ->
 		  #{block=>Blk,
-			failed=>Failed,
+			failed=>Failed2,
 			emit=>[],
 			log=>Logs
 		   };
 	  _ ->
 		  #{block=>Blk,
-			failed=>Failed,
+			failed=>Failed2,
 			emit=>[],
 			log=>Logs,
 			extracted_state => block:patch2bal( pstate:extract_state(PS), #{})
 		   }
   end.
 
-process_all([], #{transaction_receipt:=Rec, block_logs := BL0} = Acc) ->
+process_all([], #{transaction_receipt:=Rec, block_logs := BL0, failed:=Failed} = Acc) ->
 	#{transaction_receipt=>lists:reverse(Rec),
 	  patch => pstate:patch(Acc),
 	  process_state => Acc,
+	  failed => Failed,
 	  block_logs => lists:reverse(BL0)
 	 };
 
 process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 									transaction_index:=Index,
-									block_logs := BL0
+									height := Hei,
+									block_logs := BL0,
+									failed := Failed0
 								   } = State0) ->
-	{Ret,RetData,State1}=process_txs:process_tx(TxBody, State0, #{}),
+	try
+		State1=case TxBody of
+				   #{from:=From,seq:=Seq} ->
+					   {Seq0,_,State0b}=pstate:get_state(From, seq, [], State0),
+					   ?LOG_INFO("Process generic ~s ~p / ~p",[TxID, Seq0, Seq]),
+					   if Seq0==<<>> -> ok;
+						  Seq>Seq0 -> ok;
+						  true -> throw(bad_seq)
+					   end,
+					   State0b;
+				   _ ->
+					   State0
+			   end,
 
-	Rec1=[
-		  [Index,
-		   TxID,
-		   maps:get(hash,TxBody,<<0:256/big>>),
-		   Ret,
-		   RetData,
-		   maps:get(last_tx_gas, State1,0),
-		   maps:get(cumulative_gas, State1),
-		   lists:reverse(maps:get(log,State1))
-		  ] | Rec],
+		{Ret,RetData,State2}=process_txs:process_tx(TxBody, State1, #{}),
+		State3=case TxBody of
+				   #{from:=From2,seq:=USeq} ->
+					   State2b=pstate:set_state(From2, seq, [], USeq, State2),
+					   pstate:set_state(From2, lastblk, <<"tx">>, Hei, State2b);
+				   _ -> State2
+			   end,
 
-	BL1=lists:foldr(
-		  fun(LL, Acc) ->
-				  [msgpack:pack([TxID|LL])|Acc]
-		  end, BL0, maps:get(log,State1)),
+		Rec1=[
+			  [Index,
+			   TxID,
+			   maps:get(hash,TxBody,<<0:256/big>>),
+			   Ret,
+			   RetData,
+			   maps:get(last_tx_gas, State3,0),
+			   maps:get(cumulative_gas, State3),
+			   lists:reverse(maps:get(log,State3))
+			  ] | Rec],
 
-	process_all(Rest, State1#{
-						transaction_receipt:=Rec1,log=>[],
-						transaction_index=>Index+1,
-						block_logs => BL1
-					   }).
+		BL1=lists:foldr(
+			  fun(LL, Acc) ->
+					  [msgpack:pack([TxID|LL])|Acc]
+			  end, BL0, maps:get(log,State3)),
+
+		process_all(Rest, State3#{
+							transaction_receipt:=Rec1,log=>[],
+							transaction_index=>Index+1,
+							block_logs => BL1
+						   })
+	catch throw:bad_seq ->
+			  process_all(Rest,
+						  State0#{
+							failed=>[{TxID,<<"bad_seq">>}|Failed0]
+						   })
+	end.
 
 
 
@@ -189,6 +258,6 @@ ensure_verified([{TxID, TxBody}|Rest], LedgerName) ->
 		{ok, Verified} ->
 			{[{TxID, Verified}|PreS], PreF};
 		bad_sig ->
-			{PreS, [{TxID,bad_sig}|PreF]}
+			{PreS, [{TxID,<<"bad_sig">>}|PreF]}
 	end.
 

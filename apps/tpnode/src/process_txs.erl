@@ -104,7 +104,7 @@ process_tx(#{kind:=register,
 			  {0, Reason, State0}
 	end;
 
-process_tx(#{from:=From,seq:=Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts) ->
+process_tx(#{from:=From,seq:=_Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts) ->
 	?LOG_INFO("Process generic from ~s",[hex:encodex(From)]),
 	try
 	SettingsToLoad=#{
@@ -129,9 +129,14 @@ process_tx(#{from:=From,seq:=Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts)
 					FeeReceiver1 when is_binary(FeeReceiver1) -> FeeReceiver1;
 					_ -> <<0>>
 				end,
-
+	FreeGas=case maps:get(freegas, LoadedSettings) of
+				N1 when is_integer(N1), N1>0 -> N1;
+				_ -> 0
+			end,
 	State2=if FeeReceiver == <<0>> -> %no fee address or invlid type, no take fee
 				   State1;
+			  FreeGas > 0 ->
+				  State1;
 			  true ->
 				  GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
 									lstore:get([FeeCur],FeeSettings);
@@ -151,10 +156,6 @@ process_tx(#{from:=From,seq:=Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts)
 						  transfer(From, FeeReceiver, MinCost, Cur, State1)
 				  end
 		   end,
-	FreeGas=case maps:get(freegas, LoadedSettings) of
-				N1 when is_integer(N1), N1>0 -> N1;
-				_ -> 0
-			end,
 	GasPayloads=tx:get_payloads(Tx,gas),
 	?LOG_DEBUG("GasPayloads ~p~n", [GasPayloads]),
 
@@ -175,8 +176,7 @@ process_tx(#{from:=From,seq:=Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts)
 
 	?LOG_DEBUG("Gas collected ~p taken ~p~n", [GasLimit, Taken]),
 
-
-	State4=pstate:set_state(From, seq, [], Seq, State3),
+	State4=State3,
 
 	if GasLimit == norun ->
 		   To=maps:get(to, Tx),
@@ -419,6 +419,16 @@ process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value, <<2285013609:32/bi
 	RBin= contract_evm:encode_tx(Tx,[]),
 	{1, RBin, GasLimit-100, State0};
 
+%getSigners() returns (bytes[]) #94CF795E
+process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value,
+			<<16#94CF795E:32/big>>, GasLimit,
+			#{cur_tx:=Tx}=State0, _Opts) ->
+	?ASSERT_NOVAL,
+	Signatures=maps:get(sig,Tx,[]),
+	?LOG_INFO("getSigners() ~p",[Signatures]),
+	RBin=contract_evm_abi:encode_abi([Signatures], [{<<>>,{darray,bytes}}]),
+	{1, RBin, GasLimit-100, State0};
+
 %getExtra(string keyname) returns (uint256, bytes)
 process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value,
 			<<1404481427:32/big,CallData/binary>>, GasLimit,
@@ -494,8 +504,13 @@ process_code_itx(_Code,_From, _To, Value, _CallData, GasLimit, State0=#{static:=
 	  Value>0 ->
 	{ 0, <<"static_call_with_value">>, GasLimit, State0};
 
-process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, _Opts) ->
-	?LOG_INFO("Call proc code size ~p",[size(Code)]),
+process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opts0) ->
+	?LOG_DEBUG("Call proc code size ~p",[size(Code)]),
+	Opts=if is_list(Opts0) ->
+				maps:from_list(Opts0);
+			is_map(Opts0) ->
+				Opts0
+		 end,
 
 	State1=transfer(From, To, Value, <<"SK">>, State0),
 	Result = eevm:eval(Code, #{},

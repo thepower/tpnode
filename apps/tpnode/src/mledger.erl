@@ -734,6 +734,15 @@ getfun({storage,Addr,Key}, DB) ->
     {ok, Bin} ->
       Bin
   end;
+
+getfun({lastblk, Addr, Path}, DB) ->
+  case db_get_one(DB, Addr, lastblk, Path, []) of
+    undefined ->
+      <<>>;
+    {ok, Bin} ->
+      Bin
+  end;
+
 getfun({Field, Addr, _Path}, DB) when Field == pubkey;
                                       Field == code;
                                       Field == vm;

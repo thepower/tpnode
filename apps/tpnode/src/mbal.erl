@@ -201,6 +201,10 @@ put(lstore, Path, V, Bal) ->
 %put(state, _P, <<>>, Bal) ->
 %  Bal;
 
+put(lastblk, P, V, Bal) when is_integer(V) ->
+	Bal#{ lastblock=>maps:put(P,V,maps:get(lastblock,Bal,#{})),
+		  changes=>[lastblk|maps:get(changes, Bal, [])]
+		};
 
 put(state, P, V, #{state:=PV}=Bal) ->
   Bal#{state=>PV#{P=>V},

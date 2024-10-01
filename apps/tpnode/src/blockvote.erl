@@ -325,7 +325,25 @@ is_block_ready(BlockHash, #{extras:=Extras}=State) ->
         Blk0=maps:get(BlockHash, maps:get(candidates, State)),
         Blk1=Blk0#{sign=>maps:values(Sigs)},
         {true, {Success, _}}=block:verify(Blk1),
-        Names=signames(Success),
+        Names=case mledger:db_get_one(mledger,<<0>>,lstore,[<<"chainstate">>],[]) of
+                undefined -> signames(Success);
+                {ok, Address} ->
+                  State0=process_txs:new_state(fun mledger:getfun/2,mledger),
+                  {NodeIds,_}=lists:foldl(
+                    fun(#{beneficiary:=NodeKey},{N,A}) ->
+                        {1,<<Id:256/big>>,_,A1}=process_txs:process_itx(<<>>,
+                                          Address,
+                                          0,
+                                          contract_evm_abi:encode_abi_call([NodeKey],
+                                                                           "node_id(bytes)"),
+                                          10000,
+                                          A,
+                                          []),
+                        ?LOG_INFO("NodeKey ~s id ~p~n",[hex:encodex(NodeKey),Id]),
+                        {[<<"Node:",(integer_to_binary(Id))/binary>>|N],A1}
+                    end, {[],State0}, Success),
+                  NodeIds
+              end,
         T1=erlang:system_time(),
         Txs=maps:get(txs, Blk0, []),
         if length(Success)<MinSig ->

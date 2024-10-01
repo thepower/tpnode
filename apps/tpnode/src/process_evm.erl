@@ -114,10 +114,14 @@ evm_instructions(number,#{stack:=BIStack}=BIState) ->
 evm_instructions(timestamp,#{stack:=BIStack}=BIState) ->
 	MT=1,
 	BIState#{stack=>[MT|BIStack]};
-evm_instructions(selfbalance,#{stack:=BIStack,data:=#{address:=MyAddr},extra:=#{global_acc:=#{table:=CurT}}}=BIState) ->
-	%TODO: hot preload
-	MyAcc=maps:get(binary:encode_unsigned(MyAddr),CurT),
-	BIState#{stack=>[mbal:get_cur(<<"SK">>, MyAcc)|BIStack]};
+
+evm_instructions(selfbalance,#{stack:=BIStack,data:=#{address:=MyAddr},extra:=#{acc:=_}=State0}=BIState) ->
+	{Value, _Cached, State1} = pstate:get_state(binary:encode_unsigned(MyAddr),
+										balance,
+										<<"SK">>,
+										State0),
+	io:format("selfbalance add ~p ~p~n",[MyAddr,Value]),
+	BIState#{stack=>[Value|BIStack],extra=>State1};
 
 evm_instructions(create, #{stack:=[Value,MemOff,Len|Stack],
 						   memory:=RAM,

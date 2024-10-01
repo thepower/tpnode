@@ -2,6 +2,10 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+read_contract(Filename) ->
+  {ok,HexBin} = file:read_file(Filename),
+  hex:decode(HexBin).
+
 extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
   Node1Pk= <<48,46,2,1,0,48,5,6,3,43,101,112,4,34,4,32,22,128,239,248,8,82,125,208,68,96,
   97,109,94,119,85,167,252,119,1,162,89,59,80,48,100,163,212,254,246,123,208, 154>>,
@@ -842,6 +846,56 @@ evm_embedded_lstore_test() ->
        ?assertMatch(Succ,true)
       ].
 
+evm_chkey_test() ->
+      OurChain=151,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+
+      TX0=tx:sign(
+            tx:construct_tx(#{
+             kind => generic,
+             t => os:system_time(millisecond),
+             seq => 2,
+             from => Addr1,
+             to => hex:decode("0xAFFFFFFFFF000006"),
+             ver => 2,
+             call=>#{
+                      function => "setKey(bytes)",
+                      args => [<<1,2,3,4>>]
+                    },
+             payload => [
+                         #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
+                         #{purpose=>gas,amount=>1,cur=><<"SK">>}
+                        ]
+            }), Pvt1),
+
+      TxList1=[
+               {<<"tx0">>, maps:put(sigverify,#{valid=>1},TX0)}
+              ],
+      TestFun=fun(#{block:=Block,
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,block:downgrade(Block)}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{
+                             <<"FTT">> => 1000000,
+                             <<"SK">> => 3000,
+                             <<"TST">> => 26
+                            }
+                }
+              }
+             ],
+      {ok,_Log,#{bals:=B,txs:=_Tx}}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      io:format("Bals ~p~n",[B]),
+      [
+       ?assertMatch(#{Addr1:=#{pubkey:= <<1,2,3,4>> }},B)
+      ].
+
 evm_embedded_chkey_test() ->
       OurChain=151,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
@@ -1494,6 +1548,112 @@ storage_messing_up_test() ->
       [
        ?assertMatch([{1,2},{0,1},{0,1},{0,1},{0,1},{0,1},{0,20}],
                     [{R10,R11},{R20,R21},{P010,P011},{P020,P021},{P110,P111},{P120,P121},{C10,C11}])
+      ].
+
+evm_contract_addr0_test() ->
+      OurChain=151,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+      Code=read_contract("examples/evm_builtin/build/ChainSettings.bin-runtime"),
+
+      TX0=tx:sign(
+            tx:construct_tx(#{
+             kind => generic,
+             t => os:system_time(millisecond),
+             seq => 1,
+             from => Addr1,
+             to => <<0>>,
+             ver => 2,
+             call=>#{
+                      function => "set_admin(address)",
+                      args => [Addr1]
+                    },
+             payload => [
+                         #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
+                         #{purpose=>gas,amount=>150,cur=><<"SK">>}
+                        ]
+            }), Pvt1),
+
+
+      TX1=tx:sign(
+            tx:construct_tx(#{
+             kind => generic,
+             t => os:system_time(millisecond),
+             seq => 2,
+             from => Addr1,
+             to => <<0>>,
+             ver => 2,
+             call=>#{
+                      function => "apply_patch((bytes[],uint256,bytes)[])",
+                      args => [[
+                                [[<<"test">>,<<"bin">>],1,<<1,2,3>>],
+                                [[<<"test">>,<<"i">>],2,<<1,2,3>>]
+                               ]]
+                    },
+             payload => [
+                         #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
+                         #{purpose=>gas,amount=>20,cur=><<"SK">>}
+                        ]
+            }), Pvt1),
+
+
+      TX2=tx:sign(
+            tx:construct_tx(#{
+             kind => generic,
+             t => os:system_time(millisecond),
+             seq => 3,
+             from => Addr1,
+             to => <<0>>,
+             ver => 2,
+             call=>#{
+                      function => "set_key(bytes)",
+                      args => [<<1,2,3>>]
+                    },
+             payload => [
+                         #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
+                         #{purpose=>gas,amount=>20,cur=><<"SK">>}
+                        ]
+            }), Pvt1),
+
+      TxList1=[
+               {<<"tx0">>, maps:put(sigverify,#{valid=>1},TX0)},
+               {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)},
+               {<<"tx2">>, maps:put(sigverify,#{valid=>1},TX2)}
+              ],
+      TestFun=fun(#{block:=Block=#{receipt:=Receipt},
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  io:format("Rec ~p~n",[Receipt]),
+                  io:format("Block ~p~n",[Block]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,block:downgrade(Block)}
+              end,
+      Ledger=[
+              {<<0>>, #{
+                        % state => #{ <<0>> => Addr1 },
+                        code => Code
+                       }},
+              {Addr1,
+               #{amount => #{
+                             <<"FTT">> => 1000000,
+                             <<"SK">> => 3000,
+                             <<"TST">> => 26
+                            }
+                }
+              }
+             ],
+      {ok,_Log,#{bals:=B,txs:=_Tx}}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      io:format("Bals ~p~n",[B]),
+      [
+       ?assertMatch(#{<<0>>:=#{state:=#{<<0>>:=Addr1}}},B),
+       ?assertMatch(#{<<0>>:=#{lstore:=
+                               #{<<"test">>:=
+                                 #{<<"bin">> := <<1,2,3>>,
+                                   <<"i">> := 66051}
+                                }}},B),
+       ?assertMatch(#{<<0>>:=#{pubkey:=_}},B)
       ].
 
 

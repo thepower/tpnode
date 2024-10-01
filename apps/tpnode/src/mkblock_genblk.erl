@@ -42,14 +42,18 @@ run_generate(
 
   stout:log(mkblock_process, [ {node, nodekey:node_name()} ]),
 
-  AE=maps:get(ae, MySet, 0),
+  NoTMP=maps:get(notmp, MySet, 0),
   B=blockchain:last_meta(),
   ?LOG_DEBUG("Got blk from our blockchain ~p",[B]),
 
   {PHeight, PHash, PHeiHash}=mkblock:hei_and_has(B),
   PTmp=maps:get(temporary,B,false),
+  Mode=case mledger:db_get_one(mledger,<<0>>,lstore,[<<"configured">>],[]) of
+		   undefined -> legacy;
+		   {ok, 1} -> v2
+	   end,
 
-  ?LOG_INFO("-------[MAKE BLOCK h=~w tmp=~p]-------",[PHeight,PTmp]),
+  ?LOG_INFO("-------[MAKE BLOCK h=~w tmp=~p mode=~p]-------",[PHeight,PTmp,Mode]),
 
   PreNodes=try
              BK=maps:fold(
@@ -137,9 +141,8 @@ run_generate(
              end,
     AddrFun=fun mledger:getfun/1,
 
-    NoTMP=maps:get(notmp, MySet, 0),
 
-    Temporary = if AE==0 andalso PreTXL==[] ->
+    Temporary = if PreTXL==[] ->
                      if(NoTMP=/=0) -> throw(empty);
                        true ->
                          if is_integer(PTmp) ->
@@ -188,17 +191,31 @@ run_generate(
                    {mean_time, MeanTime}
                   ]
                  ]]),
-	GB=generate_block2:generate_block(PreTXL,
-									  {PHeight, PHash},
-									  PropsFun,
-									  AddrFun,
-									  [ {<<"prevnodes">>, PreNodes} ],
-									  [
-									   {temporary, Temporary},
-									   {entropy, Entropy},
-									   {mean_time, MeanTime}
-									  ]
-									 ),
+	GB=case Mode of
+		   legacy ->
+			   generate_block:generate_block(PreTXL,
+											 {PHeight, PHash},
+											 PropsFun,
+											 AddrFun,
+											 [ {<<"prevnodes">>, PreNodes} ],
+											 [
+											  {temporary, Temporary},
+											  {entropy, Entropy},
+											  {mean_time, MeanTime}
+											 ]
+											);
+		   v2 ->
+			   generate_block2:generate_block(PreTXL,
+											  {PHeight, PHash},
+											  [ {<<"prevnodes">>, PreNodes} ],
+											  [
+											   {temporary, Temporary},
+											   {entropy, Entropy},
+											   {mean_time, MeanTime},
+											   {chain, MyChain}
+											  ]
+											 )
+	   end,
     #{block:=Block, failed:=Failed, log:=Log}=GB,
     %?LOG_INFO("NewS block ~p",[maps:get(bals,Block)]),
     T2=erlang:system_time(),
