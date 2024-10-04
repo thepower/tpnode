@@ -201,11 +201,21 @@ logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}=_EEvm
   maps:put(log,[([evm,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog],Xtra).
 
 run(Address, Code, Data) ->
+  LPM=try
+        #{header:=#{chain:=ChID,
+                    height:=Hei
+                   }} = blockchain:last_permanent_meta(),
+        #{chain=>ChID,
+          number=>Hei+1}
+      catch _:_ ->
+              #{chain=>16#c0de00000000,
+                number=>11}
+      end,
   BI=fun
        (chainid, #{stack:=Stack}=BIState) ->
-         BIState#{stack=>[16#c0de00000000|Stack]};
+         BIState#{stack=>[maps:get(chain,LPM)|Stack]};
        (number,#{stack:=BIStack}=BIState) ->
-         BIState#{stack=>[10+1|BIStack]};
+         BIState#{stack=>[maps:get(number,LPM)|BIStack]};
        (timestamp,#{stack:=BIStack}=BIState) ->
          MT=os:system_time(millisecond),
          BIState#{stack=>[MT|BIStack]};
