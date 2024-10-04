@@ -211,7 +211,11 @@ native_minter_service(From, <<16#E0CD84EC:32/big,Bin/binary>>, GasLimit, State0,
 			  Dst1=Dst0+Amount,
 			  ?LOG_INFO("mint by ~s -> ~s ~w ~s",[hex:encodex(From),hex:encodex(MintTo),Amount,Cur]),
 			  State3=pstate:set_state(MintTo, balance, Cur, Dst1, State2),
-			  {1, <<1:256/big>>, GasLimit-10000, State3};
+			  %contract_evm_abi:sigb256(<<"NativeMint(address,string,uint64)">>)
+			  LogEntry=[<<"evm">>,<<"MINTER">>,From,Bin,
+						[<<223,67,179,1,144,157,250,96,127,99,234,161,65,4,228,111,32,207,178,17,173, 130,254,237,238,33,245,76,27,152,125,32>>]],
+			  State4=State3#{log=>[LogEntry|maps:get(log,State3)]},
+			  {1, <<1:256/big>>, GasLimit-10000, State4};
 		  {_, _, State1} ->
 			  {0, <<"denied">>, GasLimit-50000, State1}
 	  end

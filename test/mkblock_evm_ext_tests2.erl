@@ -383,7 +383,7 @@ evm_native_mint_test() ->
              ],
       {ok,Patch,Rec}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       [
-       ?assertMatch([[0,_,_,1,_,10000|_]],Rec),
+       ?assertMatch([[0,_,_,1,_,10000,_,[[_,<<"MINTER">>,Addr1,_,[_]]]|_]],Rec),
        ?assertMatch([[Addr2,1,<<"SK">>,0,1000000]],
                     [ E || E=[A|_] <- Patch, A==Addr2])
       ].
