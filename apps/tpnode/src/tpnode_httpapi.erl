@@ -935,10 +935,7 @@ h(<<"GET">>, [<<"blockhash">>, BHeight], _Req) ->
 
 h(<<"GET">>, [<<"blockinfo">>, BlockId], _Req) ->
   BinPacker=packer(_Req),
-  BlockHash0=if(BlockId == <<"last">>) -> last;
-               (BlockId == <<"genesis">>) -> genesis;
-               true -> hex:parse(BlockId)
-             end,
+  BlockHash0=blockhash(BlockId),
   case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
@@ -1013,10 +1010,7 @@ h(<<"GET">>, [<<"binblockn">>, BlockNum], _Req) ->
   end;
 
 h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
-  BlockHash0=if(BlockId == <<"last">>) -> last;
-               (BlockId == <<"genesis">>) -> genesis;
-               true -> hex:parse(BlockId)
-             end,
+  BlockHash0=blockhash(BlockId),
   case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
@@ -1033,10 +1027,7 @@ h(<<"GET">>, [<<"binblock">>, BlockId], _Req) ->
   end;
 
 h(<<"GET">>, [<<"txtblock">>, BlockId], _Req) ->
-  BlockHash0=if(BlockId == <<"last">>) -> last;
-               (BlockId == <<"genesis">>) -> genesis;
-               true -> hex:parse(BlockId)
-             end,
+  BlockHash0=blockhash(BlockId),
   case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
@@ -1101,11 +1092,7 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
             Addr -> naddress:decode(Addr)
           end,
 
-  BlockHash0=if(BlockId == <<"last">>) -> last;
-               (BlockId == <<"genesis">>) -> genesis;
-               true ->
-                 hex:parse(BlockId)
-             end,
+  BlockHash0=blockhash(BlockId),
   case blockchain:rel(BlockHash0, self) of
     undefined ->
         err(
@@ -2191,4 +2178,10 @@ encode_recursive(Map, BinPacker) when is_map(Map) ->
     end, #{}, Map);
 
 encode_recursive(Any, _) -> Any.
+
+blockhash(<<"last">>) -> last;
+blockhash(<<"latest">>) -> last_permanent;
+blockhash(<<"genesis">>) -> genesis;
+blockhash(BlockId) ->
+	hex:parse(BlockId).
 

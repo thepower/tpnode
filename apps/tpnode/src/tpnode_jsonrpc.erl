@@ -97,7 +97,7 @@ handle(<<"eth_estimateGas">>,[{Params},_Block]) ->
     %end;
     i2hex(25000);
 
-handle(<<"eth_call">>,[{Params},Block]) ->
+handle(<<"eth_call">>,[{Params},_Block]) ->
     ?LOG_INFO("Got req for eth_call arg1 ~p",[Params]),
     To=try
          decode_addr(proplists:get_value(<<"to">>,Params))
@@ -106,22 +106,27 @@ handle(<<"eth_call">>,[{Params},Block]) ->
        end,
     Data=hex:decode(proplists:get_value(<<"data">>,Params)),
     From=decode_addr(proplists:get_value(<<"from">>,Params,null),null,<<0>>),
-    case tpnode_evmrun:evm_run(
-           To,
-           <<"0x0">>,
-           [Data],
-           #{caller=>From,
-             gas=>2000000,
-             block_height=>case Block of <<"latest">> -> undefined; _ -> hex2i(Block) end
-            }
-          ) of
-        #{result:=revert, bin:=Bin}=_es ->
-        ?LOG_INFO("Res revert"),
-            throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(Bin)});
-        #{bin:=Bin}=_es ->
-        ?LOG_INFO("Res ok"),
-            hex:encodex(Bin);
-        _Err ->
+    S0=process_txs:new_state(fun mledger:getfun/2, mledger),
+    case process_txs:process_itx(From,
+                                 To,
+                                 0,
+                                 Data,
+                                 2000000,
+                                 S0#{cur_tx=>tx:construct_tx(
+                                               #{ver=>2,
+                                                 kind=>generic,
+                                                 from=>From,
+                                                 to=>To,
+                                                 payload=>[],
+                                                 seq=>1,
+                                                 t=>erlang:system_time(second)})
+                                    },
+                                 []) of
+      {1,RetData,_GasLeft,_} ->
+        hex:encode(RetData);
+      {0,RetData, _GasLeft, _} ->
+        throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(RetData)});
+      _Err ->
         ?LOG_INFO("Res err: ~p",[_Err]),
             throw({jsonrpc2, 10000, <<"evm_run unexpected result">>})
     end;
@@ -198,7 +203,7 @@ handle(<<"eth_chainId">>,[]) ->
   i2hex(chain_id());
 
 handle(<<"eth_gasPrice">>,[]) ->
-    i2hex(0);
+    i2hex(1);
 
 handle(<<"eth_getLogs">>,[{PList}]) ->
     handle(<<"eth_getLogs">>,maps:from_list(PList));

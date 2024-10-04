@@ -1,5 +1,5 @@
 #--combined-json abi,asm,ast,bin,bin-runtime,devdoc,function-debug,function-debug-runtime,generated-sources,generated-sources-runtime,hashes,metadata,opcodes,srcmap,srcmap-runtime,storage-layout,userdoc
-all: build/builtinFunc.bin build/checkSig.bin build/sponsor.bin build/WETH9.bin build/ChainState.bin build/ChainState.bin-runtime build/LSTest.bin build/Caller.bin build/StorageRecursive1.bin-runtime build/multicall.bin-runtime
+all: build/builtinFunc.bin build/checkSig.bin build/sponsor.bin build/WETH9.bin build/ChainState.bin build/ChainState.bin-runtime build/LSTest.bin build/Caller.bin build/StorageRecursive1.bin-runtime build/multicall.bin-runtime build/ChainSettings.bin-runtime
 
 build/builtinFunc.bin: contracts/builtinFunc.sol
 	solc --abi --bin contracts/builtinFunc.sol -o build --overwrite --storage-layout
@@ -15,6 +15,9 @@ build/ChainState.bin-runtime: contracts/ChainState.sol
 
 build/ChainState.bin: contracts/ChainState.sol
 	solc --abi --bin contracts/ChainState.sol -o build --overwrite --storage-layout
+
+build/ChainSettings.bin-runtime: contracts/ChainSettings.sol
+	solc --abi --bin-runtime contracts/ChainSettings.sol -o build --overwrite --storage-layout
 
 build/sponsor.bin: contracts/sponsor.sol
 	solc --abi --bin contracts/sponsor.sol -o build --overwrite --storage-layout

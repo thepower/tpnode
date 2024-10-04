@@ -189,7 +189,7 @@ wrong_signature_test() ->
                     failed:=Failed}, ApplyRes) ->
                    io:format("Failed ~p~n",[Failed]),
                    ?assertMatch({ok,_},ApplyRes),
-                   ?assertMatch([{<<"tx1">>,bad_sig}],Failed),
+                   ?assertMatch([{<<"tx1">>,<<"bad_sig">>}],Failed),
                    ?assertMatch([{<<"tx1">>,_}],FailedB),
                    ok
               end,
@@ -230,6 +230,7 @@ verify_apply_block_test() ->
                       function => "test(bytes)", args => [<<1,2,3,4>>]
                },
               payload=>[
+                        #{purpose=>srcfee, amount=>1, cur=><<"FTT">>},
                         #{purpose=>gas, amount=>55300, cur=><<"FTT">>}
                        ],
               seq=>3,
@@ -247,10 +248,10 @@ verify_apply_block_test() ->
                   ?assertMatch({ok,ExpectedHash},ApplyRes),
                   {ok,Log,Block}
               end,
-      TestFun2=fun(DBName, #{block:=Block=#{header:=#{roots:=Roots}}}, ApplyRes) ->
+      TestFun2=fun(DBName1, #{block:=Block=#{header:=#{roots:=Roots}}}, ApplyRes) ->
                   {ledger_hash,ExpectedHash} = lists:keyfind(ledger_hash,1,Roots),
                   ?assertMatch({ok,ExpectedHash},ApplyRes),
-                  ?assertMatch({ok,999282}, mledger:db_get_one(DBName, Addr1, balance, <<"FTT">>, [])),
+                  ?assertMatch({ok,999281}, mledger:db_get_one(DBName1, Addr1, balance, <<"FTT">>, [])),
                   {ok,Block}
               end,
       Ledger=[

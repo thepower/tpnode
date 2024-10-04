@@ -107,13 +107,15 @@ evm_logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}) 
   %io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
   Xtra#{log=>[([<<"evm">>,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog]}.
 
-evm_instructions(chainid, #{stack:=Stack}=BIState) ->
-	BIState#{stack=>[16#c0de00000000|Stack]};
-evm_instructions(number,#{stack:=BIStack}=BIState) ->
-	BIState#{stack=>[100+1|BIStack]};
-evm_instructions(timestamp,#{stack:=BIStack}=BIState) ->
-	MT=1,
-	BIState#{stack=>[MT|BIStack]};
+evm_instructions(chainid, #{extra:=X, stack:=Stack}=BIState) ->
+	Result=maps:get(chainid,X,16#c0de00000000),
+	BIState#{stack=>[Result|Stack]};
+evm_instructions(number,#{extra:=X, stack:=Stack}=BIState) ->
+	Result=maps:get(height,X,1),
+	BIState#{stack=>[Result|Stack]};
+evm_instructions(timestamp,#{extra:=X, stack:=Stack}=BIState) ->
+	MT=maps:get(mean_time,X,os:system_time(millisecond)) div 1000,
+	BIState#{stack=>[MT|Stack]};
 
 evm_instructions(selfbalance,#{stack:=BIStack,data:=#{address:=MyAddr},extra:=#{acc:=_}=State0}=BIState) ->
 	{Value, _Cached, State1} = pstate:get_state(binary:encode_unsigned(MyAddr),

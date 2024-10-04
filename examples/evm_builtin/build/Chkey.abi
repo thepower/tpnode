@@ -1,1 +1,1 @@
-[{"inputs":[{"internalType":"bytes","name":"","type":"bytes"}],"name":"setKey","outputs":[],"stateMutability":"nonpayable","type":"function"}]
+[{"inputs":[{"internalType":"bytes","name":"","type":"bytes"}],"name":"setKey","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"nonpayable","type":"function"}]

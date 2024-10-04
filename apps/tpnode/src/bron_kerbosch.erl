@@ -1,5 +1,5 @@
 -module(bron_kerbosch).
--export([max_clique/1]).
+-export([max_clique/1, unpack_bitmask/1]).
 
 -ifndef(TEST).
 -define(TEST, 1).
@@ -9,6 +9,35 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+
+shift_until([],N,Off) ->
+  {N,Off};
+shift_until([{Lim,Shift}|Rest],N,Off) ->
+  if((N band Lim)==0) ->
+      shift_until(Rest, N bsr Shift, Off+Shift);
+    true ->
+      shift_until(Rest, N, Off)
+  end.
+
+shift_next(Number,OldOff) ->
+  shift_until(
+    [{340282366920938463463374607431768211455,128},
+     {18446744073709551615,64},
+     {4294967295,32},
+     {65535,16},
+     {255,8},
+     {15,4},
+     {3,2},
+     {1,1}], Number, OldOff).
+
+unpack_bitmask(B) ->
+  unpack(B,0).
+
+unpack(0,_) -> [];
+unpack(1,O) -> [O];
+unpack(B,O) ->
+  {Left,O1}=shift_next(B,O),
+  [O1|unpack(Left bsr 1,O1+1)].
 
 is_connected(Row, Col, Matrix) ->
   lists:any(
@@ -143,6 +172,19 @@ binary_matrix_test() ->
   [
     ?assertEqual([<<"A">>, <<"C">>, <<"D">>, <<"E">>, <<"F">>],
       max_clique(Matrix))
+  ].
+
+shift_test() ->
+  [
+   ?assertEqual(
+      [0], 
+      unpack_bitmask(1)
+     ),
+   ?assertEqual( 256, length(unpack_bitmask((1 bsl 256)-1))),
+   ?assertEqual(
+      [20,254,255], 
+      unpack_bitmask((1 bsl 20) bor (1 bsl 255) bor (1 bsl 254))
+     )
   ].
 
 -endif.

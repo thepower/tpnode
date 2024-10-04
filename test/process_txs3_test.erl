@@ -503,7 +503,7 @@ return
 			  seq=>1,
 			  t=>1,
 			  payload=>[
-						#{amount=>60,cur=> <<"FTT">>,purpose=>srcfee},
+						#{amount=>99,cur=> <<"FTT">>,purpose=>srcfee},
 						#{amount=>500,cur=> <<"FTT">>,purpose=>gas}
 					   ],
 			  txext=>#{"vm"=>"evm",
@@ -597,7 +597,8 @@ return
 		  %  		}
 		  % })
 		 ],
-	do_test3(Ledger, TXs).
+	{_Patch, _Acc,Res}=do_test3(Ledger, TXs),
+	[ ?assertMatch({1,_}, R) || R <- Res ].
 
 do_test3(Ledger, TXs) ->
 	DB=test3_ptx,

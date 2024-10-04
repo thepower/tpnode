@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+abstract contract ChKey {
+	function setKey(bytes calldata) public virtual returns (uint256);
+}
+
 contract LStore {
 	struct skey {
 		uint256 datatype;

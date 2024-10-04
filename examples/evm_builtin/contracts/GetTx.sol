@@ -27,5 +27,6 @@ contract GetTx {
 
   function getTx() public virtual view returns (tpTx memory) {}
   function getExtra(string calldata keyname) public virtual view returns (uint256, bytes memory) {}
+  function getSigners() public virtual view returns (bytes[] memory) {}
 }
 

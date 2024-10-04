@@ -48,7 +48,13 @@ run(Opts) ->
            undefined ->
                case chainsettings:by_path([<<"current">>,<<"chainstate">>]) of
                    Y when is_binary(Y) -> Y;
-                   _ -> undefined
+                   _ ->
+                   case mledger:db_get_one(mledger,<<0>>,lstore,[<<"chainstate">>],[]) of
+                     undefined ->
+                       undefined;
+                     {ok, Address} ->
+                       Address
+                   end
                end;
            X ->
                naddress:decode(X)
@@ -62,6 +68,8 @@ run(Opts) ->
                    gen_server:cast(txqueue,{push_head,TxID,tx:pack(Tx)}),
                    ?LOG_INFO("----[RUN TX ~s]----",[TxID]),
                    {ok, {TxID, Tx}};
+                   %?LOG_INFO("Ignore tx yet"),
+                   %ignore;
                noledger ->
                    ?LOG_NOTICE("Ledger unavailable, ignoring"),
                    ignore;
@@ -252,13 +260,21 @@ prepare(ToContract, Attributes, Opts) ->
                                      #{ gas=>50000 }) of
               #{result:=return, decode:=[Result2]} -> Result2
           end,
-    io:format("KeyID ~p~n",[KeyId]),
+    ?LOG_INFO("KeyID ~p",[KeyId]),
+
+    Info=case tpnode_evmrun:evm_run(ToContract,
+                                     <<"info() returns (uint256 current_epoch, uint256 start_blk, uint256 end_blk,uint256 end_time,uint256 block_number)">>,
+                                     [],
+                                     #{ gas=>50000 }) of
+              #{result:=return, decode:=Res2} -> Res2
+          end,
+    ?LOG_INFO("Info ~p",[Info]),
     if(KeyId > 0) ->
           #{height:=LBH} = maps:get(header,blockchain:last_meta()),
 
           {Time,Blk}=tpnode_reporter:ask_nextblock(ToContract),
           Wait=Time-os:system_time(second),
-          io:format("LBH ~p wait ~p blk ~p~n",[LBH, Wait, Blk]),
+          ?LOG_INFO("LBH ~p time ~p wait ~p blk ~p~n",[LBH, Time, Wait, Blk]),
           Nowait = maps:is_key(nowait,Opts),
 
           if(Nowait orelse Wait =< 2 orelse LBH==Blk-1) ->
@@ -269,11 +285,11 @@ prepare(ToContract, Attributes, Opts) ->
                         #{result:=return, bin:= <<Result:256/big>>} ->
                             Result
                     end,
-                io:format("SCH ~p LBH ~p~n",[SCH,LBH]),
+                ?LOG_INFO("SCH ~p LBH ~p~n",[SCH,LBH]),
                 {F,T}=if LBH-SCH>30 ->
                              {LBH-10,LBH-1};
                          true ->
-                             {SCH,min(SCH+10,LBH-1)}
+                             {SCH+1,min(SCH+10,LBH-1)}
                       end,
 
 
@@ -429,7 +445,13 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({new_block,H,T}, State) ->
     R=run(),
-    ?LOG_INFO("run ~p new blk ~p ~p",[R, H, T]),
+    case R of
+      {ok,TxID,#{}=TxBody} ->
+        ?LOG_INFO("run ~p new blk ~p ~p",
+                  [ {ok,TxID,maps:without([body],TxBody)}, H, T]);
+      _ ->
+        ?LOG_INFO("run ~p new blk ~p ~p",[R, H, T])
+    end,
     {noreply, State};
 
 handle_cast(_Msg, State) ->

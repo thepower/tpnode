@@ -427,6 +427,7 @@ hash(Tx=#{body:=Body,sig:=Signatures}) ->
 	Digest=crypto:hash(sha256,[Body,Signatures]),
 	Tx#{hash=>Digest}.
 
+unpack_addr(<<_>>=From,_) -> From;
 unpack_addr(<<_:64/big>>=From,_) -> From;
 unpack_addr(<<_:160/big>>=From,_) -> From;
 unpack_addr([_,_,_,_,_,_,_,_]=From,_) -> list_to_binary(From);

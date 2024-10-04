@@ -150,7 +150,22 @@ unpack(Block) when is_binary(Block) ->
          inbound_blocks, chain, extdata, roots, failed,
 		 receipt, mean_time, entropy, etxroot, ledger_patch],
   case msgpack:unpack(Block, [{known_atoms, Atoms}]) of
-    {ok, DMP} ->
+    {ok, DMP0} ->
+	  DMP=case DMP0 of
+			#{receipt:=_} -> %new block, avoid atoms decoding
+			  {ok,D2}=msgpack:unpack(Block, []),
+			  maps:fold(
+				fun(<<"ledger_patch">>,R,A) ->
+					maps:put(ledger_patch,R,A);
+				   (<<"receipt">>,R,A) ->
+					maps:put(receipt,R,A);
+				   (_,_,A) -> A
+				end, DMP0, D2);
+			_ -> %old block
+			  DMP0
+		  end,
+
+
       ConvertFun=fun (header, #{roots:=RootsList}=Header) ->
                      Header#{
                        roots=>[ {RK,RV} || [RK,RV] <- RootsList ]

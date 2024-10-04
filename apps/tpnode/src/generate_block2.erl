@@ -32,17 +32,6 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
 					)
 		   end,
 
-	State1=maps:merge(State0,
-					  #{
-						entropy=>Entropy,
-						mean_time=>MeanTime,
-						parent=>Parent_Hash,
-						height=>Parent_Height+1,
-						transaction_receipt => [],
-						block_logs => [],
-						failed => Failed1,
-						transaction_index=>0
-					   }),
 
 	PreTXL
 	= if PreTXL1==[] ->
@@ -72,6 +61,19 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
 				 _ -> PreTXL1
 			 end
 	  end,
+
+	State1=maps:merge(State0,
+					  #{
+						entropy=>Entropy,
+						mean_time=>MeanTime,
+						parent=>Parent_Hash,
+						height=>Parent_Height+1,
+						transaction_receipt => [],
+						block_logs => [],
+						failed => Failed1,
+						transaction_index=>0,
+						chainid=>MyChain+1000000
+					   }),
 
 
 	#{transaction_receipt:=Receipt,
@@ -195,7 +197,7 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 								   } = State0) ->
 	try
 		State1=case TxBody of
-				   #{from:=From,seq:=Seq} ->
+				   #{from:=From,seq:=Seq} when From=/=<<0>> ->
 					   {Seq0,_,State0b}=pstate:get_state(From, seq, [], State0),
 					   ?LOG_INFO("Process generic ~s ~p / ~p",[TxID, Seq0, Seq]),
 					   if Seq0==<<>> -> ok;
@@ -209,7 +211,7 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 
 		{Ret,RetData,State2}=process_txs:process_tx(TxBody, State1, #{}),
 		State3=case TxBody of
-				   #{from:=From2,seq:=USeq} ->
+				   #{from:=From2,seq:=USeq} when From2=/=<<0>> ->
 					   State2b=pstate:set_state(From2, seq, [], USeq, State2),
 					   pstate:set_state(From2, lastblk, <<"tx">>, Hei, State2b);
 				   _ -> State2

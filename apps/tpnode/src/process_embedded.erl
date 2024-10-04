@@ -116,6 +116,28 @@ bronkerbosch_service(_From, <<16#85BC5446:32/big,Bin/binary>>, GasLimit, State0,
 			  {0, <<"badarg">>, GasLimit-100, State0}
 	end;
 
+%% max_clique_mask(uint256[2][]) returns (uint256)
+bronkerbosch_service(_From, <<16#E3D9F8D0:32/big,Bin/binary>>, GasLimit, State0, _Opts) ->
+	InABI=[{<<>>,{darray,{{fixarray,2},uint256}}}],
+	try
+		[{<<>>,Data}]=contract_evm_abi:decode_abi(Bin,InABI),
+		Data1=lists:foldl(
+				fun([A,B],Acc) ->
+						[{A, bron_kerbosch:unpack_bitmask(B)}|Acc]
+				end, [], Data),
+		Res=bron_kerbosch:max_clique(Data1),
+		Res1=lists:foldl(
+			   fun(I,A) ->
+					   A bor (1 bsl I)
+			   end, 0, Res),
+		?LOG_INFO("BronKerbosch(~p)=x ~p -> ~p",[Data1, Res, Res1]),
+		BinRes=contract_evm_abi:encode_abi([Res1],[{<<"max_clique">>,uint256}]),
+		{1, BinRes, GasLimit-100, State0}
+	catch Ec:Ee:S ->
+			  ?LOG_ERROR("decode_abi error: ~p:~p@~p/~p~n",[Ec,Ee,hd(S),hd(tl(S))]),
+			  {0, <<"badarg">>, GasLimit-100, State0}
+	end;
+
 bronkerbosch_service(_From, _CallData, GasLimit, State0, _Opts) ->
 	{0, <<"badarg">>, GasLimit-100, State0}.
 
