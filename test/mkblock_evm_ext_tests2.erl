@@ -108,40 +108,14 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                           (Other) ->
                            error({bad_setting, Other})
                        end,
-       GetAddr=fun({storage,Addr,Key}) ->
-                   Res=case mledger:get_kpv(Addr,state,Key) of
-                     undefined ->
-                       <<>>;
-                     {ok, Bin} ->
-                       Bin
-                   end,
-                   io:format("TEST get addr ~p key ~p = ~p~n",[Addr,Key,Res]),
-                   Res;
-                  ({code,Addr}) ->
-                   case mledger:get_kpv(Addr,code,[]) of
-                     undefined ->
-                       <<>>;
-                     {ok, Bin} ->
-                       Bin
-                   end;
-                  ({lstore,Addr,Path}) ->
-                   mledger:get_lstore_map(Addr,Path);
-                  (Addr) ->
-                   case mledger:get(Addr) of
-                     #{amount:=_}=Bal -> Bal;
-                     undefined -> mbal:new()
-                   end
-               end,
-
   CheckFun(generate_block2:generate_block(
              TxList,
              {ParentHeight, ParentHash},
-             GetSettings,
-             GetAddr,
              [],
              [{ledger_pid, LedgerPID},
               {entropy, Entropy},
               {mean_time, MeanTime},
+              {migrate_settings, GetSettings(settings)},
               {extract_state, true}
              ]))
   end,
@@ -357,28 +331,22 @@ evm_embedded_bron_kerbosch_test() ->
 
 
 
-evm_embedded_bron_kerbosch_test() ->
+evm_native_mint_test() ->
       OurChain=150,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
               248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
       Addr1=naddress:construct_public(1, OurChain, 1),
-
-      {ok,Bin} = file:read_file("examples/evm_builtin/build/builtinFunc.bin"),
-      Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
-
-      {done,{return,Code2},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
-      SkAddr=naddress:construct_public(1, OurChain, 2),
+      Addr2=naddress:construct_public(1, OurChain, 2),
 
       TX1=tx:sign(
-            tx:sign(
             tx:construct_tx(#{
               ver=>2,
               kind=>generic,
               from=>Addr1,
-              to=>SkAddr,
+              to=><<16#AFFFFFFFFF000008:64/big>>,
               call=>#{
-                      function => "bron_kerbosch()",
-                      args => []
+                      function => "mint_native(address,string,uint64)",
+                      args => [Addr2,<<"SK">>,1000000]
                },
               payload=>[
                         #{purpose=>gas, amount=>55300, cur=><<"FTT">>},
@@ -387,53 +355,37 @@ evm_embedded_bron_kerbosch_test() ->
               seq=>3,
               t=>os:system_time(millisecond)
              }), Pvt1),
-            tpecdsa:generate_priv(ed25519)),
-
 
       TxList1=[
                {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
               ],
-      TestFun=fun(#{block:=#{txs:=Txs,
-                   receipt := Rec},
+      TestFun=fun(#{block:=#{%txs:=Txs,
+                             receipt := Rec,
+                             ledger_patch	:= LP
+                            },
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  {ok,Txs, Rec}
+                  {ok,LP, Rec}
               end,
       Ledger=[
+              {<<0>>, #{
+                        amount => #{},
+                        lstore => #{<<"minter">>=>#{Addr1=>#{<<"SK">>=>1}}} }},
               {Addr1,
                #{amount => #{
-                             <<"FTT">> => 1000000,
+                             <<"FTT">> => 100000,
                              <<"SK">> => 3,
                              <<"TST">> => 26
                             }
                 }
-              },
-              {SkAddr,
-               #{amount => #{<<"SK">> => 1},
-                 code => Code2,
-                 vm => <<"evm">>
-                }
               }
              ],
-      %io:format("whereis ~p~n",[whereis(eevm_tracer)]),
-      %register(eevm_tracer,self()),
-      {ok,_Txs,Rec}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
-      %unregister(eevm_tracer),
-      ABI=contract_evm_abi:parse_abifile("examples/evm_builtin/build/builtinFunc.abi"),
-      [{_,_,FABI}]=contract_evm_abi:find_function(<<"bron_kerbosch()">>,ABI),
-      %io:format("Rec ~p~n",[hd(Rec)]),
-      [[0,<<"tx1">>,_,1,D,_,_,_Log]] = Rec,
-      %D=maps:get(<<"retval">>,maps:get(extdata,proplists:get_value(<<"tx1">>,Txs))),
-
-      %D=fun() -> receive {trace,{return,Data}} -> Data after 0 -> throw(no_return) end end(),
-      %hex:hexdump(D),
-      %fun FT() -> receive {trace,{stack,_,_}} -> FT();
-      %                    {trace,_Any} ->
-      %                      %io:format("Flush ~p~n",[_Any]),
-      %                      [_Any|FT()] after 0 -> [] end end(),
+      {ok,Patch,Rec}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       [
-       ?assertMatch([{_,[1,2]}],contract_evm_abi:decode_abi(D,FABI))
+       ?assertMatch([[0,_,_,1,_,10000|_]],Rec),
+       ?assertMatch([[Addr2,1,<<"SK">>,0,1000000]],
+                    [ E || E=[A|_] <- Patch, A==Addr2])
       ].
 
 

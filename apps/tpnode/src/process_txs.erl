@@ -476,6 +476,17 @@ process_itx(From, <<16#AFFFFFFFFF000007:64/big>>, Value, CallData, GasLimit, Sta
 	?ASSERT_NOVAL,
 	process_embedded:bronkerbosch_service(From, CallData, GasLimit, State0, Opts);
 
+process_itx(From, <<16#AFFFFFFFFF000008:64/big>>, Value, CallData, GasLimit, State0, Opts) ->
+	?ASSERT_NOVAL,
+	%will be burned 10000 gas on successful mint
+	%if denied - 50000 gas will be burned
+	%if decoding error - 100 gas
+	if GasLimit<50000 ->
+		   throw({revert,<<"at least 50000 gas needed for minter">>});
+	   true -> ok
+	end,
+	process_embedded:native_minter_service(From, CallData, GasLimit, State0, Opts);
+
 process_itx(From, From, 0, CallData, GasLimit,
 			#{acc:=_,
 			  cur_tx:=#{ txext:=#{ "code":=Code, "vm":="evm" } }
@@ -538,7 +549,11 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opt
 								  },
 						   cd => CallData,
 						   logger=>fun process_evm:evm_logger/4,
-						   trace=>whereis(eevm_tracer)
+						   trace=> case maps:get(trace,Opts,undefined) of
+									   undefined -> whereis(eevm_tracer);
+									   PID when is_pid(PID) -> PID;
+									   FUN when is_function(FUN,1) -> FUN
+								   end
 						  })),
 
 	?LOG_INFO("Call ~s (~s) ret {~p,~p,...}",

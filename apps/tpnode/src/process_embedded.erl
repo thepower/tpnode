@@ -3,7 +3,8 @@
 		 settings_service/5,
 		 lstore_service/5,
 		 chkey_service/5,
-		 bronkerbosch_service/5
+		 bronkerbosch_service/5,
+		 native_minter_service/5
 		]).
 -include("include/tplog.hrl").
 
@@ -197,4 +198,28 @@ block_service(_From, <<1489993744:32/big,Bin/binary>>, GasLimit, State0, _Opts) 
 
 block_service(_From, _, GasLimit, State0, _Opts) ->
   {0, <<"badarg">>, GasLimit-100, State0}.
+
+%% mint_native(address,string,uint64)
+native_minter_service(From, <<16#E0CD84EC:32/big,Bin/binary>>, GasLimit, State0, _Opts) ->
+  InABI=[{<<"addr">>,address}, {<<"token">>,string}, {<<"amount">>,uint64}],
+  try
+	  [{<<"addr">>,MintTo},{<<"token">>,Cur},{<<"amount">>,Amount}]=contract_evm_abi:decode_abi(Bin,InABI),
+	  case pstate:get_state(<<0>>, lstore, [<<"minter">>,From,Cur], State0) of
+		  {1, _Cached, State1} ->
+
+			  {Dst0, _, State2} = pstate:get_state(MintTo, balance, Cur, State1),
+			  Dst1=Dst0+Amount,
+			  ?LOG_INFO("mint by ~s -> ~s ~w ~s",[hex:encodex(From),hex:encodex(MintTo),Amount,Cur]),
+			  State3=pstate:set_state(MintTo, balance, Cur, Dst1, State2),
+			  {1, <<1:256/big>>, GasLimit-10000, State3};
+		  {_, _, State1} ->
+			  {0, <<"denied">>, GasLimit-50000, State1}
+	  end
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("decode_abi error: ~p:~p@~p~n",[Ec,Ee,S]),
+		  {0, <<"badarg">>, GasLimit-100, State0}
+  end;
+
+native_minter_service(_From, _CallData, GasLimit, State0, _Opts) ->
+	{0, <<"badarg">>, GasLimit-100, State0}.
 

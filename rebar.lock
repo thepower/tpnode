@@ -31,7 +31,7 @@
   0},
  {<<"eevm_abi">>,
   {git,"https://github.com/cleverfox/eevm_abi.git",
-       {ref,"d022998492e8c32841f8f37dd7c50a65e67577d3"}},
+       {ref,"36480daa4357b48745ca5af5ccef7f6dea47a0d8"}},
   0},
  {<<"eqwalizer_support">>,
   {git_subdir,"https://github.com/whatsapp/eqwalizer.git",
