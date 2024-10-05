@@ -323,9 +323,11 @@ process_tx(#{from:=From,
 					  {ok,<<_:12/binary,EVMAddress:20/binary>>}=ksha3:hash(256, D2Hash),
 					  EVMAddress
 			  end,
-	?LOG_INFO("Deploy to address ~p gas ~p transfer ~p~n",
-			  [Address, GasLimit,
-			   tx:get_payloads(Tx, transfer)
+	CD=contract_evm:tx_cd(Tx),
+	?LOG_INFO("Deploy to address ~s gas ~p transfer ~p cd ~s~n",
+			  [hex:encodex(Address), GasLimit,
+			   tx:get_payloads(Tx, transfer),
+			   hex:encodex(CD)
 			  ]),
 	State0=State#{cur_tx=>Tx},
 	State1=lists:foldl(
@@ -335,7 +337,7 @@ process_tx(#{from:=From,
 			 State0,
 			 tx:get_payloads(Tx, transfer)
 			),
-	case process_code_itx(Code, From, Address,
+	case process_code_itx(<<Code/binary,CD/binary>>, From, Address,
 						  Value, <<>>, GasLimit-3200, State1, Opts) of
 		{1, DeployedCode, GasLeft, State2} ->
 			State3=pstate:set_state(Address, code, [], DeployedCode, State2),

@@ -1163,6 +1163,18 @@ callcd(BinFun, CArgs, FABI) ->
   BArgs=contract_evm_abi:encode_abi(CArgs,FABI),
   <<X:4/binary,BArgs/binary>>.
 
+tx_cd(#{kind:=deploy,
+		call:=#{function:=Function,args:=Args}}) ->
+	case Function of
+		"0x0" ->
+			cd(Function, Args);
+		"constructor("++_ ->
+			<<_:4/binary,CD/binary>> = cd(Function, Args),
+			CD;
+		_ ->
+			cd(Function, Args)
+	end;
+
 tx_cd(#{call:=#{function:=Function,args:=Args}}) ->
 	cd(Function, Args);
 
