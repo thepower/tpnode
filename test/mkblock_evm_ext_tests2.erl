@@ -330,6 +330,150 @@ evm_embedded_bron_kerbosch_test() ->
       ].
 
 
+evm_chainfee_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+
+      {ok,Bin} = file:read_file("examples/evm_builtin/build/ChainFee.bin"),
+      Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
+
+      {done,{return,Code2},_}=eevm:eval(<<Code1/binary,0:256/big>>,#{},#{ gas=>1000000, extra=>#{} }),
+      SkAddr=naddress:construct_public(1, OurChain, 2),
+
+      Addr10=naddress:construct_public(1, OurChain, 10),
+      Addr11=naddress:construct_public(1, OurChain, 11),
+      Addr12=naddress:construct_public(1, OurChain, 12),
+
+      TX1=tx:sign(
+            tx:construct_tx(#{
+                              ver=>2,
+                              kind=>generic,
+                              from=>Addr1,
+                              to=>SkAddr,
+                              call=>#{
+                                      function => "new_epoch(uint256)",
+                                      args => [1]
+                                     },
+                              payload=>[
+                                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>},
+                                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                                       ],
+                              seq=>1,
+                              t=>os:system_time(millisecond)
+                             }), Pvt1),
+      TX2=tx:sign(
+            tx:construct_tx(#{
+                              ver=>2,
+                              kind=>generic,
+                              from=>Addr1,
+                              to=>SkAddr,
+                              payload=>[
+                                        #{purpose=>gas, amount=>0, cur=><<"NORUN">>},
+                                        #{purpose=>transfer, amount=>30, cur=><<"SK">>},
+                                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                                       ],
+                              seq=>2,
+                              t=>os:system_time(millisecond)
+                             }), Pvt1),
+      TX3=tx:sign(
+            tx:construct_tx(#{
+                              ver=>2,
+                              kind=>generic,
+                              from=>Addr1,
+                              to=>SkAddr,
+                              call=>#{
+                                      function => "new_epoch(uint256)",
+                                      args => [2]
+                                     },
+                              payload=>[
+                                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>},
+                                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                                       ],
+                              seq=>3,
+                              t=>os:system_time(millisecond)
+                             }), Pvt1),
+      TX4=tx:sign(
+            tx:construct_tx(#{
+                              ver=>2,
+                              kind=>generic,
+                              from=>Addr1,
+                              to=>SkAddr,
+                              payload=>[
+                                        #{purpose=>gas, amount=>0, cur=><<"NORUN">>},
+                                        #{purpose=>transfer, amount=>140, cur=><<"SK">>},
+                                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                                       ],
+                              seq=>4,
+                              t=>os:system_time(millisecond)
+                             }), Pvt1),
+
+      TX5=tx:sign(
+            tx:construct_tx(#{
+                              ver=>2,
+                              kind=>generic,
+                              from=>Addr1,
+                              to=>SkAddr,
+                              call=>#{
+                                      function => "payout(address[],uint256)",
+                                      args => [[Addr10,Addr11,Addr12],1]
+                                     },
+                              payload=>[
+                                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>},
+                                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                                       ],
+                              seq=>5,
+                              t=>os:system_time(millisecond)
+                             }), Pvt1),
+
+
+      TxList1=[
+               {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)},
+               {<<"tx2">>, maps:put(sigverify,#{valid=>1},TX2)},
+               {<<"tx3">>, maps:put(sigverify,#{valid=>1},TX3)},
+               {<<"tx4">>, maps:put(sigverify,#{valid=>1},TX4)},
+               {<<"tx5">>, maps:put(sigverify,#{valid=>1},TX5)}
+              ],
+      TestFun=fun(#{block:=#{ledger_patch:=P,
+                   receipt := Rec},
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,P, Rec}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{
+                             <<"FTT">> => 1000000,
+                             <<"SK">> => 1000000,
+                             <<"TST">> => 26
+                            }
+                }
+              },
+              {SkAddr,
+               #{amount => #{<<"SK">> => 10},
+                 code => Code2,
+                 vm => <<"evm">>
+                }
+              }
+             ],
+      {ok,Patch,Rec}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      P=[ P || P=[A,1|_] <- Patch, A==Addr10 orelse A==Addr11 orelse A==Addr12 orelse
+             A==<<"ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ">> ],
+      io:format("P ~p~n",[P]),
+      [
+       ?assertMatch([0,_,_,1,_,_,_,_],lists:nth(1,Rec)),
+       ?assertMatch([1,_,_,1,_,_,_,_],lists:nth(2,Rec)),
+       ?assertMatch([2,_,_,1,_,_,_,_],lists:nth(3,Rec)),
+       ?assertMatch([3,_,_,1,_,_,_,_],lists:nth(4,Rec)),
+       ?assertMatch([_,_,_,_,10],lists:nth(1,P)),
+       ?assertMatch([_,_,_,_,10],lists:nth(2,P)),
+       ?assertMatch([_,_,_,_,10],lists:nth(3,P)),
+       ?assertMatch([_,_,_,_,10],lists:nth(4,P))
+      ].
+
+
 
 evm_native_mint_test() ->
       OurChain=150,
@@ -363,9 +507,11 @@ evm_native_mint_test() ->
                              receipt := Rec,
                              ledger_patch	:= LP
                             },
+                    %extracted_state:=St2,
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
+                  io:format("St2 ~p~n",[LP]),
                   {ok,LP, Rec}
               end,
       Ledger=[
