@@ -4,7 +4,7 @@
 -export([generate_priv/1,import_der/2, calc_pub/1, upgrade_pubkey/1]).
 -export([pem_decrypt/2]).
 -export([keytype/1, rawkey/1, wrap_pubkey/2]).
--export([cmp_pubkey/1, decipher/2
+-export([cmp_pubkey/1, decipher/2, shortpub/1
 ]).
 
 -ifdef(TEST).
@@ -228,6 +228,10 @@ verify(Message, Public, Sig) ->
   if R -> correct;
      true -> incorrect
   end.
+
+shortpub(Public) ->
+	{pub,_,Short} = rawkey(Public),
+	Short.
 
 cmp_pubkey(<<_:33/binary>>=Public) ->
   {secp256k1, Public};
