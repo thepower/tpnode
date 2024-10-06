@@ -107,8 +107,12 @@ make_block(Module) ->
 
 
 read_contract(Filename) ->
-  {ok,HexBin} = file:read_file(Filename),
-  hex:decode(HexBin).
+  case file:read_file(Filename) of
+    {ok,HexBin} ->
+      hex:decode(HexBin);
+    {error, Any} ->
+      throw({'cannot_read_contract',Any,Filename})
+  end.
 
 genesis(Module) ->
   Module:node_keys(),

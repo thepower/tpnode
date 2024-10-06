@@ -1,9 +1,9 @@
--module(genesis_c3).
+-module(genesis_c7b).
 -compile([nowarn_export_all, export_all]).
 
-local_chain() -> 3.
-local_group() -> 10.
-prefix() -> "examples/devnet_chain3/".
+local_chain() -> 7.
+local_group() -> 1024.
+prefix() -> "examples/test_chain7/".
 
 chainstate() ->
   naddress:construct_public(local_group(),local_chain(),1).
@@ -14,15 +14,20 @@ minter() ->
 admin() ->
   naddress:construct_private(local_group(), 3).
 
+node_priv_file(KeyName) ->
+  File=prefix()++KeyName,
+  {ok, L} = file:consult(File),
+  {privkey, K} = lists:keyfind(privkey, 1, L),
+  hex:decode(K).
+
 node_privs() ->
-  lists:map(fun priv_file/1,
-            [ "node1", "node2", "node3"]
+  lists:map(fun node_priv_file/1,
+            wildcard("c7n?.conf","")
            ).
-  %wildcard("c3n*",".pvt").
 
 node_keys() ->
-  lists:map(fun pub_file/1,
-            wildcard("node?",".pub")
+  lists:map(fun tpecdsa:calc_pub/1,
+            node_privs()
            ).
 
 code(Name) ->
@@ -34,13 +39,13 @@ pre_tx() ->
    {chainstate(), code, [], code("ChainState.bin-runtime")},
    {chainfee(), code, [], code("ChainFee.bin-runtime")},
 
-   {<<0>>, pubkey, [], pub_file("chainsettings1")},
-   {chainstate(), pubkey, [], pub_file("chainstate1")},
-   {chainfee(), pubkey, [], pub_file("chainfee1")},
-   {minter(), pubkey, [], pub_file("minter1")},
+   {<<0>>, pubkey, [], pub_example("chainsettings1")},
+   {chainstate(), pubkey, [], pub_example("chainstate1")},
+   {chainfee(), pubkey, [], pub_example("chainfee1")},
+   {minter(), pubkey, [], pub_example("minter1")},
 
    {admin(), balance, <<"SK">>, 100000_000000000}, %100000 SK
-   {admin(), pubkey, [], pub_file("admin1")}
+   {admin(), pubkey, [], pub_example("admin1")}
   ].
 
 make_txs() ->
@@ -128,12 +133,12 @@ post_tx() ->
 
 settings() ->
   #{
-    <<"tag">> => <<"devchain3">>,
+    <<"tag">> => <<"test_chain7">>,
     <<"blocktime">> => 3,
     <<"allocblock">> => #{
-                          block => local_chain(),
-                          group => local_group(),
-                          last => 16
+                          <<"block">> => local_chain(),
+                          <<"group">> => local_group(),
+                          <<"last">> => 16
                          },
     <<"fee">> => #{
                    <<"SK">> => #{ <<"base">> => 10000000,
@@ -171,6 +176,16 @@ priv_file(KeyName) ->
 pub_file(KeyName) ->
   genesis2:pub_file(?MODULE, KeyName).
  
+priv_example(ToHash) ->
+  ASN1=hex:decode("302E020100300506032B657004220420"), %ed25519 keys
+  Digest=crypto:hash(sha256,ToHash),
+  <<ASN1/binary,Digest/binary>>.
+
+pub_example(ToHash) ->
+  ASN1=hex:decode("302E020100300506032B657004220420"), %ed25519 keys
+  Digest=crypto:hash(sha256,ToHash),
+  tpecdsa:calc_pub(<<ASN1/binary,Digest/binary>>).
+
 wildcard(Pattern, Ext) ->
   genesis2:wildcard(?MODULE, Pattern, Ext).
  
