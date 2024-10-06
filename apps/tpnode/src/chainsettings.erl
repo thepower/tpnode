@@ -299,7 +299,12 @@ get_val(Name, Default) when Name==patchsig ->
 get_val(Name, Default) when Name==blocktime ->
   Val=by_path([<<"current">>,<<"chain">>,atom_to_binary(Name,utf8)]),
   if is_integer(Val) -> Val;
-     true -> Default
+     true ->
+       case mledger:db_get_one(mledger,<<0>>,lstore,[<<"blocktime">>],[]) of
+         {ok, N} -> N;
+         undefined ->
+           Default
+       end
   end;
 
 
