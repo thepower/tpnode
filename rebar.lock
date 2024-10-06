@@ -23,7 +23,7 @@
   0},
  {<<"ecrecover">>,
   {git,"https://github.com/cleverfox/ecrecover",
-       {ref,"88174cd6b59f466c8fbb0ec432271f48574637dc"}},
+       {ref,"a722b79bb9718015ae49638e63df5b0a9e01355f"}},
   0},
  {<<"eevm">>,
   {git,"https://github.com/thepower/eevm.git",
