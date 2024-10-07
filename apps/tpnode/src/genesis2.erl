@@ -56,7 +56,12 @@ init(Module, State0) ->
   = lists:foldl(fun({Address, Field, Path, Value}, Acc) ->
                     pstate:set_state(Address, Field, Path, Value, Acc)
                 end, State2, Module:post_tx()),
-  State3.
+  case erlang:function_exported(Module,fin_state,1) of
+    true ->
+      Module:fin_state(State3);
+    false ->
+      State3
+  end.
 
 
 

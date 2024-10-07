@@ -281,18 +281,27 @@ get_raw(Address, notrans) ->
                                  }).
 
 get(Address, notrans) ->
-  Fields=[amount,lastblk,pubkey,seq,t,vm,ublk,code],
+  Fields=[{amount,[]},
+          {lastblk,[]},
+          {pubkey,[]},
+          {seq,[]},
+          {t,[]},
+          {vm,[]},
+          {ublk,[]},
+          {code,[]},
+          {balance,'_'}],
   Raw=lists:flatten(
         lists:foldl(
-          fun(Key,Acc) ->
+          fun({Key,P},Acc) ->
               [rockstable:get(mledger, env, #bal_items{
                                                address=Address,
                                                version=latest,
                                                key=Key,
-                                               path=[],
+                                               path=P,
                                                _ ='_'
                                               })|Acc]
           end,[],Fields)),
+  io:format("Raw ~p~n",[Raw]),
   if Raw == [] ->
        undefined;
      true ->
@@ -303,6 +312,8 @@ get(Address, notrans) ->
                          A;
                        (#bal_items{key=code, path=_, value=Code}, A) ->
                          mbal:put(code,[], Code,A);
+                       (#bal_items{key=balance, path=P, value=V},A) ->
+                         mbal:put_cur(P, V, A);
                        (#bal_items{key=K, path=P, value=V},A) ->
                          mbal:put(K,P,V,A)
                      end,
@@ -755,12 +766,18 @@ getfun({Field, Addr, _Path}, DB) when Field == pubkey;
     {ok, Bin} ->
       Bin
   end;
+
 getfun({balance,Addr,Token}, DB) ->
-  case db_get_one(DB, Addr, amount, [], []) of
+  case db_get_one(DB, Addr ,balance, Token, []) of
+    {ok, Value} ->
+      Value;
     undefined ->
-      0;
-    {ok, Map} when is_map(Map) ->
-      maps:get(Token, Map, 0)
+      case db_get_one(DB, Addr, amount, [], []) of
+        undefined ->
+          0;
+        {ok, Map} when is_map(Map) ->
+          maps:get(Token, Map, 0)
+      end
   end;
 
 getfun({lstore_raw,Addr,Path0},DB) -> %subtree match

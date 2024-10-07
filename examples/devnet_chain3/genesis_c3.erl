@@ -22,7 +22,7 @@ node_privs() ->
 
 node_keys() ->
   lists:map(fun pub_file/1,
-            wildcard("node?",".pub")
+            wildcard("node?",".priv")
            ).
 
 code(Name) ->
@@ -174,3 +174,14 @@ pub_file(KeyName) ->
 wildcard(Pattern, Ext) ->
   genesis2:wildcard(?MODULE, Pattern, Ext).
  
+fin_state(State) ->
+  {1,<<Value:256/big>>,_,_}=process_txs:process_itx(<<>>,
+                                                    chainstate(),
+                                                    0,
+                                                    contract_evm_abi:encode_abi_call([], "minsig()"),
+                                                    10000,
+                                                    State,
+                                                    []),
+  io:format("MinSig ~p~n",[Value]),
+  true=(Value > 0),
+  State.

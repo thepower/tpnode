@@ -40,3 +40,4 @@ alpha
 *.bin
 genesis.txt
 *.erl_
+*.priv
