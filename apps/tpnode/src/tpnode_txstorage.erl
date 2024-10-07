@@ -240,7 +240,7 @@ new_tx(TxID, TxBody, sync, #{my_ttl:=TTL, ets_name:=Table} = State) ->
 
 store_tx(TxID, TxBody, FromPeer, #{ets_ttl_sec:=TTL, ets_name:=Table} = State) ->
   ValidUntil = os:system_time(second) + TTL,
-  ?LOG_ERROR("Store tx ~p",[TxID]),
+  ?LOG_INFO("Store tx ~p",[TxID]),
   case ets:lookup(Table, TxID) of
     [] ->
       case application:get_env(tpnode,store_txs_path) of

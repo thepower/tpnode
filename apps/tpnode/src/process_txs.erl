@@ -201,20 +201,34 @@ process_tx(#{kind:=Kind,from:=From,seq:=_Seq}=Tx, #{cumulative_gas := GasC0} = S
 
 		   try
 			   {Valid, Data, GasLeft, State5} = process_tx(Tx, GasLimit, State4, Opts),
+			   ?LOG_INFO("Gas left ~p of ~p",[GasLeft, GasLimit]),
 
-			   {GasLeft2, Collected, State6}  = return_gas(EscrowAddress, GasLeft, Taken, State5, []),
-			   ?LOG_DEBUG("Gas left ~p left2 ~p / ~p~n", [GasLeft, GasLeft2, Collected]),
-			   State7 = lists:foldl(
-						  fun(Token, State) ->
-								  {Src0, _, _} = pstate:get_state(EscrowAddress, balance, Token, State),
-								  transfer(EscrowAddress, FeeReceiver, Src0, Token, State)
-						  end, State6, Collected),
+			   if(GasLeft<0) ->
+					 State7 = lists:foldl(
+								fun(Token, State) ->
+										{Src0, _, _} = pstate:get_state(EscrowAddress, balance, Token, State),
+										transfer(EscrowAddress, FeeReceiver, Src0, Token, State)
+								end, State4, Taken),
 
-			   GasUsed = GasLimit_full - GasLeft,
-			   {Valid, Data, State7#{cumulative_gas => GasC0 + GasUsed,
-									 last_tx_gas => GasUsed }}
-		   catch throw:Reason1 when is_atom(Reason1) ->
-					 ?LOG_DEBUG("tx failed ~p revert to ~p",[Reason1, debug_tools:compare_pstate(State0,State2)]),
+					 GasUsed = GasLimit_full,
+					 {0, <<"nogas">>, State7#{
+										cumulative_gas => GasC0 + GasUsed,
+										last_tx_gas => GasUsed }};
+				 true ->
+					 {GasLeft2, Collected, State6}  = return_gas(EscrowAddress, GasLeft, Taken, State5, []),
+					 ?LOG_DEBUG("Gas left ~p left2 ~p / ~p~n", [GasLeft, GasLeft2, Collected]),
+					 State7 = lists:foldl(
+								fun(Token, State) ->
+										{Src0, _, _} = pstate:get_state(EscrowAddress, balance, Token, State),
+										transfer(EscrowAddress, FeeReceiver, Src0, Token, State)
+								end, State6, Collected),
+
+					 GasUsed = GasLimit_full - GasLeft,
+					 {Valid, Data, State7#{cumulative_gas => GasC0 + GasUsed,
+										   last_tx_gas => GasUsed }}
+			   end
+		   catch throw:Reason1:S1 when is_atom(Reason1) ->
+					 ?LOG_INFO("tx failed ~p revert to ~p @~p",[Reason1, debug_tools:compare_pstate(State0,State2), S1]),
 					 % in case of something went completely wrong, take only fee, and full return gas
 					 {0, atom_to_binary(Reason1, utf8), State2#{last_tx_gas => 0 }};
 				 throw:Reason1 when is_binary(Reason1) ->
