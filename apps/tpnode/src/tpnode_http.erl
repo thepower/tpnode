@@ -83,12 +83,13 @@ childspec_ssl(CertFile, KeyFile) ->
         true ->
           CaFile = utils:make_list(CertFile)++".ca.crt",
           {pub,ed25519,Pub} = tpecdsa:rawkey(nodekey:get_pub()),
+          %YggName=try binary_to_list(tpic2:yggname(Pub)) catch _:_ -> undefined end,
           PH=binary_to_list(hex:encode(Pub)),
+          TPIC_Cert=tpic2:certificate(),
           SslOpts = [
-                     {sni_fun,fun(Hostname) when Hostname==PH ->
-                                  tpic2:certificate();
-                                 ("tpnode") ->
-                                  tpic2:certificate();
+                     {sni_fun,fun(Hostname) when Hostname==PH;
+                                                 Hostname=="tpnode" ->
+                                  TPIC_Cert;
                                  (_) ->
                                   []
                               end},
