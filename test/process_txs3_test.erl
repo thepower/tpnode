@@ -405,6 +405,57 @@ process_sponsor_callcode_test() ->
 	 ?assertMatch([{1,_},{1,_},{1,_}],Res)
 	].
 
+ether_test() ->
+	Priv=hex:decode("5F7F92B83D529AD5129F7F0B5FBA10447146E06895B28506E779192DBA18A626"),
+	FeeAddr= <<160, 0, 0, 0, 0, 0, 0, 1>>,
+	{UserAddr,_,_}=eth:identity_from_private(Priv),
+	Dst= <<12345:160/big>>,
+	Ledger=[
+			{<<0>>,
+			 #{
+			   lstore =>
+			   #{
+				 <<"fee">> =>
+				 #{
+				   <<"params">>=> #{ <<"feeaddr">> => FeeAddr },
+				   <<"FTT">> => #{ <<"base">> => 1, <<"baseextra">> => 64, <<"kb">> => 10 }
+				  },
+				 <<"gas">> => #{
+								<<"FTT">> => #{ <<"gas">> => 35000, <<"tokens">> => 10 },
+								<<"SK">> => #{ <<"gas">> => 50000, <<"tokens">> => 1 }
+							   },
+				 <<"freegas2">> => #{ %CAddr => 1000
+									}
+
+				}
+			  }
+			},
+			{UserAddr, #{amount => #{ <<"SK">> => 10000 }}}
+		   ],
+
+	TXs= [
+		  tx:construct_tx(#{tx=>
+							eth:encode_tx2(#{
+											 chain=>123,
+											 nonce=>10,
+											 gasPrice=>1,
+											 gasLimit=>2,
+											 to=>Dst,
+											 value=>125,
+											 data=><<>>
+											},Priv),
+							chain_id=>123})
+		 ],
+	{_Patch, Acc,Res}=do_test3(Ledger, TXs),
+	[
+	 ?assertMatch(21000, maps:get(last_tx_gas,Acc)),
+	 ?assertMatch([{1,<<>>}], Res),
+	 ?assertMatch({FeeAddr,balance,<<"SK">>,0,1},lists:keyfind(FeeAddr, 1, _Patch)),
+	 ?assertMatch({Dst,balance,<<"SK">>,0,125},lists:keyfind(Dst, 1, _Patch)),
+	 ?assertMatch({UserAddr,balance,<<"SK">>,10000,10000-126},lists:keyfind(UserAddr, 1, _Patch))
+	].
+
+
 process_txs3_test() ->
 	Sponsor = <<128,1,64,0,2,0,0,200>>,
 	UserAddr= <<128,1,64,0,2,0,0,2>>,

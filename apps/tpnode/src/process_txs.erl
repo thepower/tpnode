@@ -104,7 +104,7 @@ process_tx(#{kind:=register,
 			  {0, Reason, State0}
 	end;
 
-process_tx(#{from:=From,seq:=_Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts) ->
+process_tx(#{kind:=Kind,from:=From,seq:=_Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts) ->
 	?LOG_INFO("Process generic from ~s",[hex:encodex(From)]),
 	try
 	SettingsToLoad=#{
@@ -137,6 +137,8 @@ process_tx(#{from:=From,seq:=_Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts
 				   State1;
 			  FreeGas > 0 ->
 				  State1;
+			  Kind==ether ->
+				  State1;
 			  true ->
 				  GetFeeFun=fun (FeeCur) when is_binary(FeeCur) ->
 									lstore:get([FeeCur],FeeSettings);
@@ -160,7 +162,7 @@ process_tx(#{from:=From,seq:=_Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts
 	?LOG_DEBUG("GasPayloads ~p~n", [GasPayloads]),
 
 	GasSettings=maps:get(gas, LoadedSettings),
-	{State3,Taken,GasLimit}=lists:foldl(
+	{State3,Taken,GasLimit_full}=lists:foldl(
 						 fun(#{amount:=0, cur:= <<"NORUN">>}, _) ->
 								 {State2, [], norun};
 							(_,{_,_,norun}=A) ->
@@ -174,7 +176,14 @@ process_tx(#{from:=From,seq:=_Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts
 						 GasPayloads
 						),
 
-	?LOG_DEBUG("Gas collected ~p taken ~p~n", [GasLimit, Taken]),
+	GasLimit = if Kind==ether ->
+					  GasLimit_full-21000;
+				  true ->
+					  GasLimit_full
+			   end,
+
+
+	?LOG_DEBUG("Gas collected ~p taken ~p available ~p~n", [GasLimit_full, Taken, GasLimit]),
 
 	State4=State3,
 
@@ -201,7 +210,7 @@ process_tx(#{from:=From,seq:=_Seq}=Tx, #{cumulative_gas := GasC0} = State0, Opts
 								  transfer(EscrowAddress, FeeReceiver, Src0, Token, State)
 						  end, State6, Collected),
 
-			   GasUsed = GasLimit - GasLeft,
+			   GasUsed = GasLimit_full - GasLeft,
 			   {Valid, Data, State7#{cumulative_gas => GasC0 + GasUsed,
 									 last_tx_gas => GasUsed }}
 		   catch throw:Reason1 when is_atom(Reason1) ->
@@ -275,7 +284,7 @@ to_gas1(#{amount:=A, cur:=C}=P, Settings) ->
 
 process_tx(#{from:=From, to:=To}=Tx,
 		   GasLimit, State0, Opts) ->
-	?LOG_INFO("Process internal gas ~p ",[GasLimit]),
+	?LOG_DEBUG("Process internal gas ~p ",[GasLimit]),
 
 	Value=tx_value(Tx,<<"SK">>),
 	State1=lists:foldl(
@@ -313,7 +322,7 @@ process_tx(#{from:=From,
 					 } = TxExt
 			}=Tx,
 		   GasLimit, State, Opts) when is_binary(Code) ->
-	?LOG_INFO("Process deploy internal gas ~p ",[GasLimit]),
+	?LOG_DEBUG("Process deploy internal gas ~p ",[GasLimit]),
 	Value=tx_value(Tx,<<"SK">>),
 	Address = case TxExt of
 				  #{ "deploy":= "inplace"} ->
@@ -324,7 +333,7 @@ process_tx(#{from:=From,
 					  EVMAddress
 			  end,
 	CD=contract_evm:tx_cd(Tx),
-	?LOG_INFO("Deploy to address ~s gas ~p transfer ~p cd ~s~n",
+	?LOG_DEBUG("Deploy to address ~s gas ~p transfer ~p cd ~s~n",
 			  [hex:encodex(Address), GasLimit,
 			   tx:get_payloads(Tx, transfer),
 			   hex:encodex(CD)
@@ -427,7 +436,7 @@ process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value,
 			#{cur_tx:=Tx}=State0, _Opts) ->
 	?ASSERT_NOVAL,
 	Signatures=maps:get(sig,Tx,[]),
-	?LOG_INFO("getSigners() ~p",[Signatures]),
+	?LOG_DEBUG("getSigners() ~p",[Signatures]),
 	RBin=contract_evm_abi:encode_abi([Signatures], [{<<>>,{darray,bytes}}]),
 	{1, RBin, GasLimit-100, State0};
 
@@ -558,7 +567,7 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opt
 								   end
 						  })),
 
-	?LOG_INFO("Call ~s (~s) ret {~p,~p,...}",
+	?LOG_DEBUG("Call ~s (~s) ret {~p,~p,...}",
 			  [hex:encodex(To), hex:encode(CallData),
 			   element(1,Result),
 			   case element(2,Result) of
