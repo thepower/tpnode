@@ -668,34 +668,29 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"seq">>], _Req) ->
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    case mledger:get_kpv(Addr, seq, []) of
-      undefined ->
-        case mledger:get_kpv(Addr, amount, []) of
-          undefined ->
-          err(
-              10003,
-              <<"Not found">>,
-              #{result => <<"not_found">>},
-              #{http_code => 404}
-          );
-          {ok,#{}} ->
-            answer(
-              #{
-                result => <<"ok">>,
-                seq => 0
-               },
-              #{address => Addr}
-             )
-        end;
-      {ok, Number} ->
-        answer(
-          #{
-            result => <<"ok">>,
-            seq => Number
-           },
-          #{address => Addr}
-         )
-    end
+	%case mledger:get_kpv(Addr, seq, []) of
+	case mledger:db_get_one(mledger,Addr,seq,[],[]) of
+		undefined ->
+			case mledger:db_get_one(mledger,Addr,pubkey,'_',[]) of
+				{ok, _} ->
+					answer(
+					  #{ result => <<"ok">>, seq => 0 },
+					  #{address => Addr}
+					 );
+				undefined ->
+					err(
+					  10003,
+					  <<"Not found">>,
+					  #{result => <<"not_found">>},
+					  #{http_code => 404}
+					 )
+			end;
+		{ok, Number} ->
+			answer(
+			  #{ result => <<"ok">>, seq => Number },
+			  #{address => Addr}
+			 )
+	end
   catch
     throw:{error, address_crc} ->
               err(
