@@ -174,7 +174,7 @@ handle(<<"eth_getBlockByNumber">>,[Number,_Details]=Params) ->
     end;
 
 handle(<<"eth_getBalance">>,[<<Address/binary>>,Block,Token]) ->
-    D=get_ledger(Address, amount, [], Block),
+    D=get_ledger_bal(Address, Block),
     ?LOG_INFO("Got req for eth_getBalance for token ~s address ~p blk ~p = ~p",[Token, Address, Block, D]),
     case D of
         [{amount,[],Map}] ->
@@ -184,7 +184,7 @@ handle(<<"eth_getBalance">>,[<<Address/binary>>,Block,Token]) ->
     end;
 
 handle(<<"eth_getBalance">>,[<<Address/binary>>,Block]) ->
-    D=get_ledger(Address, amount, [], Block),
+    D=get_ledger_bal(Address, Block),
     ?LOG_INFO("Got req for eth_getBalance for address ~p blk ~p = ~p",[Address, Block, D]),
     case D of
         [{amount,[],Map}] ->
@@ -338,6 +338,22 @@ process_log_element([ETxID,<<"evm">>,EFrom,_ETo,EData,ETopics], Data, Filter, Ad
 process_log_element(U, _Data, _Filter, _Addrs) ->
     logger:info("Unknown event ~p",[U]),
     false.
+
+get_ledger_bal(Address, Block) ->
+  case get_ledger(Address, amount, [], Block) of
+    [{amount,[],Map}] ->
+      [{amount,[],Map}];
+    [] ->
+      case get_ledger(Address, balance, '_', Block) of
+        [] ->
+          [];
+        List ->
+          Map=lists:foldl(fun({balance,Token,Val},A) ->
+                              maps:put(Token,Val,A)
+                          end, #{}, List),
+          [{amount,[],Map}]
+      end
+  end.
 
 get_ledger(Address, Key, Path, <<"latest">>) ->
     mledger:get_kpvs(hex:decode(Address), Key, Path);
