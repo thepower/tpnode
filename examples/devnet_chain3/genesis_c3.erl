@@ -37,6 +37,8 @@ pre_tx() ->
    {<<0>>, pubkey, [], pub_file("chainsettings1")},
    {chainstate(), pubkey, [], pub_file("chainstate1")},
    {chainfee(), pubkey, [], pub_file("chainfee1")},
+
+   {minter(), balance, <<"SK">>, 100_000000000}, %100 SK to minter for paying gas
    {minter(), pubkey, [], pub_file("minter1")},
 
    {admin(), balance, <<"SK">>, 100000_000000000}, %100000 SK

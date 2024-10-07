@@ -85,7 +85,7 @@ make_block(Module) ->
             txs=>[],
             receipt => [],
             parent=><<0:64/big>>,
-            mychain=>7,
+            mychain=>Module:local_chain(),
             height=>0,
             failed=>[],
             temporary=>false,
