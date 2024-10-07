@@ -289,7 +289,9 @@ get(Address, notrans) ->
           {vm,[]},
           {ublk,[]},
           {code,[]},
-          {balance,'_'}],
+          {balance,'_'},
+          {lastblk,<<"tx">>}
+         ],
   Raw=lists:flatten(
         lists:foldl(
           fun({Key,P},Acc) ->
