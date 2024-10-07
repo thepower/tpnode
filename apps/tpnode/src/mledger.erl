@@ -303,7 +303,6 @@ get(Address, notrans) ->
                                                _ ='_'
                                               })|Acc]
           end,[],Fields)),
-  io:format("Raw ~p~n",[Raw]),
   if Raw == [] ->
        undefined;
      true ->
