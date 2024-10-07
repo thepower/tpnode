@@ -1125,22 +1125,51 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
 
 h(<<"GET">>, [<<"settings">>|Path], Req) ->
   BinPacker=packer(Req),
-  Settings=case chainsettings:by_path(Path) of
-             M when is_map(M) ->
-               settings:clean_meta(M);
-             Any ->
-               Any
-           end,
+  Settings=case mledger:db_get_one(mledger,<<0>>,lstore,[<<"configured">>],[]) of
+			   {ok,1} -> %new
+				   {ok,ChainState}=mledger:db_get_one(mledger,<<0>>,lstore,[<<"chainstate">>],[]),
+				   ChID=maps:get(chain,maps:get(header,blockchain:last_meta())),
+				   MakeNodes=case Path of
+								 [] -> true;
+								 [<<"nodechain">>|_] -> true;
+								 [<<"keys">>|_] -> true;
+								 _ -> false
+							 end,
+				   NodesTpl=if MakeNodes == false ->
+								   #{};
+							   true ->
+								   Keys=chainsettings:emulate_legacy_nodes(ChainState),
+								   NodeChain=maps:map(fun(_,_) ->
+															  ChID
+													  end, Keys),
+								   #{
+									 <<"keys">> => Keys,
+									 <<"nodechain">> => NodeChain
+									}
+							end,
+				   All=NodesTpl#{
+						 <<"chains">> => [ChID],
+						 <<"current">> => mledger:getfun({lstore,<<0>>,[]},mledger)
+						},
+				   settings:get(Path,All);
+			   undefined ->
+				   case chainsettings:by_path(Path) of
+					   M when is_map(M) ->
+						   settings:clean_meta(M);
+					   Any ->
+						   Any
+				   end
+		   end,
   EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
-          Conf1=jsx_config:list_to_config(Conf),
-          jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
-                            State, Handler, Stack, Conf1)
-      end,
+					  Conf1=jsx_config:list_to_config(Conf),
+					  jsx_parser:resume([{Type, BinPacker(Str)}|Tokens],
+										State, Handler, Stack, Conf1)
+			  end,
   answer(
-    #{ result => <<"ok">>,
-       settings => Settings
-     },
-    #{jsx=>[ strict, {error_handler, EHF} ]}
+	#{ result => <<"ok">>,
+	   settings => Settings
+	 },
+	#{jsx=>[ strict, {error_handler, EHF} ]}
    );
 
 h(<<"GET">>, [<<"debug">>, <<"logzip">>,_N], _Req) ->

@@ -15,7 +15,8 @@
          select_by_path/2,
          by_path/1,
          by_path/2,
-         all_nodes/2
+         all_nodes/2,
+         emulate_legacy_nodes/1
         ]).
 -export([contacts/1,contacts/2]).
 -export([checksum/0]).
@@ -364,3 +365,16 @@ get(Name, Sets, GetChain) ->
 checksum() ->
   Settings = all(),
   Settings.
+
+emulate_legacy_nodes(ChainState) ->
+  #{bin:=<<Mask:256/big>>}=tpnode_evmrun:evm_run(ChainState, <<"consensus_mask()">>,[],#{}),
+  lists:foldl(
+    fun(Bit,Keys) ->
+        #{decode:=[Key]}
+        =tpnode_evmrun:evm_run(
+           ChainState,
+           <<"node_keys(uint256) returns (bytes)">>,
+           [Bit+1],#{}),
+        Name=chainsettings:is_our_node(hex:decode(Key)),
+        maps:put(Name,Key,Keys)
+    end, #{},bron_kerbosch:unpack_bitmask(Mask)).
