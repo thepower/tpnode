@@ -296,37 +296,6 @@ to_gas1(#{amount:=A, cur:=C}=P, Settings) ->
 
 % --- internal process_tx
 
-process_tx(#{from:=From, to:=To}=Tx,
-		   GasLimit, State0, Opts) ->
-	?LOG_DEBUG("Process internal gas ~p ",[GasLimit]),
-
-	Value=tx_value(Tx,<<"SK">>),
-	State1=lists:foldl(
-			 fun(#{amount:=Amount,cur:=Cur,purpose:=_},StateC) ->
-					 transfer(From, To, Amount, Cur, StateC)
-			 end,
-			 State0#{cur_tx=>Tx},
-			 tx:get_payloads(Tx, transfer) -- [tx:get_payload(Tx, transfer)]
-			),
-	%transfer all except first SK transfer, which will be transfered in process_itx
-
-	CD=contract_evm:tx_cd(Tx),
-	{Valid, Return, GasLeft, State2} = process_itx(
-										 From,
-										 To,
-										 Value,
-										 CD,
-										 GasLimit,
-										 State1,
-										 Opts
-										),
-
-	{Valid, Return, GasLeft,
-	 maps:without([cur_tx,tstorage], State2)
-	};
-
-
-
 process_tx(#{from:=From,
 			 seq:=Nonce,
 			 kind:=deploy,
@@ -383,6 +352,35 @@ process_tx(#{from:=From,
 			 maps:without([cur_tx,tstorage], State)
 			}
 	end;
+
+process_tx(#{from:=From, to:=To}=Tx,
+		   GasLimit, State0, Opts) ->
+	?LOG_DEBUG("Process internal gas ~p ",[GasLimit]),
+
+	Value=tx_value(Tx,<<"SK">>),
+	State1=lists:foldl(
+			 fun(#{amount:=Amount,cur:=Cur,purpose:=_},StateC) ->
+					 transfer(From, To, Amount, Cur, StateC)
+			 end,
+			 State0#{cur_tx=>Tx},
+			 tx:get_payloads(Tx, transfer) -- [tx:get_payload(Tx, transfer)]
+			),
+	%transfer all except first SK transfer, which will be transfered in process_itx
+
+	CD=contract_evm:tx_cd(Tx),
+	{Valid, Return, GasLeft, State2} = process_itx(
+										 From,
+										 To,
+										 Value,
+										 CD,
+										 GasLimit,
+										 State1,
+										 Opts
+										),
+
+	{Valid, Return, GasLeft,
+	 maps:without([cur_tx,tstorage], State2)
+	};
 
 process_tx(#{
 			 ver:=2,
