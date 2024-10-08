@@ -1097,19 +1097,17 @@ send_success(#{receipt:=Rec,txs:=Txs,hash:=BlockHash,header:=#{height:=Hei}}) ->
 					index=>Index,
 					success=>Res},
 			  case maps:get(TxID,TxKinds,undefined) of
+				  _ when Res==0 ->
+					  {TxID, Tpl#{revert=>Ret}};
 				  register when Res==1 ->
 					  {TxID, Tpl#{address=>Ret}};
-				  register when Res==0 ->
-					  {TxID, Tpl#{revert=>Ret}};
 				  generic when Res==1 ->
 					  {TxID, Tpl#{retval=>Ret}};
-				  generic when Res==0 ->
-					  {TxID, Tpl#{revert=>Ret}};
+				  deploy when Res==1 ->
+					  {TxID, Tpl#{address=>Ret}};
 				  ether when Res==1 ->
 					  {TxID, Tpl#{retval=>Ret}};
-				  ether when Res==0 ->
-					  {TxID, Tpl#{revert=>Ret}};
-				  ({TxID, _Any}) ->
+				  _Any ->
 					  ?LOG_INFO("Unknwon tx status ~p",[_Any]),
 					  {TxID, Tpl}
 			  end
