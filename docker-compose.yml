@@ -1,0 +1,27 @@
+version: "3.3"
+
+services:
+
+  tpnode:
+    restart: unless-stopped
+    container_name: tpnode
+    image: tpnode
+    volumes:
+      - type: bind
+        source: ./node.config
+        target: /opt/thepower/node.config
+        read_only: true
+      - type: bind
+        source: ./genesis.txt
+        target: /opt/thepower/genesis.txt
+        read_only: true
+      - type: bind
+        source: ./db
+        target: /opt/thepower/db
+      - type: bind
+        source: ./log
+        target: /opt/thepower/log
+    ports:
+      - 1080:1080
+      - 1443:1443
+      - 1800:1800
