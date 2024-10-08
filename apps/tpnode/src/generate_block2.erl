@@ -210,6 +210,7 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 			   end,
 
 		{Ret,RetData,State2}=process_txs:process_tx(TxBody, State1, #{}),
+		?LOG_INFO("Proc ~s res ~w: ~s",[TxID,Ret,hex:encode(RetData)]),
 		State3=case TxBody of
 				   #{from:=From2,seq:=USeq} when From2=/=<<0>> ->
 					   State2b=pstate:set_state(From2, seq, [], USeq, State2),
