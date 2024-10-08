@@ -482,15 +482,14 @@ unpack_call_ntf_etc(_,_,Decoded) ->
 
 
 unpack_body(#{ ver:=2,
-              kind:=GenericOrDeploy
+              kind:=generic
              }=Tx,
             #{ "f":=From,
                "to":=To,
                "t":=Timestamp,
                "s":=Seq,
                "p":=Payload
-             }=Unpacked) when GenericOrDeploy == generic ;
-                              GenericOrDeploy == deploy ->
+             }=Unpacked) ->
   Amounts=unpack_payload(Payload),
   Decoded=Tx#{
     ver=>2,
@@ -502,14 +501,6 @@ unpack_body(#{ ver:=2,
     txext=>unpack_txext(maps:get("e", Unpacked, #{}))
    },
   maps:fold(fun unpack_call_ntf_etc/3, Decoded, Unpacked);
-%  case maps:is_key("c",Unpacked) of
-%    false -> Decoded;
-%    true ->
-%      [Function, Args]=maps:get("c",Unpacked),
-%      Decoded#{
-%        call=>#{function=>Function, args=>Args}
-%       }
-%  end;
 
 unpack_body(#{ ver:=2,
               kind:=deploy
@@ -528,14 +519,7 @@ unpack_body(#{ ver:=2,
     payload=>Amounts,
     txext=>unpack_txext(maps:get("e", Unpacked, #{}))
    },
-  case maps:is_key("c",Unpacked) of
-    false -> Decoded;
-    true ->
-      [Function, Args]=maps:get("c",Unpacked),
-      Decoded#{
-        call=>#{function=>Function, args=>Args}
-       }
-  end;
+  maps:fold(fun unpack_call_ntf_etc/3, Decoded, Unpacked);
 
 unpack_body(#{ ver:=2,
               kind:=notify
