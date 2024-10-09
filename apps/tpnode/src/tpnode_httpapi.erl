@@ -1382,8 +1382,7 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 						  )
 				 end
 		  end,
-	State0=process_txs:upgrade_settings(
-			 chainsettings:by_path([<<"current">>]),
+	State0=process_txs:new_state(
 			 fun mledger:getfun/2,
 			 mledger
 			),
