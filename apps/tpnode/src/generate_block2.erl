@@ -17,6 +17,7 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
 	Entropy=proplists:get_value(entropy, Options, <<>>),
 	MeanTime=proplists:get_value(mean_time, Options, 0),
 	MyChain=proplists:get_value(chain,Options,65535),
+	NoAfterblock=proplists:get_value(no_afterblock,Options,false),
 
 	State0=case lists:keyfind(migrate_settings, 1, Options) of
 			   {migrate_settings, Settings} ->
@@ -32,9 +33,8 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
 					)
 		   end,
 
-
 	PreTXL
-	= if PreTXL1==[] ->
+	= if PreTXL1==[] orelse NoAfterblock==true->
 			 PreTXL1;
 		 true ->
 			 case pstate:get_state(<<0>>, lstore,
@@ -172,7 +172,14 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
 			emit=>[],
 			log=>Logs
 		   };
-	  _ ->
+	  {extract_state,raw} ->
+		  #{block=>Blk,
+			failed=>Failed2,
+			emit=>[],
+			log=>Logs,
+			extracted_state => pstate:extract_state(PS)
+		   };
+	  {extract_state,_} ->
 		  #{block=>Blk,
 			failed=>Failed2,
 			emit=>[],

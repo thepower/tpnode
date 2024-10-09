@@ -1357,6 +1357,93 @@ h(<<"POST">>, [<<"tx">>, <<"batch">>], Req) ->
 
 h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 	{RemoteIP, _Port}=cowboy_req:peer(Req),
+
+	Body=apixiom:bodyjs(Req),
+	?LOG_DEBUG("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
+	TxList
+	=if Body == undefined ->
+			{ok, ReqBody, _NewReq} = cowboy_req:read_body(Req),
+			ReqBody;
+		is_map(Body) ->
+			case maps:get(<<"tx">>, Body, undefined) of
+				<<"0x", BArr/binary>> ->
+					[{<<"tx1">>,hex:parse(BArr)}];
+				Any when is_binary(Any) ->
+					[{<<"tx1">>,base64:decode(Any)}];
+				undefined ->
+					{_,T}=lists:foldl(
+					  fun(<<"0x", BArr/binary>>,{N,A}) ->
+							  {N+1,[
+									{<<"txid",(integer_to_binary(N))/binary>>,
+									 (hex:decode(BArr))
+									}|A]};
+						 (Any,{N,A}) when is_binary(Any) ->
+							  {N+1,[
+									{<<"txid",(integer_to_binary(N))/binary>>,
+									 (base64:decode(Any))
+									}|A]}
+					  end,
+					  {0,[]},
+					  maps:get(<<"txs">>, Body, [])
+					 ),
+					lists:reverse(T)
+			end
+		  end,
+	#{block:=#{
+			   failed:=Fail,
+			   ledger_patch:=LP,
+			   receipt:=Rec} = _Block} 
+	= generate_block2:generate_block(
+		TxList,
+		{1, <<1:256/big>>},
+		[],
+		[{ledger_pid, mledger},
+		 {entropy, <<>>},
+		 {mean_time, os:system_time(millisecond)},
+		 {no_afterblock, true}
+		]),
+	FmtCode=fun(Bin) when size(Bin) < 64 ->
+					hex:encodex(Bin);
+			   (Bin) ->
+					<<"... stripped code ",(integer_to_binary(size(Bin)))/binary," bytes ...">>
+			end,
+	
+	Fix=fun F(X) when is_integer(X) -> X;
+			F(L) when is_list(L) -> lists:map(F,L);
+			F(undefined) -> null;
+			F(B) when is_binary(B) -> hex:encodex(B)
+		end,
+	FmtR=fun([TxNum, TxID, TxHash, Res, Ret, GasT, GasB, Log ]) ->
+				 [TxNum, TxID, hex:encodex(TxHash), Res, hex:encodex(Ret),
+				  GasT, GasB, Fix(Log)
+				 ]
+		 end,
+
+	FmtP=fun([Addr, 3, [], OldCode, NewCode]) ->
+				[hex:encodex(Addr),mledger:id_to_field(3),[],
+				 FmtCode(OldCode),
+				 FmtCode(NewCode)
+				];
+			([Addr, Field, Path, OldVal, NewVal]) ->
+				[hex:encodex(Addr),
+				 mledger:id_to_field(Field),
+				 Fix(Path),
+				 Fix(OldVal),
+				 Fix(NewVal)
+				];
+			(Any) ->
+				lists:map(Fix, Any)
+		   end,
+	answer(
+	  #{ result => <<"ok">>,
+		 failed=>[ [TxID, Reason] || {TxID, Reason} <- Fail ],
+		 ledger_patch=>lists:map(FmtP, LP),
+		 receipt=>lists:map(FmtR, Rec)
+	   }
+	 );
+
+h(<<"POST">>, [<<"tx">>, <<"simulate0">>], Req) ->
+	{RemoteIP, _Port}=cowboy_req:peer(Req),
 	QS=cowboy_req:parse_qs(Req),
 	WithAcc=proplists:get_value(<<"acc">>, QS) =/= undefined,
 
