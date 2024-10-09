@@ -4,7 +4,7 @@
 
 
 transform_code(undefined) ->
-  undefined;
+  <<"empty">>;
 transform_code(<<>>) ->
   <<"empty">>;
 
