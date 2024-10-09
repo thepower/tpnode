@@ -203,7 +203,10 @@ block_service(_From, _, GasLimit, State0, _Opts) ->
 native_minter_service(From, <<16#E0CD84EC:32/big,Bin/binary>>, GasLimit, State0, _Opts) ->
   InABI=[{<<"addr">>,address}, {<<"token">>,string}, {<<"amount">>,uint64}],
   try
-	  [{<<"addr">>,MintTo},{<<"token">>,Cur},{<<"amount">>,Amount}]=contract_evm_abi:decode_abi(Bin,InABI),
+	  [{<<"addr">>,MintTo1},{<<"token">>,Cur},{<<"amount">>,Amount}]=contract_evm_abi:decode_abi(Bin,InABI),
+	  MintTo = if is_binary(MintTo1) -> MintTo1;
+				  is_integer(MintTo1) -> binary:encode_unsigned(MintTo1)
+			   end,
 	  case pstate:get_state(<<0>>, lstore, [<<"minter">>,From,Cur], State0) of
 		  {1, _Cached, State1} ->
 
