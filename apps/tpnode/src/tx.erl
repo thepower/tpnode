@@ -376,7 +376,7 @@ parse_address(<<"0x",Hex:40/binary>>) ->
 unpack_body(#{sig:=<<>>}=Tx) ->
   unpack_body(Tx#{sig:=[]});
 
-unpack_body(#{body:= <<2, 3:2/integer,_:6/integer,_/binary>>=Body,chain_id:=ChainId}=Tx) ->
+unpack_body(#{body:=Body,chain_id:=ChainId}=Tx) ->
   Decode=eth:decode_tx(ChainId, Body),
   {nonce, Nonce} = lists:keyfind(nonce,1,Decode),
   {from, From} = lists:keyfind(from,1,Decode),

@@ -24,17 +24,72 @@ handle(<<"net_version">>,[]) ->
   ?LOG_INFO("Got req for net_version",[]),
   i2hex(chain_id());
 
+handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
+  ?LOG_INFO("Got req for eth_getTransactionReceipt ~s",[TxHash0]),
+  case
+  gen_server:call(blockchain_reader,{txhash, hex:decode(TxHash0) ,true})
+  of
+    not_found ->
+      throw({jsonrpc2, 10001, <<"not found">>});
+    #{block:=BlkHash,
+      hei:=BlkHei,
+      hash:=TxHash,
+      index:=Idx,
+      receipt:=Rec,
+      tx:=TxBody
+     } ->
+      Tx=#{from:=From}=tx:unpack(TxBody),
+      [_,_,TxHash,Res,_Ret,Gas,BlkGas,Logs]=Rec,
+      THash=hex:encodex(TxHash),
+      BHash=hex:encodex(BlkHash),
+      TIdx=i2hex(Idx),
+      #{
+        <<"blockHash">> => BHash,
+        <<"blockNumber">> => i2hex(BlkHei),
+        <<"contractAddress">> =>  null,
+        <<"cumulativeGasUsed">> => i2hex(BlkGas),
+        <<"effectiveGasPrice">> => i2hex(Gas),
+        <<"from">> => hex:encodex(From),
+        <<"gasUsed">> => i2hex(Gas),
+        <<"logs">> =>
+        lists:map(
+          fun([<<"evm">>,To, _From, Data, Topics]) ->
+              #{ address => hex:encodex(To),
+                 topics => [ hex:encodex(T) || T <- Topics ],
+                 data => hex:encodex(Data),
+                 blockNumber => i2hex(BlkHei),
+                 transactionHash => THash,
+                 transactionIndex => TIdx,
+                 blockHash => BHash,
+                 logIndex => i2hex(1),
+                 removed => false
+               }
+          end, Logs),
+        <<"logsBloom">> =>  "0x",
+        <<"status">> => i2hex(Res),
+        <<"to">> => hex:encodex(maps:get(to,Tx,<<>>)),
+        <<"transactionHash">> => THash,
+        <<"transactionIndex">> => TIdx,
+        <<"type">> =>  "0x2"
+       };
+    Other ->
+      ?LOG_ERROR("Other res ~p",[Other]),
+      throw({jsonrpc2, 10001, <<"error">>})
+  end;
+
+
 handle(<<"eth_sendRawTransaction">>,[Tx]) ->
     ?LOG_INFO("Got req for eth_sendRawTransaction with ~p",[Tx]),
-    Decode=tx:construct_tx(#{tx=>hex:decode(Tx),
+    #{hash:=Hash}=Decode=tx:construct_tx(#{tx=>hex:decode(Tx),
                              chain_id=>chain_id()
                             }),
     ?LOG_INFO("Got req for eth_sendRawTransaction with ~p",[Decode]),
     case txpool:new_tx(Decode) of
-        {ok,TxID} ->
-            TxID;
-        {error, Reason} ->
-            throw({jsonrpc2, 10001, list_to_binary(io_lib:format("~p",[Reason]))})
+      {ok,TxID} ->
+        ?LOG_INFO("TxID ~s hash ~s",[TxID, hex:encodex(Hash)]),
+        hex:encodex(Hash);
+      {error, Reason} ->
+        throw({jsonrpc2, 10001, list_to_binary(io_lib:format("~p",[Reason]))})
     end;
 
 handle(<<"eth_getTransactionCount">>,[Address, Block]) ->
@@ -67,7 +122,8 @@ handle(<<"eth_getCode">>,[Address, Block]) ->
             b2hex(<<>>)
     end;
 
-handle(<<"eth_estimateGas">>,[{Params},_Block]) ->
+handle(<<"eth_estimateGas">>,[{Params}|_OptionalBlock]) ->
+  %[{<<"from">>,<<"0xdda0e313ec6db199d1292ee536556ef3e1cadbab">>},{<<"value">>,<<"0x0">>},{<<"gasPrice">>,<<"0x1">>},{<<"data">>,<<"0x">>},{<<"to">>,<<"0xaa153647a1e5ec44f3407413e39996838d2cc032">>}]
     ?LOG_INFO("Got req for eth_call arg1 ~p",[Params]),
     %To=try
     %     decode_addr(proplists:get_value(<<"to">>,Params))
@@ -95,7 +151,7 @@ handle(<<"eth_estimateGas">>,[{Params},_Block]) ->
     %    ?LOG_INFO("Res err: ~p",[_Err]),
     %        throw({jsonrpc2, 10000, <<"evm_run unexpected result">>})
     %end;
-    i2hex(25000);
+    i2hex(21000);
 
 handle(<<"eth_call">>,[{Params},_Block]) ->
     ?LOG_INFO("Got req for eth_call arg1 ~p",[Params]),
@@ -132,6 +188,7 @@ handle(<<"eth_call">>,[{Params},_Block]) ->
     end;
 
 handle(<<"eth_call">>,_) ->
+  ?LOG_INFO("err: eth_call"),
   throw({jsonrpc2, 32000, <<"incorrect arguments">>});
 
 handle(<<"eth_getBlockByNumber">>,[Number,_Details]=Params) ->
@@ -203,12 +260,21 @@ handle(<<"eth_chainId">>,[]) ->
   i2hex(chain_id());
 
 handle(<<"eth_gasPrice">>,[]) ->
-    i2hex(1);
+  try
+    #{<<"gas">> := Gas,<<"tokens">> := Tokens}
+    = mledger:getfun({lstore,<<0>>,[<<"gas">>,<<"SK">>]},mledger),
+    ?LOG_INFO("eth_gasPrice ~p",[Tokens/Gas]),
+    i2hex(trunc(Tokens/Gas))
+  catch Ec:Ee ->
+          ?LOG_INFO("eth_gasPrice error ~p:~p",[Ec,Ee]),
+          i2hex(1)
+  end;
 
 handle(<<"eth_getLogs">>,[{PList}]) ->
     handle(<<"eth_getLogs">>,maps:from_list(PList));
 
 handle(<<"eth_getLogs">>, #{<<"blockHash">>:=HexBlockHash}=Map) ->
+  ?LOG_INFO("eth_getLogs"),
     %Address=proplists:get_value(<<"address">>,PList,<<>>),
     %FromBlock=proplists:get_value(<<"fromBlock">>,PList,<<>>),
     %ToBlock=proplists:get_value(<<"toBlock">>,PList,<<>>),
@@ -220,6 +286,7 @@ handle(<<"eth_getLogs">>, #{<<"blockHash">>:=HexBlockHash}=Map) ->
     process_log(Block,Topics,Addresses);
 
 handle(<<"eth_getLogs">>, #{}=Map) ->
+  ?LOG_INFO("eth_getLogs"),
     #{header:=#{height:=LBH}}=blockchain:last_permanent_meta(),
     FromBlock=case maps:get(<<"fromBlock">>,Map,undefined) of
                   undefined -> LBH;
@@ -260,9 +327,11 @@ handle(<<"eth_getLogs">>, #{}=Map) ->
     Res;
 
 handle(<<"eth_accounts">>, _Params) ->
+  ?LOG_INFO("err: eth_accounts"),
     throw({jsonrpc2, -32042, <<"Method not supported">>});
 
 handle(Method,_Params) ->
+  ?LOG_INFO("err: ~s",[Method]),
     ?LOG_ERROR("Method ~s(~p) not found",[Method,_Params]),
     throw(method_not_found).
 
@@ -270,7 +339,7 @@ b2hex(B) when is_binary(B) ->
     <<"0x",(binary:encode_hex(B))/binary>>.
 
 i2hex(I) when is_integer(I) ->
-    <<"0x",(integer_to_binary(I,16))/binary>>.
+    <<"0x",(string:lowercase(integer_to_binary(I,16)))/binary>>.
 
 hex2i(<<"0x",B/binary>>) ->
     binary_to_integer(B,16).

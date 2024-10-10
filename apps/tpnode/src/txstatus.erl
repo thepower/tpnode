@@ -1,6 +1,7 @@
 -module(txstatus).
 -include("include/tplog.hrl").
 -behaviour(gen_server).
+-compile({no_auto_import,[get/1]}).
 -define(SERVER, ?MODULE).
 -define(CLEANUP, 30000). %ms
 -define(TIMEOUT, 600). %sec
@@ -31,10 +32,45 @@ start_link(Name) ->
     gen_server:start_link({local, Name}, ?MODULE, [], []).
 
 get(TxID) ->
-  gen_server:call(?MODULE, {get, TxID}).
+  R=gen_server:call(?MODULE, {get, TxID}),
+  if R==undefined ->
+      case gen_server:call(blockchain_reader,{txid, TxID, true}) of
+        not_found -> undefined;
+        #{block := BlkHash,
+          hash := _TxHash,
+          hei := BlkHei,
+          index := TxIndex,
+          tx := _,
+          receipt := [_,_,_,Succ,Ret|_]
+         } ->
+           {true,#{block => BlkHash,
+                   blockn => BlkHei,
+                   index => TxIndex,
+                   txhash => _TxHash,
+                   retval => Ret,
+                   success => Succ
+                  }};
+        #{block := BlkHash,
+          hash := _TxHash,
+          hei := BlkHei,
+          index := TxIndex,
+          tx := _
+         } ->
+           {true,#{block => BlkHash,
+                   blockn => BlkHei,
+                   index => TxIndex,
+                   txhash => _TxHash,
+                   %retval => <<>>,
+                   success => 1
+                  }}
+      end;
+    true -> 
+       R
+  end.
+
 
 get_json(TxID) ->
-  R=gen_server:call(?MODULE, {get, TxID}),
+  R=get(TxID),
   if R==undefined ->
        null;
      true ->
@@ -120,15 +156,33 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% ------------------------------------------------------------------
 
-jsonfy({IsOK, #{block:=Blk,blockn:=N}=ExtData}) ->
-  R=jsonfy1({IsOK, maps:without([block,blockn],ExtData)}),
-  R#{ block=>hex:encode(Blk), blockn=>N };
-jsonfy({IsOK, #{block:=Blk}=ExtData}) ->
-  R=jsonfy1({IsOK, maps:without([block],ExtData)}),
-  R#{ block=>hex:encode(Blk) };
-
 jsonfy({IsOK, ExtData}) ->
-  jsonfy1({IsOK, ExtData}).
+  maps:fold(
+    fun
+      (txhash, Blk, A) ->
+        maps:put(txhash,hex:encodex(Blk),A);
+      (block, Blk, A) ->
+        maps:put(block,hex:encodex(Blk),A);
+      (blockn, Blk, A) ->
+        maps:put(blockn,Blk,A);
+      (success, Blk, A) ->
+        maps:put(success,Blk,A);
+      (K,_V,A) ->
+        A
+    end,
+    jsonfy1({IsOK, maps:without([block,blockn],ExtData)}),
+    ExtData).
+
+
+%jsonfy({IsOK, #{block:=Blk,blockn:=N}=ExtData}) ->
+%  R=jsonfy1({IsOK, maps:without([block,blockn],ExtData)}),
+%  R#{ block=>hex:encodex(Blk), blockn=>N };
+%jsonfy({IsOK, #{block:=Blk}=ExtData}) ->
+%  R=jsonfy1({IsOK, maps:without([block],ExtData)}),
+%  R#{ block=>hex:encodex(Blk) };
+%
+%jsonfy({IsOK, ExtData}) ->
+%  jsonfy1({IsOK, ExtData}).
 
 %% ------------------------------------------------------------------
 
@@ -140,7 +194,7 @@ jsonfy1({false,{error,{contract_error,[Ec,Ee]}}}) ->
 
 jsonfy1({true,#{address:=Addr}}) ->
   #{ok=>true,
-    res=>naddress:encode(Addr),
+    res=>nex:encode(Addr),
     address=>naddress:encode(Addr)
    };
 
@@ -153,7 +207,7 @@ jsonfy1({true,#{retval:=RV}}) when is_integer(RV)->
 jsonfy1({true,#{retval:=RV}}) when is_binary(RV)->
   #{ok=>true,
     res=>ok,
-    retval=>list_to_binary(["0x",hex:encode(RV)])
+    retval=>hex:encodex(RV)
    };
 
 jsonfy1({true,#{revert:=RV}}) when is_binary(RV)->

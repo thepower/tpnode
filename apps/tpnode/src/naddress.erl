@@ -54,6 +54,7 @@ parse(Int) when is_integer(Int) andalso Int >= 9223372036854775808
     end.
 
 %% encode address to human frendly format
+encode(<<_:160/big>>=X) -> hex:encodex(X);
 encode(<<X:64/big>>) -> encode(X);
 encode(Int) when is_integer(Int) andalso Int >= 9223372036854775808
                  andalso Int < 13835058055282163712 ->

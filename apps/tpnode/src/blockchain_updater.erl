@@ -821,9 +821,39 @@ save_sets(LDB, #{hash:=Hash, header:=#{parent:=Parent}}, OldSettings, Settings) 
   ldb:put_key(LDB, <<"settings">>, erlang:term_to_binary(Settings)).
 
 save_block(ignore, _Block, _IsLast) -> ok;
-save_block(LDB, #{hash:=BlockHash,header:=#{height:=Hei}}=Block, IsLast) ->
+save_block(LDB, #{hash:=BlockHash, txs:=TXs, header:=#{height:=Hei}}=Block, IsLast) ->
   ldb:put_key(LDB, <<"block:", BlockHash/binary>>, Block),
   ldb:put_key(LDB, <<"h:", Hei:64/big>>, BlockHash),
+  case maps:get(receipt,Block,[]) of
+	  [] -> ok;
+	  [L1|_]=List when is_list(L1) ->
+		  lists:foldl(
+			fun([_,<<"~",_/binary>>|_],_) -> ok;
+			   ([TxIndex,TxID,TxHash|_],_) ->
+					{TxID1,TxBody}=lists:nth(TxIndex+1,TXs),
+					if(TxID1==TxID) ->
+						  ldb:put_key(LDB,
+									  <<"id:", TxID/binary>>,
+									  TxHash
+									 ),
+						  ldb:put_key(LDB,
+									  <<"tx:", TxHash/binary>>,
+									  {
+									   TxID,
+									   Hei,
+									   BlockHash,
+									   TxIndex,
+									   tx:pack(TxBody)
+									  }
+									 );
+					  true ->
+						  ?LOG_ERROR("Block ~s txn ~w txid ~s mismatch ~s",
+									 [blkid(BlockHash),TxIndex,TxID,TxID1])
+					end
+			end,
+			[],
+			List)
+  end,
   if IsLast ->
        ldb:put_key(LDB, <<"lastblock">>, BlockHash),
        gen_server:cast(blockchain_reader,update);

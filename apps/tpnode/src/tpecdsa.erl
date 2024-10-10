@@ -396,6 +396,7 @@ rawkey(Key) ->
 import(PEM) -> import(PEM, undefined).
 
 import(PEM, Password, _Opts) ->
+  try tpecdsa_pem:decode(<<>>) catch _:_ -> ok end,
   DR=case erlang:function_exported(tpecdsa_pem,decode,1) of
        true ->
          tpecdsa_pem:decode(PEM);
@@ -454,6 +455,7 @@ import_proc([Other|T],A) ->
 import_proc([],A) -> A.
 
 pem_decrypt(PEM, Password) ->
+  try tpecdsa_pem:decode(<<>>) catch _:_ -> ok end,
   DR=case erlang:function_exported(tpecdsa_pem,decode,1) of
        true ->
          tpecdsa_pem:decode(PEM);

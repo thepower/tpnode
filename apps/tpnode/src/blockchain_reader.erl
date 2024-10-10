@@ -74,6 +74,55 @@ handle_call(lastsig, _From, #{myname:=MyName,
             origin=>MyName,
             signed=>SS}, State};
 
+handle_call({txhash, Hash}, _From, State) ->
+  handle_call({txhash, Hash, false}, _From, State);
+handle_call({txhash, Hash, GetRep}, _From, #{ldb:=LDB}=State) ->
+  if size(Hash)==32 ->
+       case ldb:read_key(LDB,<<"tx:",Hash/binary>>,[])
+       of
+         [] ->
+           {reply, not_found, State};
+         {TxID,BlockHei,BlockHash,TxIndex,TxBody} ->
+           T=#{id=>TxID,
+                     hei=>BlockHei,
+                     block=>BlockHash,
+                     index=>TxIndex,
+                     tx=>TxBody,
+                     hash=>Hash},
+           T1=case GetRep of
+                false -> T;
+                true ->
+                  case ldb:read_key(LDB,
+                               <<"block:", BlockHash/binary>>,
+                               undefined) of
+                    #{receipt:=RL} ->
+                      Rec = lists:nth(TxIndex+1,RL),
+                      T#{receipt=> Rec};
+                    _ ->
+                      T
+                  end
+              end,
+           {reply, T1, State};
+         _ ->
+           {reply, error , State}
+       end;
+     true ->
+       {reply, badarg , State}
+  end;
+
+handle_call({txid, TxID}, _From, State) ->
+  handle_call({txid, TxID, false}, _From, State);
+
+handle_call({txid, TxID, GetRec}, _From, #{ldb:=LDB}=State) ->
+  case ldb:read_key(LDB,<<"id:",TxID/binary>>,[]) of
+    [] ->
+      {reply, not_found, State};
+    Hash when is_binary(Hash) ->
+      handle_call({txhash, Hash, GetRec}, _From, State);
+    _ ->
+      {reply, error , State}
+  end;
+
 handle_call({last_block, N}, _From, #{ldb:=LDB}=State) when is_integer(N) ->
   {reply, rewind(LDB,N), State};
 
