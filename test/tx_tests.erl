@@ -147,7 +147,7 @@ deploy_test() ->
            ]
        end,
   Ledger=[ {From, mbal:put(pubkey, PubKey, mbal:new()) } ],
-  mledger:deploy4test(Ledger, Test).
+  mledger:deploy4test(test, Ledger, Test).
 
 %old_txs_sig_test() ->
 %  Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24,
@@ -274,7 +274,7 @@ tx2_notify_test() ->
            ]
        end,
   Ledger=[ {<<128,0,32,0,2,0,0,3>>, mbal:put(pubkey, PubKey, mbal:new()) } ],
-  mledger:deploy4test(Ledger, Test).
+  mledger:deploy4test(test, Ledger, Test).
 
 
 tx2_generic_test() ->
@@ -308,7 +308,7 @@ tx2_generic_test() ->
            ]
        end,
   Ledger=[ {<<128,0,32,0,2,0,0,3>>, mbal:put(pubkey, PubKey, mbal:new()) } ],
-  mledger:deploy4test(Ledger, Test).
+  mledger:deploy4test(test, Ledger, Test).
 
 tx2_rate_test() ->
   Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
@@ -438,5 +438,24 @@ lstore_test() ->
            Checked
        end,
   Ledger=[ {From, mbal:put(pubkey, PubKey, mbal:new()) } ],
-  mledger:deploy4test(Ledger, Test).
+  mledger:deploy4test(test, Ledger, Test).
 
+tx_binumber_test() ->
+	T1=#{
+		 kind => generic,
+		 from => <<128,0,32,0,2,0,0,3>>,
+		 payload =>
+		 [#{amount => 10000000000000000000000000000000000000000000000000,cur => <<"XXX">>,purpose => transfer},
+		  #{amount => 1000_000_000_000_000_000_000_000,cur => <<"FEE">>,purpose => srcfee}],
+		 seq => 5,sig => #{},t => 1530106238743,
+		 to => <<128,0,32,0,2,0,0,5>>,
+		 ver => 2
+		},
+  TXConstructed=tx:construct_tx(T1),
+  Unpacked = tx:unpack(TXConstructed),
+  [
+   ?assertMatch(#{amount:=10000000000000000000000000000000000000000000000000},
+				tx:get_payload(Unpacked, transfer)),
+   ?assertMatch(#{amount:=1000000000000000000000000},
+				tx:get_payload(Unpacked, srcfee))
+  ].

@@ -353,6 +353,49 @@ process_tx(#{from:=From,
 			}
 	end;
 
+
+process_tx(#{from:=From,
+			 seq:=Nonce,
+			 kind:=ether,
+			 to:=<<>>,
+			 call:=#{args:=[CD],function := "0x0"}
+			}=Tx,
+		   GasLimit, State, Opts) when is_binary(CD) ->
+	Value=tx_value(Tx,<<"SK">>),
+	D2Hash=erlp:encode([From,binary:encode_unsigned(Nonce)]),
+	{ok,<<_:12/binary,Address:20/binary>>}=ksha3:hash(256, D2Hash),
+
+	?LOG_DEBUG("EtherDeploy to address ~s gas ~p transfer ~p size ~w~n",
+			  [hex:encodex(Address), GasLimit,
+			   tx:get_payloads(Tx, transfer),
+			   size(CD)
+			  ]),
+	State0=State#{cur_tx=>Tx},
+	State1=lists:foldl(
+			 fun(#{amount:=Amount,cur:=Cur,purpose:=_},StateC) ->
+					 transfer(From, Address, Amount, Cur, StateC)
+			 end,
+			 State0,
+			 tx:get_payloads(Tx, transfer)
+			),
+	case process_code_itx(CD, From, Address,
+						  Value, <<>>, GasLimit-3200, State1, Opts) of
+		{1, DeployedCode, GasLeft, State2} ->
+			State3=pstate:set_state(Address, code, [], DeployedCode, State2),
+			?LOG_INFO("Deploy to address ~p success",[Address]),
+			State4=maps:without([cur_tx,tstorage], State3),
+			{1, Address, GasLeft, State4};
+		{0, <<>>, 0, _} ->
+			{0, <<"nogas">>, 0,
+			 maps:without([cur_tx,tstorage], State)
+			};
+		{0, Reason, GasLeft, _} ->
+			{0, Reason, GasLeft,
+			 maps:without([cur_tx,tstorage], State)
+			}
+	end;
+
+
 process_tx(#{from:=From, to:=To}=Tx,
 		   GasLimit, State0, Opts) ->
 	?LOG_DEBUG("Process internal gas ~p ",[GasLimit]),

@@ -193,7 +193,7 @@ construct_tx(#{
   A1=lists:map(
        fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
              is_integer(Amount), is_binary(Cur) ->
-           [encode_purpose(Purpose), to_list(Cur), Amount]
+           [encode_purpose(Purpose), to_list(Cur), enc_amount(Amount)]
        end, Amounts),
   Ext=maps:get(txext, Tx, #{}),
   true=is_map(Ext),
@@ -224,7 +224,7 @@ construct_tx(#{
   A1=lists:map(
        fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
              is_integer(Amount), is_binary(Cur) ->
-           [encode_purpose(Purpose), to_list(Cur), Amount]
+           [encode_purpose(Purpose), to_list(Cur), enc_amount(Amount)]
        end, Amounts),
   Ext=maps:get(txext, Tx, #{}),
   true=is_map(Ext),
@@ -257,7 +257,7 @@ construct_tx(#{
   A1=lists:map(
        fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
              is_integer(Amount), is_binary(Cur) ->
-           [encode_purpose(Purpose), to_list(Cur), Amount]
+           [encode_purpose(Purpose), to_list(Cur), enc_amount(Amount)]
        end, Amounts),
   Ext=maps:get(txext, Tx, #{}),
   true=is_map(Ext),
@@ -314,7 +314,7 @@ construct_tx(#{
   A1=lists:map(
        fun(#{amount:=Amount, cur:=Cur, purpose:=Purpose}) when
              is_integer(Amount), is_binary(Cur) ->
-           [encode_purpose(Purpose), to_list(Cur), Amount]
+           [encode_purpose(Purpose), to_list(Cur), enc_amount(Amount)]
        end, Amounts),
   Ext=maps:get(txext, Tx, #{}),
   true=is_map(Ext),
@@ -364,6 +364,8 @@ prepare_extra_args(_, _, {CE,CTx}) ->
 
 parse_address(<<0:96/big,2:2/big,O0:6/big,PwrAddr:7/binary>>)  ->
 	<<2:2/big,O0:6/big,PwrAddr:7/binary>>;
+parse_address(<<>>) ->
+	<<>>;
 parse_address(<<Pwr:8/binary>>) ->
 	Pwr;
 parse_address(<<Eth:20/binary>>) ->
@@ -450,7 +452,7 @@ unpack_payload(Amounts) when is_list(Amounts) ->
         if is_integer(Amount) -> ok;
            true -> throw('bad_amount')
         end,
-        #{amount=>Amount,
+        #{amount=>dec_amount(Amount),
           cur=>to_binary(Cur),
           purpose=>decode_purpose(Purpose)
          }
@@ -1132,7 +1134,7 @@ rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
     end
   catch throw:Ee:S when is_atom(Ee) ->
           %S=erlang:get_stacktrace(),
-          file:write_file("tmp/rate.txt", 
+          file:write_file("tmp/rate.txt",
                           [
                            io_lib:format("~p.~n~p.~n~n~p.~n~n~p.~n~n~p.~n",
                                          [
@@ -1149,7 +1151,7 @@ rate(#{ver:=2, kind:=_}=Tx, GetRateFun) ->
           throw(Ee);
         Ec:Ee:S ->
           %S=erlang:get_stacktrace(),
-          file:write_file("tmp/rate.txt", 
+          file:write_file("tmp/rate.txt",
                           [
                            io_lib:format("~p.~n~p.~n~n~p.~n~n~p.~n~n~p.~n",
                                          [
@@ -1278,3 +1280,13 @@ verify_ledger_fun(_From, [{pubkey,_,PK}]) when is_binary(PK) ->
 
 verify_ledger_fun(From, []) ->
 	throw({ledger_err, From}).
+
+dec_amount(I) when is_integer(I) ->
+	I;
+dec_amount(I) when is_binary(I) ->
+	binary:decode_unsigned(I).
+
+enc_amount(I) when I<16#FFFFFFFFFFFFFFF0 ->
+	I;
+enc_amount(I) ->
+	binary:encode_unsigned(I).
