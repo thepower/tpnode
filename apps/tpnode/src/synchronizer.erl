@@ -113,7 +113,7 @@ handle_info(ticktimer,
            erlang:send_after(MBD, whereis(mkblock), process),
            txqueue ! prepare
       end,
-      tpnode_dtx_runner:run(), %run dtx txs
+      %tpnode_dtx_runner:run(), %run dtx txs
       ?LOG_DEBUG("Time to tick. next in ~w", [Wait]);
     false ->
       erlang:send_after(MBD, whereis(mkblock), flush),
