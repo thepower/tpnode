@@ -309,9 +309,58 @@ handle(<<"eth_getLogs">>, #{}=Map) ->
               end, {0,[]}, lists:seq(FromBlock,ToBlock)),
     Res;
 
+handle(<<"eth_sendTransaction">>, [{Param}|_]) ->
+  ?LOG_INFO("eth_sendTransaction ~p", [proplists:get_keys(Param)]),
+  From=hex:decode(proplists:get_value(<<"from">>,Param,<<"0x">>)),
+  Priv=lists:foldl(
+         fun(Priv,undefined) ->
+             P=hex:decode(Priv),
+             {Addr,_,_}=eth:identity_from_private(P),
+             ?LOG_INFO("From ~p and ~p",[Addr,From]),
+             if(Addr==From) ->
+                 P;
+               true ->
+                 undefined
+             end;
+            (_,Priv) ->
+             Priv
+         end, undefined,
+         application:get_env(tpnode,eth_accounts,[])
+        ),
+  if(Priv==undefined) ->
+      throw({jsonrpc2, -32042, <<"Bad from">>});
+    is_binary(Priv) ->
+      ok
+  end,
+
+  Tx=eth:encode_tx2(
+       #{chain=>chain_id(),
+         nonce=>seq(From),
+         gasPrice=>100,
+         gasLimit=>100000,
+         to=>hex:decode(proplists:get_value(<<"to">>,Param,<<"0x">>)),
+         value=>hex2i(proplists:get_value(<<"value">>,Param,<<"0x0">>)),
+         data=>hex:decode(proplists:get_value(<<"data">>,Param,<<"0x">>))},
+       Priv),
+
+  #{hash:=Hash}=Decode=tx:construct_tx(#{tx=>Tx,
+                                         chain_id=>chain_id()
+                                        }),
+  case txpool:new_tx(Decode) of
+    {ok,TxID} ->
+      ?LOG_INFO("TxID ~s hash ~s",[TxID, hex:encodex(Hash)]),
+      hex:encodex(Hash);
+    {error, Reason} ->
+      throw({jsonrpc2, 10001, list_to_binary(io_lib:format("~p",[Reason]))})
+  end;
+  %throw({jsonrpc2, -32042, <<"Method not supported">>});
+
 handle(<<"eth_accounts">>, _Params) ->
-  ?LOG_INFO("err: eth_accounts"),
-    throw({jsonrpc2, -32042, <<"Method not supported">>});
+  ?LOG_INFO("eth_accounts ~p",[_Params]),
+  %throw({jsonrpc2, -32042, <<"Method not supported">>});
+  [ hex:encodex(element(1,eth:identity_from_private(hex:decode(X)))) ||
+    X <- application:get_env(tpnode,eth_accounts,[])
+  ];
 
 handle(Method,_Params) ->
   ?LOG_INFO("err: ~s",[Method]),
@@ -451,11 +500,18 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
     {<<"totalDifficulty">>,<<"0x1">>},
     {<<"sha3Uncles">>,<<"0x">>},
     {<<"size">>,<<"0x41c7">>},
-    {<<"timestamp">>,i2hex(binary:decode_unsigned(
-                             proplists:get_value(mean_time,
-                                                 maps:get(roots,Hdr,[]),
-                                                 <<>>)))},
+    {<<"timestamp">>,i2hex(
+                       binary:decode_unsigned(
+                         proplists:get_value(mean_time,
+                                             maps:get(roots,Hdr,[]),
+                                             <<>>)))},
     {<<"transactions">>, [ hex:encodex(TxHash) || [_,_,TxHash|_] <- Rec ] },
     {<<"uncles">>,[]}
    ]}.
+
+seq(Address) ->
+  case mledger:db_get_one(mledger,Address,seq,[],[]) of
+    {ok, V} -> V+1;
+    undefined -> 0
+  end.
 
