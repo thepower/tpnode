@@ -197,10 +197,10 @@ handle(<<"eth_getBlockByHash">>,[Hash|_Details]=Params) ->
   ?LOG_INFO("Got req for eth_getBlockByHash args ~p",[Params]),
   display_block(
     case Hash of
-      <<"0x",N/binary>> ->
-        blockchain_reader:get_block(hex:decode(N), self);
       <<"latest">> ->
-        blockchain_reader:get_block(last_permanent)
+        blockchain_reader:get_block(last_permanent);
+      <<N/binary>> ->
+        blockchain_reader:get_block(hex:decode(N), self)
     end);
 
 handle(<<"eth_getBlockByNumber">>,[Number|_Details]=Params) ->
