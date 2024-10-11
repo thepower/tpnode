@@ -502,21 +502,59 @@ h(<<"GET">>, [<<"nodes">>, Chain], Req) ->
            chain_nodes => get_nodes(binary_to_integer(Chain, 10), BinPacker)
           });
 
+h(<<"GET">>, [<<"address">>, TAddr, <<"dump">>], Req) ->
+  try
+    Addr=case TAddr of
+			 <<"0x", Hex/binary>> -> hex:parse(Hex);
+			 _ -> naddress:decode(TAddr)
+		 end,
+	RawKeys=mledger:db_get_multi(mledger,Addr,'_','_',[]),
+
+	F=case maps:get(req_format,Req) of
+		  <<"mp">> ->
+			  fun({KeyType,Path,Value},Acc) ->
+					  [[KeyType,Path,Value]|Acc]
+			  end;
+		  _ -> %default hex encode
+			  Fix=fun F(X) when is_integer(X) -> X;
+					  F(L) when is_list(L) -> lists:map(F,L);
+					  F(undefined) -> null;
+					  F(B) when is_binary(B) -> hex:encodex(B)
+				  end,
+			  fun({KeyType,Path,Value},Acc) ->
+					  [[KeyType,Fix(Path),Fix(Value)]|Acc]
+			  end
+	  end,
+	S1=lists:foldl(F, [], RawKeys),
+	{200, [{"Content-Type","application/json"}],
+	 #{
+	   notice => <<"Only for debugging. Do not use it in scripts!!!">>,
+	   keys => S1
+	  }
+	}
+  catch
+    throw:{error, address_crc} ->
+      err(
+                  10004,
+                  <<"Invalid address">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              );
+          throw:bad_addr ->
+              err(
+                  10005,
+                  <<"Invalid address (2)">>,
+                  #{result => <<"error">>},
+                  #{http_code => 400}
+              )
+  end;
+
 h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], Req) ->
   try
     Addr=case TAddr of
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    case mledger:get_kpv(Addr,vm,'_') of
-      undefined ->
-        err(
-          10003,
-          <<"Not found">>,
-          #{result => <<"not_found">>},
-          #{http_code => 404}
-         );
-      {ok,_VM} ->
         RawKeys=mledger:get_kpvs(Addr,state,'_'),
 
         S1=case maps:get(req_format,Req) of
@@ -537,7 +575,6 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], Req) ->
            keys => S1
           }
         }
-    end
   catch
     throw:{error, address_crc} ->
       err(
