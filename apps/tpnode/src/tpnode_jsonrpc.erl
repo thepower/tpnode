@@ -29,6 +29,8 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
   case
   gen_server:call(blockchain_reader,{txhash, hex:decode(TxHash0) ,true})
   of
+    badarg ->
+      throw({jsonrpc2, 10001, <<"badarg">>});
     not_found ->
       throw({jsonrpc2, 10001, <<"not found">>});
     #{block:=BlkHash,
@@ -65,12 +67,12 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
                  removed => false
                }
           end, Logs),
-        <<"logsBloom">> =>  "0x",
+        <<"logsBloom">> =>  <<"0x">>,
         <<"status">> => i2hex(Res),
         <<"to">> => hex:encodex(maps:get(to,Tx,<<>>)),
         <<"transactionHash">> => THash,
         <<"transactionIndex">> => TIdx,
-        <<"type">> =>  "0x2"
+        <<"type">> =>  <<"0x2">>
        };
     Other ->
       ?LOG_ERROR("Other res ~p",[Other]),
@@ -191,44 +193,25 @@ handle(<<"eth_call">>,_) ->
   ?LOG_INFO("err: eth_call"),
   throw({jsonrpc2, 32000, <<"incorrect arguments">>});
 
-handle(<<"eth_getBlockByNumber">>,[Number,_Details]=Params) ->
-    Block=case Number of
-               <<"0x",N/binary>> ->
-                  blockchain_reader:get_block(binary_to_integer(N,16));
-               <<"latest">> ->
-                  blockchain_reader:get_block(last_permanent)
-          end,
-    ?LOG_INFO("Got req for eth_getBlockByNumber args ~p",[Params]),
-    case Block of
-        not_found ->
-            throw(server_error);
-        #{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr} ->
-            Txs=maps:get(txs,Block,[]),
-            {[
-              {<<"difficulty">>,<<"0x1">>},
-              {<<"extraData">>,<<"0x">>},
-              {<<"gasLimit">>,<<"0x79f39e">>},
-              {<<"gasUsed">>,<<"0x79ccd3">>},
-              {<<"logsBloom">>,hex:encodex(proplists:get_value(log_hash,maps:get(roots,Hdr,[]),<<>>))},
-              {<<"miner">>,<<"0x">>},
-              {<<"nonce">>,<<"0x1">>},
-              {<<"number">>,hex:encodex(Hei)},
-              {<<"hash">>,hex:encodex(Hash)},
-              {<<"mixHash">>,<<"0x0000000000000000000000000000000000000000000000000000000000000000">>},
-              {<<"stateRoot">>,hex:encodex(proplists:get_value(ledger_hash,maps:get(roots,Hdr,[]),<<>>))},
-              {<<"parentHash">>,hex:encodex(Parent)},
-              {<<"transactionsRoot">>,hex:encodex(proplists:get_value(txroot,maps:get(roots,Hdr,[]),<<>>))},
-              {<<"totalDifficulty">>,<<"0x1">>},
-              {<<"sha3Uncles">>,<<"0x">>},
-              {<<"size">>,<<"0x41c7">>},
-              {<<"timestamp">>,i2hex(binary:decode_unsigned(
-                                           proplists:get_value(mean_time,
-                                                               maps:get(roots,Hdr,[]),
-                                                               <<>>)))},
-              {<<"transactions">>, [ TxID || {TxID, _} <- Txs ] },
-              {<<"uncles">>,[]}
-             ]}
-    end;
+handle(<<"eth_getBlockByHash">>,[Hash|_Details]=Params) ->
+  ?LOG_INFO("Got req for eth_getBlockByHash args ~p",[Params]),
+  display_block(
+    case Hash of
+      <<"0x",N/binary>> ->
+        blockchain_reader:get_block(hex:decode(N), self);
+      <<"latest">> ->
+        blockchain_reader:get_block(last_permanent)
+    end);
+
+handle(<<"eth_getBlockByNumber">>,[Number|_Details]=Params) ->
+  ?LOG_INFO("Got req for eth_getBlockByNumber args ~p",[Params]),
+  display_block(
+    case Number of
+      <<"0x",N/binary>> ->
+        blockchain_reader:get_block(binary_to_integer(N,16));
+      <<"latest">> ->
+        blockchain_reader:get_block(last_permanent)
+    end);
 
 handle(<<"eth_getBalance">>,[<<Address/binary>>,Block,Token]) ->
     D=get_ledger_bal(Address, Block),
@@ -445,4 +428,34 @@ decode_addr(<<Addr:20/binary>>) ->
 
 chain_id() ->
   maps:get(chain,maps:get(header,blockchain:last_permanent_meta()))+1000000000.
+
+
+display_block(not_found) ->
+  throw(server_error);
+display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
+  Rec=maps:get(receipt,Block,[]),
+  {[
+    {<<"difficulty">>,<<"0x1">>},
+    {<<"extraData">>,<<"0x">>},
+    {<<"gasLimit">>,<<"0x79f39e">>},
+    {<<"gasUsed">>,<<"0x79ccd3">>},
+    {<<"logsBloom">>,hex:encodex(proplists:get_value(log_hash,maps:get(roots,Hdr,[]),<<>>))},
+    {<<"miner">>,<<"0x">>},
+    {<<"nonce">>,<<"0x1">>},
+    {<<"number">>,hex:encodex(Hei)},
+    {<<"hash">>,hex:encodex(Hash)},
+    {<<"mixHash">>,<<"0x0000000000000000000000000000000000000000000000000000000000000000">>},
+    {<<"stateRoot">>,hex:encodex(proplists:get_value(ledger_hash,maps:get(roots,Hdr,[]),<<>>))},
+    {<<"parentHash">>,hex:encodex(Parent)},
+    {<<"transactionsRoot">>,hex:encodex(proplists:get_value(txroot,maps:get(roots,Hdr,[]),<<>>))},
+    {<<"totalDifficulty">>,<<"0x1">>},
+    {<<"sha3Uncles">>,<<"0x">>},
+    {<<"size">>,<<"0x41c7">>},
+    {<<"timestamp">>,i2hex(binary:decode_unsigned(
+                             proplists:get_value(mean_time,
+                                                 maps:get(roots,Hdr,[]),
+                                                 <<>>)))},
+    {<<"transactions">>, [ hex:encodex(TxHash) || [_,_,TxHash|_] <- Rec ] },
+    {<<"uncles">>,[]}
+   ]}.
 
