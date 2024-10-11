@@ -41,11 +41,12 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
       tx:=TxBody
      } ->
       Tx=#{from:=From}=tx:unpack(TxBody),
-      [_,_,TxHash,Res,_Ret,Gas,BlkGas,Logs]=Rec,
+      [_,TxID,TxHash,Res,_Ret,Gas,BlkGas,Logs]=Rec,
       THash=hex:encodex(TxHash),
       BHash=hex:encodex(BlkHash),
       TIdx=i2hex(Idx),
       #{
+        <<"txID">> => TxID,
         <<"blockHash">> => BHash,
         <<"blockNumber">> => i2hex(BlkHei),
         <<"contractAddress">> =>  null,
@@ -85,12 +86,14 @@ handle(<<"eth_sendRawTransaction">>,[Tx]) ->
     #{hash:=Hash}=Decode=tx:construct_tx(#{tx=>hex:decode(Tx),
                              chain_id=>chain_id()
                             }),
-    ?LOG_INFO("Got req for eth_sendRawTransaction with ~p",[Decode]),
+    ?LOG_INFO("Got req for eth_sendRawTransaction with ~p",
+              [maps:with( [kind,from,to,seq], Decode)]),
     case txpool:new_tx(Decode) of
       {ok,TxID} ->
         ?LOG_INFO("TxID ~s hash ~s",[TxID, hex:encodex(Hash)]),
         hex:encodex(Hash);
       {error, Reason} ->
+        ?LOG_INFO("Err ~p",[Reason]),
         throw({jsonrpc2, 10001, list_to_binary(io_lib:format("~p",[Reason]))})
     end;
 
@@ -126,7 +129,8 @@ handle(<<"eth_getCode">>,[Address, Block]) ->
 
 handle(<<"eth_estimateGas">>,[{Params}|_OptionalBlock]) ->
   %[{<<"from">>,<<"0xdda0e313ec6db199d1292ee536556ef3e1cadbab">>},{<<"value">>,<<"0x0">>},{<<"gasPrice">>,<<"0x1">>},{<<"data">>,<<"0x">>},{<<"to">>,<<"0xaa153647a1e5ec44f3407413e39996838d2cc032">>}]
-    ?LOG_INFO("Got req for eth_call arg1 ~p",[Params]),
+  ?LOG_INFO("Got req for eth_estimateGas arg1 ~p (data removed)",
+            [ lists:keydelete(<<"data">>,1, Params) ]),
     %To=try
     %     decode_addr(proplists:get_value(<<"to">>,Params))
     %   catch error:function_clause ->
@@ -153,7 +157,7 @@ handle(<<"eth_estimateGas">>,[{Params}|_OptionalBlock]) ->
     %    ?LOG_INFO("Res err: ~p",[_Err]),
     %        throw({jsonrpc2, 10000, <<"evm_run unexpected result">>})
     %end;
-    i2hex(21000);
+    i2hex(210000);
 
 handle(<<"eth_call">>,[{Params},_Block]) ->
     ?LOG_INFO("Got req for eth_call arg1 ~p",[Params]),
@@ -333,11 +337,15 @@ handle(<<"eth_sendTransaction">>, [{Param}|_]) ->
       ok
   end,
 
+  #{<<"gas">> := Gas,<<"tokens">> := Tokens}
+  = mledger:getfun({lstore,<<0>>,[<<"gas">>,<<"SK">>]},mledger),
+  GasPrice=trunc(Tokens/Gas),
+
   Tx=eth:encode_tx2(
        #{chain=>chain_id(),
          nonce=>seq(From),
-         gasPrice=>100,
-         gasLimit=>100000,
+         gasPrice=>GasPrice,
+         gasLimit=>hex2i(proplists:get_value(<<"gas">>,Param,<<"0xc350">>)),
          to=>hex:decode(proplists:get_value(<<"to">>,Param,<<"0x">>)),
          value=>hex2i(proplists:get_value(<<"value">>,Param,<<"0x0">>)),
          data=>hex:decode(proplists:get_value(<<"data">>,Param,<<"0x">>))},
