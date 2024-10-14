@@ -2243,12 +2243,14 @@ packer(Req,Default) ->
   QS=cowboy_req:parse_qs(Req),
   case proplists:get_value(<<"bin">>, QS) of
     <<"b64">>  -> fun(Bin) -> base64:encode(Bin) end;
-    <<"hex">>  -> fun(Bin) -> hex:encode(Bin) end;
+    <<"phex">>  -> fun(Bin) -> hex:encode(Bin) end;
+    <<"hex">>  -> fun(Bin) -> hex:encodex(Bin) end;
     <<"xhex">> -> fun(Bin) -> hex:encodex(Bin) end;
     <<"0xhex">>-> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
     <<"raw">>  -> fun(Bin) -> Bin end;
     _ -> case Default of
-           hex -> fun(Bin) -> hex:encode(Bin) end;
+           phex -> fun(Bin) -> hex:encode(Bin) end;
+           hex -> fun(Bin) -> hex:encodex(Bin) end;
            xhex-> fun(Bin) -> hex:encodex(Bin) end;
            b64 -> fun(Bin) -> base64:encode(Bin) end;
            raw -> fun(Bin) -> Bin end
