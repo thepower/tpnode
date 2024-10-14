@@ -40,8 +40,8 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
       receipt:=Rec,
       tx:=TxBody
      } ->
-      Tx=#{from:=From}=tx:unpack(TxBody),
-      [_,TxID,TxHash,Res,_Ret,Gas,BlkGas,Logs]=Rec,
+      Tx=#{from:=From,kind:=Kind}=tx:unpack(TxBody),
+      [_,TxID,TxHash,Res,Ret,Gas,BlkGas,Logs]=Rec,
       THash=hex:encodex(TxHash),
       BHash=hex:encodex(BlkHash),
       TIdx=i2hex(Idx),
@@ -49,7 +49,12 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
         <<"txID">> => TxID,
         <<"blockHash">> => BHash,
         <<"blockNumber">> => i2hex(BlkHei),
-        <<"contractAddress">> =>  null,
+        <<"contractAddress">> => if Kind == deploy andalso Res==1 ->
+                                      hex:encodex(Ret);
+                                    true ->
+                                      null
+                                 end,
+        <<"return">> => hex:encodex(Ret),
         <<"cumulativeGasUsed">> => i2hex(BlkGas),
         <<"effectiveGasPrice">> => i2hex(Gas),
         <<"from">> => hex:encodex(From),
