@@ -31,13 +31,10 @@ RUN apt-get update -yqq && \
         iputils-ping && \
     apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-WORKDIR /opt/
+WORKDIR /opt/tpnode
 
-# Argument for branch name
-ARG BRANCH=dev
-
-# Clone the project from the Git repository (branch passed as argument)
-RUN if [ -d .git ]; then git pull origin ${BRANCH}; else git clone -b ${BRANCH} https://github.com/thepower/tpnode.git .; fi
+# Clone the project into /opt/tpnode
+COPY . /opt/tpnode
 
 # Stage 2: Build the application
 FROM base AS build
@@ -49,7 +46,7 @@ WORKDIR /opt/tpnode
 # Install project dependencies and compile the application
 RUN rebar3 get-deps && \
     rebar3 compile && \
-    rebar3 as prod release 
+    rebar3 as prod release
 
 # Clean up unnecessary files
 RUN rm -rf _build/prod/rel/thepower/lib/*/doc && \
