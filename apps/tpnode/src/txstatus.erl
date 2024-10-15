@@ -194,7 +194,7 @@ jsonfy1({false,{error,{contract_error,[Ec,Ee]}}}) ->
 
 jsonfy1({true,#{address:=Addr}}) ->
   #{ok=>true,
-    res=>nex:encode(Addr),
+    res=>hex:encode(Addr),
     address=>naddress:encode(Addr)
    };
 
