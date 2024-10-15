@@ -1,16 +1,48 @@
-# Stage 1: Build the application
-FROM --platform=linux/amd64 ubuntu:22.04 AS build
+# Stage 1: Prepare the OS and install dependencies
+FROM --platform=linux/amd64 ubuntu:22.04 AS base
 
-# Install build dependencies
+LABEL stage=base
+
+# Install common OS dependencies
 RUN apt-get update -yqq && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -yqq apt-utils && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -yqq cmake clang libtool gcc git curl libssl-dev build-essential automake autoconf libncurses5-dev elixir erlang-base erlang-public-key erlang-asn1 erlang-ssl erlang-dev erlang-inets erlang-eunit erlang-common-test rebar3 iputils-ping && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -yqq \
+        apt-utils \
+        cmake \
+        clang \
+        libtool \
+        gcc \
+        git \
+        curl \
+        libssl-dev \
+        build-essential \
+        automake \
+        autoconf \
+        libncurses5-dev \
+        elixir \
+        erlang-base \
+        erlang-public-key \
+        erlang-asn1 \
+        erlang-ssl \
+        erlang-dev \
+        erlang-inets \
+        erlang-eunit \
+        erlang-common-test \
+        rebar3 \
+        iputils-ping && \
     apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 WORKDIR /opt/
 
-# Clone the project from the Git repository
-RUN git clone -b dev https://github.com/thepower/tpnode.git
+# Argument for branch name
+ARG BRANCH=dev
+
+# Clone the project from the Git repository (branch passed as argument)
+RUN if [ -d .git ]; then git pull origin ${BRANCH}; else git clone -b ${BRANCH} https://github.com/thepower/tpnode.git .; fi
+
+# Stage 2: Build the application
+FROM base AS build
+
+LABEL stage=build
 
 WORKDIR /opt/tpnode
 
@@ -18,14 +50,15 @@ WORKDIR /opt/tpnode
 RUN rebar3 get-deps && \
     rebar3 compile && \
     rebar3 as prod release 
-    
-# Remove unnecessary files
+
+# Clean up unnecessary files
 RUN rm -rf _build/prod/rel/thepower/lib/*/doc && \
     rm -rf _build/prod/rel/thepower/lib/*/examples
 
-# Stage 2: Create a minimal image for running the application
+# Stage 3: Create a minimal image for running the application
+FROM --platform=linux/amd64 ubuntu:22.04 AS runtime
 
-FROM --platform=linux/amd64 ubuntu:22.04
+LABEL stage=runtime
 
 # Install runtime dependencies
 RUN apt-get update -yqq && \
