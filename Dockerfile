@@ -1,6 +1,8 @@
 # Stage 1: Prepare the OS and install dependencies
 FROM --platform=linux/amd64 ubuntu:22.04 AS base
 
+LABEL stage=base
+
 # Install common OS dependencies
 RUN apt-get update -yqq && \
     DEBIAN_FRONTEND=noninteractive apt-get install -yqq \
@@ -31,15 +33,18 @@ RUN apt-get update -yqq && \
 
 WORKDIR /opt/
 
-# Clone the project from the Git repository (this step will rerun if the code changes)
-RUN git clone -b dev https://github.com/thepower/tpnode.git
+# Argument for branch name
+ARG BRANCH=dev
+
+# Clone the project from the Git repository (branch passed as argument)
+RUN if [ -d .git ]; then git pull origin ${BRANCH}; else git clone -b ${BRANCH} https://github.com/thepower/tpnode.git .; fi
 
 # Stage 2: Build the application
 FROM base AS build
 
-WORKDIR /opt/tpnode
+LABEL stage=build
 
-RUN git -C /opt/tpnode pull || git clone -b dev https://github.com/thepower/tpnode.git /opt/tpnode
+WORKDIR /opt/tpnode
 
 # Install project dependencies and compile the application
 RUN rebar3 get-deps && \
@@ -52,6 +57,8 @@ RUN rm -rf _build/prod/rel/thepower/lib/*/doc && \
 
 # Stage 3: Create a minimal image for running the application
 FROM --platform=linux/amd64 ubuntu:22.04 AS runtime
+
+LABEL stage=runtime
 
 # Install runtime dependencies
 RUN apt-get update -yqq && \
