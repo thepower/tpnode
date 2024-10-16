@@ -40,7 +40,7 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
       receipt:=Rec,
       tx:=TxBody
      } ->
-      Tx=#{from:=From,kind:=Kind}=tx:unpack(TxBody),
+      Tx=#{kind:=Kind}=tx:unpack(TxBody),
       [_,TxID,TxHash,Res,Ret,Gas,BlkGas,Logs]=Rec,
       THash=hex:encodex(TxHash),
       BHash=hex:encodex(BlkHash),
@@ -57,7 +57,7 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
         <<"return">> => hex:encodex(Ret),
         <<"cumulativeGasUsed">> => i2hex(BlkGas),
         <<"effectiveGasPrice">> => i2hex(Gas),
-        <<"from">> => hex:encodex(From),
+        <<"from">> => hex:encodex(maps:get(from,Tx,<<0:160/big>>)),
         <<"gasUsed">> => i2hex(Gas),
         <<"logs">> =>
         lists:map(
