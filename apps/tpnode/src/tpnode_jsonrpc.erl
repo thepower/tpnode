@@ -32,7 +32,7 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
     badarg ->
       throw({jsonrpc2, 10001, <<"badarg">>});
     not_found ->
-      throw({jsonrpc2, 10001, <<"not found">>});
+      null;
     #{block:=BlkHash,
       hei:=BlkHei,
       hash:=TxHash,
