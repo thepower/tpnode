@@ -45,11 +45,14 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
       THash=hex:encodex(TxHash),
       BHash=hex:encodex(BlkHash),
       TIdx=i2hex(Idx),
+      To0=maps:get(to,Tx,undefined),
       #{
         <<"txID">> => TxID,
         <<"blockHash">> => BHash,
         <<"blockNumber">> => i2hex(BlkHei),
         <<"contractAddress">> => if Kind == deploy andalso Res==1 ->
+                                      hex:encodex(Ret);
+                                    Kind == ether andalso To0==<<>> ->
                                       hex:encodex(Ret);
                                     true ->
                                       null
@@ -61,8 +64,8 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
         <<"gasUsed">> => i2hex(Gas),
         <<"logs">> =>
         lists:map(
-          fun([<<"evm">>,To, _From, Data, Topics]) ->
-              #{ address => hex:encodex(To),
+          fun([<<"evm">>,To1, _From, Data, Topics]) ->
+              #{ address => hex:encodex(To1),
                  topics => [ hex:encodex(T) || T <- Topics ],
                  data => hex:encodex(Data),
                  blockNumber => i2hex(BlkHei),
@@ -73,9 +76,12 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
                  removed => false
                }
           end, Logs),
-        <<"logsBloom">> =>  <<"0x">>,
+        <<"logsBloom">> =>  <<"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000">>,
         <<"status">> => i2hex(Res),
-        <<"to">> => hex:encodex(maps:get(to,Tx,<<>>)),
+        <<"to">> => case maps:get(to,Tx,<<>>) of
+                      <<>> -> null;
+                      Bin -> hex:encodex(Bin)
+                    end,
         <<"transactionHash">> => THash,
         <<"transactionIndex">> => TIdx,
         <<"type">> =>  <<"0x2">>
@@ -243,7 +249,7 @@ handle(<<"eth_getBalance">>,[<<Address/binary>>,Block]) ->
     end;
 
 
-handle(<<"eth_blockNumber">>,[]) ->
+handle(<<"eth_blockNumber">>,_) ->
     LBHei=maps:get(height,maps:get(header,blockchain:last_permanent_meta())),
     i2hex(LBHei);
 
@@ -501,7 +507,7 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
     {<<"extraData">>,<<"0x">>},
     {<<"gasLimit">>,<<"0x79f39e">>},
     {<<"gasUsed">>,<<"0x79ccd3">>},
-    {<<"logsBloom">>,hex:encodex(proplists:get_value(log_hash,maps:get(roots,Hdr,[]),<<>>))},
+    {<<"logsBloom">>,<<"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000">>},
     {<<"miner">>,<<"0x">>},
     {<<"nonce">>,<<"0x1">>},
     {<<"number">>,hex:encodex(Hei)},
@@ -511,7 +517,7 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
     {<<"parentHash">>,hex:encodex(Parent)},
     {<<"transactionsRoot">>,hex:encodex(proplists:get_value(txroot,maps:get(roots,Hdr,[]),<<>>))},
     {<<"totalDifficulty">>,<<"0x1">>},
-    {<<"sha3Uncles">>,<<"0x">>},
+    {<<"sha3Uncles">>,hex:encodex(<<1:256/big>>)},
     {<<"size">>,<<"0x41c7">>},
     {<<"timestamp">>,i2hex(
                        binary:decode_unsigned(
