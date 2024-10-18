@@ -227,6 +227,35 @@ native_minter_service(From, <<16#E0CD84EC:32/big,Bin/binary>>, GasLimit, State0,
 		  {0, <<"badarg">>, GasLimit-100, State0}
   end;
 
+%% mint_native(address,string,uint256)
+native_minter_service(From, <<16#E03E94EF:32/big,Bin/binary>>, GasLimit, State0, _Opts) ->
+  InABI=[{<<"addr">>,address}, {<<"token">>,string}, {<<"amount">>,uint256}],
+  try
+	  [{<<"addr">>,MintTo1},{<<"token">>,Cur},{<<"amount">>,Amount}]=contract_evm_abi:decode_abi(Bin,InABI),
+	  MintTo = if is_binary(MintTo1) -> MintTo1;
+				  is_integer(MintTo1) -> binary:encode_unsigned(MintTo1)
+			   end,
+	  case pstate:get_state(<<0>>, lstore, [<<"minter">>,From,Cur], State0) of
+		  {1, _Cached, State1} ->
+
+			  {Dst0, _, State2} = pstate:get_state(MintTo, balance, Cur, State1),
+			  Dst1=Dst0+Amount,
+			  ?LOG_INFO("mint by ~s -> ~s ~w ~s",[hex:encodex(From),hex:encodex(MintTo),Amount,Cur]),
+			  State3=pstate:set_state(MintTo, balance, Cur, Dst1, State2),
+			  %contract_evm_abi:sigb256(<<"NativeMint(address,string,uint256)">>)
+			  LogEntry=[<<"evm">>,<<"MINTER">>,From,Bin,
+                  [<<195,251,140,242,50,187,173,157,98,122,173,76,161,83,33,20,168,114,62,66,79,
+                     202,61,66,238,146,219,212,32,75,0,101>>]],
+			  State4=State3#{log=>[LogEntry|maps:get(log,State3)]},
+			  {1, <<1:256/big>>, GasLimit-10000, State4};
+		  {_, _, State1} ->
+			  {0, <<"denied">>, GasLimit-50000, State1}
+	  end
+  catch Ec:Ee:S ->
+          ?LOG_ERROR("decode_abi error: ~p:~p@~p~n",[Ec,Ee,S]),
+		  {0, <<"badarg">>, GasLimit-100, State0}
+  end;
+
 native_minter_service(_From, _CallData, GasLimit, State0, _Opts) ->
 	{0, <<"badarg">>, GasLimit-100, State0}.
 
