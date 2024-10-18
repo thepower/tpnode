@@ -196,7 +196,7 @@ handle(<<"eth_call">>,[{Params},_Block]) ->
                                     },
                                  []) of
       {1,RetData,_GasLeft,_} ->
-        hex:encode(RetData);
+        hex:encodex(RetData);
       {0,RetData, _GasLeft, _} ->
         throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(RetData)});
       _Err ->
@@ -502,28 +502,30 @@ display_block(not_found) ->
   throw(server_error);
 display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
   Rec=maps:get(receipt,Block,[]),
+  <<MH:20/binary,_/binary>>=proplists:get_value(ledger_hash,maps:get(roots,Hdr,[]),<<0:256/big>>),
   {[
-    {<<"difficulty">>,<<"0x1">>},
+    {<<"baseFeePerGas">>,<<"0x7">>},
+    {<<"difficulty">>,<<"0x263d8073">>},
     {<<"extraData">>,<<"0x">>},
-    {<<"gasLimit">>,<<"0x79f39e">>},
+    {<<"gasLimit">>,<<"0x1c5502a">>},
     {<<"gasUsed">>,<<"0x79ccd3">>},
     {<<"logsBloom">>,<<"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000">>},
-    {<<"miner">>,<<"0x">>},
-    {<<"nonce">>,<<"0x1">>},
+    {<<"miner">>,hex:encodex(MH)},
+    {<<"nonce">>,<<"0x11">>},
     {<<"number">>,hex:encodex(Hei)},
     {<<"hash">>,hex:encodex(Hash)},
-    {<<"mixHash">>,<<"0x0000000000000000000000000000000000000000000000000000000000000000">>},
+    {<<"mixHash">>,hex:encodex(<<1:256/big>>)},
     {<<"stateRoot">>,hex:encodex(proplists:get_value(ledger_hash,maps:get(roots,Hdr,[]),<<>>))},
     {<<"parentHash">>,hex:encodex(Parent)},
     {<<"transactionsRoot">>,hex:encodex(proplists:get_value(txroot,maps:get(roots,Hdr,[]),<<>>))},
-    {<<"totalDifficulty">>,<<"0x1">>},
+    {<<"totalDifficulty">>,<<"0x12">>},
     {<<"sha3Uncles">>,hex:encodex(<<1:256/big>>)},
     {<<"size">>,<<"0x41c7">>},
     {<<"timestamp">>,i2hex(
                        binary:decode_unsigned(
                          proplists:get_value(mean_time,
                                              maps:get(roots,Hdr,[]),
-                                             <<>>)))},
+                                             <<>>)) div 1000)},
     {<<"transactions">>, [ hex:encodex(TxHash) || [_,_,TxHash|_] <- Rec ] },
     {<<"uncles">>,[]}
    ]}.
