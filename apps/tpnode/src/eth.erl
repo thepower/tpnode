@@ -144,7 +144,7 @@ decode_tx(_ChainId, <<2,FinalTxRLP/binary>>) ->
    {gas,erlp:bin_to_int(GasLimit)},
    {to,To},
    {value, erlp:bin_to_int(Value)},
-   {input, hex:encode(Data)},
+   {input, Data},
    {accessList,List},
    {v, BV},
    {r, R},
