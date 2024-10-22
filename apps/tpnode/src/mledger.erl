@@ -243,7 +243,12 @@ db_get_multi(DB, Address, Key, Path, Opts) ->
     not_found -> [];
     [] -> [];
     List ->
-      [ {K, P, V} || #bal_items{key=K,path=P,value=V} <- List]
+      case lists:member(height,Opts) of
+        false ->
+          [ {K, P, V} || #bal_items{key=K,path=P,value=V} <- List];
+        true ->
+          [ {K, P, V, H} || #bal_items{key=K,path=P,value=V,introduced=H} <- List]
+      end
   end.
 
 db_get_one(DB, Address, Key, Path, Opts) ->

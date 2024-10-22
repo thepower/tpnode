@@ -508,7 +508,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"dump">>], Req) ->
 			 <<"0x", Hex/binary>> -> hex:parse(Hex);
 			 _ -> naddress:decode(TAddr)
 		 end,
-	RawKeys=mledger:db_get_multi(mledger,Addr,'_','_',[]),
+	RawKeys=mledger:db_get_multi(mledger,Addr,'_','_',[height]),
 
 	F=case maps:get(req_format,Req) of
 		  <<"mp">> ->
@@ -521,8 +521,8 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"dump">>], Req) ->
 					  F(undefined) -> null;
 					  F(B) when is_binary(B) -> hex:encodex(B)
 				  end,
-			  fun({KeyType,Path,Value},Acc) ->
-					  [[KeyType,Fix(Path),Fix(Value)]|Acc]
+			  fun({KeyType,Path,Value,Height},Acc) ->
+					  [[KeyType,Fix(Path),Fix(Value),Height]|Acc]
 			  end
 	  end,
 	S1=lists:foldl(F, [], RawKeys),
