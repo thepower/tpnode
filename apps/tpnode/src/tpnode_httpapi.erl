@@ -1430,7 +1430,7 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 	#{block:=#{
 			   failed:=Fail,
 			   ledger_patch:=LP,
-			   receipt:=Rec} = _Block} 
+			   receipt:=Rec} = _Block}
 	= generate_block2:generate_block(
 		TxList,
 		{1, <<1:256/big>>},
@@ -1445,17 +1445,12 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 			   (Bin) ->
 					<<"... stripped code ",(integer_to_binary(size(Bin)))/binary," bytes ...">>
 			end,
-	
+
 	Fix=fun F(X) when is_integer(X) -> X;
 			F(L) when is_list(L) -> lists:map(F,L);
 			F(undefined) -> null;
 			F(B) when is_binary(B) -> BinPacker(B)
 		end,
-	FmtR=fun([TxNum, TxID, TxHash, Res, Ret, GasT, GasB, Log ]) ->
-				 [TxNum, TxID, BinPacker(TxHash), Res, BinPacker(Ret),
-				  GasT, GasB, Fix(Log)
-				 ]
-		 end,
 
 	FmtP=fun([Addr, 3, [], OldCode, NewCode]) ->
 				[BinPacker(Addr),mledger:id_to_field(3),[],
@@ -1476,7 +1471,7 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 	  #{ result => <<"ok">>,
 		 failed=>[ [TxID, Reason] || {TxID, Reason} <- Fail ],
 		 ledger_patch=>lists:map(FmtP, LP),
-		 receipt=>lists:map(FmtR, Rec)
+		 receipt=>format_receipt(Rec, BinPacker)
 	   }
 	 );
 
@@ -1879,11 +1874,15 @@ prettify_block(#{}=Block0, BinPacker) ->
           end,
           Proof
          );
-       (txs, TXS) ->
+	   (txs, TXS) ->
         lists:map(
           fun({TxID, Body}) ->
               {TxID,prettify_tx(Body, BinPacker)}
           end, TXS);
+       (receipt, Rec) ->
+			format_receipt(Rec, BinPacker);
+	   (ledger_patch, LP) ->
+			format_ledger_patch(LP, BinPacker);
        (etxs, TXS) ->
         lists:map(
           fun({TxID, Body}) ->
@@ -1914,9 +1913,9 @@ str2bin(List) when is_list(List) ->
 
 prettify_tx(#{ver:=2}=TXB, BinPacker) ->
   maps:map(
-    fun(from, <<Val:8/binary>>) ->
+    fun(from, Val) ->
         BinPacker(Val);
-       (to, <<Val:8/binary>>) ->
+       (to, Val) ->
         BinPacker(Val);
        (body, Val) ->
         BinPacker(Val);
@@ -2323,3 +2322,46 @@ blockhash(<<"genesis">>) -> genesis;
 blockhash(BlockId) ->
 	hex:parse(BlockId).
 
+format_receipt(Receipt, BinPacker) ->
+	Fix=fun F(X) when is_integer(X) -> X;
+			F(L) when is_list(L) -> lists:map(F,L);
+			F(undefined) -> null;
+			F(B) when is_binary(B) -> BinPacker(B)
+		end,
+	FmtR=fun([TxNum, TxID, TxHash, Res, Ret, GasT, GasB, Log ]) ->
+				 [TxNum, TxID, BinPacker(TxHash), Res, BinPacker(Ret),
+				  GasT, GasB, Fix(Log)
+				 ]
+		 end,
+	lists:map(FmtR, Receipt).
+
+format_ledger_patch(Patches, BinPacker) ->
+	FmtCode=fun(Bin) when size(Bin) < 64 ->
+					BinPacker(Bin);
+			   (Bin) ->
+					<<"... stripped code ",(integer_to_binary(size(Bin)))/binary," bytes ...">>
+			end,
+	Fix=fun F(X) when is_integer(X) -> X;
+			F(L) when is_list(L) -> lists:map(F,L);
+			F(undefined) -> null;
+			F(B) when is_binary(B) -> BinPacker(B)
+		end,
+
+	FmtP=fun([Addr, 3, [], OldCode, NewCode]) ->
+				[BinPacker(Addr),
+				 mledger:id_to_field(3),
+				 [],
+				 FmtCode(OldCode),
+				 FmtCode(NewCode)
+				];
+			([Addr, Field, Path, OldVal, NewVal]) ->
+				[BinPacker(Addr),
+				 mledger:id_to_field(Field),
+				 Fix(Path),
+				 Fix(OldVal),
+				 Fix(NewVal)
+				];
+			(Any) ->
+				lists:map(Fix, Any)
+		   end,
+	lists:map(FmtP, Patches).
