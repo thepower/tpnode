@@ -10,6 +10,7 @@
 -export([complete_tx/2]).
 -export([hashdiff/1,upgrade/1]).
 -export([hash/1]).
+-export([unpack_ext/3]).
 
 -include("apps/tpnode/include/tx_const.hrl").
 
@@ -404,7 +405,7 @@ unpack_body(#{body:=Body,chain_id:=ChainId}=Tx) ->
    };
 
 unpack_body(#{body:= <<8:4/integer,_:4/integer,_/binary>>=Body}=Tx) ->
-  case msgpack:unpack(Body,[{spec,new},{unpack_str, as_list}]) of
+  case msgpack:unpack(Body,[{spec,new},{unpack_str, as_list},{ext,?MODULE}]) of
     {ok,#{"k":=IKind}=B} ->
       {Ver, Kind}=decode_kind(IKind),
       unpack_body(Tx#{ver=>Ver, kind=>Kind},B);
@@ -413,7 +414,7 @@ unpack_body(#{body:= <<8:4/integer,_:4/integer,_/binary>>=Body}=Tx) ->
            <<"sign">>:=_}} ->
       block:unpack(Body);
     {error,{invalid_string,_}} ->
-      case msgpack:unpack(Body,[{spec,new},{unpack_str, as_binary}]) of
+      case msgpack:unpack(Body,[{spec,new},{unpack_str, as_binary},{ext,?MODULE}]) of
         {ok,#{<<"k">>:=IKind}=B0} ->
           {Ver, Kind}=decode_kind(IKind),
           B=maps:fold(
@@ -1290,3 +1291,7 @@ enc_amount(I) when I<16#FFFFFFFFFFFFFFF0 ->
 	I;
 enc_amount(I) ->
 	binary:encode_unsigned(I).
+
+unpack_ext(66, BigInt, _) ->
+	%decoder for JS library
+	{ok,binary:decode_unsigned(BigInt)}.
