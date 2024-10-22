@@ -200,6 +200,7 @@ process_tx(#{kind:=Kind,from:=From,seq:=_Seq}=Tx, #{cumulative_gas := GasC0} = S
 	   true ->
 
 		   try
+			   ?LOG_INFO("Process tx ~p",[maps:with([from,to,kind,seq],Tx)]),
 			   {Valid, Data, GasLeft, State5} = process_tx(Tx, GasLimit, State4, Opts),
 			   ?LOG_INFO("Gas left ~p of ~p",[GasLeft, GasLimit]),
 
@@ -315,42 +316,58 @@ process_tx(#{from:=From,
 					  {ok,<<_:12/binary,EVMAddress:20/binary>>}=ksha3:hash(256, D2Hash),
 					  EVMAddress
 			  end,
-	CD=contract_evm:tx_cd(Tx),
-	?LOG_DEBUG("Deploy to address ~s gas ~p transfer ~p cd ~s~n",
-			  [hex:encodex(Address), GasLimit,
-			   tx:get_payloads(Tx, transfer),
-			   hex:encodex(CD)
-			  ]),
-	State0=State#{cur_tx=>Tx},
-	State1=lists:foldl(
-			 fun(#{amount:=Amount,cur:=Cur,purpose:=_},StateC) ->
-					 transfer(From, Address, Amount, Cur, StateC)
-			 end,
-			 State0,
-			 tx:get_payloads(Tx, transfer)
-			),
-	case process_code_itx(<<Code/binary,CD/binary>>, From, Address,
-						  Value, <<>>, GasLimit-3200, State1, Opts) of
-		{1, DeployedCode, GasLeft, State2} ->
-			State3=pstate:set_state(Address, code, [], DeployedCode, State2),
-			?LOG_INFO("Deploy to address ~p success",[Address]),
-			State4=maps:without([cur_tx,tstorage], State3),
-			State5=case TxExt of
-					   #{ "setkey":= Key } when is_binary(Key) ->
-						   pstate:set_state(Address, pubkey, [], Key, State4);
-					   _ ->
-						   State4
-				   end,
-			?LOG_INFO("State changed ~p",[debug_tools:compare_pstate(State1,State5)]),
-			{1, Address, GasLeft, State5};
-		{0, <<>>, 0, _} ->
-			{0, <<"nogas">>, 0,
-			 maps:without([cur_tx,tstorage], State)
-			};
-		{0, Reason, GasLeft, _} ->
-			{0, Reason, GasLeft,
-			 maps:without([cur_tx,tstorage], State)
-			}
+	State00=State#{cur_tx=>Tx},
+	{CodeExists, _, State01} = pstate:get_state(Address, code, [], State00),
+	{Balance, _, State0} = pstate:get_state(Address, balance, <<"SK">>, State01),
+	Allow = case {CodeExists==<<>> andalso Balance==0, TxExt} of
+				{true,_} ->
+					true;
+				{false, #{ "deploy":= "inplace"}} ->
+					true;
+				{false,_} ->
+					false
+			end,
+	case Allow of
+		false ->
+			?LOG_NOTICE("Deploy to address ~p unsuccess, address occuptied",[Address]),
+			{1,<<>>,GasLimit,State0};
+		true ->
+			CD=contract_evm:tx_cd(Tx),
+			?LOG_DEBUG("Deploy to address ~s gas ~p transfer ~p cd ~s~n",
+					   [hex:encodex(Address), GasLimit,
+						tx:get_payloads(Tx, transfer),
+						hex:encodex(CD)
+					   ]),
+			State1=lists:foldl(
+					 fun(#{amount:=Amount,cur:=Cur,purpose:=_},StateC) ->
+							 transfer(From, Address, Amount, Cur, StateC)
+					 end,
+					 State0,
+					 tx:get_payloads(Tx, transfer)
+					),
+			case process_code_itx(<<Code/binary,CD/binary>>, From, Address,
+								  Value, <<>>, GasLimit-3200, State1, Opts) of
+				{1, DeployedCode, GasLeft, State2} ->
+					State3=pstate:set_state(Address, code, [], DeployedCode, State2),
+					?LOG_INFO("Deploy to address ~p success",[Address]),
+					State4=maps:without([cur_tx,tstorage], State3),
+					State5=case TxExt of
+							   #{ "setkey":= Key } when is_binary(Key) ->
+								   pstate:set_state(Address, pubkey, [], Key, State4);
+							   _ ->
+								   State4
+						   end,
+					?LOG_INFO("State changed ~p",[debug_tools:compare_pstate(State1,State5)]),
+					{1, Address, GasLeft, State5};
+				{0, <<>>, 0, _} ->
+					{0, <<"nogas">>, 0,
+					 maps:without([cur_tx,tstorage], State)
+					};
+				{0, Reason, GasLeft, _} ->
+					{0, Reason, GasLeft,
+					 maps:without([cur_tx,tstorage], State)
+					}
+			end
 	end;
 
 
@@ -365,7 +382,7 @@ process_tx(#{from:=From,
 	D2Hash=erlp:encode([From,binary:encode_unsigned(Nonce)]),
 	{ok,<<_:12/binary,Address:20/binary>>}=ksha3:hash(256, D2Hash),
 
-	?LOG_DEBUG("EtherDeploy to address ~s gas ~p transfer ~p size ~w~n",
+	?LOG_INFO("EtherDeploy to address ~s gas ~p transfer ~p size ~w~n",
 			  [hex:encodex(Address), GasLimit,
 			   tx:get_payloads(Tx, transfer),
 			   size(CD)
