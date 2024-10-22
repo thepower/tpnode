@@ -156,7 +156,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% ------------------------------------------------------------------
 
-jsonfy({IsOK, ExtData}) ->
+jsonfy({IsOK, ExtData}) when is_map(ExtData) ->
   maps:fold(
     fun
       (txhash, Blk, A) ->
@@ -167,12 +167,16 @@ jsonfy({IsOK, ExtData}) ->
         maps:put(blockn,Blk,A);
       (success, Blk, A) ->
         maps:put(success,Blk,A);
-      (K,_V,A) ->
+      (_K,_V,A) ->
         A
     end,
     jsonfy1({IsOK, maps:without([block,blockn],ExtData)}),
-    ExtData).
+    ExtData);
 
+jsonfy({false, Bin}) when is_binary(Bin) ->
+  #{error=>true,
+    res=>Bin
+   }.
 
 %jsonfy({IsOK, #{block:=Blk,blockn:=N}=ExtData}) ->
 %  R=jsonfy1({IsOK, maps:without([block,blockn],ExtData)}),
