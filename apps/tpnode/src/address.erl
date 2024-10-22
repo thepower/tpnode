@@ -1,5 +1,7 @@
 -module(address).
 
+-export([encode/1]).
+
 -export([pub2caddr/2, pub2addr/2, pub2addrraw/2, check/1,
          encodekey/1, parsekey/1, paddr/1,
         addr2chain/2]).
@@ -119,4 +121,28 @@ parsekey(Base58) ->
             error
     end.
 
+encode(<<_:160/big>>=A) ->
+  try
+    LA=string:lowercase(hex:encode(A)),
+    CSA=binary_to_list(LA),
+    CSB=string:uppercase(CSA),
+    <<Hash:160/big,_/binary>> = contract_evm_abi:keccak(LA),
+    {0,Addr}=lists:foldl(
+      fun({L,B},{Shift,Acc}) ->
+          {(Shift bsl 4) band 16#ffffffffffffffffffffffffffffffffffffffff,
+           if ((Shift bsr 156) band 15) > 7 ->
+                [B|Acc];
+              true ->
+                [L|Acc]
+           end
+          }
+      end, {Hash, []},lists:zip(CSA,CSB)),
+    list_to_binary("0x"++lists:reverse(Addr))
+  catch _Ec:_Ee ->
+          hex:encodex(A)
+  end;
 
+encode(<<_:64/big>>=A) ->
+  hex:encodex(A);
+
+encode(<<0>>) -> <<"0x00">>.

@@ -11,7 +11,6 @@
          mp2json/2,
          get_nodes/1,
          encode_recursive/2,
-         xpacker/2,
          binjson/1]).
 
 -export([answer/0, answer/1, answer/2, err/1, err/2, err/3, err/4]).
@@ -28,13 +27,13 @@ add_address(<<Address:8/binary>>, Map1) ->
     TxtAddress = naddress:encode(Address),
 
     maps:merge(Map1, #{
-                       <<"address">> => hex:encodex(Address),
+                       <<"address">> => address:encode(Address),
                        <<"txtaddress">> => TxtAddress
                       });
 
 add_address(Address, Map1) ->
     maps:merge(Map1, #{
-        <<"address">> => hex:encodex(Address)
+        <<"address">> => address:encode(Address)
     }).
 
 
@@ -150,7 +149,8 @@ h(<<"POST">>, [<<"execute">>,<<"call">>], Req) ->
 
 h(<<"POST">>, #{ <<"call">>:=Call, <<"args">>:=Args, <<"from">>:=From,
                  <<"to">>:=To, <<"gas">>:=GasLimit, <<"value">>:=_Value
-               }=ReqData,_Req) ->
+               }=ReqData,Req) ->
+  BinPacker=packer(Req),
   case tpnode_evmrun:evm_run(
          hex:decode(To),
          Call,
@@ -172,13 +172,13 @@ h(<<"POST">>, #{ <<"call">>:=Call, <<"args">>:=Args, <<"from">>:=From,
     #{}=Res ->
       Res1=maps:map(
              fun(bin,Val) ->
-                 <<"0x",(hex:encode(Val))/binary>>;
+					 BinPacker(Val);
                 (log,Log) ->
                  lists:map(fun([evm,CA,FA,Bin1,Topics|_]) ->
-                               [evm,hex:encode(CA),
-                                hex:encode(FA),
-                                hex:encode(Bin1),
-                                [ hex:encode(H) || H <- Topics ]
+                               [evm,BinPacker(CA),
+                                BinPacker(FA),
+                                BinPacker(Bin1),
+                                [ BinPacker(H) || H <- Topics ]
                                ]
                            end, Log);
                 (_,Any) -> Any
@@ -197,7 +197,7 @@ h(<<"GET">>, [<<"node">>, <<"status">>], Req) ->
             V=proplists:get_value(pubkey,maps:get(extra,E)),
             case chainsettings:is_net_node(V) of
               {true, N} -> N;
-              _ -> hex:encode(V)
+              _ -> hex:encodex(V)
             end
           end || E<-Signatures ],
 
@@ -354,7 +354,7 @@ h(<<"GET">>, [<<"node">>, <<"tpicpeers">>], _Req) ->
 h(<<"GET">>, [<<"node">>, <<"chainstate">>], _Req) ->
   R=maps:fold(
       fun({H,B1,B2,Tmp},Cnt,A) ->
-          [[H,hex:encode(B1),hex:encode(B2),Tmp,length(Cnt),Cnt]|A]
+          [[H,hex:encodex(B1),hex:encodex(B2),Tmp,length(Cnt),Cnt]|A]
       end,
       [],
       blockchain_sync:chainstate()),
@@ -566,7 +566,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], Req) ->
              _ -> %default hex encode
                lists:foldl(
                  fun({state,K,_},Acc) ->
-                     [<<"0x",(hex:encode(K))/binary>>|Acc]
+                     [hex:encodex(K)|Acc]
                  end, [], RawKeys)
            end,
         {200, [{"Content-Type","application/json"}],
@@ -612,7 +612,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"lstore">>|Path0], Req) ->
     %   true ->
     %     {200, [], S1}
     %end
-    BinPacker=xpacker(Req),
+    BinPacker=packer(Req),
     S2=encode_recursive(Data,BinPacker),
     {200, [], {S2, #{} }}
   catch
@@ -1395,6 +1395,7 @@ h(<<"POST">>, [<<"tx">>, <<"batch">>], Req) ->
 h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 	{RemoteIP, _Port}=cowboy_req:peer(Req),
 
+    BinPacker=packer(Req),
 	Body=apixiom:bodyjs(Req),
 	?LOG_DEBUG("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
 	TxList
@@ -1440,7 +1441,7 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 		 {no_afterblock, true}
 		]),
 	FmtCode=fun(Bin) when size(Bin) < 64 ->
-					hex:encodex(Bin);
+					BinPacker(Bin);
 			   (Bin) ->
 					<<"... stripped code ",(integer_to_binary(size(Bin)))/binary," bytes ...">>
 			end,
@@ -1448,21 +1449,21 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 	Fix=fun F(X) when is_integer(X) -> X;
 			F(L) when is_list(L) -> lists:map(F,L);
 			F(undefined) -> null;
-			F(B) when is_binary(B) -> hex:encodex(B)
+			F(B) when is_binary(B) -> BinPacker(B)
 		end,
 	FmtR=fun([TxNum, TxID, TxHash, Res, Ret, GasT, GasB, Log ]) ->
-				 [TxNum, TxID, hex:encodex(TxHash), Res, hex:encodex(Ret),
+				 [TxNum, TxID, BinPacker(TxHash), Res, BinPacker(Ret),
 				  GasT, GasB, Fix(Log)
 				 ]
 		 end,
 
 	FmtP=fun([Addr, 3, [], OldCode, NewCode]) ->
-				[hex:encodex(Addr),mledger:id_to_field(3),[],
+				[BinPacker(Addr),mledger:id_to_field(3),[],
 				 FmtCode(OldCode),
 				 FmtCode(NewCode)
 				];
 			([Addr, Field, Path, OldVal, NewVal]) ->
-				[hex:encodex(Addr),
+				[BinPacker(Addr),
 				 mledger:id_to_field(Field),
 				 Fix(Path),
 				 Fix(OldVal),
@@ -2214,26 +2215,6 @@ add_proto(Ip, Proto) ->
 
 % ----------------------------------------------------------------------
 
-xpacker(#{req_format := <<"mp">>}=Req) ->
- xpacker(Req, raw);
-xpacker(Req) ->
-  xpacker(Req, hex).
-
-xpacker(Req,Default) ->
-  QS=cowboy_req:parse_qs(Req),
-  case proplists:get_value(<<"bin">>, QS) of
-    <<"b64">> -> fun(Bin) -> <<"0b",(base64:encode(Bin))/binary>> end;
-    <<"hex">> -> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
-    <<"0xhex">> -> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
-    <<"raw">> -> fun(Bin) -> Bin end;
-    _ -> case Default of
-           hex -> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
-           b64 -> fun(Bin) -> base64:encode(Bin) end;
-           raw -> fun(Bin) -> Bin end
-         end
-  end.
-
-
 packer(#{req_format := <<"mp">>}=Req) ->
   packer(Req, raw);
 packer(Req) ->
@@ -2243,15 +2224,23 @@ packer(Req,Default) ->
   QS=cowboy_req:parse_qs(Req),
   case proplists:get_value(<<"bin">>, QS) of
     <<"b64">>  -> fun(Bin) -> base64:encode(Bin) end;
-    <<"phex">>  -> fun(Bin) -> hex:encode(Bin) end;
-    <<"hex">>  -> fun(Bin) -> hex:encodex(Bin) end;
-    <<"xhex">> -> fun(Bin) -> hex:encodex(Bin) end;
-    <<"0xhex">>-> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
+    <<"phex">> -> fun(Bin) -> hex:encode(Bin) end;
+    <<"hex">>  -> fun(<<_:160/big>>=Bin) ->
+						  address:encode(Bin);
+					 (Bin) -> hex:encodex(Bin) end;
+    <<"xhex">> -> fun(<<_:160/big>>=Bin) ->
+						  address:encode(Bin);
+					 (Bin) -> hex:encodex(Bin) end;
+	<<"0xhex">>-> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
     <<"raw">>  -> fun(Bin) -> Bin end;
     _ -> case Default of
-           phex -> fun(Bin) -> hex:encode(Bin) end;
-           hex -> fun(Bin) -> hex:encodex(Bin) end;
-           xhex-> fun(Bin) -> hex:encodex(Bin) end;
+           phex-> fun(Bin) -> hex:encode(Bin) end;
+           hex -> fun(<<_:160/big>>=Bin) ->
+						  address:encode(Bin);
+					 (Bin) -> hex:encodex(Bin) end;
+           xhex-> fun(<<_:160/big>>=Bin) ->
+						  address:encode(Bin);
+					 (Bin) -> hex:encodex(Bin) end;
            b64 -> fun(Bin) -> base64:encode(Bin) end;
            raw -> fun(Bin) -> Bin end
          end
