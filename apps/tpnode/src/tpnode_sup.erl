@@ -140,7 +140,19 @@ init([repl_sup]) ->
   {ok, Sup};
 
 init([]) ->
-    tpnode:reload(),
+	case proplists:get_value("WORKDIR",os:env()) of
+		undefined;
+		L when is_list(L) ->
+			file:set_cwd(L)
+	end,
+	case tpnode:reload() of
+		ok -> ok;
+		{error,enoent} ->
+			{ok,CWD}=file:get_cwd(),
+			throw({no_config_file_in,CWD});
+		{error, Reason} ->
+			throw(Reason)
+	end,
 
     case check_key() of
       ok -> ok;
