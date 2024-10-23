@@ -156,8 +156,8 @@ init([]) ->
 
     case check_key() of
       ok -> ok;
-      {error, Reason} ->
-        throw(Reason)
+      {error, Reason1} ->
+        throw(Reason1)
     end,
 
     MandatoryServices = [ api ],
