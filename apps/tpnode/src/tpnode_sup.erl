@@ -141,7 +141,7 @@ init([repl_sup]) ->
 
 init([]) ->
 	case proplists:get_value("WORKDIR",os:env()) of
-		undefined;
+		undefined -> ok;
 		L when is_list(L) ->
 			file:set_cwd(L)
 	end,
