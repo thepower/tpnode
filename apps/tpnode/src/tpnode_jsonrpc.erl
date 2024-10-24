@@ -476,9 +476,19 @@ get_ledger_bal(Address, Block) ->
   end.
 
 get_ledger(Address, Key, Path, <<"latest">>) ->
-    mledger:get_kpvs(hex:decode(Address), Key, Path);
+  case hex:decode(Address) of
+    <<0:96/big,Addr:8/binary>> ->
+      mledger:get_kpvs(Addr, Key, Path);
+    Addr ->
+      mledger:get_kpvs(Addr, Key, Path)
+  end;
 get_ledger(Address, Key, Path, Block) ->
-    mledger:get_kpvs_height(hex:decode(Address), Key, Path, hex2i(Block)).
+  case hex:decode(Address) of
+    <<0:96/big,Addr:8/binary>> ->
+      mledger:get_kpvs_height(hex:decode(Addr), Key, Path, hex2i(Block));
+    Addr ->
+      mledger:get_kpvs_height(hex:decode(Addr), Key, Path, hex2i(Block))
+  end.
 
 decode_addr(Null,Null,Dflt) ->
   Dflt;
