@@ -1765,6 +1765,11 @@ filter_block(Block, Address) ->
   maps:map(
     fun(bals, B) ->
         maps:with([Address], B);
+	   (ledger_patch,B) ->
+			lists:filter(
+			  fun([SA|_]) ->
+					  SA==Address
+			  end, B);
        (txs, B) ->
         lists:filter(
           fun({_TxID, #{from:=F, to:=T}}) when F==Address orelse T==Address ->
