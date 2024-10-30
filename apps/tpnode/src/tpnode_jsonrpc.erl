@@ -475,6 +475,13 @@ get_ledger_bal(Address, Block) ->
       end
   end.
 
+get_ledger(Address, Key, Path, <<"pending">>) ->
+  case hex:decode(Address) of
+    <<0:96/big,Addr:8/binary>> ->
+      mledger:get_kpvs(Addr, Key, Path);
+    Addr ->
+      mledger:get_kpvs(Addr, Key, Path)
+  end;
 get_ledger(Address, Key, Path, <<"latest">>) ->
   case hex:decode(Address) of
     <<0:96/big,Addr:8/binary>> ->
