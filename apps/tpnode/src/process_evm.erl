@@ -12,15 +12,23 @@
 		 static_call/4,
 		 check_EIP165/3]).
 
+encode_iaddr(0) ->
+	<<0>>;
+encode_iaddr(Int) when is_integer(Int) andalso Int >= 9223372036854775808
+                 andalso Int < (1 bsl 64) ->
+	<<Int:64/big>>;
+encode_iaddr(Int) ->
+	<<Int:160/big>>.
+
 evm_balance(IAddr, State, _) ->
-	{Value, Cached, State2} = pstate:get_state(binary:encode_unsigned(IAddr),
+	{Value, Cached, State2} = pstate:get_state(encode_iaddr(IAddr),
 										balance,
 										<<"SK">>,
 										State),
 	{'ok', Value, State2, not Cached}.
 
 evm_code(IAddr, State, _) ->
-	{Value, Cached, State2} = pstate:get_state(binary:encode_unsigned(IAddr),
+	{Value, Cached, State2} = pstate:get_state(encode_iaddr(IAddr),
 											   code,
 											   [],
 											   State),
@@ -28,7 +36,7 @@ evm_code(IAddr, State, _) ->
 
 
 evm_sload(IAddr, IKey, State, _) ->
-	{Value, Cached, State2} = pstate:get_state(binary:encode_unsigned(IAddr),
+	{Value, Cached, State2} = pstate:get_state(encode_iaddr(IAddr),
 											   storage,
 											   binary:encode_unsigned(IKey),
 											   State),
@@ -37,12 +45,12 @@ evm_sload(IAddr, IKey, State, _) ->
 
 evm_sstore(IAddr, IKey, IValue, State, _) ->
 	{OldValue, _, State2} = pstate:get_state(
-							  binary:encode_unsigned(IAddr),
+							  encode_iaddr(IAddr),
 							  storage,
 							  binary:encode_unsigned(IKey),
 							  State),
 	State3 = pstate:set_state(
-			   binary:encode_unsigned(IAddr),
+			   encode_iaddr(IAddr),
 			   storage,
 			   binary:encode_unsigned(IKey),
 			   if IValue==0 ->
@@ -57,8 +65,8 @@ evm_sstore(IAddr, IKey, IValue, State, _) ->
 evm_custom_call(staticcall, IFrom, ITo, Value, CallData, Gas, Extra, _InternalState) ->
 	static(
 	  fun(S) ->
-			  process_txs:process_itx(binary:encode_unsigned(IFrom),
-									  binary:encode_unsigned(ITo),
+			  process_txs:process_itx(encode_iaddr(IFrom),
+									  encode_iaddr(ITo),
 									  Value,
 									  CallData,
 									  Gas,
@@ -70,8 +78,8 @@ evm_custom_call(callcode, IFrom, ITo, Value, CallData, Gas, Extra, _InternalStat
 	{ok, Code, Extra1, _} = process_evm:evm_code(ITo, Extra, #{}),
 	process_txs:process_code_itx(
 	  Code,
-	  binary:encode_unsigned(IFrom),
-	  binary:encode_unsigned(IFrom),
+	  encode_iaddr(IFrom),
+	  encode_iaddr(IFrom),
 	  Value,
 	  CallData,
 	  Gas,
@@ -83,8 +91,8 @@ evm_custom_call(delegatecall, _IFrom, ITo, Value, CallData, Gas, Extra,
 	{ok, Code, Extra1, _} = process_evm:evm_code(ITo, Extra, #{}),
 	process_txs:process_code_itx(
 	  Code,
-	  binary:encode_unsigned(OrigFrom),
-	  binary:encode_unsigned(OrigTo),
+	  encode_iaddr(OrigFrom),
+	  encode_iaddr(OrigTo),
 	  Value,
 	  CallData,
 	  Gas,
@@ -93,8 +101,8 @@ evm_custom_call(delegatecall, _IFrom, ITo, Value, CallData, Gas, Extra,
 
 evm_custom_call(call, IFrom, ITo, Value, CallData, Gas, Extra, _InternalState) ->
 	process_txs:process_itx(
-	  binary:encode_unsigned(IFrom),
-	  binary:encode_unsigned(ITo),
+	  encode_iaddr(IFrom),
+	  encode_iaddr(ITo),
 	  Value,
 	  CallData,
 	  Gas,
@@ -105,7 +113,7 @@ evm_logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}) 
   LArgs=[binary:encode_unsigned(I) || I <- LArgs0],
   ?LOG_INFO("EVM log ~p ~p",[Message,LArgs]),
   %io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
-  Xtra#{log=>[([<<"evm">>,binary:encode_unsigned(A),binary:encode_unsigned(O),Message,LArgs])|PreLog]}.
+  Xtra#{log=>[([<<"evm">>,encode_iaddr(A),encode_iaddr(O),Message,LArgs])|PreLog]}.
 
 evm_instructions(chainid, #{extra:=X, stack:=Stack}=BIState) ->
 	Result=maps:get(chainid,X,16#c0de00000000),
@@ -118,7 +126,7 @@ evm_instructions(timestamp,#{extra:=X, stack:=Stack}=BIState) ->
 	BIState#{stack=>[MT|Stack]};
 
 evm_instructions(selfbalance,#{stack:=BIStack,data:=#{address:=MyAddr},extra:=#{acc:=_}=State0}=BIState) ->
-	{Value, _Cached, State1} = pstate:get_state(binary:encode_unsigned(MyAddr),
+	{Value, _Cached, State1} = pstate:get_state(encode_iaddr(MyAddr),
 										balance,
 										<<"SK">>,
 										State0),
@@ -172,7 +180,7 @@ evm_instructions(BIInstr,BIState) ->
 	{error,{bad_instruction,BIInstr},BIState}.
 
 createX(Address, Code, Value, #{stack:=Stack, data:=#{address:=From}, gas:=G, extra:=Xtra}=BIState) ->
-	case process_txs:process_code_itx(Code, binary:encode_unsigned(From), Address,
+	case process_txs:process_code_itx(Code, encode_iaddr(From), Address,
 						  Value, <<>>, G-3200, Xtra, []) of
 		{1, DeployedCode, GasLeft, Xtra1} ->
 			Xtra2=pstate:set_state(Address, code, [], DeployedCode, Xtra1),
