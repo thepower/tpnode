@@ -116,7 +116,7 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
         lists:map(
           fun([<<"evm">>,To1, _From, Data, Topics]) ->
               #{ address => hex:encodex(To1),
-                 topics => [ hex:encodex(T) || T <- Topics ],
+                 topics => [ hex:encodex(<<(binary:decode_unsigned(T)):256/big>>) || T <- Topics ],
                  data => hex:encodex(Data),
                  blockNumber => i2hex(BlkHei),
                  transactionHash => THash,
