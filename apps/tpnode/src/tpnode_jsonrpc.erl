@@ -24,6 +24,51 @@ handle(<<"net_version">>,[]) ->
   ?LOG_INFO("Got req for net_version",[]),
   i2hex(chain_id());
 
+handle(<<"eth_getTransactionByHash">>,[TxHash0|_]) ->
+  ?LOG_INFO("Got req for eth_getTransactionByHash ~s",[TxHash0]),
+  case
+  gen_server:call(blockchain_reader,{txhash, hex:decode(TxHash0) ,true})
+  of
+    badarg ->
+      throw({jsonrpc2, 10001, <<"badarg">>});
+    not_found ->
+      null;
+    #{block:=BlkHash,
+      hei:=BlkHei,
+      hash:=TxHash,
+      index:=Idx,
+      receipt:=Rec,
+      tx:=TxContainer
+     } ->
+      [_,TxID,TxHash,_Res,_Ret,_Gas,_BlkGas,_Logs]=Rec,
+      #{chain_id:=CID, body:=TxBody}=tx:unpack(TxContainer),
+      Tx0=maps:from_list(
+            lists:filtermap(
+              fun({K,V}) when is_integer(V) -> {true,{atom_to_binary(K,utf8),i2hex(V)}};
+                 ({K,V}) when is_binary(V) -> {true,{atom_to_binary(K,utf8),hex:encodex(V)}};
+                 (_) -> false end,
+              eth:decode_tx(CID,TxBody) )),
+%      #{
+%       "gas": "0xf478",
+%       "yParity": "0x1"
+%      }
+
+      THash=hex:encodex(TxHash),
+      BHash=hex:encodex(BlkHash),
+      TIdx=i2hex(Idx),
+      Tx0#{
+        <<"txID">> => TxID,
+        <<"chainId">> => i2hex(CID),
+        <<"blockHash">> => BHash,
+        <<"blockNumber">> => i2hex(BlkHei),
+        <<"transactionIndex">> => TIdx,
+        <<"hash">> => THash
+       };
+    Other ->
+      ?LOG_ERROR("Other res ~p",[Other]),
+      throw({jsonrpc2, 10001, <<"error">>})
+  end;
+
 handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
   ?LOG_INFO("Got req for eth_getTransactionReceipt ~s",[TxHash0]),
   case
