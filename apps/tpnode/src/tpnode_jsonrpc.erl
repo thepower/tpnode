@@ -44,9 +44,14 @@ handle(<<"eth_getTransactionByHash">>,[TxHash0|_]) ->
       #{chain_id:=CID, body:=TxBody}=tx:unpack(TxContainer),
       Tx0=maps:from_list(
             lists:filtermap(
-              fun({K,V}) when is_integer(V) -> {true,{atom_to_binary(K,utf8),i2hex(V)}};
-                 ({K,V}) when is_binary(V) -> {true,{atom_to_binary(K,utf8),hex:encodex(V)}};
-                 (_) -> false end,
+              fun({K,V}) when is_integer(V) ->
+                  {true,{atom_to_binary(K,utf8),i2hex(V)}};
+                 ({to,V}) ->
+                  {true,{<<"to">>,to_hex_or_null(V)}};
+                 ({K,V}) when is_binary(V) ->
+                 {true,{atom_to_binary(K,utf8),hex:encodex(V)}};
+                 (_) ->
+                 false end,
               eth:decode_tx(CID,TxBody) )),
 %      #{
 %       "gas": "0xf478",
@@ -123,10 +128,7 @@ handle(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
           end, Logs),
         <<"logsBloom">> =>  <<"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000">>,
         <<"status">> => i2hex(Res),
-        <<"to">> => case maps:get(to,Tx,<<>>) of
-                      <<>> -> null;
-                      Bin -> hex:encodex(Bin)
-                    end,
+        <<"to">> => to_hex_or_null(maps:get(to,Tx,<<>>)),
         <<"transactionHash">> => THash,
         <<"transactionIndex">> => TIdx,
         <<"type">> =>  <<"0x2">>
@@ -598,3 +600,6 @@ seq(Address) ->
     undefined -> 0
   end.
 
+to_hex_or_null(<<>>) -> null;
+to_hex_or_null(Bin) ->
+  hex:encodex(Bin).
