@@ -295,6 +295,16 @@ handle(<<"eth_getBalance">>,[<<Address/binary>>,Block]) ->
             i2hex(0)
     end;
 
+handle(<<"eth_getBalance">>,[<<Address/binary>>]) ->
+    D=get_ledger_bal(Address,<<"latest">>),
+    ?LOG_INFO("Got req for eth_getBalance for address ~p",[Address]),
+    case D of
+        [{amount,[],Map}] ->
+            i2hex(maps:get(<<"SK">>,Map,0));
+        [] ->
+            i2hex(0)
+    end;
+
 
 handle(<<"eth_blockNumber">>,_) ->
     LBHei=maps:get(height,maps:get(header,blockchain:last_permanent_meta())),
