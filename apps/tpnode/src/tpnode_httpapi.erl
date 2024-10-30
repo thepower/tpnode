@@ -1081,9 +1081,10 @@ h(<<"GET">>, [<<"blockn">>, BlockNo], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
   BinPacker=packer(_Req),
   Address=case proplists:get_value(<<"addr">>, QS) of
-            undefined -> undefined;
-            Addr -> naddress:decode(Addr)
-          end,
+			  undefined -> undefined;
+			  <<"0x",Addr/binary>> -> hex:decode(Addr);
+			  Addr -> naddress:decode(Addr)
+		  end,
   Number=binary_to_integer(BlockNo),
   case blockchain_reader:get_block(Number) of
     not_found ->
@@ -1120,10 +1121,10 @@ h(<<"GET">>, [<<"block">>, BlockId], _Req) ->
   QS=cowboy_req:parse_qs(_Req),
   BinPacker=packer(_Req),
   Address=case proplists:get_value(<<"addr">>, QS) of
-            undefined -> undefined;
-            Addr -> naddress:decode(Addr)
-          end,
-
+			  undefined -> undefined;
+			  <<"0x",Addr/binary>> -> hex:decode(Addr);
+			  Addr -> naddress:decode(Addr)
+		  end,
   BlockHash0=blockhash(BlockId),
   case blockchain:rel(BlockHash0, self) of
     undefined ->
