@@ -154,7 +154,7 @@ evm_instructions(create2, #{stack:=[Value,MemOff,Len,Salt|Stack],
 							extra:=#{acc:=_}}=BIState) ->
 	Code=eevm_ram:read(RAM,MemOff,Len),
 	{ok,CodeHash}=ksha3:hash(256, Code),
-	D2Hash= <<255, From:160/big, Salt:256/big, CodeHash>>,
+	D2Hash= <<255, From:160/big, Salt:256/big, CodeHash/binary>>,
 	{ok,<<_:12/binary,Address:20/binary>>}=ksha3:hash(256, D2Hash),
 	?LOG_DEBUG("Deploy to address ~p~n",[Address]),
 	createX(Address, Code, Value, BIState#{stack=>Stack});
