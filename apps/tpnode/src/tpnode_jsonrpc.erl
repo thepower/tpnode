@@ -52,6 +52,12 @@ h(<<"eth_getTransactionByHash">>,[TxHash0|_]) ->
                   {true,{atom_to_binary(K,utf8),i2hex(V)}};
                  ({to,V}) ->
                   {true,{<<"to">>,to_hex_or_null(V)}};
+                 ({v,<<>>}) ->
+                  {true,{<<"v">>,<<"0x0">>}};
+                 ({v,<<0>>}) ->
+                  {true,{<<"v">>,<<"0x0">>}};
+                 ({v,<<1>>}) ->
+                  {true,{<<"v">>,<<"0x1">>}};
                  ({K,V}) when is_binary(V) ->
                  {true,{atom_to_binary(K,utf8),hex:encodex(V)}};
                  (_) ->
