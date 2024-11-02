@@ -600,7 +600,8 @@ display_block(not_found) ->
   throw(server_error);
 display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
   Rec=maps:get(receipt,Block,[]),
-  <<MH:20/binary,_/binary>>=proplists:get_value(ledger_hash,maps:get(roots,Hdr,[]),<<0:256/big>>),
+  Roots=maps:get(roots,Hdr,[]),
+  <<MH:20/binary,_/binary>>=proplists:get_value(ledger_hash,Roots,<<0:256/big>>),
   {[
     {<<"baseFeePerGas">>,<<"0x0">>},
     {<<"difficulty">>,<<"0x2">>},
@@ -613,17 +614,16 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
     {<<"number">>,hex:encodex(Hei)},
     {<<"hash">>,hex:encodex(Hash)},
     {<<"mixHash">>,hex:encodex(<<1:256/big>>)},
-    {<<"stateRoot">>,hex:encodex(proplists:get_value(ledger_hash,maps:get(roots,Hdr,[]),<<>>))},
+    {<<"stateRoot">>,hex:encodex(proplists:get_value(ledger_hash,Roots,<<0:256/big>>))},
     {<<"parentHash">>,hex:encodex(Parent)},
-    {<<"transactionsRoot">>,hex:encodex(proplists:get_value(txroot,maps:get(roots,Hdr,[]),<<>>))},
+    {<<"transactionsRoot">>,hex:encodex(proplists:get_value(txroot,Roots,<<0:256/big>>))},
+    {<<"receiptsRoot">>,hex:encodex(proplists:get_value(receipt_root,Roots,<<0:256/big>>))},
     {<<"totalDifficulty">>,<<"0x12">>},
     {<<"sha3Uncles">>,hex:encodex(<<1:256/big>>)},
     {<<"size">>,<<"0x41c7">>},
     {<<"timestamp">>,i2hex(
                        binary:decode_unsigned(
-                         proplists:get_value(mean_time,
-                                             maps:get(roots,Hdr,[]),
-                                             <<>>)) div 1000)},
+                         proplists:get_value(mean_time,Roots,<<>>)) div 1000)},
     {<<"transactions">>, [ hex:encodex(TxHash) || [_,_,TxHash|_] <- Rec ] },
     {<<"uncles">>,[]}
    ]}.
