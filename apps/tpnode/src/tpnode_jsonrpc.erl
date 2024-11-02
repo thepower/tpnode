@@ -368,8 +368,21 @@ h(<<"eth_getLogs">>, #{}=Map) ->
       true ->
           ok
     end,
-    Topics=[ hex2bin(T) || T <- maps:get(<<"topics">>,Map,[]) ],
-    Addresses=[ hex2bin(A) || A <- maps:get(<<"address">>,Map,[]) ],
+    Topics=[ hex2bin(T) || T <-
+                           case maps:get(<<"topics">>,Map,[]) of
+                             N when is_binary(N) ->
+                               [N];
+                             N when is_list(N) ->
+                               N
+                           end
+           ],
+    Addresses=[ hex2bin(A) || A <-
+                              case maps:get(<<"address">>,Map,[]) of
+                                N when is_binary(N) ->
+                                  [N];
+                                N when is_list(N) ->
+                                  N
+                              end ],
     T0=erlang:system_time(millisecond),
     {_,Res}=lists:foldl(
               fun
