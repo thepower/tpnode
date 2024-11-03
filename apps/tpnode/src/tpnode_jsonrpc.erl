@@ -635,8 +635,6 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
      case Details of
        [true] ->
          Txs=maps:get(txs,Block,[]),
-         io:format("~p~n",[Txs]),
-         io:format("~p~n",[Context]),
          lists:foldr(
            fun({_TxID,#{kind:=ether,body:=B}},A) ->
                [ hex:encodex(B) | A ];
