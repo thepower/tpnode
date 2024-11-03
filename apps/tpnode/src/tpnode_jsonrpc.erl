@@ -601,7 +601,7 @@ display_block(not_found) ->
 display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
   Rec=maps:get(receipt,Block,[]),
   Roots=maps:get(roots,Hdr,[]),
-  <<MH:20/binary,_/binary>>=proplists:get_value(ledger_hash,Roots,<<0:256/big>>),
+  Miner = <<160,0,0,0,10,0,0,1>>,
   {[
     {<<"baseFeePerGas">>,<<"0x0">>},
     {<<"difficulty">>,<<"0x2">>}, %QUANTITY
@@ -610,7 +610,7 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
     {<<"gasLimit">>,<<"0x1c5502a">>}, %QUANTITY
     {<<"gasUsed">>,<<"0x79ccd3">>}, %QUANTITY
     {<<"logsBloom">>,<<"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000">>}, %DATA, 256 Bytes - the bloom filter for the logs of the block. null when its pending block.
-    {<<"miner">>,hex:encodex(MH)}, %DATA, 20 Bytes
+    {<<"miner">>,address:encode_ether(Miner)}, %DATA, 20 Bytes
     {<<"nonce">>,<<"0x0000000000000001">>}, %DATA, 8 Bytes
     {<<"number">>,hex:encodex(Hei)}, %QUANTITY - the block number. null when its pending block.
     {<<"hash">>,hex:encodex(Hash)}, %DATA, 32 Bytes - hash of the block. null when its pending block.
