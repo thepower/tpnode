@@ -10,10 +10,12 @@
 %% API
 init(Req0, {Target, Opts}) ->
     Method = cowboy_req:method(Req0),
+    QS=maps:from_list(cowboy_req:parse_qs(Req0)),
+
     case Method of
       <<"POST">> ->
         {ok, ReqBody, Req1} = cowboy_req:read_body(Req0),
-        case jsonrpc2:handle(ReqBody, fun Target:handle/2, fun jiffy:decode/1, fun jiffy:encode/1) of
+        case jsonrpc2:handle(ReqBody, {fun Target:handle/3, QS}, fun jiffy:decode/1, fun jiffy:encode/1) of
           {reply, RespBin} ->
             {ok, cowboy_req:reply(200, #{}, RespBin, do_cors(Req1)), Opts}
         end;

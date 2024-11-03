@@ -1,6 +1,7 @@
 -module(tpnode_jsonrpc).
 -include("include/tplog.hrl").
 -export([handle/2]).
+-export([handle/3]).
 %% -----------------------------------------------------------------
 %% WARNING: This interface is highly experemental, only tiny part of
 %% ethereum RPC supported yet
@@ -20,15 +21,20 @@
 %    %% Custom error, with data
 %    make_error_response(Code, Message, Data, Id);
 
+handle(Command, Data, Context) ->
+  ?LOG_INFO("jsonrpc context ~p",[Context]),
+  ?LOG_INFO("jsonrpc ~s ~p",[Command,Data]),
+  h(Command, Data, Context).
+
 handle(Command, Data) ->
   ?LOG_INFO("jsonrpc ~s ~p",[Command,Data]),
-  h(Command, Data).
+  h(Command, Data, #{}).
 
-h(<<"net_version">>,[]) ->
+h(<<"net_version">>,[],_) ->
   ?LOG_INFO("Got req for net_version",[]),
   i2hex(chain_id());
 
-h(<<"eth_getTransactionByHash">>,[TxHash0|_]) ->
+h(<<"eth_getTransactionByHash">>,[TxHash0|_], _Context) ->
   ?LOG_INFO("Got req for eth_getTransactionByHash ~s",[TxHash0]),
   case
   gen_server:call(blockchain_reader,{txhash, hex:decode(TxHash0) ,true})
@@ -84,7 +90,7 @@ h(<<"eth_getTransactionByHash">>,[TxHash0|_]) ->
       throw({jsonrpc2, 10001, <<"error">>})
   end;
 
-h(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
+h(<<"eth_getTransactionReceipt">>,[TxHash0], _Context) ->
   ?LOG_INFO("Got req for eth_getTransactionReceipt ~s",[TxHash0]),
   case
   gen_server:call(blockchain_reader,{txhash, hex:decode(TxHash0) ,true})
@@ -149,7 +155,7 @@ h(<<"eth_getTransactionReceipt">>,[TxHash0]) ->
   end;
 
 
-h(<<"eth_sendRawTransaction">>,[Tx]) ->
+h(<<"eth_sendRawTransaction">>,[Tx], _Context) ->
     ?LOG_INFO("Got req for eth_sendRawTransaction with ~p",[Tx]),
     #{hash:=Hash}=Decode=tx:construct_tx(#{tx=>hex:decode(Tx),
                              chain_id=>chain_id()
@@ -165,7 +171,7 @@ h(<<"eth_sendRawTransaction">>,[Tx]) ->
         throw({jsonrpc2, 10001, list_to_binary(io_lib:format("~p",[Reason]))})
     end;
 
-h(<<"eth_getTransactionCount">>,[Address, Block]) ->
+h(<<"eth_getTransactionCount">>,[Address, Block], _Context) ->
     D=get_ledger(Address, seq, [], Block),
     ?LOG_INFO("Got req for eth_getTransactionCount for ~p/~p = ~p",[Address, Block, D]),
     case D of
@@ -175,7 +181,7 @@ h(<<"eth_getTransactionCount">>,[Address, Block]) ->
             i2hex(0)
     end;
 
-h(<<"eth_getStorageAt">>,[Address, Position, Block]) ->
+h(<<"eth_getStorageAt">>,[Address, Position, Block], _Context) ->
     D=get_ledger(Address, state, hex2bin(Position), Block),
     ?LOG_INFO("Got req for eth_getStorageAt for ~p/~p = ~p",[Address, Block, D]),
     case D of
@@ -185,7 +191,7 @@ h(<<"eth_getStorageAt">>,[Address, Position, Block]) ->
             b2hex(<<>>)
     end;
 
-h(<<"eth_getCode">>,[Address, Block]) ->
+h(<<"eth_getCode">>,[Address, Block], _Context) ->
     D=get_ledger(Address, code, [], Block),
     ?LOG_INFO("Got req for eth_getCode for ~p/~p = ~p",[Address, Block, D]),
     case D of
@@ -195,7 +201,7 @@ h(<<"eth_getCode">>,[Address, Block]) ->
             b2hex(<<>>)
     end;
 
-h(<<"eth_estimateGas">>,[{Params}|_OptionalBlock]) ->
+h(<<"eth_estimateGas">>,[{Params}|_OptionalBlock], _Context) ->
   %[{<<"from">>,<<"0xdda0e313ec6db199d1292ee536556ef3e1cadbab">>},{<<"value">>,<<"0x0">>},{<<"gasPrice">>,<<"0x1">>},{<<"data">>,<<"0x">>},{<<"to">>,<<"0xaa153647a1e5ec44f3407413e39996838d2cc032">>}]
   ?LOG_INFO("Got req for eth_estimateGas arg1 ~p (data removed)",
             [ lists:keydelete(<<"data">>,1, Params) ]),
@@ -227,7 +233,7 @@ h(<<"eth_estimateGas">>,[{Params}|_OptionalBlock]) ->
     %end;
     i2hex(210000);
 
-h(<<"eth_call">>,[{Params},_Block]) ->
+h(<<"eth_call">>,[{Params},_Block], _Context) ->
     ?LOG_INFO("Got req for eth_call arg1 ~p",[Params]),
     To=try
          decode_addr(proplists:get_value(<<"to">>,Params))
@@ -261,11 +267,11 @@ h(<<"eth_call">>,[{Params},_Block]) ->
             throw({jsonrpc2, 10000, <<"evm_run unexpected result">>})
     end;
 
-h(<<"eth_call">>,_) ->
+h(<<"eth_call">>,_, _Context) ->
   ?LOG_INFO("err: eth_call"),
   throw({jsonrpc2, 32000, <<"incorrect arguments">>});
 
-h(<<"eth_getBlockByHash">>,[Hash|_Details]=Params) ->
+h(<<"eth_getBlockByHash">>,[Hash|Details]=Params, Context) ->
   ?LOG_INFO("Got req for eth_getBlockByHash args ~p",[Params]),
   display_block(
     case Hash of
@@ -273,9 +279,9 @@ h(<<"eth_getBlockByHash">>,[Hash|_Details]=Params) ->
         blockchain_reader:get_block(last_permanent);
       <<N/binary>> ->
         blockchain_reader:get_block(hex:decode(N), self)
-    end);
+    end, Details, Context);
 
-h(<<"eth_getBlockByNumber">>,[Number|_Details]=Params) ->
+h(<<"eth_getBlockByNumber">>,[Number|Details]=Params, Context) ->
   ?LOG_INFO("Got req for eth_getBlockByNumber args ~p",[Params]),
   display_block(
     case Number of
@@ -283,9 +289,9 @@ h(<<"eth_getBlockByNumber">>,[Number|_Details]=Params) ->
         blockchain_reader:get_block(binary_to_integer(N,16));
       <<"latest">> ->
         blockchain_reader:get_block(last_permanent)
-    end);
+    end, Details, Context);
 
-h(<<"eth_getBalance">>,[<<Address/binary>>,Block,Token]) ->
+h(<<"eth_getBalance">>,[<<Address/binary>>,Block,Token], _Context) ->
     D=get_ledger_bal(Address, Block),
     ?LOG_INFO("Got req for eth_getBalance for token ~s address ~p blk ~p = ~p",[Token, Address, Block, D]),
     case D of
@@ -295,7 +301,7 @@ h(<<"eth_getBalance">>,[<<Address/binary>>,Block,Token]) ->
             i2hex(0)
     end;
 
-h(<<"eth_getBalance">>,[<<Address/binary>>,Block]) ->
+h(<<"eth_getBalance">>,[<<Address/binary>>,Block], _Context) ->
     D=get_ledger_bal(Address, Block),
     ?LOG_INFO("Got req for eth_getBalance for address ~p blk ~p = ~p",[Address, Block, D]),
     case D of
@@ -305,7 +311,7 @@ h(<<"eth_getBalance">>,[<<Address/binary>>,Block]) ->
             i2hex(0)
     end;
 
-h(<<"eth_getBalance">>,[<<Address/binary>>]) ->
+h(<<"eth_getBalance">>,[<<Address/binary>>], _Context) ->
     D=get_ledger_bal(Address,<<"latest">>),
     ?LOG_INFO("Got req for eth_getBalance for address ~p",[Address]),
     case D of
@@ -316,15 +322,15 @@ h(<<"eth_getBalance">>,[<<Address/binary>>]) ->
     end;
 
 
-h(<<"eth_blockNumber">>,_) ->
+h(<<"eth_blockNumber">>,_, _Context) ->
     LBHei=maps:get(height,maps:get(header,blockchain:last_permanent_meta())),
     i2hex(LBHei);
 
-h(<<"eth_chainId">>,[]) ->
+h(<<"eth_chainId">>,[], _Context) ->
   ?LOG_INFO("Got req for eth_chainId = ~s / ~w",[i2hex(chain_id()),(chain_id())]),
   i2hex(chain_id());
 
-h(<<"eth_gasPrice">>,[]) ->
+h(<<"eth_gasPrice">>,[], _Context) ->
   try
     #{<<"gas">> := Gas,<<"tokens">> := Tokens}
     = mledger:getfun({lstore,<<0>>,[<<"gas">>,<<"SK">>]},mledger),
@@ -335,10 +341,10 @@ h(<<"eth_gasPrice">>,[]) ->
           i2hex(1)
   end;
 
-h(<<"eth_getLogs">>,[{PList}]) ->
+h(<<"eth_getLogs">>,[{PList}], _Context) ->
     handle(<<"eth_getLogs">>,maps:from_list(PList));
 
-h(<<"eth_getLogs">>, #{<<"blockHash">>:=HexBlockHash}=Map) ->
+h(<<"eth_getLogs">>, #{<<"blockHash">>:=HexBlockHash}=Map, _Context) ->
   ?LOG_INFO("eth_getLogs"),
     %Address=proplists:get_value(<<"address">>,PList,<<>>),
     %FromBlock=proplists:get_value(<<"fromBlock">>,PList,<<>>),
@@ -350,7 +356,7 @@ h(<<"eth_getLogs">>, #{<<"blockHash">>:=HexBlockHash}=Map) ->
     logger:info("eth_getLogs ~p(~p)~n",[Topics,BlockHash]),
     process_log(Block,Topics,Addresses);
 
-h(<<"eth_getLogs">>, #{}=Map) ->
+h(<<"eth_getLogs">>, #{}=Map, _Context) ->
   ?LOG_INFO("eth_getLogs"),
     #{header:=#{height:=LBH}}=blockchain:last_permanent_meta(),
     FromBlock=case maps:get(<<"fromBlock">>,Map,undefined) of
@@ -405,7 +411,7 @@ h(<<"eth_getLogs">>, #{}=Map) ->
               end, {0,[]}, lists:seq(FromBlock,ToBlock)),
     Res;
 
-h(<<"eth_sendTransaction">>, [{Param}|_]) ->
+h(<<"eth_sendTransaction">>, [{Param}|_], _Context) ->
   ?LOG_INFO("eth_sendTransaction ~p", [proplists:get_keys(Param)]),
   From=hex:decode(proplists:get_value(<<"from">>,Param,<<"0x">>)),
   Priv=lists:foldl(
@@ -455,14 +461,14 @@ h(<<"eth_sendTransaction">>, [{Param}|_]) ->
   end;
   %throw({jsonrpc2, -32042, <<"Method not supported">>});
 
-h(<<"eth_accounts">>, _Params) ->
+h(<<"eth_accounts">>, _Params, _Context) ->
   ?LOG_INFO("eth_accounts ~p",[_Params]),
   %throw({jsonrpc2, -32042, <<"Method not supported">>});
   [ hex:encodex(element(1,eth:identity_from_private(hex:decode(X)))) ||
     X <- application:get_env(tpnode,eth_accounts,[])
   ];
 
-h(Method,_Params) ->
+h(Method,_Params, _Context) ->
   ?LOG_INFO("err: ~s",[Method]),
     ?LOG_ERROR("Method ~s(~p) not found",[Method,_Params]),
     throw(method_not_found).
@@ -596,9 +602,9 @@ chain_id() ->
   maps:get(chain,maps:get(header,blockchain:last_permanent_meta()))+1000000000.
 
 
-display_block(not_found) ->
+display_block(not_found, _, _) ->
   throw(server_error);
-display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
+display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Details, Context) ->
   Rec=maps:get(receipt,Block,[]),
   Roots=maps:get(roots,Hdr,[]),
   Miner = <<160,0,0,0,10,0,0,1>>,
@@ -625,7 +631,26 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
                        binary:decode_unsigned(
                          proplists:get_value(mean_time,Roots,<<>>)) div 1000)},
     %transactions Array - Array of transaction objects, or 32 Bytes transaction hashes depending on the last given parameter.
-    {<<"transactions">>, [ hex:encodex(TxHash) || [_,_,TxHash|_] <- Rec ] },
+    {<<"transactions">>,
+     case Details of
+       [true] ->
+         Txs=maps:get(txs,Block,[]),
+         io:format("~p~n",[Txs]),
+         io:format("~p~n",[Context]),
+         lists:foldr(
+           fun({_TxID,#{kind:=ether,body:=B}},A) ->
+               [ hex:encodex(B) | A ];
+               ({_TxID,#{kind:=_,body:=_}=Tx},A) ->
+               case Context of
+                 #{<<"pwrtx">> := <<"1">>} ->
+               [ hex:encodex(tx:pack(Tx)) | A ];
+                 _ ->
+                   A
+               end
+           end, [], Txs);
+       _ ->
+         [ hex:encodex(TxHash) || [_,_,TxHash|_] <- Rec ]
+     end},
     {<<"uncles">>,[]}
    ]}.
 
