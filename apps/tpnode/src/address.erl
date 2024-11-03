@@ -1,6 +1,6 @@
 -module(address).
 
--export([encode/1]).
+-export([encode/1, encode_ether/1]).
 
 -export([pub2caddr/2, pub2addr/2, pub2addrraw/2, check/1,
          encodekey/1, parsekey/1, paddr/1,
@@ -120,6 +120,13 @@ parsekey(Base58) ->
         _ ->
             error
     end.
+
+encode_ether(<<_:160/big>>=A) ->
+  encode(A);
+encode_ether(<<I:64/big>>) ->
+  encode(<<I:160/big>>);
+encode_ether(<<I>>) ->
+  encode(<<I:160/big>>).
 
 encode(<<_:160/big>>=A) ->
   try
