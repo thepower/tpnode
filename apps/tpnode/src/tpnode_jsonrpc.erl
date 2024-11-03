@@ -604,26 +604,27 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block) ->
   <<MH:20/binary,_/binary>>=proplists:get_value(ledger_hash,Roots,<<0:256/big>>),
   {[
     {<<"baseFeePerGas">>,<<"0x0">>},
-    {<<"difficulty">>,<<"0x2">>},
-    {<<"extraData">>,hex:encodex(<<"preved">>)},
-    {<<"gasLimit">>,<<"0x1c5502a">>},
-    {<<"gasUsed">>,<<"0x79ccd3">>},
-    {<<"logsBloom">>,<<"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000">>},
-    {<<"miner">>,hex:encodex(MH)},
-    {<<"nonce">>,<<"0x11">>},
-    {<<"number">>,hex:encodex(Hei)},
-    {<<"hash">>,hex:encodex(Hash)},
+    {<<"difficulty">>,<<"0x2">>}, %QUANTITY
+    {<<"totalDifficulty">>,<<"0x12">>}, %QUANTITY
+    {<<"extraData">>,hex:encodex(<<"preved">>)}, %DATA
+    {<<"gasLimit">>,<<"0x1c5502a">>}, %QUANTITY
+    {<<"gasUsed">>,<<"0x79ccd3">>}, %QUANTITY
+    {<<"logsBloom">>,<<"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000">>}, %DATA, 256 Bytes - the bloom filter for the logs of the block. null when its pending block.
+    {<<"miner">>,hex:encodex(MH)}, DATA, 20 Bytes
+    {<<"nonce">>,<<"0x0000000000000001">>}, %DATA, 8 Bytes
+    {<<"number">>,hex:encodex(Hei)}, %QUANTITY - the block number. null when its pending block.
+    {<<"hash">>,hex:encodex(Hash)}, %DATA, 32 Bytes - hash of the block. null when its pending block.
     {<<"mixHash">>,hex:encodex(<<1:256/big>>)},
-    {<<"stateRoot">>,hex:encodex(proplists:get_value(ledger_hash,Roots,<<0:256/big>>))},
-    {<<"parentHash">>,hex:encodex(Parent)},
-    {<<"transactionsRoot">>,hex:encodex(proplists:get_value(txroot,Roots,<<0:256/big>>))},
-    {<<"receiptsRoot">>,hex:encodex(proplists:get_value(receipt_root,Roots,<<0:256/big>>))},
-    {<<"totalDifficulty">>,<<"0x12">>},
-    {<<"sha3Uncles">>,hex:encodex(<<1:256/big>>)},
-    {<<"size">>,<<"0x41c7">>},
-    {<<"timestamp">>,i2hex(
+    {<<"stateRoot">>,hex:encodex(proplists:get_value(ledger_hash,Roots,<<0:256/big>>))}, %DATA, 32 Bytes
+    {<<"parentHash">>,hex:encodex(Parent)}, %DATA, 32 Bytes - hash of the parent block.
+    {<<"transactionsRoot">>,hex:encodex(proplists:get_value(txroot,Roots,<<0:256/big>>))}, %DATA, 32 Bytes
+    {<<"receiptsRoot">>,hex:encodex(proplists:get_value(receipt_root,Roots,<<0:256/big>>))}, %DATA, 32 Bytes
+    {<<"sha3Uncles">>,hex:encodex(<<1:256/big>>)}, %DATA, 32 Bytes - SHA3 of the uncles
+    {<<"size">>,<<"0x41c7">>}, %QUANTITY
+    {<<"timestamp">>,i2hex( %QUANTITY
                        binary:decode_unsigned(
                          proplists:get_value(mean_time,Roots,<<>>)) div 1000)},
+    %transactions Array - Array of transaction objects, or 32 Bytes transaction hashes depending on the last given parameter.
     {<<"transactions">>, [ hex:encodex(TxHash) || [_,_,TxHash|_] <- Rec ] },
     {<<"uncles">>,[]}
    ]}.
