@@ -58,7 +58,7 @@
   0},
  {<<"jsonrpc2">>,
   {git,"https://github.com/cleverfox/jsonrpc2-erlang.git",
-       {ref,"4267c11d41b6c902b6feee639e8cb5fa0d6f6756"}},
+       {ref,"427b00a1e8e4cf184992916aa73fd202417965d8"}},
   0},
  {<<"jsx">>,
   {git,"https://github.com/cleverfox/jsx.git",
