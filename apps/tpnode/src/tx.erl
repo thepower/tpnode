@@ -337,6 +337,8 @@ construct_tx(#{
     sig=>[]
    }).
 
+prepare_extra_args(call, Bin, {CE,CTx}) when is_binary(Bin) ->
+  {CE#{"c"=>["0x0",{array,[Bin]}]},CTx};
 prepare_extra_args(call, #{function:=Fun,args:=Args}, {CE,CTx}) when
     is_list(Fun), is_list(Args) ->
   {CE#{"c"=>[Fun,{array,Args}]},CTx};
