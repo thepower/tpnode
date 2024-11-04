@@ -2,6 +2,8 @@
 -include("include/tplog.hrl").
 -export([handle/2]).
 -export([handle/3]).
+-export([show_tx/1]).
+
 %% -----------------------------------------------------------------
 %% WARNING: This interface is highly experemental, only tiny part of
 %% ethereum RPC supported yet
@@ -665,6 +667,8 @@ show_tx(#{chain_id:=CID, body:=TxBody}) ->
               {true,{<<"v">>,<<"0x0">>}};
              ({v,<<1>>}) ->
               {true,{<<"v">>,<<"0x1">>}};
+             ({pubkey,V}) when is_binary(V) ->
+              {true,{<<"publicKey">>,hex:encodex(V)}};
              ({K,V}) when is_binary(V) ->
               {true,{atom_to_binary(K,utf8),hex:encodex(V)}};
              (_) ->
