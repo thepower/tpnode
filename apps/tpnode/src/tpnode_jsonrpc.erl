@@ -51,30 +51,7 @@ h(<<"eth_getTransactionByHash">>,[TxHash0|_], _Context) ->
       tx:=TxContainer
      } ->
       [_,TxID,TxHash,_Res,_Ret,_Gas,_BlkGas,_Logs]=Rec,
-      case tx:unpack(TxContainer) of
-        #{chain_id:=CID, body:=TxBody} ->
-          Tx0=maps:from_list(
-                lists:filtermap(
-                  fun({K,V}) when is_integer(V) ->
-                      {true,{atom_to_binary(K,utf8),i2hex(V)}};
-                     ({to,V}) ->
-                      {true,{<<"to">>,to_hex_or_null(V)}};
-                     ({v,<<>>}) ->
-                      {true,{<<"v">>,<<"0x0">>}};
-                     ({v,<<0>>}) ->
-                      {true,{<<"v">>,<<"0x0">>}};
-                     ({v,<<1>>}) ->
-                      {true,{<<"v">>,<<"0x1">>}};
-                     ({K,V}) when is_binary(V) ->
-                      {true,{atom_to_binary(K,utf8),hex:encodex(V)}};
-                     (_) ->
-                      false end,
-                  eth:decode_tx(CID,TxBody) )),
-          %      #{
-          %       "gas": "0xf478",
-          %       "yParity": "0x1"
-%      }
-
+      Tx0=show_tx(tx:unpack(TxContainer)),
       THash=hex:encodex(TxHash),
       BHash=hex:encodex(BlkHash),
       TIdx=i2hex(Idx),
@@ -85,36 +62,7 @@ h(<<"eth_getTransactionByHash">>,[TxHash0|_], _Context) ->
         <<"transactionIndex">> => TIdx,
         <<"hash">> => THash
        };
-        #{kind:=_,from:=From,hash:=TxHash,seq:=Nonce}=Tx ->
-          #{
-            <<"txID">> => TxID,
-            <<"blockHash">> => hex:encodex(BlkHash),
-            <<"blockNumber">> => i2hex(BlkHei),
-            <<"transactionIndex">> => i2hex(Idx),
-            <<"hash">> => hex:encodex(TxHash),
-            <<"from">> => address:encode_ether(From),
-            <<"gas">> => case tx:get_payload(Tx,gas) of %TODO: fixme, calculate gas amount
-                           #{amount := N,cur := <<"SK">>} ->
-                             i2hex(N);
-                           _ ->
-                             i2hex(0)
-                         end,
-            <<"gasPrice">> => i2hex(100),
-            <<"input">> => hex:encodex(contract_evm:tx_cd(Tx)),
-            <<"nonce">> => i2hex(Nonce),
-            <<"to">> => to_hex_or_null(maps:get(to,Tx,null)),
-            <<"value">> => case tx:get_payload(Tx,transfer) of %TODO: fixme, calculate gas amount
-                             #{amount := N,cur := <<"SK">>} ->
-                               i2hex(N);
-                             _ ->
-                               i2hex(0)
-                           end,
-            <<"v">> => i2hex(1),
-            <<"r">> => i2hex(1),
-            <<"s">> => i2hex(1)
-           }
-      end;
-    Other ->
+      Other ->
       ?LOG_ERROR("Other res ~p",[Other]),
       throw({jsonrpc2, 10001, <<"error">>})
   end;
@@ -638,6 +586,10 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
   Roots=maps:get(roots,Hdr,[]),
   Miner = <<160,0,0,0,10,0,0,1>>,
   Txs=maps:get(txs,Block,[]),
+  PWTx=case Context of
+         #{<<"pwrtx">> := <<"1">>} -> true;
+         _ -> false
+       end,
   {[
     {<<"baseFeePerGas">>,<<"0x0">>},
     {<<"difficulty">>,<<"0x2">>}, %QUANTITY
@@ -665,15 +617,13 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
      case Details of
        [true] ->
          lists:foldr(
-           fun({_TxID,#{kind:=ether,body:=B}},A) ->
-               [ hex:encodex(B) | A ];
-               ({_TxID,#{kind:=_,body:=_}=Tx},A) ->
-               case Context of
-                 #{<<"pwrtx">> := <<"1">>} ->
-               [ hex:encodex(tx:pack(Tx)) | A ];
-                 _ ->
-                   A
-               end
+           fun%({_TxID,#{kind:=ether,body:=B}},A) ->
+              % [ hex:encodex(B) | A ];
+              ({_TxID,#{kind:=Kind,body:=_}=Tx},A) when PWTx orelse Kind==ether ->
+              % [ hex:encodex(tx:pack(Tx)) | A ];
+               [show_tx(Tx) | A ];
+              (_,A) ->
+               A
            end, [], Txs);
        _ ->
          lists:foldr(
@@ -701,3 +651,59 @@ seq(Address) ->
 to_hex_or_null(<<>>) -> null;
 to_hex_or_null(Bin) ->
   address:encode_ether(Bin).
+
+show_tx(#{chain_id:=CID, body:=TxBody}) ->
+  Tx0=maps:from_list(
+        lists:filtermap(
+          fun({K,V}) when is_integer(V) ->
+              {true,{atom_to_binary(K,utf8),i2hex(V)}};
+             ({to,V}) ->
+              {true,{<<"to">>,to_hex_or_null(V)}};
+             ({v,<<>>}) ->
+              {true,{<<"v">>,<<"0x0">>}};
+             ({v,<<0>>}) ->
+              {true,{<<"v">>,<<"0x0">>}};
+             ({v,<<1>>}) ->
+              {true,{<<"v">>,<<"0x1">>}};
+             ({K,V}) when is_binary(V) ->
+              {true,{atom_to_binary(K,utf8),hex:encodex(V)}};
+             (_) ->
+              false end,
+          eth:decode_tx(CID,TxBody) )),
+  %      #{
+  %       "gas": "0xf478",
+  %       "yParity": "0x1"
+  %      }
+
+  Tx0;
+
+show_tx(#{kind:=_,from:=From,seq:=Nonce}=Tx) ->
+  %  <<"txID">> => TxID,
+  %  <<"blockHash">> => hex:encodex(BlkHash),
+  %  <<"blockNumber">> => i2hex(BlkHei),
+  %  <<"transactionIndex">> => i2hex(Idx),
+  %  <<"hash">> => hex:encodex(TxHash),
+
+  #{
+    <<"from">> => address:encode_ether(From),
+    <<"gas">> => case tx:get_payload(Tx,gas) of %TODO: fixme, calculate gas amount
+                   #{amount := N,cur := <<"SK">>} ->
+                     i2hex(N);
+                   _ ->
+                     i2hex(0)
+                 end,
+    <<"gasPrice">> => i2hex(100),
+    <<"input">> => hex:encodex(contract_evm:tx_cd(Tx)),
+    <<"nonce">> => i2hex(Nonce),
+    <<"to">> => to_hex_or_null(maps:get(to,Tx,null)),
+    <<"value">> => case tx:get_payload(Tx,transfer) of %TODO: fixme, calculate gas amount
+                     #{amount := N,cur := <<"SK">>} ->
+                       i2hex(N);
+                     _ ->
+                       i2hex(0)
+                   end,
+    <<"v">> => i2hex(1),
+    <<"r">> => i2hex(1),
+    <<"s">> => i2hex(1)
+   }.
+
