@@ -592,6 +592,8 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
          #{<<"pwrtx">> := <<"1">>} -> true;
          _ -> false
        end,
+  BlockHash=hex:encodex(Hash),
+  BlockNumber=i2hex(Hei),
   {[
     {<<"baseFeePerGas">>,<<"0x0">>},
     {<<"difficulty">>,<<"0x2">>}, %QUANTITY
@@ -602,8 +604,8 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
     {<<"logsBloom">>,<<"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000">>}, %DATA, 256 Bytes - the bloom filter for the logs of the block. null when its pending block.
     {<<"miner">>,address:encode_ether(Miner)}, %DATA, 20 Bytes
     {<<"nonce">>,<<"0x0000000000000001">>}, %DATA, 8 Bytes
-    {<<"number">>,hex:encodex(Hei)}, %QUANTITY - the block number. null when its pending block.
-    {<<"hash">>,hex:encodex(Hash)}, %DATA, 32 Bytes - hash of the block. null when its pending block.
+    {<<"number">>,BlockNumber}, %QUANTITY - the block number. null when its pending block.
+    {<<"hash">>,BlockHash}, %DATA, 32 Bytes - hash of the block. null when its pending block.
     {<<"mixHash">>,hex:encodex(<<1:256/big>>)},
     {<<"stateRoot">>,hex:encodex(proplists:get_value(ledger_hash,Roots,<<0:256/big>>))}, %DATA, 32 Bytes
     {<<"parentHash">>,hex:encodex(Parent)}, %DATA, 32 Bytes - hash of the parent block.
@@ -618,12 +620,19 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
     {<<"transactions">>,
      case Details of
        [true] ->
+         Tx0=#{
+           <<"blockHash">> => BlockHash,
+           <<"blockNumber">> => BlockNumber
+          },
          lists:foldr(
            fun%({_TxID,#{kind:=ether,body:=B}},A) ->
               % [ hex:encodex(B) | A ];
-              ({_TxID,#{kind:=Kind,body:=_}=Tx},A) when PWTx orelse Kind==ether ->
+              ({TxID,#{kind:=Kind,body:=_,hash:=TxHash}=Tx},A) when PWTx orelse Kind==ether ->
               % [ hex:encodex(tx:pack(Tx)) | A ];
-               [show_tx(Tx) | A ];
+               [maps:merge(Tx0#{<<"txID">> => TxID,
+                                <<"hash">> => hex:encodex(TxHash),
+                                <<"transactionIndex">> => i2hex(1) %TODO: FIX ME!!!
+                               },show_tx(Tx)) | A ];
               (_,A) ->
                A
            end, [], Txs);
