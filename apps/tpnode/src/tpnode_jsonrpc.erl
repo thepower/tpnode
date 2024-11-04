@@ -86,11 +86,31 @@ h(<<"eth_getTransactionReceipt">>,[TxHash0], _Context) ->
       tx:=TxBody
      } ->
       Tx=#{kind:=Kind}=tx:unpack(TxBody),
-      [_,TxID,TxHash,Res,Ret,Gas,BlkGas,Logs]=Rec,
+      [_,TxID,TxHash,Res,Ret,Gas,BlkGas,Logs|BloomOrNot]=Rec,
       THash=hex:encodex(TxHash),
       BHash=hex:encodex(BlkHash),
       TIdx=i2hex(Idx),
       To0=maps:get(to,Tx,undefined),
+      Bloom=case BloomOrNot of
+              [] ->
+                case Logs of
+                  [] -> hex:encodex(<<0:2048/big>>);
+                  [_|_] ->
+                    Int=lists:foldl(
+                          fun([<<"evm">>,_To1, From, _Data, Topics],Acc) ->
+                              A1=eth_bloom:bloom_filter(From,Acc),
+                              lists:foldl(fun eth_bloom:bloom_filter/2, A1, Topics);
+                             ([<<"evm:",_Reason/binary>>,_To,_From,_],Acc) ->
+                              Acc 
+                          end,
+                          0,
+                          Logs),
+                    hex:encodex(<<Int:2048/big>>)
+                end;
+              [Yes] ->
+                hex:encodex(Yes)
+            end,
+
       #{
         <<"txID">> => TxID,
         <<"blockHash">> => BHash,
@@ -108,8 +128,9 @@ h(<<"eth_getTransactionReceipt">>,[TxHash0], _Context) ->
         <<"from">> => address:encode_ether(maps:get(from,Tx,<<0:160/big>>)),
         <<"gasUsed">> => i2hex(Gas),
         <<"logs">> =>
-        lists:map(
+        lists:filtermap(
           fun([<<"evm">>,To1, _From, Data, Topics]) ->
+              {true,
               #{ address => hex:encodex(To1),
                  topics => [ hex:encodex(<<(binary:decode_unsigned(T)):256/big>>) || T <- Topics ],
                  data => hex:encodex(Data),
@@ -119,9 +140,11 @@ h(<<"eth_getTransactionReceipt">>,[TxHash0], _Context) ->
                  blockHash => BHash,
                  logIndex => i2hex(1),
                  removed => false
-               }
+               }};
+             ([<<"evm:",_Reason/binary>>,_To,_From,_]) ->
+             false
           end, Logs),
-        <<"logsBloom">> =>  <<"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000">>,
+        <<"logsBloom">> =>  Bloom,
         <<"status">> => i2hex(Res),
         <<"to">> => to_hex_or_null(maps:get(to,Tx,<<>>)),
         <<"transactionHash">> => THash,

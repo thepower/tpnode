@@ -224,7 +224,21 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 					   pstate:set_state(From2, lastblk, <<"tx">>, Hei, State2b);
 				   _ -> State2
 			   end,
-
+		Logs=lists:reverse(maps:get(log,State3)),
+		Bloom=case Logs of
+				  [] -> [];
+				  [_|_] ->
+					  Int=lists:foldl(
+							fun([<<"evm">>,_To1, From, _Data, Topics],Acc) ->
+									A1=eth_bloom:bloom_filter(From,Acc),
+									lists:foldl(fun eth_bloom:bloom_filter/2, A1, Topics);
+							   ([<<"evm:",_Reason/binary>>,_To,_From,_],Acc) ->
+									Acc 
+							end,
+							0,
+							Logs),
+					  [ hex:encodex(<<Int:2048/big>>)]
+			  end,
 		Rec1=[
 			  [Index,
 			   TxID,
@@ -233,8 +247,7 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 			   RetData,
 			   maps:get(last_tx_gas, State3,0),
 			   maps:get(cumulative_gas, State3),
-			   lists:reverse(maps:get(log,State3))
-			  ] | Rec],
+			   Logs|Bloom] | Rec],
 
 		BL1=lists:foldr(
 			  fun(LL, Acc) ->
