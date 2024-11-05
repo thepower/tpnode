@@ -624,7 +624,8 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
     {<<"extraData">>,hex:encodex(<<"preved">>)}, %DATA
     {<<"gasLimit">>,<<"0x1c5502a">>}, %QUANTITY
     {<<"gasUsed">>,<<"0x79ccd3">>}, %QUANTITY
-    {<<"logsBloom">>,<<"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000">>}, %DATA, 256 Bytes - the bloom filter for the logs of the block. null when its pending block.
+    {<<"logsBloom">>, %DATA, 256 Bytes - the bloom filter for the logs of the block. null when its pending block.
+     hex:encodex(proplists:get_value(bloom,Roots,<<0:2048/big>>))},
     {<<"miner">>,address:encode_ether(Miner)}, %DATA, 20 Bytes
     {<<"nonce">>,<<"0x0000000000000001">>}, %DATA, 8 Bytes
     {<<"number">>,BlockNumber}, %QUANTITY - the block number. null when its pending block.
@@ -661,7 +662,10 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
            end, [], Txs);
        _ ->
          lists:foldr(
-           fun({_TxID,#{kind:=ether,hash:=H,body:=_}},A) ->
+           fun
+             ({<<"~afterBlock">>,_},A) ->
+               A;
+             ({_TxID,#{kind:=ether,hash:=H,body:=_}},A) ->
                [ hex:encodex(H) | A ];
               ({_TxID,#{kind:=_,hash:=H,body:=_}},A) ->
                case Context of
