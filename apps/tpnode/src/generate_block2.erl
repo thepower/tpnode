@@ -84,6 +84,15 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
 	 } = process_all(PreTXL, State1),
 	%[Receipt, Patch].
 
+	Int=lists:foldl(
+		  fun([_, _, _, _, _, _, _, _, Bloom], Acc) ->
+				  Acc bor binary:decode_unsigned(Bloom);
+			 (_,Acc) ->
+				  Acc
+		  end,
+		  0,
+		  Receipt),
+
 	Roots=if Logs==[] ->
              [
               {entropy, Entropy},
@@ -96,6 +105,7 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
               {entropy, Entropy},
               {log_hash, LogsHash},
               {mean_time, <<MeanTime:64/big>>},
+			  {bloom, <<Int:2048/big>>},
 			  {cumulative_gas, <<CumulativeGas:64/big>>}
              ]
         end,
@@ -233,7 +243,7 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 									A1=eth_bloom:bloom_filter(From,Acc),
 									lists:foldl(fun eth_bloom:bloom_filter/2, A1, Topics);
 							   ([<<"evm:",_Reason/binary>>,_To,_From,_],Acc) ->
-									Acc 
+									Acc
 							end,
 							0,
 							Logs),

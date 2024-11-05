@@ -1508,13 +1508,13 @@ return
                {<<"1log">>, maps:put(sigverify,#{valid=>1},TX1)},
                {<<"2log">>, maps:put(sigverify,#{valid=>1},TX2)}
               ],
-      TestFun=fun(#{block:=#{receipt:=Rec}=_Block,
+      TestFun=fun(#{block:=#{receipt:=Rec,header:=Hdr}=_Block,
                     emit:=_Emit,
                     log:=Log,
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  {ok,Log,Rec}
+                  {ok,Log,Rec,Hdr}
               end,
       Ledger=[
               {Addr1,
@@ -1534,13 +1534,16 @@ return
                 }
               }
              ],
-      {ok,Log,Rec}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      {ok,Log,Rec,Hdr}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       %io:format("Logs ~p~n",[Log]),
-	  lists:map(
-        fun(Rec) ->
-				io:format("- ~w ~p~n",[length(Rec),Rec])
-        end, Rec),
+	  BloomSum=lists:foldl(
+				 fun([_, _, _, _, _, _, _, _, Bloom],Acc) ->
+						 Acc bor binary:decode_unsigned(Bloom);
+					(_,Acc) ->
+						 Acc
+				 end, 0, Rec),
 
+	  Bloom=proplists:get_value(bloom,maps:get(roots,Hdr,[])),
       ReadableLog=lists:map(
         fun(Bin) ->
             {ok,LogEntry} = msgpack:unpack(Bin),
@@ -1548,13 +1551,14 @@ return
             LogEntry
         end, Log),
       [
+	   ?assertMatch(Bloom,<<BloomSum:2048/big>>),
+	   ?assertNotMatch(<<0:2048/big>>,Bloom),
        ?assertMatch([
                      [<<"1log">>,<<"evm">>, SkAddr,  _, _, [<<"1">>,SkAddr1]],
                      [<<"1log">>,<<"evm">>, SkAddr1, _, _, [<<"2">>]],
                      [<<"2log">>,<<"evm">>, SkAddr,  _, _, [<<"1">>,SkAddr1]],
                      [<<"2log">>,<<"evm">>, SkAddr1, _, _, [<<"2">>]]
-                    ], ReadableLog),
-       ?assertMatch(true,true)
+                    ], ReadableLog)
       ].
 
 
