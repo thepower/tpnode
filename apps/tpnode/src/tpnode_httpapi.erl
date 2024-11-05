@@ -2334,10 +2334,15 @@ format_receipt(Receipt, BinPacker) ->
 			F(undefined) -> null;
 			F(B) when is_binary(B) -> BinPacker(B)
 		end,
-	FmtR=fun([TxNum, TxID, TxHash, Res, Ret, GasT, GasB, Log ]) ->
+	FmtR=fun([TxNum, TxID, TxHash, Res, Ret, GasT, GasB, Log|BloomOrNo ]) ->
+				 Tail=case BloomOrNo of
+						  [] -> [];
+						  [Bloom|_] ->
+							  BinPacker(Bloom)
+					  end,
 				 [TxNum, TxID, BinPacker(TxHash), Res, BinPacker(Ret),
 				  GasT, GasB, Fix(Log)
-				 ]
+				  |Tail]
 		 end,
 	lists:map(FmtR, Receipt).
 

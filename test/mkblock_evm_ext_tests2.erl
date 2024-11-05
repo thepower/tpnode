@@ -1868,3 +1868,67 @@ mapmerge(Map1,Map2,Rec) ->
     end, #{}, Keys).
 
 
+create2_deploy_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+
+      {ok,Hex}=file:read_file("examples/evm_builtin/build/WETH9.bin"),
+      Code4deploy=hex:decode(hd(binary:split(Hex,<<"\n">>))),
+      Create2Addr=hex:decode("0x0000086e1910D5977302116fC27934DC0254266C"),
+
+      TX1=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>Create2Addr,
+              call=> contract_evm_abi:encode_abi_call(
+                [
+                 hex:decode("0x0000000000000000000000000000000000000000000000008ddeb69fda3f579d"),
+                 %hex:decode("0xdc20698d77c04260ad6e16c28b7528f1fd85606e4ce78d878ddeb69fda3f579d"),
+                 Code4deploy
+                ],
+                "safeCreate2(bytes32,bytes)"
+               ),
+              payload=>[
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>100, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+      TxList1=[
+              {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
+              ],
+      TestFun=fun(#{block:=#{receipt := Rec, ledger_patch:=LP},
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok, LP, Rec}
+              end,
+
+      {ok,Bin} = file:read_file("examples/0x0000086e1910D5977302116fC27934DC0254266C.hex"),
+      Code2=hex:decode(hd(binary:split(Bin,<<"\n">>))),
+
+      Ledger=[
+              {Addr1,
+               #{amount => #{
+                             <<"FTT">> => 1000000,
+                             <<"SK">> => 3
+                            }
+                }
+              },
+              {Create2Addr,
+               #{amount => #{},
+                 code => Code2,
+                 vm => <<"evm">>
+                }
+              }
+             ],
+      {ok,Keys,Rec}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      {Keys,
+      Rec}.
+

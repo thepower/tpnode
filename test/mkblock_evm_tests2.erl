@@ -122,42 +122,17 @@ extcontract_template(OurChain, TxList, Ledger, CheckFun) ->
                           (Other) ->
                            error({bad_setting, Other})
                        end,
-       GetAddr=fun({storage,Addr,Key}) ->
-                   Res=case mledger:get_kpv(Addr,state,Key) of
-                     undefined ->
-                       <<>>;
-                     {ok, Bin} ->
-                       Bin
-                   end,
-                   io:format("TEST get addr ~p key ~p = ~p~n",[Addr,Key,Res]),
-                   Res;
-                  ({code,Addr}) ->
-                   case mledger:get_kpv(Addr,code,[]) of
-                     undefined ->
-                       <<>>;
-                     {ok, Bin} ->
-                       Bin
-                   end;
-                  ({lstore,Addr,Path}) ->
-                   mledger:get_lstore_map(Addr,Path);
-                  (Addr) ->
-                   case mledger:get(Addr) of
-                     #{amount:=_}=Bal -> Bal;
-                     undefined -> mbal:new()
-                   end
-               end,
 
   ParentHash=crypto:hash(sha256, <<"parent">>),
 
   CheckFun(generate_block2:generate_block(
              TxList,
              {1, ParentHash},
-             GetSettings,
-             GetAddr,
              [],
              [{ledger_pid, LedgerPID},
               {entropy, Entropy},
               {mean_time, MeanTime},
+			  {migrate_settings,GetSettings(settings)},
 			  {extract_state,1}
              ]))
   end,
@@ -1533,13 +1508,13 @@ return
                {<<"1log">>, maps:put(sigverify,#{valid=>1},TX1)},
                {<<"2log">>, maps:put(sigverify,#{valid=>1},TX2)}
               ],
-      TestFun=fun(#{block:=_Block,
+      TestFun=fun(#{block:=#{receipt:=Rec}=_Block,
                     emit:=_Emit,
                     log:=Log,
                     failed:=Failed}) ->
                   io:format("Failed ~p~n",[Failed]),
                   ?assertMatch([],Failed),
-                  {ok,Log}
+                  {ok,Log,Rec}
               end,
       Ledger=[
               {Addr1,
@@ -1559,8 +1534,13 @@ return
                 }
               }
              ],
-      {ok,Log}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      {ok,Log,Rec}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
       %io:format("Logs ~p~n",[Log]),
+	  lists:map(
+        fun(Rec) ->
+				io:format("- ~w ~p~n",[length(Rec),Rec])
+        end, Rec),
+
       ReadableLog=lists:map(
         fun(Bin) ->
             {ok,LogEntry} = msgpack:unpack(Bin),

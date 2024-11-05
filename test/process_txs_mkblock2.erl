@@ -113,12 +113,11 @@ run_tests(DBName, OurChain, Ledger, [{TxL1,Check1}|_]=Suite) when is_list(TxL1),
                      = generate_block2:generate_block(
                          TxList,
                          {ParentHeight, ParentHash},
-                         GetSettings,
-                         fun(_) -> throw('do not use it') end,
                          [],
                          [{ledger_pid, DBName1},
                           {entropy, Entropy},
                           {mean_time, MeanTime},
+                          {migrate_settings,GetSettings(settings)},
                           {extract_state, true}
                          ]),
                      #{header:=#{roots:=Roots}}=Block,

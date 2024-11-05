@@ -237,7 +237,7 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 							end,
 							0,
 							Logs),
-					  [ hex:encodex(<<Int:2048/big>>)]
+					  [ <<Int:2048/big>>]
 			  end,
 		Rec1=[
 			  [Index,

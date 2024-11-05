@@ -52,7 +52,7 @@ h(<<"eth_getTransactionByHash">>,[TxHash0|_], _Context) ->
       receipt:=Rec,
       tx:=TxContainer
      } ->
-      [_,TxID,TxHash,_Res,_Ret,_Gas,_BlkGas,_Logs]=Rec,
+      [_,TxID,TxHash,_Res,_Ret,_Gas,_BlkGas,_Logs|_]=Rec,
       Tx0=show_tx(tx:unpack(TxContainer)),
       THash=hex:encodex(TxHash),
       BHash=hex:encodex(BlkHash),
