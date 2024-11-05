@@ -2338,7 +2338,7 @@ format_receipt(Receipt, BinPacker) ->
 				 Tail=case BloomOrNo of
 						  [] -> [];
 						  [Bloom|_] ->
-							  BinPacker(Bloom)
+							  [BinPacker(Bloom)]
 					  end,
 				 [TxNum, TxID, BinPacker(TxHash), Res, BinPacker(Ret),
 				  GasT, GasB, Fix(Log)
