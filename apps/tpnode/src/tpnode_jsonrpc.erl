@@ -648,18 +648,21 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
            <<"blockHash">> => BlockHash,
            <<"blockNumber">> => BlockNumber
           },
-         lists:foldr(
-           fun%({_TxID,#{kind:=ether,body:=B}},A) ->
+         {Txs,_}=lists:foldr(
+           fun({<<"~afterBlock">>,_},A) ->
+               A;
+              %({_TxID,#{kind:=ether,body:=B}},A) ->
               % [ hex:encodex(B) | A ];
-              ({TxID,#{kind:=Kind,body:=_,hash:=TxHash}=Tx},A) when PWTx orelse Kind==ether ->
+              ({TxID,#{kind:=Kind,body:=_,hash:=TxHash}=Tx},{A,N}) when PWTx orelse Kind==ether ->
               % [ hex:encodex(tx:pack(Tx)) | A ];
-               [maps:merge(Tx0#{<<"txID">> => TxID,
-                                <<"hash">> => hex:encodex(TxHash),
-                                <<"transactionIndex">> => i2hex(1) %TODO: FIX ME!!!
-                               },show_tx(Tx)) | A ];
+               {[maps:merge(Tx0#{<<"txID">> => TxID,
+                                 <<"hash">> => hex:encodex(TxHash),
+                                 <<"transactionIndex">> => i2hex(N) %TODO: FIX ME!!!
+                                },show_tx(Tx)) | A ],N+1};
               (_,A) ->
                A
-           end, [], Txs);
+           end, {[],0}, Txs),
+         Txs;
        _ ->
          lists:foldr(
            fun
