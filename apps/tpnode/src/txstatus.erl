@@ -34,7 +34,13 @@ start_link(Name) ->
 get(TxID) ->
   R=gen_server:call(?MODULE, {get, TxID}),
   if R==undefined ->
-      case gen_server:call(blockchain_reader,{txid, TxID, true}) of
+       Ident=case TxID of
+               <<"0x",Hex:64/binary>> ->
+                 {txhash, binary:decode_hex(Hex) , true} ;
+               _ ->
+                 {txid, TxID, true}
+             end,
+      case gen_server:call(blockchain_reader,Ident) of
         not_found -> undefined;
         #{block := BlkHash,
           hash := _TxHash,
