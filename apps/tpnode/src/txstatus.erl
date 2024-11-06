@@ -46,6 +46,7 @@ get(TxID) ->
           hash := _TxHash,
           hei := BlkHei,
           index := TxIndex,
+          id := ID1,
           tx := _,
           receipt := [_,_,_,Succ,Ret|_]
          } ->
@@ -53,6 +54,7 @@ get(TxID) ->
                    blockn => BlkHei,
                    index => TxIndex,
                    txhash => _TxHash,
+                   txid => ID1,
                    retval => Ret,
                    success => Succ
                   }};
@@ -173,6 +175,8 @@ jsonfy({IsOK, ExtData}) when is_map(ExtData) ->
         maps:put(blockn,Blk,A);
       (success, Blk, A) ->
         maps:put(success,Blk,A);
+      (txid, Blk, A) ->
+        maps:put(txid,Blk,A);
       (_K,_V,A) ->
         A
     end,
