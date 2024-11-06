@@ -184,7 +184,7 @@ h(<<"eth_getTransactionCount">>,[Address, Block], _Context) ->
     end;
 
 h(<<"eth_getStorageAt">>,[Address, Position, Block], _Context) ->
-    D=get_ledger(Address, state, hex2bin(Position), Block),
+    D=get_ledger(Address, state, hex2i(Position), Block),
     ?LOG_INFO("Got req for eth_getStorageAt for ~p/~p = ~p",[Address, Block, D]),
     case D of
         [{state,_,Value}] ->
