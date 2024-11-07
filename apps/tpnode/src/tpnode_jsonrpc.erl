@@ -647,7 +647,7 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
            <<"blockHash">> => BlockHash,
            <<"blockNumber">> => BlockNumber
           },
-         {Txs,_}=lists:foldr(
+         {Txs1,_}=lists:foldr(
            fun({<<"~afterBlock">>,_},A) ->
                A;
               %({_TxID,#{kind:=ether,body:=B}},A) ->
@@ -661,7 +661,7 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
               (_,A) ->
                A
            end, {[],0}, Txs),
-         Txs;
+         Txs1;
        _ ->
          lists:foldr(
            fun
