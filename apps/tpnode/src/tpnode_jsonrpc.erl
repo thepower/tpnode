@@ -603,8 +603,10 @@ chain_id() ->
   maps:get(chain,maps:get(header,blockchain:last_permanent_meta()))+1000000000.
 
 
+display_block(noblock, _, _) -> %this might come from rewind
+  null;
 display_block(not_found, _, _) ->
-  throw(server_error);
+  null;
 display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Details, Context) ->
   %Rec=maps:get(receipt,Block,[]),
   Roots=maps:get(roots,Hdr,[]),
