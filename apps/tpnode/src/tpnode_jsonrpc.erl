@@ -184,7 +184,7 @@ h(<<"eth_getTransactionCount">>,[Address, Block], _Context) ->
     end;
 
 h(<<"eth_getStorageAt">>,[Address, Position, Block], _Context) ->
-    D=get_ledger(Address, state, hex2i(Position), Block),
+    D=get_ledger(Address, state, binary:encode_unsigned(hex2i(Position)), Block),
 %    ?LOG_INFO("Got req for eth_getStorageAt for ~p/~p = ~p",[Address, Block, D]),
     case D of
         [{state,_,Value}] ->
@@ -273,8 +273,7 @@ h(<<"eth_call">>,_, _Context) ->
   ?LOG_INFO("err: eth_call"),
   throw({jsonrpc2, 32000, <<"incorrect arguments">>});
 
-h(<<"eth_getBlockByHash">>,[Hash|Details]=Params, Context) ->
-  %?LOG_INFO("Got req for eth_getBlockByHash args ~p",[Params]),
+h(<<"eth_getBlockByHash">>,[Hash|Details], Context) ->
   display_block(
     case Hash of
       <<"latest">> ->
@@ -283,8 +282,7 @@ h(<<"eth_getBlockByHash">>,[Hash|Details]=Params, Context) ->
         blockchain_reader:get_block(hex:decode(N), self)
     end, Details, Context);
 
-h(<<"eth_getBlockByNumber">>,[Number|Details]=Params, Context) ->
-  %?LOG_INFO("Got req for eth_getBlockByNumber args ~p",[Params]),
+h(<<"eth_getBlockByNumber">>,[Number|Details], Context) ->
   display_block(
     case Number of
       <<"0x",N/binary>> ->

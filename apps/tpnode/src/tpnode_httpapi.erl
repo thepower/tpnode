@@ -638,49 +638,39 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
-    case mledger:get_kpv(Addr,vm,'_') of
-      undefined ->
-          err(
-              10003,
-              <<"Not found">>,
-              #{result => <<"not_found">>},
-              #{http_code => 404}
-          );
-      {ok,_VM} ->
-        case Path of
-          [] ->
-            RawKeys=mledger:get_kpvs(Addr,state,'_'),
-            case F of <<>> ->
-                        KVs=lists:foldl(
-                              fun({state,K,V}, A) ->
-                                  maps:put(K,V,A)
-                              end,#{},RawKeys
-                             ),
-                        S1=msgpack:pack(KVs),
-                        {200, [{"Content-Type","binary/octet-stream"}], S1};
-                      <<"json">> ->
-                        S1=lists:foldl(
-                             fun({state,K,V},Acc) ->
-                                 maps:put(
-                                   base64:encode(K),
-                                   base64:encode(V),
-                                   Acc)
-                             end, #{
-                                    notice => <<"Only for Sasha">>
-                                   }, RawKeys),
-                        {200, [{"Content-Type","application/json"}], S1}
-            end;
-          [Key] ->
-            K=case Key of
-                   <<"0x", HexK/binary>> -> hex:parse(HexK);
-                   _ -> base64:decode(Key)
-                 end,
-            Val=case mledger:get_kpv(Addr,state,K) of
-                  undefined -> <<>>;
-                  {ok,V1} -> V1
-                end,
-            {200, [{"Content-Type","binary/octet-stream"}], Val}
-        end
+    case Path of
+      [] ->
+        RawKeys=mledger:get_kpvs(Addr,state,'_'),
+        case F of <<>> ->
+                    KVs=lists:foldl(
+                          fun({state,K,V}, A) ->
+                              maps:put(K,V,A)
+                          end,#{},RawKeys
+                         ),
+                    S1=msgpack:pack(KVs),
+                    {200, [{"Content-Type","binary/octet-stream"}], S1};
+                  <<"json">> ->
+                    S1=lists:foldl(
+                         fun({state,K,V},Acc) ->
+                             maps:put(
+                               base64:encode(K),
+                               base64:encode(V),
+                               Acc)
+                         end, #{
+                                notice => <<"Only for Sasha">>
+                               }, RawKeys),
+                    {200, [{"Content-Type","application/json"}], S1}
+        end;
+      [Key] ->
+        K=case Key of
+            <<"0x", HexK/binary>> -> hex:parse(HexK);
+            _ -> base64:decode(Key)
+          end,
+        Val=case mledger:get_kpv(Addr,state,K) of
+              undefined -> <<>>;
+              {ok,V1} -> V1
+            end,
+        {200, [{"Content-Type","binary/octet-stream"}], Val}
     end
   catch
     throw:{error, address_crc} ->
