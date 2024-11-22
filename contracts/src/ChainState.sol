@@ -1,130 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "contracts/BronKerbosch.sol";
+import "contracts/access/Ownable.sol";
 import "contracts/GetTx.sol";
+import "contracts/ChainFee.sol";
+import "contracts/ChainManagement.sol";
 
-contract BronKerbosch {
-  struct node_info {
-    uint256 node_id;
-    uint256[] nodes;
-  }
-  struct node_info2 {
-    uint256 src_node;
-    uint256 dst_node;
-  }
-  function max_clique(node_info[] calldata) public pure virtual returns (uint256[] memory) {}
-  //function max_clique_list(uint256[2][] calldata) public pure virtual returns (uint256[] memory) {}
-  function max_clique_list(uint256[2][] calldata) public virtual returns (uint256[] memory) {}
-  function max_clique_mask(uint256[2][] calldata) public virtual returns (uint256) {}
-}
-
-contract FakeChainFee {
-  uint256 public age;
-  bool public epoch_payed;
-  constructor(address _cs) {
-  }
-
-  receive() external payable {}
-
-  event NewEpoch(uint256 indexed age);
-
-  function new_epoch(uint256 _age) public returns (uint256 ret) {
-    emit NewEpoch(_age);
-    ret=age;
-    age=_age;
-    epoch_payed=false;
-  }
-  event Pay(address);
-  event Burn(uint256);
-  function payout(address[] calldata _payto, uint256 _toburn) public returns (uint256 payed,
-  uint256 burned) {
-    require(epoch_payed==false, "Epoch already payed");
-    for(uint256 i=0;i<_payto.length;i++){
-      emit Pay(_payto[i]);
-    }
-    if(_toburn>0){
-      emit Burn(_toburn);
-    }
-    epoch_payed=true;
-    payed=_payto.length;
-    burned=_toburn;
-  }
-}
-
-contract ChainFee {
-  ChainState cs;
-  uint256 pre_age_balance;
-  uint256 age;
-  bool epoch_payed;
-
-  constructor(address _cs) {
-    cs=ChainState(_cs);
-  }
-
-  receive() external payable {}
-
-  function new_epoch(uint256 _age) public returns (uint256 ret) {
-    require(msg.sender==address(cs) || address(cs) == address(0),
-            "Only ChainState can call this");
-    require(_age>age,"epoch must be really new");
-    pre_age_balance=address(this).balance;
-    ret=age;
-    age=_age;
-    epoch_payed=false;
-  }
-  event CantSend(address,uint256);
-  event Payed(address,uint256);
-  event Burned(uint256);
-  event TryPayout(uint256,uint256,uint256);
-  event NotBurned(bytes);
-  function payout(address[] calldata _payto, uint256 _toburn) public returns (uint256 payed,
-                                                                              uint256 burned) {
-    require(msg.sender==address(cs) || address(cs) == address(0),
-            "Only ChainState can call this"); //for tests mught be deployed without cs address
-    require(epoch_payed==false, "Epoch already payed");
-    uint256 parts=_payto.length+_toburn;
-    require(parts>0,"not enough recipients");
-    uint256 part=pre_age_balance/parts;
-    emit TryPayout(pre_age_balance,parts,_toburn);
-
-    // Call returns a boolean value indicating success or failure.
-    // This is the current recommended method to use.
-    for(uint256 i=0;i<_payto.length;i++){
-      (bool sent, ) = _payto[i].call{value: part}("");
-      if (!sent) {
-        emit CantSend(_payto[i],part);
-        _toburn+=1;
-      }else{
-        payed+=part;
-        emit Payed(_payto[i],part);
-      }
-    }
-    if(_toburn>0){
-      uint256 burnsum=part*_toburn;
-      address bad=address(0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF);
-      (bool ok, bytes memory data) = bad.call{value: burnsum}("");
-      burned=burnsum;
-      if(ok)
-        emit Burned(burnsum);
-      else
-        emit NotBurned(data);
-    }
-    epoch_payed=true;
-  }
-}
-
-contract ChainState {
-  struct blockSig {
-    bytes node_id;
-    bytes signature;
-    bytes extradata;
-    uint256 timestamp;
-  }
-  struct hashSig {
-    uint256 from;
-    uint256 to;
-    uint256 timestamp;
-  }
+contract ChainState is Ownable {
   enum NodeKind {
     NODE_UNKNOWN,
     NODE_SEED,
@@ -145,11 +28,11 @@ contract ChainState {
   mapping ( bytes pubkey => uint256 ) public node_ids;
   mapping ( uint256 id => bytes ) public node_keys;
   mapping ( uint256 id => NodeKind ) public node_kind;
-  uint8 nodes;
+  uint8 public nodes;
   uint256 public consensus_mask;
   uint8 public consensus_nodes;
   uint8 public minsig;
-  
+
   mapping ( uint256 height => uint256 ) public block_timestamp;
   mapping ( uint256 node_id => uint256 ) public last_height;
   mapping ( uint256 node_id => mapping (uint256 => uint256) ) public attrib;
@@ -174,27 +57,41 @@ contract ChainState {
 
   ChainFee public chainfee;
   mapping ( uint256 node_id => address ) public node_addr;
+  bool public test_mode;
+  ChainManagement public chainmgmt;
+  mapping ( uint256 id => uint256 ) public node_stat;
+  uint256 public next_mask;
 
   event NewEpoch (uint256,uint256,uint256,uint256);
   event Blk (uint256 indexed, uint256 indexed);
 
-  constructor(bool _selfreg, bytes[] memory initial_nodes) {
+  constructor(bool _selfreg, bytes[] memory initial_nodes) Ownable(msg.sender) {
     self_registration=_selfreg;
     uint8 i=0;
     require(initial_nodes.length<16, "Start with lower amount of nodes");
     for(i=0;i<initial_nodes.length;i++){
       uint256 nodeid=_register(initial_nodes[i]);
       _update_consensus(nodeid,true);
-      }
+    }
+    test_mode=false;
   }
-  function set_chainfee(address payable _new) public {
+  function set_chainfee(address payable _new) public onlyOwner {
     chainfee=ChainFee(_new);
   }
+  function set_chainmgmt(address _new) public onlyOwner {
+    chainmgmt=ChainManagement(_new);
+  }
+  function set_test(bool _value) public onlyOwner {
+    test_mode=_value;
+  }
 
-  function allow_self_registration(bool allow) public {
+  function allow_self_registration(bool allow) public onlyOwner {
     self_registration=allow;
   }
-  function newEpoch() public {
+  function newEpoch() public onlyOwner {
+    _newEpoch();
+  }
+  function _newEpoch() internal {
     epoch+=1;
     epoch_last_start_blk=epoch_start_blk;
     epoch_start_blk = block.number+1;
@@ -205,6 +102,12 @@ contract ChainState {
     emit NewEpoch(epoch_start_blk, epoch_end_blk, ts, epoch_end_time);
     if (address(chainfee) != address(0)){
       chainfee.new_epoch(epoch);
+    }
+    if (next_mask>0) {
+      consensus_mask=next_mask;
+      consensus_nodes=uint8(popcnt(consensus_mask));
+      minsig=(consensus_nodes/2)+1;
+      next_mask=0;
     }
   }
 
@@ -217,10 +120,12 @@ contract ChainState {
     block_number=block.number;
   }
 
-  event Sigs(uint256, bytes32, uint256, int256);
-  event AB(uint256);
-  event AB(uint256,uint256);
   event Calc(uint256, uint256);
+  event Payout(uint256 blk0, uint256 blk1, uint256 and_mask, uint256 or_mask);
+  event PayoutRes(uint256 payed, uint256 burned);
+  event PayOutFail(bytes);
+  event RegisterNode(uint256,bytes);
+  event NewMask(uint256, uint256, uint256);
 
   function timestamp() private view returns (uint256) {
     uint256 ts = block.timestamp;
@@ -231,16 +136,14 @@ contract ChainState {
 
   function afterBlock() public returns (uint256) {
     if(epoch==0){
-      newEpoch();
+      _newEpoch();
       return 2;
     }
-    emit AB(1000);
 
     next_block_on=timestamp()+MAX_BLOCK_TIME;
     if(next_report_blk<=block.number){
       next_report_blk=block.number+REPORT_BLOCKS;
     }
-    emit AB(1100);
 
     if(block.number>=CALC_DELAY) {
       uint256 blk=block.number-CALC_DELAY;
@@ -253,22 +156,17 @@ contract ChainState {
         block_clique[blk-STORE_CLIQUE_BLOCKS]=0;
       }
     }
-    emit AB(1200);
     if(calc_till>=epoch_start_blk && !epoch_payed){
       return _payout();
     }
-    emit AB(1300);
     if(block.number>=epoch_end_blk){
-      newEpoch();
+      _newEpoch();
       return 2;
     }
-    emit AB(1400);
     return 0;
   }
 
-  function clean_block(uint256 number) public returns(uint256) {
-    //blocknode_mask[data.height]|=(1<<from);
-    //blocknode_sigmask[data.height][from]=sigmask;
+  function clean_block(uint256 number) internal returns(uint256) {
     uint256 cnt=blocknode_sigcnt[number];
     uint256 r=0;
     while(r++<cnt){
@@ -277,46 +175,26 @@ contract ChainState {
     blocknode_sigcnt[number]=0;
     return cnt;
   }
-  function calc_block(uint256 number) public  returns(uint256) {
-    uint256 mask=BronKerbosch(address(0xAFFFFFFFFF000007)).max_clique_mask(blocknode_sigmask[number]);
-    /*
-    uint256 mask=0;
-    for(uint i=0;i<res.length;i++){
-      mask+=(1<<res[i]);
-    }
-   */
-    return mask;
-
-    /*
-    uint sl=signatures[number].length;
-    uint256[2][] memory n=new uint256[2][](sl);
-    emit AB(65535*256+0,sl);
-    for(uint i=0;i<sl;i++){
-      n[i][0]=signatures[number][i].from;
-      n[i][1]=signatures[number][i].to;
-    }
-    emit AB(65535*256+1,sl);
-    uint256[] memory res=BronKerbosch(address(0xAFFFFFFFFF000007)).max_clique_list(n);
-    emit AB(65535*256+3,res.length);
-    uint256 mask=0;
-    for(uint i=0;i<res.length;i++){
-      mask+=(1<<res[i]);
-    }
-    return mask;
-   */
+  function calc_block(uint256 number) public returns(uint256) {
+    uint256 mask=BronKerbosch(address(0xAFFFFFFFFF000007))
+                  .max_clique_mask(blocknode_sigmask[number]);
+    return mask<<1;
   }
 
-  event Payout(uint256 blk0, uint256 blk1, uint256 and_mask, uint256 or_mask);
-  event PayoutRes(uint256 payed, uint256 burned);
-  event PayOutFail(bytes);
-  function _payout() public returns (uint256) {
+  function _payout() internal returns (uint256) {
+    /* _payout function description:
+     * 1. Iterate over all blocks in the epoch
+     * 2. Calculate the OR and AND masks of all cliques in the epoch
+     * 3. Calculate the number of winners and the amount of tokens to burn
+     * 4. Call the chainfee contract to transfer the tokens to the winners and burn the rest
+     */
     uint blkn;
-    uint cc_or=0;
+    uint cc_or=consensus_mask;
     uint cc_and=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
-    emit Payout(epoch_last_start_blk,epoch_start_blk-1,0,0);
+    emit Payout(epoch_last_start_blk,epoch_start_blk-1,0,consensus_mask);
     for(blkn=epoch_last_start_blk;blkn<epoch_start_blk;blkn++){
       if(block_clique[blkn]==0)
-        continue;
+        continue; //ignore blocks with no statistics
         emit Blk(blkn,block_clique[blkn]);
         cc_or|=block_clique[blkn];
         cc_and&=block_clique[blkn];
@@ -329,7 +207,8 @@ contract ChainState {
       {
         uint cc_or1=cc_or;
         uint cc_and1=cc_and;
-        for(uint i=0;cc_or1>0||cc_and1>0;i++){
+        //first shift, calculate the number of winners and the amount to burn
+        for(uint i=0;cc_or1>0;i++){
           if(cc_or1 & 1 == 1){
             if(cc_and1 & 1 == 1){
               winners++;
@@ -346,7 +225,8 @@ contract ChainState {
       {
         uint cc_or1=cc_or;
         uint cc_and1=cc_and;
-        for(uint i=0;cc_or1>0||cc_and1>0;i++){
+        //second shift, fill the winners array, increase or decrease stat for node
+        for(uint i=0;cc_or1>0;i++){
           if(cc_and1 & 1 == 1){
             winners--;
             if(attrib[i][1]>0){
@@ -355,17 +235,24 @@ contract ChainState {
               a[winners]=node_addr[i];
             }
           }
+          if(cc_or1 & 1 == 1){
+            if(cc_and1 & 1 == 1){
+              _node_inc_stat(i);
+            }else{
+              _node_dec_stat(i);
+            }
+          }
+
           cc_or1>>=1;
           cc_and1>>=1;
         }
       }
-      require(winners==0,"something calculatd wrong");
+      require(winners==0,"something calculated wrong");
 
 
       (bool res, bytes memory result) = address(chainfee).call(
         abi.encodeWithSignature("payout(address[],uint256)",a,burn)
       );
-      emit AB(1241,res?1:0);
       if(res) {
         //(uint256 payed, uint256 burned) = chainfee.payout(a,burn);
         (uint256 payed, uint256 burned) = abi.decode(result, (uint256,uint256));
@@ -375,41 +262,36 @@ contract ChainState {
         emit PayOutFail(result);
       }
 
-      emit AB(1250);
     }
+    if (address(chainmgmt) != address(0)){
+      //chainmgmt.epoch_update(consensus_mask,cc_or,cc_and);
+
+      (bool res, bytes memory result) = address(chainmgmt).call(
+        abi.encodeWithSignature("epoch_update(uint256,uint256,uint256)",
+                                consensus_mask,cc_or,cc_and)
+      );
+      if(res) {
+        (uint256 emergency_mask, uint256 new_next_mask) = abi.decode(result, (uint256, uint256));
+        emit NewMask(consensus_mask,emergency_mask,new_next_mask);
+        if(new_next_mask>0 && new_next_mask!=consensus_mask){
+          next_mask=new_next_mask;
+        }
+        if(emergency_mask>0 && emergency_mask!=consensus_mask){
+          consensus_mask=emergency_mask;
+          consensus_nodes=uint8(popcnt(emergency_mask));
+          minsig=(consensus_nodes/2)+1;
+        }
+      }
+    }
+
     epoch_payed=true;
     return 1;
   }
-  event Debug(uint256 indexed,uint256 indexed);
-  /*
-  function median(uint256[] memory data) public returns (uint256) {
-    emit Debug(data.length,0);
-    for(uint i = 0;i < data.length-1;i++) {
-      emit Debug(i,data.length);
-      uint w_min = i;
-      for(uint j = i;j < data.length-1;j++) {
-        if(data[j] < data[w_min]) {
-          w_min = j;
-        }
-      }
-      if(w_min == i) continue;
-      uint256 tmp = data[i];
-      data[i] = data[w_min];
-      data[w_min] = tmp;
-    }
-    if(data.length % 2 == 1){
-      return data[data.length / 2];
-    }else{
-      return (data[(data.length / 2)-1]+data[data.length / 2])/2;
-    }
-  }
-  */
-  event Debug(bytes,uint256);
+
 
   function set_attrib(uint256[2][] calldata attribs) public returns(uint256) {
-    bytes memory nodekey = GetTx(address(0xAFFFFFFFFF000002)).getTx().signatures[0].pubkey;
-    bytes memory shortkey=_slice(nodekey,nodekey.length-32,32);
-    uint256 nodeid=node_ids[shortkey];
+    bytes memory nodekey = GetTx(address(0xAFFFFFFFFF000002)).getTx().signatures[0].rawkey;
+    uint256 nodeid=node_ids[nodekey];
     _set_attr(nodeid, attribs);
     return 1;
   }
@@ -421,13 +303,7 @@ contract ChainState {
     }
   }
 
-  function register() public returns (uint256) {
-    bytes memory nodekey = GetTx(address(0xAFFFFFFFFF000002)).getTx().signatures[0].pubkey;
-    bytes memory shortkey=_slice(nodekey,nodekey.length-32,32);
-    return _register(shortkey);
-  }
 
-  event RegisterNode(uint256,bytes);
   function _register(bytes memory shortkey) internal returns (uint256) {
     if(node_ids[shortkey]==0){
       require(nodes<252,"maximum number of nodes reached");
@@ -440,6 +316,8 @@ contract ChainState {
   }
 
   function set_nodekind(bytes calldata nodekey, NodeKind k) public returns (NodeKind res) {
+    require(msg.sender==address(chainmgmt) ||
+            msg.sender == owner(),"Only chain management can change node kind");
     uint256 slice=nodekey.length-32;
     uint256 nodeid=node_ids[nodekey[slice:]];
     require(nodeid>0,"Node unknown");
@@ -458,12 +336,8 @@ contract ChainState {
 
   function _update_consensus(uint256 nodeid, bool allow) private {
     require(nodeid<254,"Incorrect node_id");
-    uint8 bit=uint8(nodeid-1);
+    uint8 bit=uint8(nodeid);
     uint256 node_mask=1<<bit;
-    /* uint256 public consensus_mask;
-       uint8 public consensus_nodes;
-       uint8 public minsig;
-     */
     if((node_mask & consensus_mask) == 0){
       require(allow,"incorrect update");
       consensus_nodes+=1;
@@ -477,15 +351,23 @@ contract ChainState {
   }
 
   function register(bytes calldata nodekey) public returns (uint256) {
+    require(self_registration,"Self registration disabled");
     uint256 slice=nodekey.length-32;
     return _register(nodekey[slice:]);
   }
+
+  function register() public returns (uint256) {
+    require(self_registration,"Self registration disabled");
+    bytes memory nodekey = GetTx(address(0xAFFFFFFFFF000002)).getTx().signatures[0].rawkey;
+    return _register(nodekey);
+  }
+
 
   function node_id(bytes calldata nodekey) public view returns (uint256) {
     uint256 slice=nodekey.length-32;
     return node_ids[nodekey[slice:]];
   }
-  
+
   struct hSig {
     bytes pubkey;
     uint256 created;
@@ -504,9 +386,7 @@ contract ChainState {
     require(nodeid>0,"unknown node");
     node_addr[nodeid]=msg.sender;
     res=new bool[](data.length);
-    emit AB(0,data.length);
     for(uint i=0;i<data.length;i++){
-      emit AB(1,1);
       res[i]=_updateData(nodeid, data[i]);
     }
   }
@@ -526,7 +406,9 @@ contract ChainState {
     return last_height[from];
   }
 
+  //function for tests
   function _updateDataRaw(uint256 from, uint256 height, uint8[] calldata visible) public returns (bool) {
+    require(test_mode,"Disabled in production mode");
     require(last_height[from]<height,"Already seen it");
     if(height<=calc_till) return false;
     if(block.number > epoch_start_blk+1)
@@ -548,17 +430,16 @@ contract ChainState {
         sigmask|=(1<<uint8(nid-1));
       }
     }
-    
-    blocknode_sigmask[height].push([from,sigmask]);
+
+    blocknode_sigmask[height].push([from-1,sigmask]);
     blocknode_sigcnt[height]=cnt+1;
 
     last_height[from]=height;
     return true;
   }
 
-  function _updateData(uint256 from, hUpd calldata data) public returns (bool) {
+  function _updateData(uint256 from, hUpd calldata data) internal returns (bool) {
     require(last_height[from]<data.height,"Already seen it");
-    emit AB(2,from);
     if(data.height<=calc_till) return false;
     if(block.number > epoch_start_blk+1)
       if(data.height<epoch_start_blk) return false;
@@ -566,48 +447,47 @@ contract ChainState {
       if(data.height<epoch_last_start_blk) return false;
 
     uint8 cnt=blocknode_sigcnt[data.height];
-    emit AB(3,cnt);
     for(uint8 n=0;n<cnt;n++){ //already has report from the node
-      emit AB(4,n);
       if (blocknode_sigmask[data.height][n][0]==from)
         return false;
     }
-    emit AB(5,0);
 
     uint i=0;
     uint256 sigmask=0;
-    emit AB(6,data.sigs.length);
     for(i=0;i<data.sigs.length;i++){
       uint256 nid=node_ids[data.sigs[i].pubkey];
-      emit AB(7,i);
-      emit AB(8,nid);
       if(nid>0){ //ignore signatures from unknown nodes
         sigmask|=(1<<uint8(nid-1));
       }
-      emit AB(9,sigmask);
-      //hashSig memory hs;
-      //hs.from = from;
-      //hs.to = node_ids[data.sigs[i].pubkey];
-      //hs.timestamp = data.sigs[i].seen;
-      //signatures[data.height].push(hs);
     }
-    emit AB(10,0);
-    
+
     blocknode_sigmask[data.height].push([from,sigmask]);
-    //blocknode_sigmask[data.height][cnt][0]=from;
-    //blocknode_sigmask[data.height][cnt][1]=sigmask;
-    emit AB(11,0);
     blocknode_sigcnt[data.height]=cnt+1;
 
     last_height[from]=data.height;
     return true;
   }
 
+  function _node_inc_stat(uint256 node) internal {
+    if(node_stat[node] & (1<<250) != 0){
+      node_stat[node]+=1;
+    }else{
+      node_stat[node]=(1<<250);
+    }
+  }
 
-  function countHighBits(uint256 value) public pure returns (uint256) {
+  function _node_dec_stat(uint256 node) internal {
+    if(node_stat[node] & (1<<251) != 0){
+      node_stat[node]+=1;
+    }else{
+      node_stat[node]=(1<<251);
+    }
+  }
+
+  function popcnt(uint256 value) public pure returns (uint256) {
     uint256 count = 0;
 
-    // Brian Kernighan’s algorithm: clear the least significant set bit until `value` becomes 0
+    // Brian Kernighan's algorithm: clear the least significant set bit until `value` becomes 0
     while (value > 0) {
       value &= (value - 1); // clears the lowest set bit
       count++;
@@ -684,5 +564,28 @@ contract ChainState {
 
           return tempBytes;
         }
+  /*
+  function median(uint256[] memory data) public returns (uint256) {
+    emit Debug(data.length,0);
+    for(uint i = 0;i < data.length-1;i++) {
+      emit Debug(i,data.length);
+      uint w_min = i;
+      for(uint j = i;j < data.length-1;j++) {
+        if(data[j] < data[w_min]) {
+          w_min = j;
+        }
+      }
+      if(w_min == i) continue;
+      uint256 tmp = data[i];
+      data[i] = data[w_min];
+      data[w_min] = tmp;
+    }
+    if(data.length % 2 == 1){
+      return data[data.length / 2];
+    }else{
+      return (data[(data.length / 2)-1]+data[data.length / 2])/2;
+    }
+  }
+  */
 }
 

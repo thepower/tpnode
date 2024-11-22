@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 
 import "src/ChainState.sol";
+import "src/FakeChainFee.sol";
 //import "src/GetTx.sol";
 
 contract EvmCall is Test {
@@ -41,11 +42,13 @@ contract EvmCall is Test {
       )
     );
     bytes memory s= vm.rpc("pwr","eth_call",req);
-    bytes memory ret = new bytes(s.length/2);
-    for(uint16 i=0;i<s.length/2;i++){
-      ret[i]=bytes1(h2i(uint8(s[i*2]),uint8(s[i*2+1])));
-    }
-    return ret;
+    //looks like hex decoding does need anymore
+    //bytes memory ret = new bytes(s.length/2);
+    //for(uint16 i=0;i<s.length/2;i++){
+    //  ret[i]=bytes1(h2i(uint8(s[i*2]),uint8(s[i*2+1])));
+    //}
+    //return ret;
+    return s;
   }
 }
 
@@ -60,22 +63,26 @@ contract MockBronKerbosch is BronKerbosch, EvmCall {
     bytes memory cd=abi.encodeWithSignature("max_clique_list(uint256[2][])",arg);
     //emit log_bytes(cd);
     bytes memory result = rpc_call(address(0xAFFFFFFFFF000007), cd);
-    //emit log_bytes(result);
     (uint256[] memory r) = abi.decode(result, (uint256[]));
     return r;
   }
 }
 
 contract MockGetTx is GetTx {
-  function getTx() public override pure returns (tpTx memory) {
+  bytes32 public signer;
+  function setSigner(bytes32 _signer) public {
+    signer=_signer;
+  }
+  function getTx() public override view returns (tpTx memory) {
     tpSig[] memory signatures = new tpSig[](1);
-    signatures[0].pubkey=abi.encodePacked(keccak256("ok"));
+    signatures[0].pubkey=abi.encodePacked(keccak256(abi.encodePacked(signer)));
+    signatures[0].rawkey=abi.encodePacked(keccak256(abi.encodePacked(signer)));
     tpTx memory rtx;
     rtx.signatures=signatures;
     return rtx;
   }
-  function getExtra(string calldata keyname) public override pure returns (uint256, bytes memory) {
-    bytes memory r = abi.encodePacked(keccak256(abi.encodePacked(keyname)));
+  function getExtra(string calldata keyname) public override view returns (uint256, bytes memory) {
+    bytes memory r = abi.encodePacked(keccak256(abi.encodePacked(keyname,signer)));
     return(0,r);
   }
   function getSigners() public override pure returns (bytes[] memory) {
@@ -86,12 +93,14 @@ contract MockGetTx is GetTx {
 
 contract TestContract is Test {
 	ChainState cs;
+	ChainManagement cm;
 
 	address admin;
 	address deployer;
 	address node1;
 	address node2;
 	address node3;
+	address node4;
 
   function setUp() public {
     deployer   = address(0x010203040506070809FffFfFffFFffFFFFfFFf00);
@@ -99,10 +108,18 @@ contract TestContract is Test {
     node1      = address(0x0102030405060708090000000000000000000001);
     node2      = address(0x0102030405060708090000000000000000000002);
     node3      = address(0x0102030405060708090000000000000000000003);
+    node4      = address(0x0102030405060708090000000000000000000004);
 
     vm.prank(deployer);
+    cm=new ChainManagement(deployer);
+
     bytes[] memory initial_nodes=new bytes[](0);
+    vm.prank(deployer);
     cs=new ChainState(true,initial_nodes);
+    vm.prank(deployer);
+    cs.set_test(true);
+    vm.prank(deployer);
+    cs.set_chainmgmt(address(cm));
 
     address mgt=address(new MockGetTx());
     address targetAddr = 0x000000000000000000000000AFffFFfFFf000002;
@@ -111,6 +128,7 @@ contract TestContract is Test {
     vm.etch(address(0xAFFFFFFFFF000007), address(new MockBronKerbosch()).code);
 
     FakeChainFee fcf=new FakeChainFee(address(0));
+    vm.prank(deployer);
     cs.set_chainfee(payable(fcf));
   }
 
@@ -151,10 +169,50 @@ contract TestContract is Test {
   }
 
   function test_c_cs() public {
+    ChainState.hUpd[] memory empty = new ChainState.hUpd[](0);
+
+    MockGetTx(address(0xAFFFFFFFFF000002)).setSigner(bytes32(uint256(uint160(node1))));
+    vm.prank(node1);
+    cs.register();
+    vm.prank(node1);
+    cs.updateData(empty);
+    vm.prank(deployer);
+    cs.set_nodekind(
+      abi.encodePacked(keccak256(abi.encodePacked(bytes32(uint256(uint160(node1)))))),
+      ChainState.NodeKind.NODE_CONSENSUS);
+
+    MockGetTx(address(0xAFFFFFFFFF000002)).setSigner(bytes32(uint256(uint160(node2))));
+    vm.prank(node2);
+    cs.register();
+    vm.prank(node2);
+    cs.updateData(empty);
+    vm.prank(deployer);
+    cs.set_nodekind(
+      abi.encodePacked(keccak256(abi.encodePacked(bytes32(uint256(uint160(node2)))))),
+      ChainState.NodeKind.NODE_CONSENSUS);
+
+    MockGetTx(address(0xAFFFFFFFFF000002)).setSigner(bytes32(uint256(uint160(node3))));
+    vm.prank(node3);
+    cs.register();
+    vm.prank(node3);
+    cs.updateData(empty);
+    vm.prank(deployer);
+    cs.set_nodekind(
+      abi.encodePacked(keccak256(abi.encodePacked(bytes32(uint256(uint160(node3)))))),
+      ChainState.NodeKind.NODE_CONSENSUS);
+
+    MockGetTx(address(0xAFFFFFFFFF000002)).setSigner(bytes32(uint256(uint160(node4))));
+    vm.prank(node4);
+    cs.register();
+    vm.prank(node4);
+    cs.updateData(empty);
+    vm.prank(deployer);
+    cs.set_nodekind(
+      abi.encodePacked(keccak256(abi.encodePacked(bytes32(uint256(uint160(node4)))))),
+      ChainState.NodeKind.NODE_CONSENSUS);
+
     emit log_bytes(abi.encodePacked(block.chainid));  
 
-    vm.prank(node1);
-    emit log_bytes(abi.encodePacked(cs.register()));
 
     vm.prank(address(0));
     emit log_bytes(abi.encodePacked(cs.afterBlock()));
@@ -165,13 +223,18 @@ contract TestContract is Test {
     ));
     cs.info();
 
-    uint8[] memory test=new uint8[](3);
+    uint8[] memory test=new uint8[](4);
     test[0]=1;
     test[1]=2;
     test[2]=3;
+    test[3]=4;
     cs._updateDataRaw(1, 1, test);
     cs._updateDataRaw(2, 1, test);
     cs._updateDataRaw(3, 1, test);
+    uint8[] memory test1=new uint8[](2);
+    test1[0]=1;
+    test1[1]=2;
+    cs._updateDataRaw(4, 1, test1);
 
     assertEq(vm.getBlockNumber(), 1);
     vm.roll(vm.getBlockNumber()+cs.CALC_DELAY());
@@ -188,110 +251,22 @@ contract TestContract is Test {
     uint256 f3,
     uint256 f4,
     uint256 f5) = cs.info();
+    emit log_bytes(abi.encodePacked(f1));
+    emit log_bytes(abi.encodePacked(f2));
     emit log_bytes(abi.encodePacked(f3));
+    emit log_bytes(abi.encodePacked(f4));
+    emit log_bytes(abi.encodePacked(f5));
 
     vm.roll(f3);
     vm.prank(address(0));
     emit log_bytes(abi.encodePacked(
       cs.afterBlock()
     ));
+
+    assertEq(1<<250,cs.node_stat(1));
+    assertEq(1<<250,cs.node_stat(2));
+    assertEq(1<<250,cs.node_stat(3));
+    assertEq(1<<251,cs.node_stat(4)); //failed
   }
-
-    /*
-	function testErc20() public {
-		bytes memory orig_token=src_ser_erc20.prepare(address(src_erc20));
-
-		vm.expectRevert(
-			abi.encodeWithSelector(
-				bytes4(keccak256("AccessControlUnauthorizedAccount(address,bytes32)")),
-				address(this),
-				keccak256("TOKEN_ADMIN_ROLE")
-				)
-		);
-		erc20_1=dst.newToken(address(dst_erc20_factory), orig_token);
-
-		vm.prank(admin);
-		erc20_1=dst.newToken(address(dst_erc20_factory), orig_token);
-
-        assertEq(ERC20(src_erc20).name(), ERC20(erc20_1).name(), "ok");
-        assertEq(ERC20(src_erc20).symbol(), ERC20(erc20_1).symbol(), "ok");
-        assertEq(ERC20(src_erc20).decimals(), ERC20(erc20_1).decimals(), "ok");
-
-		//vm.expectRevert("Unauthorized");
-		vm.expectRevert(
-			abi.encodeWithSelector(
-				bytes4(keccak256("AccessControlUnauthorizedAccount(address,bytes32)")),
-				address(this),
-				keccak256("TOKEN_ADMIN_ROLE")
-				)
-		);
-		src.allowToken(address(src_erc20),
-					   block.chainid,
-					   bytes32(uint256(uint160(erc20_1))),
-					   address(src_ser_erc20));
-
-		vm.prank(admin);
-		src.allowToken(address(src_erc20),
-					   block.chainid,
-					   bytes32(uint256(uint160(erc20_1))),
-					   address(src_ser_erc20));
-
-
-		address me=address(this);
-		assertEq(src_erc20.balanceOf(me),0,"ok");
-
-		uint256 amount=1000;
-
-		src_erc20.mint(amount);
-		assertEq(src_erc20.balanceOf(me),amount,"ok");
-		address approve_to = src.checkMigrateTo(address(src_erc20),
-												block.chainid);
-
-		src_erc20.approve(approve_to, amount);
-
-		address dusr = address(0x0001020304050607080910010203040506070809);
-		bytes32 dusr32 = bytes32(uint256(uint160(dusr)));
-
-		bytes memory migrate_data = src.migrateTo(address(src_erc20),
-					  me,
-					  abi.encode(amount),
-					  block.chainid,
-					  dusr32
-					 );
-
-		bytes memory attestation=sign(migrate_data);
-
-		//bytes memory digest =  abi.encodePacked(dst.getDataHash(migrate_data));
-		//assertEq(attestation,digest,"ok");
-
-		assertEq(src_erc20.balanceOf(me),0,"ok");
-		assertEq(src_erc20.balanceOf(address(1)),amount,"ok");
-
-		assertEq(ERC20(erc20_1).balanceOf(dusr),0,"ok");
-		dst.migrateFrom(migrate_data, attestation);
-		assertEq(ERC20(erc20_1).balanceOf(dusr),amount,"ok");
-		vm.expectRevert("Already done");
-		dst.migrateFrom(migrate_data, attestation);
-		assertEq(ERC20(erc20_1).balanceOf(dusr),amount,"ok");
-
-		//check with exists but not authorized tokens
-		src_erc20.mint(amount);
-		assertEq(src_erc20.balanceOf(me),amount,"ok");
-		//vm.expectRevert("transferFrom unsuccessull");
-
-		vm.expectRevert(
-			abi.encodeWithSignature(
-			"ERC20InsufficientAllowance(address,uint256,uint256)",
-			approve_to, 0, amount)
-		);
-		src.migrateTo(address(src_erc20),
-					  me,
-					  abi.encode(amount),
-					  block.chainid,
-					  dusr32
-					 );
-    }
-    */
-
 }
 
