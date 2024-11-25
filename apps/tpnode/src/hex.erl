@@ -7,10 +7,14 @@
 -export([hexdump/2]).
 
 hexdump(Bin) ->
+  M=try throw(x) catch throw:x:S -> [hd(tl(S))] end,
+  io:format("Dump @~p~n",[M]),
   dump(Bin,0).
 
 %% hexdump/2 displays bin in two parts
 hexdump(Bin,O) ->
+  M=try throw(x) catch throw:x:S -> [hd(tl(S))] end,
+  io:format("Dump @~p~n",[M]),
   try
     <<B1:O/binary,B2/binary>> = Bin,
     dump(B1,0),
