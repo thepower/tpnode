@@ -615,7 +615,11 @@ apply_patch(DBName, Patches, {commit, HeiHash, ExpectedHash}) ->
     {atomic,Res} ->
       {ok, Res};
     {aborted,{throw,{abort,NewHash}}} ->
-      {error, NewHash}
+      {error, NewHash};
+    {aborted,Reason} ->
+      throw({aborted,Reason});
+    Reason ->
+      throw({unknown,Reason})
   end;
 
 apply_patch(DBName, Patches, {commit, HeiHash}) ->
