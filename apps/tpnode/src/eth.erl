@@ -131,7 +131,7 @@ decode_tx(_ChainId, <<2,FinalTxRLP/binary>>) ->
                            Value,
                            Data,
                            List]),
-  hex:hexdump(PrepTxRLP),
+  %hex:hexdump(PrepTxRLP),
   {ok,Digest} = ksha3:hash(256,<<2,PrepTxRLP/binary>>),
   {ok,PubKey} = ecrecover:recover(Digest, <<R/binary, S/binary>>, erlp:bin_to_int(BV)),
   From = id_from_pubkey(PubKey),

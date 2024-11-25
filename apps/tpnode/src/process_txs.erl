@@ -536,7 +536,6 @@ process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value,
 process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value, _CallData, GasLimit,
 			#{cur_tx:=Tx}=State0, _Opts) ->
 	?ASSERT_NOVAL,
-	hex:hexdump(_CallData),
 	RBin= contract_evm:encode_tx(Tx,[]),
 	{1, RBin, GasLimit-100, State0};
 

@@ -922,9 +922,6 @@ embedded_lstore(<<2956342894:32/big,Bin/binary>>,
   Owner=binary:encode_unsigned(OwnerI),
   InABI=[{<<"p">>,{darray,bytes}}, {<<"t">>,uint256}, {<<"v">>,bytes}],
   try
-    hex:hexdump(Bin),
-    io:format("Bin ~4000p~n",[Bin]),
-    io:format("ABI ~p~n",[InABI]),
     [{<<"p">>,Path},{<<"t">>,Type},{<<"v">>,ValB}]=contract_evm_abi:decode_abi(Bin,InABI),
     Patch=case Type of
             1 -> [#{<<"p">>=>Path,<<"t">>=><<"set">>,<<"v">>=>ValB}];

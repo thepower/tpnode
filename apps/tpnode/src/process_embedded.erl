@@ -69,7 +69,6 @@ chkey_service(From, <<16#218EBFA3:32/big,Bin/binary>>, GasLimit, State0, _Opts) 
 	try
 		InABI=[{<<"key">>,bytes}],
 		[{<<"key">>,NewKey}]=contract_evm_abi:decode_abi(Bin,InABI),
-		hex:hexdump(NewKey),
 		State1=pstate:set_state(From, pubkey, [], NewKey, State0),
 		{1, <<1:256/big>>, GasLimit-200, State1}
 		catch Ec:Ee:S ->
