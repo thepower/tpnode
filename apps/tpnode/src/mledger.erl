@@ -617,6 +617,7 @@ apply_patch(DBName, Patches, {commit, HeiHash, ExpectedHash}) ->
     {aborted,{throw,{abort,NewHash}}} ->
       {error, NewHash};
     {aborted,Reason} ->
+      ?LOG_INFO("Aborted db ~p reason ~p tx ~p",[DBName, Reason, Patches]),
       throw({aborted,Reason});
     Reason ->
       throw({unknown,Reason})
