@@ -918,7 +918,6 @@ pack(#{ ver:=2,
       "chid"=>ChainId,
       "sig"=>{array,[]}
      },
-  io:format("Pack ether ~p with ~p~n",[lists:member(withext, Opts),maps:is_key(extdata, Tx)]),
   T2=case lists:member(withext, Opts) andalso maps:is_key(extdata, Tx) of
        false -> T;
        true ->
@@ -926,7 +925,6 @@ pack(#{ ver:=2,
            "extdata" => maps:get(extdata,Tx)
           }
      end,
-  io:format("Packed ~p~n",[T2]),
   msgpack:pack(T2,[
                   {spec,new},
                   {pack_str, from_list}
