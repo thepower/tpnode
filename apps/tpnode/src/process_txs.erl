@@ -631,7 +631,9 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opt
 						   logger=>fun process_evm:evm_logger/4,
 						   trace=> case maps:get(trace,Opts,undefined) of
 									   undefined -> whereis(eevm_tracer);
-									   PID when is_pid(PID) -> PID;
+									   PID when is_pid(PID) ->
+                           PID ! ?MODULE,
+                           PID;
 									   FUN when is_function(FUN,1) -> FUN
 								   end
 						  })),

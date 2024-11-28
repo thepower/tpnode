@@ -1386,7 +1386,13 @@ h(<<"POST">>, [<<"tx">>, <<"batch">>], Req) ->
 h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 	{RemoteIP, _Port}=cowboy_req:peer(Req),
 
-    BinPacker=packer(Req),
+  QS=cowboy_req:parse_qs(Req),
+  WithDebug=case proplists:get_value(<<"debug">>, QS) of
+              undefined -> false;
+              _ -> true
+            end,
+
+  BinPacker=packer(Req),
 	Body=apixiom:bodyjs(Req),
 	?LOG_DEBUG("New tx from ~s: ~p", [inet:ntoa(RemoteIP), Body]),
 	TxList
@@ -1418,6 +1424,10 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 					lists:reverse(T)
 			end
 		  end,
+  Me=self(),
+  Trace=fun(E) ->
+            Me ! {trace, E}
+        end,
 	#{block:=#{
 			   failed:=Fail,
 			   ledger_patch:=LP,
@@ -1429,8 +1439,17 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 		[{ledger_pid, mledger},
 		 {entropy, <<>>},
 		 {mean_time, os:system_time(millisecond)},
-		 {no_afterblock, true}
-		]),
+		 {no_afterblock, true}| if WithDebug ->
+                                 [{trace,Trace}];
+                               true ->
+                                 []
+                            end
+    ]),
+  Debug=fun F() -> receive
+                     {trace,N} -> [list_to_binary(io_lib:format("~w",[N]))|F()]
+                   after 0 -> []
+                   end
+        end(),
 	FmtCode=fun(Bin) when size(Bin) < 64 ->
 					BinPacker(Bin);
 			   (Bin) ->
@@ -1458,8 +1477,13 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 			(Any) ->
 				lists:map(Fix, Any)
 		   end,
+  DbgOrNot=if WithDebug ->
+                #{debug=>Debug};
+              true ->
+                #{}
+           end,
 	answer(
-	  #{ result => <<"ok">>,
+	  DbgOrNot#{ result => <<"ok">>,
 		 failed=>[ [TxID, Reason] || {TxID, Reason} <- Fail ],
 		 ledger_patch=>lists:map(FmtP, LP),
 		 receipt=>format_receipt(Rec, BinPacker)

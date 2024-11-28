@@ -19,7 +19,7 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
 	MyChain=proplists:get_value(chain,Options,65535),
 	NoAfterblock=proplists:get_value(no_afterblock,Options,false),
 
-	State0=case lists:keyfind(migrate_settings, 1, Options) of
+	State00=case lists:keyfind(migrate_settings, 1, Options) of
 			   {migrate_settings, Settings} ->
 				   process_txs:upgrade_settings_persist(
 					 maps:get(<<"current">>,Settings),
@@ -32,6 +32,13 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
 					 LedgerName
 					)
 		   end,
+
+  State0=case lists:keyfind(trace, 1, Options) of
+           {trace, X} ->
+             State00#{trace=>X};
+           false ->
+             State00
+         end,
 
 	PreTXL
 	= if PreTXL1==[] orelse NoAfterblock==true->
@@ -226,7 +233,8 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 					   State0
 			   end,
 
-		{Ret,RetData,State2}=process_txs:process_tx(TxBody, State1, #{}),
+    ?LOG_INFO("T ~p",[maps:with([trace],State0)]),
+		{Ret,RetData,State2}=process_txs:process_tx(TxBody, State1, maps:with([trace],State0)),
 		?LOG_INFO("Proc ~s res ~w: ~s",[TxID,Ret,hex:encode(RetData)]),
 		State3=case TxBody of
 				   #{from:=From2,seq:=USeq} when From2=/=<<0>> ->
