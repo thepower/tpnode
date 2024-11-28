@@ -249,19 +249,30 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
   ?LOG_INFO("repl client connecting to ~p ~p", [Ip, Port]),
   Pid=connect(Sub),
   try
-    Genesis=case sync_get_decode(Pid, "/api/binblock/genesis") of
-              {200, _, V1} when is_map(V1) -> V1;
-              {404, _, _} -> throw('incompatible');
-              _ -> throw('incompatible')
-            end,
+    GenesisF=fun() ->
+                 case sync_get_decode(Pid, "/api/binblock/genesis") of
+                   {200, _, V1} when is_map(V1) -> V1;
+                   {404, _, _} -> throw('incompatible');
+                   Any ->
+                     ?LOG_NOTICE("Got unknown response ~p",[Any]),
+                     throw('incompatible')
+                 end
+             end,
+
+    QS=maps:get(uri_query,Sub,[]),
+    Ncg=lists:keyfind("nocheck_genesis",1,QS) =/= false,
+    ?LOG_NOTICE("DBG: Ncg ~p",[Ncg]),
     case maps:get(check_genesis, Sub, undefined) of
       false ->
         ok;
       F when is_function(F)  ->
-        F(Genesis);
+        F(GenesisF());
+      undefined when Ncg ->
+        ok;
       undefined ->
         case blockchain:rel(genesis,self) of
           #{hash:=Hash} ->
+            Genesis=GenesisF(),
             case maps:get(hash, Genesis) == Hash of
               false ->
                 file:write_file("genesis_repl.txt",
@@ -447,6 +458,7 @@ handle_msg(Msg, Sub) ->
 presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
       URL= <<"/api/binblock/",Ptr/binary>>,
       ?LOG_INFO("Going to ~s",[URL]),
+      T0=erlang:system_time(microsecond),
       case sync_get_decode(Pid,URL) of
         {200, _Headers, #{
                           hash:=Hash,
@@ -458,14 +470,15 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
           LBH=maps:get(last,Sub,undefined),
           case Blk of
             #{hash:=BH,header:=_,child:=Child} ->
-              T0=erlang:system_time(microsecond),
+              T1=erlang:system_time(microsecond),
               Res=if BH==LBH ->
                        ok;
                      true ->
                        F({apply_block, Blk})
                   end,
-              T1=erlang:system_time(microsecond),
-              ?LOG_INFO("Blk install time ~.f sec~n",[(T1-T0)/1000000]),
+              T2=erlang:system_time(microsecond),
+              ?LOG_INFO("Blk ~w fetch ~.f sec install ~.f sec~n",
+                        [Hei, (T1-T0)/1000000, (T2-T1)/1000000]),
               case Res of
                 {ok, ignore} ->
                   HexPH=hex:encode(Child),
