@@ -1391,6 +1391,10 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
               undefined -> false;
               _ -> true
             end,
+  IgnoreSeq=case proplists:get_value(<<"ignoreseq">>, QS) of
+              undefined -> false;
+              _ -> true
+            end,
 
   BinPacker=packer(Req),
 	Body=apixiom:bodyjs(Req),
@@ -1425,9 +1429,20 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 			end
 		  end,
   Me=self(),
-  Trace=fun(E) ->
-            Me ! {trace, E}
-        end,
+  Opts=lists:foldl(fun({true,E},A) ->
+                       [E|A];
+                      ({false,_},A) ->
+                       A
+                   end,
+                   [{ledger_pid, mledger},
+                    {entropy, <<>>},
+                    {mean_time, os:system_time(millisecond)},
+                    {no_afterblock, true}       ],
+                   [{ WithDebug, {trace,fun(E) -> Me ! {trace, E} end}},
+                    {IgnoreSeq, {ignoreseq, true}}
+                   ]
+                  ),
+
 	#{block:=#{
 			   failed:=Fail,
 			   ledger_patch:=LP,
@@ -1436,15 +1451,8 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 		TxList,
 		{1, <<1:256/big>>},
 		[],
-		[{ledger_pid, mledger},
-		 {entropy, <<>>},
-		 {mean_time, os:system_time(millisecond)},
-		 {no_afterblock, true}| if WithDebug ->
-                                 [{trace,Trace}];
-                               true ->
-                                 []
-                            end
-    ]),
+    Opts
+		),
   Debug=fun F() -> receive
                      {trace,N} -> [list_to_binary(io_lib:format("~w",[N]))|F()]
                    after 0 -> []

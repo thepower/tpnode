@@ -33,12 +33,18 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
 					)
 		   end,
 
-  State0=case lists:keyfind(trace, 1, Options) of
-           {trace, X} ->
-             State00#{trace=>X};
-           false ->
-             State00
-         end,
+  State0=lists:foldl(
+           fun({I,O},A) ->
+               case lists:keyfind(I, 1, Options) of
+                 {I, X} ->
+                   A#{O=>X};
+                 false ->
+                   A
+               end
+           end,
+           State00,
+           [{trace,trace}, {ignoreseq,ignoreseq}]
+          ),
 
 	PreTXL
 	= if PreTXL1==[] orelse NoAfterblock==true->
@@ -226,7 +232,11 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 					   ?LOG_INFO("Process generic ~s ~p / ~p",[TxID, Seq0, Seq]),
 					   if Seq0==<<>> -> ok;
 						  Seq>Seq0 -> ok;
-						  true -> throw(bad_seq)
+						  true ->
+                  case maps:is_key(ignoreseq, State0) of
+                    true -> ok;
+                    false -> throw(bad_seq)
+                  end
 					   end,
 					   State0b;
 				   _ ->
