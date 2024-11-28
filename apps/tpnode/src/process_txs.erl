@@ -312,9 +312,7 @@ process_tx(#{from:=From,
 				  #{ "deploy":= "inplace"} ->
 					  From;
 				  _ ->
-					  D2Hash=erlp:encode([From,binary:encode_unsigned(Nonce)]),
-					  {ok,<<_:12/binary,EVMAddress:20/binary>>}=ksha3:hash(256, D2Hash),
-					  EVMAddress
+            evm_address(From,Nonce)
 			  end,
 	State00=State#{cur_tx=>Tx},
 	{CodeExists, _, State01} = pstate:get_state(Address, code, [], State00),
@@ -379,8 +377,7 @@ process_tx(#{from:=From,
 			}=Tx,
 		   GasLimit, State, Opts) when is_binary(CD) ->
 	Value=tx_value(Tx,<<"SK">>),
-	D2Hash=erlp:encode([From,binary:encode_unsigned(Nonce)]),
-	{ok,<<_:12/binary,Address:20/binary>>}=ksha3:hash(256, D2Hash),
+  Address=evm_address(From,Nonce),
 
 	?LOG_INFO("EtherDeploy to address ~s gas ~p transfer ~p size ~w~n",
 			  [hex:encodex(Address), GasLimit,
@@ -729,4 +726,11 @@ transfer(From, To, Value, Cur, State0) when Value > 0 ->
 	pstate:set_state(To, balance, Cur, Dst1, State3).
 
 
+i2b(0) -> <<>>;
+i2b(Nonce) -> binary:encode_unsigned(Nonce).
+
+evm_address(From,Nonce) ->
+  D2Hash=erlp:encode([From,i2b(Nonce)]),
+  {ok,<<_:12/binary,EVMAddress:20/binary>>}=ksha3:hash(256, D2Hash),
+  EVMAddress.
 
