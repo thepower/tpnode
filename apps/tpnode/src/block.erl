@@ -396,6 +396,10 @@ verify(#{ header:=#{parent:=Parent, %blkv2
         {settings_hash, SH};
       ({<<"log_hash">>, SH}) ->
         {log_hash, SH};
+      ({<<"ledger_patch_root">>, _SH}=E) ->
+        E;
+      ({<<"cumulative_gas">>, _SH}=E) ->
+        E;
       ({Key, Value}) ->
         ?LOG_INFO("Unknown root ~p",[Key]),
         {Key, Value}
