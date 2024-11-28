@@ -630,7 +630,7 @@ mychain() ->
   KeyDB=chainsettings:by_path([<<"keys">>]),
   NodeChain=chainsettings:by_path([<<"nodechain">>]),
   PubKey=tpecdsa:cmp_pubkey(nodekey:get_pub()),
-  ?LOG_NOTICE("My key ~p", [(PubKey)]),
+  %?LOG_NOTICE("My key ~p", [(PubKey)]),
   ChainNodes0=maps:fold(
                 fun(<<".">>, _, Acc) ->
                     Acc;
@@ -641,7 +641,7 @@ mychain() ->
                     Acc
                 end, #{}, KeyDB),
   ?LOG_DEBUG("NodesDB ~p", [KeyDB]),
-  ?LOG_INFO("Nodes ~p", [maps:values(ChainNodes0)]),
+  ?LOG_DEBUG("Nodes ~p", [maps:values(ChainNodes0)]),
   MyName=maps:get(PubKey, ChainNodes0, undefined),
   MyChain=maps:get(MyName, NodeChain, 0),
   ChainNodes=maps:filter(
