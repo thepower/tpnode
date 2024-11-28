@@ -113,8 +113,7 @@ handle_call({new_tx, BinTx}, _From, #{sync_timer:=_Tmr, queue:=_Queue}=State)
         case tx:verify(BinTx) of
           {ok, Tx} ->
             case Tx of
-              %TODO: remove the exception
-              #{from:=Addr, seq:=Seq} when Addr =/= <<225,203,4,160,250,54,221,209,106,6,234,130,128,7,227,94,26,60,188,55>> ->
+              #{from:=Addr, seq:=Seq}  ->
                 LSeq=mledger:get_kpv(Addr,seq,'_'),
                 ?LOG_NOTICE("Addr ~p seq ~p (ledger ~p)",[Addr, Seq, LSeq]),
                 case LSeq of

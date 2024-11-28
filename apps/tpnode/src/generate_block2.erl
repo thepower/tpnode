@@ -219,8 +219,6 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 					   ?LOG_INFO("Process generic ~s ~p / ~p",[TxID, Seq0, Seq]),
 					   if Seq0==<<>> -> ok;
 						  Seq>Seq0 -> ok;
-                %temporary hack TODO: remove it!!!
-                From== <<225,203,4,160,250,54,221,209,106,6,234,130,128,7,227,94,26,60,188,55>> -> ok;
 						  true -> throw(bad_seq)
 					   end,
 					   State0b;
