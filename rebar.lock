@@ -27,7 +27,7 @@
   0},
  {<<"eevm">>,
   {git,"https://github.com/thepower/eevm.git",
-       {ref,"a5c004d45dafbd98b60e898dc770479d0471456f"}},
+       {ref,"53cfac5d053936369613c2defa3835542e65add9"}},
   0},
  {<<"eevm_abi">>,
   {git,"https://github.com/cleverfox/eevm_abi.git",
