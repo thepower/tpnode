@@ -2,7 +2,7 @@
 pragma solidity ^0.8.1;
 
 contract WETH9 {
-  string public name     = "Wrapped Ether";
+  string public name     = "Wrapped SK";
   string public symbol   = "WSK";
   uint8  public decimals = 18;
 

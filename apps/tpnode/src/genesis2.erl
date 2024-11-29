@@ -3,8 +3,9 @@
 -export([priv_file/2,
          pub_file/2,
          init/2,
-         make_block/1,
+         make_block/2,
          read_contract/1,
+         genesis/2,
          genesis/1,
          wildcard/3]).
 
@@ -32,6 +33,10 @@ pub_file(Module, KeyName) ->
 init(Module, State0) ->
   State1
   = lists:foldl(fun({Address, Field, Path, Value}, Acc) ->
+                    if Address == <<0>> ->
+                         io:format("init ~p~n",[{Address, Field, Path, Value}]);
+                       true -> ok
+                    end,
                     pstate:set_state(Address, Field, Path, Value, Acc)
                 end, State0, Module:pre_tx()),
   State2
@@ -65,13 +70,19 @@ init(Module, State0) ->
 
 
 
-make_block(Module) ->
+make_block(Module,Opts) ->
   Generator = fun(LedgerName) ->
                   S0=process_txs:new_state(
                        fun mledger:getfun/2,
                        LedgerName
                       ),
-                  Acc=init(Module, S0),
+                  S1=lists:foldl(fun({Address, Field, Path, Value}, Acc) ->
+                                     if Address == <<0>> ->
+                                          io:format("pre  ~p~n",[{Address, Field, Path, Value}]);
+                                        true -> ok
+                                     end,                                  pstate:set_state(Address, Field, Path, Value, Acc)
+                                end, S0, maps:get(prestate,Opts,[])),
+                  Acc=init(Module, S1),
                   P=lists:reverse(pstate:patch(Acc)),
                   {ok,H} = mledger:apply_patch(LedgerName,
                                                mledger:patch_pstate2mledger(
@@ -84,9 +95,9 @@ make_block(Module) ->
 	BlkData=#{
             txs=>[],
             receipt => [],
-            parent=><<0:64/big>>,
+            parent=>maps:get(parent_hash,Opts,<<0:64/big>>),
             mychain=>Module:local_chain(),
-            height=>0,
+            height=>maps:get(block_height,Opts,0),
             failed=>[],
             temporary=>false,
             ledger_hash=>LedgerHash,
@@ -119,16 +130,19 @@ read_contract(Filename) ->
       throw({'cannot_read_contract',Any,Filename})
   end.
 
-genesis(Module) ->
+genesis(Module,PreState) ->
   Module:node_keys(),
-  Blk=make_block(Module),
+  Blk=make_block(Module,PreState),
   SignedBlock=lists:foldl(
     fun(Priv,Acc) ->
         block:sign(Acc,Priv)
     end, Blk, Module:node_privs()),
   file:write_file(Module:prefix() ++ "0.txt",io_lib:format("~p.~n",[SignedBlock])),
-  file:write_file(Module:prefix() ++ "0.blk",block:pack(SignedBlock)),
+  file:write_file(Module:prefix() ++ "0.bin",block:pack(SignedBlock)),
   Blk.
+
+genesis(Module) ->
+  genesis(Module,#{}).
 
 wildcard(Module,Pattern,Ext) ->
   lists:map(
