@@ -277,7 +277,7 @@ get_val(minsig, Default) ->
                                                        mledger
                                                       ),
                                                      []),
-      ?LOG_INFO("Minsig ~p~n",[Id]),
+      ?LOG_DEBUG("Minsig ~p~n",[Id]),
       true=Id>0,
       Id
   end;
