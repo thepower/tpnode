@@ -122,21 +122,22 @@ genesis(#{uri:=URI} = Sub) ->
   genesis(maps:merge(Sub,uri_parse(URI))).
 
 genesis(#{} = Sub, Pid) ->
-  case sync_get_decode(Pid, "/api/binblock/genesis") of
+  QS=maps:get(uri_query,Sub,[]),
+  {Genesis,GHashCfg}=case lists:keyfind("genesis",1,QS) of
+                       {"genesis", B64} ->
+                         DstHash=base64url:decode(B64),
+                         {binary_to_list(hex:encode(DstHash)),DstHash};
+                       false ->
+                         {"genesis",undefined}
+                     end,
+  case sync_get_decode(Pid, "/api/binblock/"++Genesis) of
     {200, _, #{hash:=GHash}=V1} when is_map(V1) ->
-      QS=maps:get(uri_query,Sub,[]),
-      case lists:keyfind("genesis",1,QS) of
-        {"genesis", B64} ->
-          DstHash=base64url:decode(B64),
-          if DstHash =/= GHash ->
-               throw("got wrong genesis hash");
-             true ->
-               ok
-          end;
-        false -> ok
+      if is_binary(GHashCfg) andalso GHash =/= GHashCfg ->
+           throw("Wrong genesis");
+         true -> ok
       end,
       V1;
-    _ -> throw("can't get genesis")
+    _ -> throw("Incorrect genesis")
   end.
 
 node_status(URI) ->
@@ -250,7 +251,15 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
   Pid=connect(Sub),
   try
     GenesisF=fun() ->
-                 case sync_get_decode(Pid, "/api/binblock/genesis") of
+                 QS=maps:get(uri_query,Sub,[]),
+                 Genesis=case lists:keyfind("genesis",1,QS) of
+                           {"genesis", B64} ->
+                             DstHash=base64url:decode(B64),
+                             binary_to_list(hex:encode(DstHash));
+                           false ->
+                             "genesis"
+                         end,
+                 case sync_get_decode(Pid, "/api/binblock/"++Genesis) of
                    {200, _, V1} when is_map(V1) -> V1;
                    {404, _, _} -> throw('incompatible');
                    Any ->
@@ -270,7 +279,13 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
       undefined when Ncg ->
         ok;
       undefined ->
-        case blockchain:rel(genesis,self) of
+        LGenesis=case lists:keyfind("genesis",1,QS) of
+                  {"genesis", B64} ->
+                    base64url:decode(B64);
+                  false ->
+                    genesis
+                end,
+        case blockchain:rel(LGenesis,self) of
           #{hash:=Hash} ->
             Genesis=GenesisF(),
             case maps:get(hash, Genesis) == Hash of
@@ -282,7 +297,8 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
               true ->
                 ?LOG_INFO("Genesis ok")
             end;
-          _ ->
+          _Any ->
+            io:format("genesis ~w ~w~n",[LGenesis,_Any]),
             throw('unexpected_genesis')
         end
     end,
@@ -430,7 +446,12 @@ handle_msg(#{null := <<"new_block">>,
   %?LOG_INFO("Block ~p",[maps:with([header,temporary,hash],Block)]),
   case maps:is_key(temporary, Block) of
     true ->
-      F({apply_block, Block});
+      R=F({apply_block, Block}),
+      if R==ok ->
+           ok;
+         true ->
+           ?LOG_INFO("apply error ~w",[R])
+      end;
     false ->
       %Necesito descargar todo un bloque usando tpnode_repl
       gen_server:cast(
@@ -566,7 +587,7 @@ upgrade(Pid) ->
 sync_get_decode(Pid, Url) ->
   ?LOG_DEBUG("sync_get_decode ~s",[Url]),
   {Code,Header, Body}=sync_get(Pid, Url),
-  ?LOG_NOTICE("sync_get_decode ~s res: ~p:~p",[Url, Code, Header]),
+  ?LOG_DEBUG("sync_get_decode ~s res: ~p:~p",[Url, Code, Header]),
   case proplists:get_value(<<"content-type">>,Header) of
     <<"application/json">> ->
       {Code, Header, jsx:decode(iolist_to_binary(Body), [return_maps])};
