@@ -158,6 +158,16 @@ handle_msg(#{null:= <<"logs_subscribe">>}, State) ->
                     }),
   {reply, {binary, Bin}, State};
 
+handle_msg(#{null:= <<"block">>, <<"hash">>:=H}, State) ->
+  BlockHash0=tpnode_httpapi:blockhash(H),
+  BlkOrErr=blockchain_reader:get_block(BlockHash0, self),
+  {reply, {binary, msgpack:pack(respond_block(BlkOrErr))}, State};
+
+handle_msg(#{null:= <<"block">>, <<"height">>:=H}, State) ->
+  Number=binary_to_integer(H),
+  BlkOrErr = blockchain_reader:get_block(Number),
+  {reply, {binary, msgpack:pack(respond_block(BlkOrErr))}, State};
+
 handle_msg(#{null:= <<"subscribe">>}, State) ->
   gen_server:cast(tpnode_ws_dispatcher, {subscribe, {block, term, stat}, self()}),
   {reply, {binary, msgpack:pack(#{null=><<"subscribe_ack">>})}, State};
@@ -165,4 +175,18 @@ handle_msg(#{null:= <<"subscribe">>}, State) ->
 handle_msg(Msg, State) ->
   ?LOG_INFO("unhandled WSv1 msg ~p",[Msg]),
   {ok, State}.
+
+respond_block(GotBlock) when is_map(GotBlock) ->
+  #{
+    null=><<"block_req">>,
+    success=>true,
+    block => block:pack(GotBlock)
+   };
+
+respond_block(Error) when is_atom(Error) ->
+  #{
+    null=><<"block_req">>,
+    success=>false,
+    error => Error
+   }.
 

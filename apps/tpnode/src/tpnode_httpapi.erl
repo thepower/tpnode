@@ -11,6 +11,7 @@
          mp2json/2,
          get_nodes/1,
          encode_recursive/2,
+         blockhash/1,
          binjson/1]).
 
 -export([answer/0, answer/1, answer/2, err/1, err/2, err/3, err/4]).

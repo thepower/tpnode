@@ -447,10 +447,14 @@ handle_msg(#{null := <<"new_block">>,
   case maps:is_key(temporary, Block) of
     true ->
       R=F({apply_block, Block}),
-      if R==ok ->
+      case R of
+        ok ->
            ok;
-         true ->
-           ?LOG_INFO("apply error ~w",[R])
+        {error,need_sync} ->
+          ?LOG_NOTICE("apply error, resynchronization needed"),
+          ok;
+        _ ->
+          ?LOG_INFO("apply error ~w",[R])
       end;
     false ->
       %Necesito descargar todo un bloque usando tpnode_repl
