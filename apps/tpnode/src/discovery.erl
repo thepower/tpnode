@@ -8,13 +8,14 @@
 -define(DEFAULT_SCOPE, [tpic, xchain, api]).
 -define(DEFAULT_SCOPE_CONFIG, #{
     tpic => [tpic],
+    ygg => [tpic, api],
     api => [tpic, xchain, api],
     apis => [tpic, xchain, api]
 }).
 
 -define(KNOWN_ATOMS,
   [address, name, valid_until, port, proto, tpic, nodeid, scopes,
-    xchain, api, apis, chain, created, ttl, hostname]).
+    xchain, api, apis, ygg, chain, created, ttl, hostname]).
 
 
 -ifdef(TEST).
@@ -62,6 +63,8 @@ my_address_v6() ->
             Acc1;
           ({addr, {16#fe80, _, _, _, _, _, _, _}}, Acc1) ->
             Acc1;
+          ({addr, {S, _, _, _, _, _, _, _} = A}, Acc1) when S>=512 andalso 768>S ->
+            Acc1 ++ [inet:ntoa(A)];
           ({addr, {_, _, _, _, _, _, _, _} = A}, Acc1) ->
             [inet:ntoa(A) | Acc1];
           (_, Acc1) -> Acc1
@@ -649,13 +652,16 @@ substitute_macro(Address, Dict) when is_map(Address), is_map(Dict) ->
 
 % --------------------------------------------------------
 build_macro_dict() ->
-  DictKeys = [local4, rpcport, tpicport],  % mandatory macro names
+  DictKeys = [local4, rpcport, tpicport, yggport],  % mandatory macro names
   Worker =
     fun
       (local4, Dict) ->
         maps:put(local4, hd(my_address_v4()), Dict);
 %%      (local6, Dict) ->
 %%        maps:put(local6, hd(my_address_v6()), Dict);
+      (yggport, Dict) ->
+        Port = application:get_env(tpnode, yggport, 15015),
+        maps:put(yggport, Port, Dict);
       (rpcport, Dict) ->
         Port = application:get_env(tpnode, rpcport, 43280),
         maps:put(rpcport, Port, Dict);

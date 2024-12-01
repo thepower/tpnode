@@ -160,7 +160,6 @@ init([]) ->
         throw(Reason1)
     end,
 
-    MandatoryServices = [ api ],
     VMHost=case application:get_env(tpnode,vmaddr,undefined) of
              XHost when is_list(XHost) ->
                {ok,Tuple}=inet:parse_address(XHost),
@@ -219,6 +218,30 @@ init([]) ->
         ok
     end,
 
+    Yggdrasil = case application:get_env(tpnode,yggstack,false) of
+                  true ->
+                    Peers=application:get_env(tpnode,yggdrasil_peers,[<<"tls://asia.deinfra.org:15015">>]),
+                    YggArg=#{
+                             priv=>nodekey:get_priv(),
+                             listen=>application:get_env(tpnode,yggport,15015),
+                             admin=>filename:join(Cwd,"yggstack_admin.sock"),
+                             peers=>Peers,
+                             export=>tpnode:resolve_ports([{80,rpcport},{443,rpcsport},{1800,tpicport}])
+                            },
+                    [ { yggstack,
+                        {ygg,start_stack,[YggArg]},
+                        permanent, 5000, worker, []}
+                    ];
+                  false ->
+                    []
+                end,
+
+
+    MandatoryServices = if Yggdrasil == [] ->
+                             [ api ];
+                           true ->
+                             [ api, ygg ]
+                        end,
     Discovery=#{name=>discovery, services=>MandatoryServices},
 
     Services=case application:get_env(tpnode,replica,false) of
@@ -281,25 +304,7 @@ init([]) ->
                  end,
     TpicOpts=#{get_peers=>GetTPICPeers},
 
-    Yggdrasil = case application:get_env(tpnode,yggstack,false) of
-                  true ->
-                    Peers=application:get_env(tpnode,yggdrasil_peers,[<<"tls://asia.deinfra.org:15015">>]),
-                    YggArg=#{
-                             priv=>nodekey:get_priv(),
-                             listen=>application:get_env(tpnode,yggport,0),
-                             admin=>filename:join(Cwd,"yggstack_admin.sock"),
-                             peers=>Peers,
-                             export=>tpnode:resolve_ports([{80,rpcport},{443,rpcsport},{1800,tpicport}])
-                            },
-                    [ { yggstack,
-                        {ygg,start_stack,[YggArg]},
-                        permanent, 5000, worker, []}
-                    ];
-                  false ->
-                    []
-                end,
-
-    Childs=[
+        Childs=[
             { rdb_dispatcher, {rdb_dispatcher, start_link, []},
               permanent, 5000, worker, []},
 

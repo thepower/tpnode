@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1,control/2]).
+-export([start_link/1,control/2,control/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -65,11 +65,15 @@ control(SocketPath, Command) when is_map(Command) ->
       jsx:decode(list_to_binary(lists:reverse(Resp)),[return_maps])
   end.
 
+control(Command) ->
+  control(gen_server:call(?SERVER,socket),Command).
+
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([Config]) ->
+init([#{admin:=AdminSocket}=Config]) ->
     logger:set_process_metadata(#{domain=>[yggstack]}),
     Executable=case ygg:executable() of
                  false -> throw(no_yggstack_found);
@@ -83,9 +87,8 @@ init([Config]) ->
       fun({YggPort,LocalPort},A) ->
           ["-remote-tcp", integer_to_list(YggPort)++":127.0.0.1:"++integer_to_list(LocalPort)|A]
       end,[], maps:get(export,Config,[])),
-    case yggstack:control(filename:join(Cwd,"yggstack_admin.sock"),getself) of
+    case yggstack:control(AdminSocket,getself) of
       {error, _} ->
-        io:format("ERR1~n"),
         ok;
       #{} ->
         os:cmd("pkill -f "++filename:basename(ygg:executable())),
@@ -104,14 +107,56 @@ init([Config]) ->
               timer:sleep(1000),
               ok=file:delete(ConfigPath)
           end),
-    {ok, #{handler=>H}}.
+    {ok, #{handler=>H, socket=>AdminSocket,timer=>make_ref(),queue=>[]}}.
+
+handle_call(socket, _From, #{socket:=S}=State) ->
+  {reply, S, State};
+
+handle_call({peer, Act, Url}, _From, #{timer:=T,queue:=Q}=State) when Act==add orelse Act==del ->
+  Q1=[{Act,Url}|Q],
+  T1=case erlang:read_timer(T) of
+       false -> % restart expired timer
+         erlang:send_after(10000,self(),apply);
+       N when is_integer(N) -> % keep running timer
+         T
+     end,
+  {reply, ok, State#{timer=>T1,queue=>Q1}};
+
+
+handle_call(peers, _From, #{socket:=AdminSocket}=State) ->
+  R=try
+      lists:map(
+        fun(#{<<"remote">>:=R,<<"key">>:=K}) ->
+            {hex:decode(K),[R]}
+        end,
+        maps:get(<<"peers">>,
+                 maps:get(<<"response">>,
+                          yggstack:control(AdminSocket, getPeers)
+                         )
+                )
+       )
+    catch _:_ ->
+            error
+    end,
+  {reply, R, State};
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+  {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
-    logger:info("BV Unknown cast ~p", [_Msg]),
-    {noreply, State}.
+  logger:info("BV Unknown cast ~p", [_Msg]),
+  {noreply, State}.
+
+handle_info(apply, State=#{queue:=Q, socket:=AdminSocket}) ->
+  R=lists:map(fun({add,Peer}) ->
+                  yggstack:control(AdminSocket,{addpeer,Peer});
+                 ({del,Peer}) ->
+                  yggstack:control(AdminSocket,{removepeer,Peer});
+                 (_) ->
+                  unknown
+              end, lists:reverse(Q)),
+  logger:notice("yggstack apply peers ~p",[R]),
+  {noreply, State#{queue=>[]}};
 
 handle_info({Port,{exit_status,Res}}, State=#{handler:=Port}) ->
   logger:notice("yggstack terminated res ~w",[Res]),
@@ -122,8 +167,13 @@ handle_info({Port,{exit_status,Res}}, State=#{handler:=Port}) ->
 
 handle_info({Port,{data,Text}}, State=#{handler:=Port,watchdog:=_}) ->
   lists:foreach(
-    fun(S) ->
-        logger:info("yggstack> ~s~n",[S])
+    fun(Str) ->
+        case re:run(Str,"^(\\d{4}.\\d{2}.\\d{2} \\d{2}:\\d{2}:\\d{2}\\s*)(?<MSG>\.\*)",[{capture,all_names,list}]) of
+          {match,[Stripped]} ->
+            logger:info("yggstack> ~s~n",[Stripped]);
+          nomatch ->
+            logger:info("yggstack> ~s~n",[Str])
+        end
     end,
     binary:split(string:chomp(Text),<<"\n">>,[global])
    ),
