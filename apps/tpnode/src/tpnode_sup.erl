@@ -145,11 +145,11 @@ init([]) ->
 		L when is_list(L) ->
 			file:set_cwd(L)
 	end,
+  {ok, Cwd} = file:get_cwd(),
 	case tpnode:reload() of
 		ok -> ok;
 		{error,enoent} ->
-			{ok,CWD}=file:get_cwd(),
-			throw({no_config_file_in,CWD});
+			throw({no_config_file_in,Cwd});
 		{error, Reason} ->
 			throw(Reason)
 	end,
@@ -247,26 +247,6 @@ init([]) ->
                          _ ->
                            []
                        end,
-                 GetTPICPeers=fun(_) ->
-                                  SP=try
-                                       {ok,[DBPeers]}=file:consult(utils:dbpath(peers)),
-                                       DBPeers
-                                     catch _:_ ->
-                                             []
-                                     end,
-                                  if(SP==[]) ->
-                                      case application:get_env(tpnode,connect_chain,undefined) of
-                                        I when is_integer(I) ->
-                                          TPIC_Port=maps:get(port,application:get_env(tpnode,tpic,#{}),1800),
-                                          tpnode_peerfinder:propose_tpic(I,TPIC_Port);
-                                        _ ->
-                                          [{undefined,maps:get(peers,application:get_env(tpnode,tpic,#{}),[])}]
-                                      end;
-                                    true ->
-                                      SP
-                                  end
-                              end,
-                 TpicOpts=#{get_peers=>GetTPICPeers},
                  [
                   { blockchain_sync, {blockchain_sync, start_link, []}, permanent, 5000, worker, []},
                   { synchronizer, {synchronizer, start_link, []}, permanent, 5000, worker, []},
@@ -278,10 +258,46 @@ init([]) ->
                   { chainkeeper, {chainkeeper, start_link, []}, permanent, 5000, worker, []}
                   |VM_CS]
                  ++ xchain:childspec()
-                 ++ tpic2:childspec(TpicOpts)
                  ++ tpnode_vmproto:childspec(VMHost, VMPort)
              end,
+    GetTPICPeers=fun(_) ->
+                     SP=try
+                          {ok,[DBPeers]}=file:consult(utils:dbpath(peers)),
+                          DBPeers
+                        catch _:_ ->
+                                []
+                        end,
+                     if(SP==[]) ->
+                         case application:get_env(tpnode,connect_chain,undefined) of
+                           I when is_integer(I) ->
+                             TPIC_Port=maps:get(port,application:get_env(tpnode,tpic,#{}),1800),
+                             tpnode_peerfinder:propose_tpic(I,TPIC_Port);
+                           _ ->
+                             [{undefined,maps:get(peers,application:get_env(tpnode,tpic,#{}),[])}]
+                         end;
+                       true ->
+                         SP
+                     end
+                 end,
+    TpicOpts=#{get_peers=>GetTPICPeers},
 
+    Yggdrasil = case application:get_env(tpnode,yggstack,false) of
+                  true ->
+                    Peers=application:get_env(tpnode,yggdrasil_peers,[<<"tls://asia.deinfra.org:15015">>]),
+                    YggArg=#{
+                             priv=>nodekey:get_priv(),
+                             listen=>application:get_env(tpnode,yggport,0),
+                             admin=>filename:join(Cwd,"yggstack_admin.sock"),
+                             peers=>Peers,
+                             export=>tpnode:resolve_ports([{80,rpcport},{443,rpcsport},{1800,tpicport}])
+                            },
+                    [ { yggstack,
+                        {ygg,start_stack,[YggArg]},
+                        permanent, 5000, worker, []}
+                    ];
+                  false ->
+                    []
+                end,
 
     Childs=[
             { rdb_dispatcher, {rdb_dispatcher, start_link, []},
@@ -327,6 +343,8 @@ init([]) ->
            ]
             ++ Services
             ++ MgChildren
+            ++ Yggdrasil
+            ++ tpic2:childspec(TpicOpts)
             ++ tpnode_http:childspec_ssl()
             ++ tpnode_http:childspec(),
     {ok, { {one_for_one, 5, 10}, Childs } }.

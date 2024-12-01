@@ -3,7 +3,8 @@
 -behaviour(application).
 
 %% Application callbacks
--export([start/2, stop/1, start/0, stop/0, restart/0, reload/0, die/1]).
+-export([start/2, stop/1, start/0, stop/0, restart/0, reload/0, die/1, resolve_ports/1]).
+-export([run_yggstack/1]).
 
 -include("include/version.hrl").
 -include("include/tplog.hrl").
@@ -228,5 +229,38 @@ die(Reason) ->
             [ ?LOG_INFO("Terminate ~p: ~p",[S,catch supervisor:terminate_child(tpnode_sup,S)]) || S<- Shutdown ]
         end), receive never -> done end.
 
+run_yggstack(_Opts) ->
+  Ports=tpnode:resolve_ports([{80,rpcport},{443,rpcsport},{1800,tpicport}]),
+  Peers=[<<"tls://asia.deinfra.org:15015">>],
+  {ok, Cwd} = file:get_cwd(),
+  AdminPath=filename:join(Cwd,"yggstack_admin.sock"),
+  YggArg=#{
+           priv=>nodekey:get_priv(),
+           listen=>15015,
+           admin=>AdminPath, %or port number
+           peers=>Peers,
+           export=>Ports
+          },
+  supervisor:start_child(tpnode_sup,
+                         #{id=>yggstack,type=>worker,start=>{ygg,start_stack,[YggArg]}}
+                        ).
 
+
+tpic_port() ->
+  maps:get(port,application:get_env(tpnode,tpic,#{}),undefined).
+
+resolve_ports(Rules) ->
+  lists:foldl(
+    fun({PP,Param},A) ->
+        P=case Param of tpicport ->
+                         tpic_port() ;
+                        N when is_atom(N) ->
+                          application:get_env(tpnode,N,undefined)
+          end,
+        if is_number(P) ->
+             [{PP,P}|A];
+           true -> A
+        end
+    end,
+    [],Rules).
 

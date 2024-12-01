@@ -1,12 +1,19 @@
 -module(ygg).
 -export([addr_for_key/1, test/0]).
--export([example/0, config_file/1, nodepriv/1, executable/0]).
+-export([example/0, config_file/1, nodepriv/1, executable/0, arch/0]).
 -export([start_stack/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 
 start_stack(Config) ->
   yggstack:start_link(Config).
+
+arch() ->
+  {_Unix,Os}=os:type(),
+  [
+   atom_to_list(Os),
+   lists:nth(1, string:tokens(erlang:system_info(system_architecture), "-"))
+  ].
 
 nodepriv(<<Priv:32/binary>>) ->
   {<<XPub:32/binary>>, <<XPriv:32/binary>>} = crypto:generate_key(eddsa, ed25519, Priv),
@@ -25,7 +32,7 @@ example() ->
     admin => AdminPort,
     peers => [
               <<"tls://mima.localghost.org:443">>,
-              <<"tls://ygg.cleverfox.org:15015?key=000000009982cb0feb442dd436c25868f8778f8f9199ae19dd10087ab2589847">>
+              <<"tls://ygg.cleverfox.org:15015">>
              ]
    }.
 
@@ -34,10 +41,14 @@ config_file(#{priv:=Priv, listen:=Listen, admin:=Admin, peers:=Peers}) ->
   jsx:encode(#{ <<"PrivateKey">> => binary:encode_hex(nodepriv(Priv)),
                 <<"Peers">> => Peers,
                 <<"Listen">> => [
-                                 <<"[::]:",(integer_to_binary(Listen))/binary>>,
-                                 <<"0.0.0.0:",(integer_to_binary(Listen))/binary>>
+                                 %<<"[::]:",(integer_to_binary(Listen))/binary>>,
+                                 <<"tls://0.0.0.0:",(integer_to_binary(Listen))/binary>>
                                 ],
-                <<"AdminListen">> => <<"127.0.0.1:",(integer_to_binary(Admin))/binary>>,
+                <<"AdminListen">> => if is_integer(Admin) ->
+                                          <<"127.0.0.1:",(integer_to_binary(Admin))/binary>>;
+                                        is_list(Admin) ->
+                                          <<"unix://",(list_to_binary(Admin))/binary>>
+                                     end,
                 <<"MulticastInterfaces">> => [],
                 <<"IfName">> => <<"none">>,
                 <<"NodeInfoPrivacy">> => false,
@@ -48,38 +59,18 @@ executable() ->
   Name="yggstack",
   case os:find_executable(Name) of
     false ->
-      Executable=filename:join(code:priv_dir(yggerl),Name),
+      Name1=lists:join("-",[Name|ygg:arch()]),
+      Executable=filename:join(code:priv_dir(yggerl),Name1),
       case filelib:is_regular(Executable) of
         true ->
           Executable;
-        false -> false
+        false ->
+          logger:info("yggstack not found ~s in $PATH nor at ~s",[Name,Executable]),
+          false
       end;
     L ->
       L
   end.
-
-run(Config,Services) ->
-  Executable=case executable() of
-               false -> throw(no_yggstack_found);
-               L -> L
-             end,
-  ok=file:write_file("_tmp_cfg",Config),
-  H=erlang:open_port(
-    {spawn_executable, Executable},
-    [{args, ["-useconffile", "_tmp_cfg" ]},
-     eof,
-     binary,
-     stderr_to_stdout
-    ]),
-  timer:sleep(200),
-  ok=file:delete("_tmp_cfg"),
-  %H ! {self(), {command, Config}},
-  %H ! {self(), eof},
-  %erlang:port_close(H).
-  H.
-
-
-%cat y1 | ./yggstack_freebsd -useconf -socks 0.0.0.0:19919
 
 % This module converts public key to yggdrasil address
 

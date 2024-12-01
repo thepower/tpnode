@@ -1,7 +1,8 @@
 -module(tpnode_reporter).
 -export([prepare/1,prepare/2,prepare/4, blockinfo/1, band_info/2, encode_data/2, ensure_account/0, register/1,
         post_tx_and_wait/2, get_ver/0, get_iver/1, attributes/0, attributes_changed/2,
-        set_attributes/2, ask_nextblock/1, id2attr/1, run/0, run/1
+        set_attributes/2, ask_nextblock/1, id2attr/1, run/0, run/1,
+        chain_nodes/0
         ]).
 
 -include("include/tplog.hrl").
@@ -468,3 +469,27 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
+chain_nodes() ->
+  case mledger:db_get_one(mledger,<<0>>,lstore,[<<"chainstate">>],[]) of
+    {ok, Address} ->
+      S0=process_txs:new_state( fun mledger:getfun/2, mledger),
+      {Keys,_}
+      =lists:foldl(
+         fun(N, {A,S}) ->
+             {1, Ret, _, S1}
+             =process_txs:process_itx(<<>>,
+                                      Address,
+                                      0,
+                                      contract_evm_abi:encode_abi_call([N], "node_keys(uint256)"),
+                                      10000,
+                                      S,
+                                      #{}),
+             case contract_evm_abi:decode_abi(Ret,[{<<>>,bytes}]) of
+               [{<<>>,<<>>}] ->
+                 {A,S1};
+               [{<<>>,<<Key:32/binary>>}] ->
+                 {[Key|A],S1}
+             end
+         end,{[],S0},lists:seq(1,240)),
+      Keys
+  end.

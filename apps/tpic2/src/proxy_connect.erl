@@ -1,10 +1,15 @@
 -module(proxy_connect).
 -export([proxy_connect/3]).
 
-proxy_connect(P, ToHostStr, ToPort) ->
+proxy_connect(P, ToHostStr, ToPort) when is_port(P),
+                                         is_list(ToHostStr),
+                                         is_integer(ToPort) ->
+  ok = inet:setopts(P, [binary, {packet,raw},{active,false}]),
   Bin = << 5, 1, 0 >>,
-  gen_tcp:send(P, Bin),
+  ok = gen_tcp:send(P, Bin),
   case gen_tcp:recv(P,2,5000) of
+    {error, Reason} ->
+      throw({proxy_connect_error,Reason});
     {ok, <<5, 255>>} ->
       logger:notice("Proxy rejected auth"),
       {error, auth_reject};
@@ -18,6 +23,8 @@ proxy_connect(P, ToHostStr, ToPort) ->
           case gen_tcp:recv(P,5,5000) of
             {ok, <<_IP2, _IP3, _IP4, _Port:16/big>>} ->
               ok;
+            {ok,<<0,_:16/binary>>} ->
+              ok;
             Other ->
               logger:info("other error ~p",[Other]),
               {error, connect_sync}
@@ -25,6 +32,8 @@ proxy_connect(P, ToHostStr, ToPort) ->
         {ok, <<5, 0, _:8/integer, 4, _IP1>>} ->
           case gen_tcp:recv(P,17,5000) of
             {ok, <<_IP2, _IP3, _IP4, _Port:16/big>>} ->
+              ok;
+            {ok,<<0,_:16/binary>>} ->
               ok;
             Other ->
               logger:info("other error ~p",[Other]),

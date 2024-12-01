@@ -28,7 +28,7 @@ start(Host, Port, Opts) when is_map(Opts) ->
 init([]) ->
   {ok,
    {_SupFlags = {one_for_one, 1, 1000},
-    [ ] 
+    [ ]
    }
   }.
 
@@ -49,34 +49,20 @@ connection_process(Parent, Host, Port, Opts) ->
            {sni, "tpnode"}
            | tpic2:certificate()
           ],
-  {Opts1,NAddr}=case inet:parse_address(Host) of
-                 {ok, {_,_,_,_}=Addr} ->
-                   {[],Addr};
-                 {ok, {_,_,_,_,_,_,_,_}=Addr} ->
-                   {[inet6],Addr};
-                  {error, einval} ->
-                    case inet:gethostbyname(Host) of
-                      {ok,{hostent,_,_,inet,_, [IPv4Addr|_]}} ->
-                        {[],IPv4Addr};
-                      {ok, Any} ->
-                        %?LOG_ERROR("Address ~p resolver unexpected result : ~p",[Host, Any]),
-                        throw({unexpected_gethostbyname_answer,Any});
-                      {error,nxdomain} ->
-                        %?LOG_ERROR("Address ~p can't resolve",[Host]),
-                        throw({bad_hostname,Host})
-                    end;
-                 {error, Err} ->
-                   %?LOG_ERROR("Address ~p error: ~p",[Host, Err]),
-                   throw({parse_addr,Err})
-               end,
-  {ConnHost,ConnPort,ProxyTo}
+
+  {ConnHost,ConnPort,ConnOpts,ProxyTo}
   = case application:get_env(tpic2,proxy_connect,undefined) of
       undefined ->
-        {NAddr, Port, undefined};
+        {Opts1,NAddr}=parse_address(Host),
+        ?LOG_INFO("Connect to ~s:~w~n",[Host,Port]),
+        {NAddr, Port, Opts1, undefined};
       {PHost,PPort} ->
-        {PHost,PPort,{NAddr, Port}}
+        {Opts1,NAddr}=parse_address(PHost),
+        ?LOG_INFO("Connect to ~s:~w via proxy ~p:~w~n",
+                   [Host,Port, PHost,PPort]),
+        {NAddr,PPort,Opts1,{Host, Port}}
     end,
-  case gen_tcp:connect(ConnHost, ConnPort, Opts1) of
+    case gen_tcp:connect(ConnHost, ConnPort, ConnOpts) of
       {ok, TCPSocket} ->
         case ProxyTo of
           undefined -> ok;
@@ -117,7 +103,31 @@ connection_process(Parent, Host, Port, Opts) ->
         tpic2_tls:send_msg(hello, State),
         tpic2_tls:loop1(State);
       {error, Reason} ->
-        ?LOG_INFO("Peer ~s:~w conn error: ~p",[inet:ntoa(NAddr), Port, Reason]),
+        ?LOG_INFO("Peer ~w:~w conn error: ~p",[ConnHost, ConnPort, Reason]),
         {error,Reason}
+  end.
+
+parse_address("/"++_=Path) ->
+  {[local],{local,Path}};
+parse_address(Host) ->
+  case inet:parse_address(Host) of
+    {ok, {_,_,_,_}=Addr} ->
+      {[],Addr};
+    {ok, {_,_,_,_,_,_,_,_}=Addr} ->
+      {[inet6],Addr};
+    {error, einval} ->
+      case inet:gethostbyname(Host) of
+        {ok,{hostent,_,_,inet,_, [IPv4Addr|_]}} ->
+          {[],IPv4Addr};
+        {ok, Any} ->
+          %?LOG_ERROR("Address ~p resolver unexpected result : ~p",[Host, Any]),
+          throw({unexpected_gethostbyname_answer,Any});
+        {error,nxdomain} ->
+          %?LOG_ERROR("Address ~p can't resolve",[Host]),
+          throw({bad_hostname,Host})
+      end;
+    {error, Err} ->
+      %?LOG_ERROR("Address ~p error: ~p",[Host, Err]),
+      throw({parse_addr,Err})
   end.
 

@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1]).
+-export([start_link/1,control/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -22,6 +22,49 @@
 start_link(Config) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Config], []).
 
+control(SocketPath, {addpeer, URI}) ->
+  control(SocketPath, 
+          #{
+            <<"arguments">> => #{<<"uri">> => URI},
+            <<"request">> => <<"addpeer">>
+           }
+         );
+
+control(SocketPath, Command) when is_atom(Command) ->
+  control(SocketPath, 
+          #{ <<"request">> => atom_to_binary(Command) }
+         );
+
+control(SocketPath, {removepeer, URI}) ->
+  control(SocketPath, 
+          #{
+            <<"arguments">> => #{<<"uri">> => URI},
+            <<"request">> => <<"removepeer">>
+           }
+         );
+
+control(SocketPath, Command) when is_map(Command) ->
+  case gen_tcp:connect({local,SocketPath}, 0, [local]) of
+    {error,Reason} ->
+      {error, Reason};
+    {ok, P} ->
+      ok = inet:setopts(P, [binary, {packet,raw},{active,true}]),
+      ok = gen_tcp:send(P, jsx:encode(Command)),
+      Resp=fun F(Acc) ->
+          receive
+            {tcp,P,Data} ->
+              F([Data|Acc]);
+            {tcp_closed,P} ->
+              gen_tcp:close(P),
+              Acc
+          after 5000 ->
+                  gen_tcp:close(P),
+                  Acc
+          end
+      end([]),
+      jsx:decode(list_to_binary(lists:reverse(Resp)),[return_maps])
+  end.
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -32,18 +75,35 @@ init([Config]) ->
                  false -> throw(no_yggstack_found);
                  L -> L
                end,
-    io:format("Config ~p~n",[Config]),
-    ok=file:write_file("_tmp_cfg",ygg:config_file(Config)),
+    {ok, Cwd} = file:get_cwd(),
+    ProxyPath=filename:join(Cwd,"yggstack.sock"),
+    ConfigPath=filename:join(Cwd,"yggstack.conf"),
+    ok=file:write_file(ConfigPath,ygg:config_file(Config)),
+    ExportPorts=lists:foldl(
+      fun({YggPort,LocalPort},A) ->
+          ["-remote-tcp", integer_to_list(YggPort)++":127.0.0.1:"++integer_to_list(LocalPort)|A]
+      end,[], maps:get(export,Config,[])),
+    case yggstack:control(filename:join(Cwd,"yggstack_admin.sock"),getself) of
+      {error, _} ->
+        io:format("ERR1~n"),
+        ok;
+      #{} ->
+        os:cmd("pkill -f "++filename:basename(ygg:executable())),
+        timer:sleep(1)
+    end,
     H=erlang:open_port(
         {spawn_executable, Executable},
-        [{args, ["-useconffile", "_tmp_cfg" ]},
+        [{args, ["-useconffile", ConfigPath, "-socks", ProxyPath|ExportPorts]},
+         exit_status,
          %eof,
-         binary,
-         stderr_to_stdout
+         stderr_to_stdout,
+         binary
         ]),
     erlang:link(H),
-    timer:sleep(200),
-    %ok=file:delete("_tmp_cfg"),
+    spawn(fun() ->
+              timer:sleep(1000),
+              ok=file:delete(ConfigPath)
+          end),
     {ok, #{handler=>H}}.
 
 handle_call(_Request, _From, State) ->
@@ -53,12 +113,41 @@ handle_cast(_Msg, State) ->
     logger:info("BV Unknown cast ~p", [_Msg]),
     {noreply, State}.
 
+handle_info({Port,{exit_status,Res}}, State=#{handler:=Port}) ->
+  logger:notice("yggstack terminated res ~w",[Res]),
+  {stop,
+   if Res==0 -> normal;
+      true -> timer:sleep(1000), {exit_status, Res} end,
+   State};
+
+handle_info({Port,{data,Text}}, State=#{handler:=Port,watchdog:=_}) ->
+  lists:foreach(
+    fun(S) ->
+        logger:info("yggstack> ~s~n",[S])
+    end,
+    binary:split(string:chomp(Text),<<"\n">>,[global])
+   ),
+  {noreply, State};
+
+handle_info({Port,{data,Text}}, State=#{handler:=Port}) when is_binary(Text) ->
+  Info=erlang:port_info(Port),
+  if Info == undefined ->
+       logger:info("yggstack> ~s~n",[string:chomp(Text)]),
+       {noreply, State};
+     true ->
+       OsPid=proplists:get_value(os_pid,Info),
+       true=is_integer(OsPid),
+       logger:info("yggstack up pid ~w",[OsPid]),
+       PID=yggstack_wdt:start_link(self(), OsPid),
+       handle_info({Port,{data,Text}}, State#{watchdog=>PID,pid=>OsPid})
+  end;
+
 handle_info(_Info, State) ->
-  io:format("Got info ~p~n",[_Info]),
-    {noreply, State}.
+  logger:info("Got info ~w ~w~n",[_Info, maps:keys(State)]),
+  {noreply, State}.
 
 terminate(_Reason, _State) ->
-    logger:info("Terminate blockvote ~p", [_Reason]),
+    logger:info("Terminate yggstack ~p", [_Reason]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -67,5 +156,4 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
 
