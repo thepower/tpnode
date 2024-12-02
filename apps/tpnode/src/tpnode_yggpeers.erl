@@ -83,7 +83,7 @@ peers() ->
   lists:foldl(
     fun(#{pubkey:=PK,hostname:=Addr,port:=Port},A) ->
         SPK=tpecdsa:shortpub(PK),
-        case SPK=/=Me of
+        case SPK==Me of
           true -> A;
           false -> 
             URI=uri_string:recompose(#{
