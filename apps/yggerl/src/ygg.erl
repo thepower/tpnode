@@ -1,7 +1,7 @@
 -module(ygg).
 -export([addr_for_key/1, test/0]).
 -export([example/0, config_file/1, nodepriv/1, executable/0, arch/0]).
--export([start_stack/1]).
+-export([start_stack/1, generate_priv/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -109,6 +109,37 @@ addr_for_key(<<Pubkey:32/binary>>) ->
   <<X:16/binary,_/binary>> = <<Prefix/binary, 0:1, Ones:7, R/binary>>,
   list_to_tuple([ P || <<P:16/integer>> <= X]).
 
+generate_priv(Diff) ->
+  generate_priv(Diff,{<<>>,0}).
+
+generate_priv(Diff,{_,PD}=Best) ->
+  {Pub,Priv} = crypto:generate_key(eddsa,ed25519),
+  HD=hashdiff(Pub),
+  if HD>14 orelse HD>=Diff ->
+       io:format("Pub ~s diff ~w pvt ~s best ~w~n",[
+                                            hex:encodex(Pub),
+                                            HD,
+                                            hex:encodex(Priv),
+                                            PD
+                                           ]);
+     true -> ok 
+  end,
+
+  if HD<Diff ->
+       generate_priv(Diff,
+                      case HD>PD of
+                        true ->
+                          {Priv,HD};
+                        false ->
+                          Best
+                      end);
+     true ->
+       hex:hexdump(Priv),
+       hex:hexdump(Pub),
+       io:format("IP address ~s~n",[inet:ntoa(addr_for_key(Pub))]),
+       Priv
+  end.
+
 test() ->
   [
    ?assertEqual(
@@ -120,4 +151,19 @@ test() ->
       "219:bb3f:fc6b:2586:1e37:5536:e2d6:30a"
      )
   ].
+
+intdiff(I) when I>0 andalso I<128 ->
+  intdiff(I bsl 1)+1;
+
+intdiff(_I) ->
+  0.
+
+hashdiff(<<0,_Rest/binary>>) ->
+  hashdiff(_Rest)+8;
+
+hashdiff(<<I:8/integer,_Rest/binary>>) ->
+  intdiff(I);
+
+hashdiff(_) ->
+  0.
 

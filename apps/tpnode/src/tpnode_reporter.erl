@@ -65,8 +65,9 @@ run(Opts) ->
                nokey ->
                    logger:error("Cannot report, key is not registered");
                Tx when is_map(Tx) ->
-                   {ok,TxID}=gen_server:call(txpool,txid),
-                   gen_server:cast(txqueue,{push_head,TxID,tx:pack(Tx)}),
+                   %{ok,TxID}=gen_server:call(txpool,txid),
+                   %gen_server:cast(txqueue,{push_head,TxID,tx:pack(Tx)}),
+                   {ok, TxID} = txpool:push_head(tx:pack(Tx)),
                    ?LOG_INFO("----[RUN TX ~s]----",[TxID]),
                    {ok, {TxID, Tx}};
                    %?LOG_INFO("Ignore tx yet"),
@@ -308,8 +309,13 @@ prepare(ToContract, Attributes, Opts) ->
               #{result:=return, bin:= <<1:256/big>>} ->
                   {ok,Address} = get_account(),
                   Seq=case mledger:get_kpv(Address,seq,[]) of
-                          {ok, ISeq} -> ISeq+1;
-                          undefined -> undefined
+                        {ok, ISeq} -> ISeq+1;
+                        undefined ->
+                          case mledger:get_kpv(Address,pubkey,[]) of
+                            {ok, _} -> 0;
+                            undefined ->
+                              undefined
+                          end
                       end,
                   if Seq==undefined ->
                          noledger;

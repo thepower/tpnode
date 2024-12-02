@@ -23,7 +23,7 @@ proxy_connect(P, ToHostStr, ToPort) when is_port(P),
           case gen_tcp:recv(P,5,5000) of
             {ok, <<_IP2, _IP3, _IP4, _Port:16/big>>} ->
               ok;
-            {ok,<<0,_:16/binary>>} ->
+            {ok,<<_:17/binary>>} ->
               ok;
             Other ->
               logger:info("other error ~p",[Other]),
@@ -33,7 +33,7 @@ proxy_connect(P, ToHostStr, ToPort) when is_port(P),
           case gen_tcp:recv(P,17,5000) of
             {ok, <<_IP2, _IP3, _IP4, _Port:16/big>>} ->
               ok;
-            {ok,<<0,_:16/binary>>} ->
+            {ok,<<_:17/binary>>} ->
               ok;
             Other ->
               logger:info("other error ~p",[Other]),

@@ -12,7 +12,7 @@
 
 -export([start_link/0]).
 -export([new_tx/1, get_pack/0, inbound_block/1, get_max_tx_size/0, get_max_pop_tx/0, pullx/3]).
--export([get_state/0, sort_txs/1]).
+-export([get_state/0, sort_txs/1, push_head/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -28,11 +28,32 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-new_tx(BinTX) ->
+push_head(BinTx) ->
+  case application:get_env(tpnode,replica,false) of
+    true ->
+      submit_remote(
+        application:get_env(tpnode,upstream,[]),
+        BinTx);
+    _ ->
+      {ok,TxID}=gen_server:call(txpool,txid),
+      ok=gen_server:cast(txqueue,{push_head,TxID,BinTx}),
+      {ok, TxID}
+  end.
+
+new_tx(BinTx) ->
   try
-    case tx:verify(BinTX) of
+    case tx:verify(BinTx) of
       {ok, _Tx} ->
-        gen_server:call(txpool, {new_tx, BinTX});
+        case application:get_env(tpnode,replica,false) of
+          true ->
+            %io:format("TX ~p~n",[_Tx]),
+            submit_remote(
+              application:get_env(tpnode,upstream,[]),
+              BinTx);
+            %{error, seed};
+          _ ->
+            gen_server:call(txpool, {new_tx, BinTx})
+        end;
       bad_sig ->
         {error, bad_sig};
       bad_keys ->
@@ -463,4 +484,10 @@ get_lbh(State) ->
 
 get_state() ->
   gen_server:call(?MODULE, state).
+
+submit_remote([URL|_]=_URLs, BinTx) ->
+  Res=tpapi2:submit_tx(URL,BinTx,[nowait]),
+  ?LOG_NOTICE("submit_remote res ~p",[Res]),
+  Res.
+
 

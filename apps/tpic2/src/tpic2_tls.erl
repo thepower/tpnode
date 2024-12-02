@@ -383,6 +383,11 @@ handle_msg(#{null:=<<"gen">>,
 handle_msg(#{null := <<"hello_ack">>}, State) ->
   State;
 
+handle_msg(#{null := <<"unknown_node">>}, State) ->
+  ?LOG_NOTICE("I was rejected by peer"),
+  ?LOG_INFO("State ~p~n",[State]),
+  exit({shutdown, rejected});
+
 handle_msg(Any,State) ->
   ?LOG_ERROR("Unknown message ~p",[Any]),
   State.
