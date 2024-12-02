@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1,control/2,control/1]).
+-export([start_link/1,control/2,control/1,add_peer/1,del_peer/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -21,6 +21,12 @@
 
 start_link(Config) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Config], []).
+
+add_peer(Url) ->
+  gen_server:call(?SERVER, {peer, add, Url}).
+
+del_peer(Url) ->
+  gen_server:call(?SERVER, {peer, add, Url}).
 
 control(SocketPath, {addpeer, URI}) ->
   control(SocketPath, 
@@ -107,7 +113,7 @@ init([#{admin:=AdminSocket}=Config]) ->
               timer:sleep(1000),
               ok=file:delete(ConfigPath)
           end),
-    {ok, #{handler=>H, socket=>AdminSocket,timer=>make_ref(),queue=>[]}}.
+    {ok, #{handler=>H, proxy=>ProxyPath, socket=>AdminSocket,timer=>make_ref(),queue=>[]}}.
 
 handle_call(socket, _From, #{socket:=S}=State) ->
   {reply, S, State};
@@ -179,7 +185,7 @@ handle_info({Port,{data,Text}}, State=#{handler:=Port,watchdog:=_}) ->
    ),
   {noreply, State};
 
-handle_info({Port,{data,Text}}, State=#{handler:=Port}) when is_binary(Text) ->
+handle_info({Port,{data,Text}}, State=#{proxy:=Proxy, handler:=Port}) when is_binary(Text) ->
   Info=erlang:port_info(Port),
   if Info == undefined ->
        logger:info("yggstack> ~s~n",[string:chomp(Text)]),
@@ -189,6 +195,7 @@ handle_info({Port,{data,Text}}, State=#{handler:=Port}) when is_binary(Text) ->
        true=is_integer(OsPid),
        logger:info("yggstack up pid ~w",[OsPid]),
        PID=yggstack_wdt:start_link(self(), OsPid),
+       application:set_env(tpnode,ygg_proxy,Proxy),
        handle_info({Port,{data,Text}}, State#{watchdog=>PID,pid=>OsPid})
   end;
 

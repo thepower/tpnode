@@ -50,13 +50,30 @@ connection_process(Parent, Host, Port, Opts) ->
            | tpic2:certificate()
           ],
 
+  Mode=case string:tokens(Host,".") of
+    [_,"pk","ygg"] ->
+           case application:get_env(tpnode,ygg_proxy) of
+             {ok, Path} ->
+               {socks5, Path};
+             undefined ->
+               normal
+           end;
+    _ ->
+      normal
+  end,
+
   {ConnHost,ConnPort,ConnOpts,ProxyTo}
-  = case application:get_env(tpic2,proxy_connect,undefined) of
-      undefined ->
+  = case {Mode,application:get_env(tpic2,proxy_connect,undefined)} of
+      {{socks5,ProxyPath},_} ->
+        {Opts1,NAddr}=parse_address(ProxyPath),
+        ?LOG_INFO("Connect to ~s:~w via proxy ~p:~w~n",
+                  [Host,Port,ProxyPath,0]),
+        {NAddr,0,Opts1,{Host, Port}};
+      {normal,undefined} ->
         {Opts1,NAddr}=parse_address(Host),
         ?LOG_INFO("Connect to ~s:~w~n",[Host,Port]),
         {NAddr, Port, Opts1, undefined};
-      {PHost,PPort} ->
+      {normal,{PHost,PPort}} ->
         {Opts1,NAddr}=parse_address(PHost),
         ?LOG_INFO("Connect to ~s:~w via proxy ~p:~w~n",
                    [Host,Port, PHost,PPort]),

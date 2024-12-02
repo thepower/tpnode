@@ -228,9 +228,13 @@ init([]) ->
                              peers=>Peers,
                              export=>tpnode:resolve_ports([{80,rpcport},{443,rpcsport},{1800,tpicport}])
                             },
-                    [ { yggstack,
-                        {ygg,start_stack,[YggArg]},
-                        permanent, 5000, worker, []}
+                    [
+                     {yggstack,
+                       {ygg,start_stack,[YggArg]},
+                       permanent, 5000, worker, []},
+                     {yggpeers,
+                      {tpnode_yggpeers,start_link,[]},
+                      permanent, 5000, worker, []}
                     ];
                   false ->
                     []

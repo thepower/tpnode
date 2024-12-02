@@ -189,6 +189,15 @@ h(<<"POST">>, #{ <<"call">>:=Call, <<"args">>:=Args, <<"from">>:=From,
       {500, [], <<"bad evm response">>}
   end;
 
+h(<<"GET">>, [<<"ygg">>, <<"getPeers">>], _Req) ->
+  {200, [], yggstack:control(getPeers)};
+h(<<"GET">>, [<<"ygg">>, <<"getself">>], _Req) ->
+  {200, [], yggstack:control(getself)};
+h(<<"GET">>, [<<"ygg">>, <<"gettree">>], _Req) ->
+  {200, [], yggstack:control(gettree)};
+h(<<"GET">>, [<<"ygg">>, <<"getsessions">>], _Req) ->
+  {200, [], yggstack:control(getsessions)};
+
 h(<<"GET">>, [<<"node">>, <<"status">>], Req) ->
   {ok,Chain}=chainsettings:get_setting(mychain),
   #{hash:=Hash,
