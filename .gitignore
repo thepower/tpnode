@@ -41,3 +41,4 @@ alpha
 genesis.txt
 *.erl_
 *.priv
+contracts/lib
