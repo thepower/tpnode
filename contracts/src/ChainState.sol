@@ -3,11 +3,14 @@ pragma solidity ^0.8.24;
 
 import "contracts/BronKerbosch.sol";
 import "contracts/access/Ownable.sol";
+import "contracts/access/StaticOwnable.sol";
 import "contracts/GetTx.sol";
 import "contracts/ChainFee.sol";
 import "contracts/ChainManagement.sol";
+import "contracts/IDManager.sol";
+import "contracts/Popcnt.sol";
 
-contract ChainState is Ownable {
+contract ChainState is StaticOwnable, IDManager, Popcnt {
   enum NodeKind {
     NODE_UNKNOWN,
     NODE_SEED,
@@ -28,10 +31,10 @@ contract ChainState is Ownable {
   mapping ( bytes pubkey => uint256 ) public node_ids;
   mapping ( uint256 id => bytes ) public node_keys;
   mapping ( uint256 id => NodeKind ) public node_kind;
-  uint8 public nodes;
+  uint256 public alive_mask;
   uint256 public consensus_mask;
-  uint8 public consensus_nodes;
-  uint8 public minsig;
+  uint8   public consensus_nodes;
+  uint8   public minsig;
 
   mapping ( uint256 height => uint256 ) public block_timestamp;
   mapping ( uint256 node_id => uint256 ) public last_height;
@@ -44,36 +47,54 @@ contract ChainState is Ownable {
 
   uint256 public calc_till;
 
-  //uint256 public constant MAX_BLOCK_TIME = 3600; //1 hour - maximum block interval
-  //uint256 public constant MAX_EPOCH_TIME = 3600*2; //2 hours - maximum epoch duration
-  uint256 public constant MAX_BLOCK_TIME = 300; //5 min - maximum block interval
-  uint256 public constant MAX_EPOCH_TIME = 300*2; //10 min - maximum epoch duration
-  //uint256 public constant EPOCH_BLOCKS = 100;
-  uint256 public constant EPOCH_BLOCKS = 20; //10 blocks epoch
-  //uint256 public constant REPORT_BLOCKS = 10;
+  ChainFee public chainfee;
+  mapping ( uint256 node_id => address ) public node_addr;
+
+  uint256 public MAX_BLOCK_TIME = 900; //15 min - maximum block interval
+  uint256 public MAX_EPOCH_TIME = 3600; //1hr min - maximum epoch duration
+  uint256 public EPOCH_BLOCKS = 100; //max 100 blocks in epoch
   uint256 public constant REPORT_BLOCKS = 10;
   uint256 public constant CALC_DELAY = REPORT_BLOCKS+2; //give 2 blocks extra time
   uint256 public constant STORE_CLIQUE_BLOCKS = 500;
 
-  ChainFee public chainfee;
-  mapping ( uint256 node_id => address ) public node_addr;
   bool public test_mode;
   ChainManagement public chainmgmt;
   mapping ( uint256 id => uint256 ) public node_stat;
   uint256 public next_mask;
 
+  uint256[995] private _padding; //padding up to 1023 slot
+
+  //start it at slot 1024
+  uint256[512] public alive_mask_history; //up to 512 epochs history of alive nodes mask
+  uint256[512] public consensus_mask_history; //up to 512 epochs history of consensus mask
+
   event NewEpoch (uint256,uint256,uint256,uint256);
   event Blk (uint256 indexed, uint256 indexed);
 
-  constructor(bool _selfreg, bytes[] memory initial_nodes) Ownable(msg.sender) {
+  constructor(bool _selfreg, bytes[] memory initial_nodes)
+    StaticOwnable(msg.sender)
+    IDManager(1,240) {
     self_registration=_selfreg;
     uint8 i=0;
     require(initial_nodes.length<16, "Start with lower amount of nodes");
-    for(i=0;i<initial_nodes.length;i++){
-      uint256 nodeid=_register(initial_nodes[i]);
-      _update_consensus(nodeid,true);
+    if(initial_nodes.length==0){
+      for(i=0;i<16;i++){
+        if (node_keys[i+1].length==32) {
+          require(i==alloc(i),"Cannot allocate exists node id");
+        }
+      }
+    }else{
+      for(i=0;i<initial_nodes.length;i++){
+        uint256 nodeid=_register(initial_nodes[i]);
+        _update_consensus(nodeid,true);
+      }
+      test_mode=false;
     }
-    test_mode=false;
+  }
+  function set_params(uint256 max_block_time, uint256 max_epoch_time, uint256 epoch_blocks) public onlyOwner {
+    MAX_BLOCK_TIME = max_block_time;
+    MAX_EPOCH_TIME = max_epoch_time;
+    EPOCH_BLOCKS = epoch_blocks;
   }
   function set_chainfee(address payable _new) public onlyOwner {
     chainfee=ChainFee(_new);
@@ -88,10 +109,16 @@ contract ChainState is Ownable {
   function allow_self_registration(bool allow) public onlyOwner {
     self_registration=allow;
   }
-  function newEpoch() public onlyOwner {
+  function newEpoch() public {
+    require(msg.sender==address(chainmgmt) ||
+            msg.sender == owner(),"permission denied");
     _newEpoch();
   }
   function _newEpoch() internal {
+    uint slot=epoch % 512;
+    alive_mask_history[slot]=alive_mask; //up to 512 epochs history of alive nodes mask
+    consensus_mask_history[slot]=consensus_mask; //up to 512 epochs history of consensus mask
+
     epoch+=1;
     epoch_last_start_blk=epoch_start_blk;
     epoch_start_blk = block.number+1;
@@ -181,6 +208,37 @@ contract ChainState is Ownable {
     return mask<<1;
   }
 
+  event ChainManagementFailed();
+  function _chainmgmt(uint256 cc_or, uint256 cc_and) internal {
+    if (address(chainmgmt) != address(0)){
+      uint show_epoch=5;
+      if (epoch<show_epoch) show_epoch=epoch;
+      uint256[] memory hist=new uint256[](show_epoch);
+      for(uint i=0;i<show_epoch;i++){
+        hist[i]=alive_mask_history[(epoch-i-1)%512];
+      }
+
+      (bool res, bytes memory result) = address(chainmgmt).call(
+        abi.encodeWithSignature("epoch_update(uint256,uint256,uint256,uint256,uint256[])",
+                                consensus_mask,cc_or,cc_and,alive_mask,hist)
+      );
+      if(res) {
+        (uint256 emergency_mask, uint256 new_next_mask) = abi.decode(result, (uint256, uint256));
+        emit NewMask(consensus_mask,emergency_mask,new_next_mask);
+        if(new_next_mask>0 && new_next_mask!=consensus_mask){
+          next_mask=new_next_mask;
+        }
+        if(emergency_mask>0 && emergency_mask!=consensus_mask){
+          consensus_mask=emergency_mask;
+          consensus_nodes=uint8(popcnt(emergency_mask));
+          minsig=(consensus_nodes/2)+1;
+        }
+      }else{
+        emit ChainManagementFailed();
+      }
+    }
+  }
+
   function _payout() internal returns (uint256) {
     /* _payout function description:
      * 1. Iterate over all blocks in the epoch
@@ -263,27 +321,8 @@ contract ChainState is Ownable {
       }
 
     }
-    if (address(chainmgmt) != address(0)){
-      //chainmgmt.epoch_update(consensus_mask,cc_or,cc_and);
-
-      (bool res, bytes memory result) = address(chainmgmt).call(
-        abi.encodeWithSignature("epoch_update(uint256,uint256,uint256)",
-                                consensus_mask,cc_or,cc_and)
-      );
-      if(res) {
-        (uint256 emergency_mask, uint256 new_next_mask) = abi.decode(result, (uint256, uint256));
-        emit NewMask(consensus_mask,emergency_mask,new_next_mask);
-        if(new_next_mask>0 && new_next_mask!=consensus_mask){
-          next_mask=new_next_mask;
-        }
-        if(emergency_mask>0 && emergency_mask!=consensus_mask){
-          consensus_mask=emergency_mask;
-          consensus_nodes=uint8(popcnt(emergency_mask));
-          minsig=(consensus_nodes/2)+1;
-        }
-      }
-    }
-
+    _chainmgmt(cc_or,cc_and);
+    
     epoch_payed=true;
     return 1;
   }
@@ -303,14 +342,14 @@ contract ChainState is Ownable {
     }
   }
 
-
   function _register(bytes memory shortkey) internal returns (uint256) {
     if(node_ids[shortkey]==0){
-      require(nodes<252,"maximum number of nodes reached");
-      nodes++;
-      node_ids[shortkey]=nodes;
-      node_keys[nodes]=shortkey;
-      emit RegisterNode(nodes,shortkey);
+      require(getAvailableLength()>0,"maximum number of nodes reached");
+      uint8 id=alloc();
+      require(id>0,"no more nodes available");
+      node_ids[shortkey]=id;
+      node_keys[id]=shortkey;
+      emit RegisterNode(id,shortkey);
     }
     return node_ids[shortkey];
   }
@@ -335,9 +374,8 @@ contract ChainState is Ownable {
   }
 
   function _update_consensus(uint256 nodeid, bool allow) private {
-    require(nodeid<254,"Incorrect node_id");
-    uint8 bit=uint8(nodeid);
-    uint256 node_mask=1<<bit;
+    require(is_allocated(uint8(nodeid)),"Incorrect node_id");
+    uint256 node_mask=1<<nodeid;
     if((node_mask & consensus_mask) == 0){
       require(allow,"incorrect update");
       consensus_nodes+=1;
@@ -351,7 +389,11 @@ contract ChainState is Ownable {
   }
 
   function register(bytes calldata nodekey) public returns (uint256) {
-    require(self_registration,"Self registration disabled");
+    require(self_registration ||
+            msg.sender==address(chainmgmt) ||
+            msg.sender == owner(),
+            "Self registration disabled"
+           );
     uint256 slice=nodekey.length-32;
     return _register(nodekey[slice:]);
   }
@@ -362,6 +404,25 @@ contract ChainState is Ownable {
     return _register(nodekey);
   }
 
+  function unregister() public {
+    bytes memory nodekey = GetTx(address(0xAFFFFFFFFF000002)).getTx().signatures[0].rawkey;
+    uint8 id=uint8(node_ids[nodekey]);
+    require(id>0,"unknown node");
+    require(node_kind[id]!=NodeKind.NODE_CONSENSUS,"Cannot unregister consensus node");
+    dealloc(uint8(id));
+  }
+
+  function unregister(bytes calldata nodekey) public {
+    require(msg.sender==address(chainmgmt) ||
+            msg.sender == owner(),
+            "Permission denied"
+           );
+    uint256 slice=nodekey.length-32;
+    uint256 nid=node_ids[nodekey[slice:]];
+    require(nid>0,"unknown node");
+    require(node_kind[nid]!=NodeKind.NODE_CONSENSUS,"Cannot unregister consensus node");
+    dealloc(uint8(nid));
+  }
 
   function node_id(bytes calldata nodekey) public view returns (uint256) {
     uint256 slice=nodekey.length-32;
@@ -386,6 +447,7 @@ contract ChainState is Ownable {
     require(nodeid>0,"unknown node");
     node_addr[nodeid]=msg.sender;
     res=new bool[](data.length);
+    alive_mask|=1<<uint8(nodeid);
     for(uint i=0;i<data.length;i++){
       res[i]=_updateData(nodeid, data[i]);
     }
@@ -396,6 +458,7 @@ contract ChainState is Ownable {
     require(nodeid>0,"unknown node");
     node_addr[nodeid]=msg.sender;
     res=new bool[](data.length);
+    alive_mask|=1<<uint8(nodeid);
     for(uint i=0;i<data.length;i++){
       res[i]=_updateData(nodeid, data[i]);
     }
@@ -415,6 +478,7 @@ contract ChainState is Ownable {
       if(height<epoch_start_blk) return false;
     else
       if(height<epoch_last_start_blk) return false;
+    alive_mask|=1<<uint8(from);
 
     uint8 cnt=blocknode_sigcnt[height];
     for(uint8 n=0;n<cnt;n++){ //already has report from the node
@@ -482,18 +546,6 @@ contract ChainState is Ownable {
     }else{
       node_stat[node]=(1<<251);
     }
-  }
-
-  function popcnt(uint256 value) public pure returns (uint256) {
-    uint256 count = 0;
-
-    // Brian Kernighan's algorithm: clear the least significant set bit until `value` becomes 0
-    while (value > 0) {
-      value &= (value - 1); // clears the lowest set bit
-      count++;
-    }
-
-    return count;
   }
 
   function _slice(
