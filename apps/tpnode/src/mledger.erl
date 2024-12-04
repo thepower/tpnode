@@ -573,8 +573,13 @@ apply_patch(Patches, Action) ->
 
 apply_patch(DBName, Patches, check) ->
   F=fun() ->
+        try
         NewHash=do_apply(DBName, Patches, undefined),
         throw({'abort',NewHash})
+        catch Ec:Ee:S ->
+                ?LOG_ERROR("Apply patch error ~p:~p @ ~p",[Ec,Ee,S]),
+                throw(failure)
+        end
     end,
   {aborted,{throw,{abort,NewHash}}}=rockstable:transaction(DBName,F),
   %io:format("Check hash ~p~n",[NewHash]),
