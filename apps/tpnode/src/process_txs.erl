@@ -327,7 +327,7 @@ process_tx(#{from:=From,
 			end,
 	case Allow of
 		false ->
-			?LOG_NOTICE("Deploy to address ~p unsuccess, address occuptied",[Address]),
+			?LOG_NOTICE("Deploy to address ~p unsuccess, address occupied",[Address]),
 			{1,<<>>,GasLimit,State0};
 		true ->
 			CD=contract_evm:tx_cd(Tx),
