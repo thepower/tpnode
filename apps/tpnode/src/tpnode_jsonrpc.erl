@@ -97,9 +97,9 @@ h(<<"eth_getTransactionReceipt">>,[TxHash0], _Context) ->
                   [] -> hex:encodex(<<0:2048/big>>);
                   [_|_] ->
                     Int=lists:foldl(
-                          fun([<<"evm">>,_To1, From, _Data, Topics],Acc) ->
-                              A1=eth_bloom:bloom_filter(From,Acc),
-                              lists:foldl(fun eth_bloom:bloom_filter/2, A1, Topics);
+                          fun([<<"evm">>, From, _To1, _Data, Topics],Acc) ->
+                              A1=eth_bloom:bloom_filter20(From,Acc),
+                              lists:foldl(fun eth_bloom:bloom_filter32/2, A1, Topics);
                              ([<<"evm:",_Reason/binary>>,_To,_From,_],Acc) ->
                               Acc
                           end,
@@ -356,17 +356,17 @@ h(<<"eth_getLogs">>, #{}=Map, _Context) ->
                  <<I:256/big>>
              end,
              case maps:get(<<"topics">>,Map,[]) of
-               N when is_binary(N) ->
-                 [N];
-               N when is_list(N) ->
-                 N
+               Nt when is_binary(Nt) ->
+                 [Nt];
+               Nt when is_list(Nt) ->
+                 Nt
              end
             ),
 
     Addresses=lists:map(
                 fun(T) ->
                     I=binary:decode_unsigned(hex:decode(T)),
-                    binary:encode_unsigned(I)
+                    <<I:160/big>>
                 end,
                 case maps:get(<<"address">>,Map,[]) of
                   N2 when is_binary(N2) ->
@@ -471,18 +471,31 @@ process_log2(Receipts, BloomRequired, Filter, Addr, #{blockhash:=BHash, blocknum
                 [] ->
                   true;
                 [Bloom|_] ->
-                  binary:decode_unsigned(Bloom) band BloomRequired == BloomRequired
+                  %io:format("Bloom2 cmp ~n~s with ~n~s~n",
+                  %          [
+                  %           hex:encodex(Bloom),
+                  %           hex:encodex(<<BloomRequired:2048/big>>)
+                  %          ]),
+                  %binary:decode_unsigned(Bloom) band BloomRequired == BloomRequired
+                  match_bloom(Bloom,BloomRequired)
               end,
         if Allow ->
              lists:foldl(
-                  fun([<<"evm">>, _ETo, EFrom, Data,Topics],Acc) ->
+                  fun([<<"evm">>, EFrom, _ETo, Data,TopicsS],Acc) ->
+                      Topics=lists:map(
+                               fun(TS) ->
+                                   <<(binary:decode_unsigned(TS)):256/big>>
+                               end, TopicsS),
+                      io:format("Addr ~p ~p~n",[EFrom,Addr]),
                       AddrFound=lists:member(EFrom,Addr) orelse Addr==[],
                       TopicFound=lists:foldl(
                                    fun(F,true) ->
+                                       io:format("Topic ~p~n~p~n",[Filter,Topics]),
                                        lists:member(F,Topics);
                                       (_,false) ->
                                        false
                                    end, true, Filter),
+                      io:format("AF ~w TF ~w~n",[AddrFound, TopicFound]),
                       if AddrFound andalso TopicFound ->
                            [{[
                               {address,b2hex(EFrom)},
@@ -814,7 +827,12 @@ eth_call([{Params},_Block,_Patched], _Context) ->
 
 search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt) ->
   T0=erlang:system_time(millisecond),
-  BloomRequired=lists:foldl(fun eth_bloom:bloom_filter/2, 0, Topics++Addresses),
+  BloomRequired=lists:foldl(fun eth_bloom:bloom_filter32/2,
+                            lists:foldl(
+                              fun eth_bloom:bloom_filter20/2,
+                              0,
+                              Addresses),
+                            Topics),
   {_,Res}=lists:foldl(
             fun
               (_,{Cnt,_}) when Cnt>MaxCnt ->
@@ -830,7 +848,7 @@ search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt) ->
                     Match=case proplists:get_value(<<"bloom">>,maps:get(roots,Hdr)) of
                             undefined -> true;
                             X when is_binary(X) ->
-                              binary:decode_unsigned(X) band BloomRequired == BloomRequired
+                              match_bloom(X,BloomRequired)
                           end,
                     if Match ->
                          Logs=process_log2(Reciept, BloomRequired, Topics, Addresses,
@@ -849,3 +867,15 @@ search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt) ->
 
             end, {0,[]}, lists:seq(FromBlock,ToBlock)),
   Res.
+
+match_bloom(Bloom, BloomRequired) when is_integer(BloomRequired) ->
+  binary:decode_unsigned(Bloom) band BloomRequired == BloomRequired;
+
+match_bloom(Bloom, BloomRequired) when is_list(BloomRequired) ->
+  lists:foldl(
+    fun (_,true) ->
+        true;
+        (RI,false) ->
+        match_bloom(Bloom, RI)
+    end, false, BloomRequired).
+
