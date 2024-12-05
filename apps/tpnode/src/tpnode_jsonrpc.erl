@@ -351,9 +351,15 @@ h(<<"eth_getLogs">>, #{}=Map, _Context) ->
           ok
     end,
     Topics=lists:map(
-             fun(T) ->
+             fun (T) when is_binary(T) ->
                  I=binary:decode_unsigned(hex:decode(T)),
-                 <<I:256/big>>
+                 <<I:256/big>>;
+                 (L) when is_list(L) ->
+                 lists:map(
+                   fun(T) when is_binary(T) ->
+                       I=binary:decode_unsigned(hex:decode(T)),
+                       <<I:256/big>>
+                   end, L)
              end,
              case maps:get(<<"topics">>,Map,[]) of
                Nt when is_binary(Nt) ->
@@ -477,7 +483,7 @@ process_log2(Receipts, BloomRequired, Filter, Addr, #{blockhash:=BHash, blocknum
                   %           hex:encodex(<<BloomRequired:2048/big>>)
                   %          ]),
                   %binary:decode_unsigned(Bloom) band BloomRequired == BloomRequired
-                  match_bloom(Bloom,BloomRequired)
+                  match_bloom(Bloom,BloomRequired) orelse true
               end,
         if Allow ->
              lists:foldl(
@@ -486,16 +492,8 @@ process_log2(Receipts, BloomRequired, Filter, Addr, #{blockhash:=BHash, blocknum
                                fun(TS) ->
                                    <<(binary:decode_unsigned(TS)):256/big>>
                                end, TopicsS),
-                      io:format("Addr ~p ~p~n",[EFrom,Addr]),
                       AddrFound=lists:member(EFrom,Addr) orelse Addr==[],
-                      TopicFound=lists:foldl(
-                                   fun(F,true) ->
-                                       io:format("Topic ~p~n~p~n",[Filter,Topics]),
-                                       lists:member(F,Topics);
-                                      (_,false) ->
-                                       false
-                                   end, true, Filter),
-                      io:format("AF ~w TF ~w~n",[AddrFound, TopicFound]),
+                      TopicFound=match_topics(Filter,Topics),
                       if AddrFound andalso TopicFound ->
                            [{[
                               {address,b2hex(EFrom)},
@@ -827,12 +825,18 @@ eth_call([{Params},_Block,_Patched], _Context) ->
 
 search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt) ->
   T0=erlang:system_time(millisecond),
-  BloomRequired=lists:foldl(fun eth_bloom:bloom_filter32/2,
-                            lists:foldl(
-                              fun eth_bloom:bloom_filter20/2,
-                              0,
-                              Addresses),
-                            Topics),
+  BloomRequired=case Topics of
+                  [[_|_]=Topic0s|_RestTopics] ->
+                    lists:foldl(
+                      fun eth_bloom:bloom_filter32/2,
+                      0,
+                      Topic0s);
+                  [_|_] ->
+                    lists:foldl(
+                      fun eth_bloom:bloom_filter32/2,
+                      0,
+                      Topics)
+                end,
   {_,Res}=lists:foldl(
             fun
               (_,{Cnt,_}) when Cnt>MaxCnt ->
@@ -848,7 +852,7 @@ search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt) ->
                     Match=case proplists:get_value(<<"bloom">>,maps:get(roots,Hdr)) of
                             undefined -> true;
                             X when is_binary(X) ->
-                              match_bloom(X,BloomRequired)
+                              match_bloom(X,BloomRequired) orelse true
                           end,
                     if Match ->
                          Logs=process_log2(Reciept, BloomRequired, Topics, Addresses,
@@ -879,3 +883,24 @@ match_bloom(Bloom, BloomRequired) when is_list(BloomRequired) ->
         match_bloom(Bloom, RI)
     end, false, BloomRequired).
 
+
+% match_topics(FilterRules, Event) -> true|false
+
+match_topics([],_) ->
+  true;
+match_topics(_,[]) ->
+  true;
+match_topics([Filter|_Rest],[Topic|_Topics]) when is_binary(Filter),
+                                                  Filter=/=Topic ->
+  false;
+match_topics([[]|Rest],[_|Topics]) -> %match any
+  match_topics(Rest,Topics);
+match_topics([Filter|Rest],[Topic|Topics]) when is_list(Filter) ->
+  case lists:member(Topic,Filter) of
+    true ->
+      match_topics(Rest,Topics);
+    false ->
+      false
+  end;
+match_topics([Filter|Rest],[Topic|Topics]) when Filter==Topic ->
+  match_topics(Rest,Topics).
