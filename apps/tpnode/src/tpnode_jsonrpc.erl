@@ -465,8 +465,8 @@ cmp_topic([_|_],[]) ->
     false.
 
 process_log2(Receipts, BloomRequired, Filter, Addr, #{blockhash:=BHash, blocknumber:=BHei}) ->
-  lists:filtermap(
-    fun([TxNo,TxID,TxHash,Res,Ret,Gas,_Gas2,Logs|Other]) ->
+  lists:foldl(
+    fun([TxNo,TxID,TxHash,_Res,_Ret,_Gas,_Gas2,Logs|Other],AccT) ->
         Allow=case Other of
                 [] ->
                   true;
@@ -474,35 +474,42 @@ process_log2(Receipts, BloomRequired, Filter, Addr, #{blockhash:=BHash, blocknum
                   binary:decode_unsigned(Bloom) band BloomRequired == BloomRequired
               end,
         if Allow ->
-             R1=lists:foldl(
-                  fun([<<"evm">>, EFrom, To, Data,Topics],Acc) ->
-                      [{[
-                         {address,b2hex(EFrom)},
-                         {blockHash, b2hex(BHash)},
-                         {blockNumber, i2hex(BHei)},
-                         {transactionId, TxID},
-                         {transactionHash, b2hex(TxHash)},
-                         {transactionIndex, i2hex(TxNo)},
-                         {logIndex, i2hex(1)},
-                         {data, b2hex(Data)},
-                         {topics, [ b2hex(ET) || ET <- Topics]},
-                         {removed, false}
-                        ]}|Acc];
+             lists:foldl(
+                  fun([<<"evm">>, _ETo, EFrom, Data,Topics],Acc) ->
+                      AddrFound=lists:member(EFrom,Addr) orelse Addr==[],
+                      TopicFound=lists:foldl(
+                                   fun(F,true) ->
+                                       lists:member(F,Topics);
+                                      (_,false) ->
+                                       false
+                                   end, true, Filter),
+                      if AddrFound andalso TopicFound ->
+                           [{[
+                              {address,b2hex(EFrom)},
+                              {blockHash, b2hex(BHash)},
+                              {blockNumber, i2hex(BHei)},
+                              {transactionId, TxID},
+                              {transactionHash, b2hex(TxHash)},
+                              {transactionIndex, i2hex(TxNo)},
+                              {logIndex, i2hex(1)},
+                              {data, b2hex(Data)},
+                              {topics, [ b2hex(ET) || ET <- Topics]},
+                              {removed, false}
+                             ]}|Acc];
+                         true ->
+                           Acc
+                      end;
                      (_,Acc) ->
                       Acc
                   end,
-                  [], Logs),
-             if(R1==[]) ->
-                 false;
-               true ->
-                 {true, R1}
-             end;
+                  AccT, Logs);
            true ->
-             false
+             AccT
         end;
-       (_) ->
-        false
+       (_,AccT) ->
+        AccT
     end,
+    [],
     Receipts);
 
 process_log2([],_Bloom,_Filter,_Addr,_) ->
