@@ -101,7 +101,7 @@ h(<<"eth_getTransactionReceipt">>,[TxHash0], _Context) ->
                               A1=eth_bloom:bloom_filter(From,Acc),
                               lists:foldl(fun eth_bloom:bloom_filter/2, A1, Topics);
                              ([<<"evm:",_Reason/binary>>,_To,_From,_],Acc) ->
-                              Acc 
+                              Acc
                           end,
                           0,
                           Logs),
@@ -203,64 +203,12 @@ h(<<"eth_getCode">>,[Address, Block], _Context) ->
             b2hex(<<>>)
     end;
 
-h(<<"eth_estimateGas">>,[{Params}|_OptionalBlock], _Context) ->
-  %[{<<"from">>,<<"0xdda0e313ec6db199d1292ee536556ef3e1cadbab">>},{<<"value">>,<<"0x0">>},{<<"gasPrice">>,<<"0x1">>},{<<"data">>,<<"0x">>},{<<"to">>,<<"0xaa153647a1e5ec44f3407413e39996838d2cc032">>}]
-   %    #{result:=revert, bin:=Bin}=_es ->
-    %    ?LOG_INFO("Res revert"),
-    %        throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(Bin)});
-    %    #{bin:=Bin}=_es ->
-    %    ?LOG_INFO("Res ok"),
-    %        hex:encodex(Bin);
-    %    _Err ->
-    %    ?LOG_INFO("Res err: ~p",[_Err]),
-    %        throw({jsonrpc2, 10000, <<"evm_run unexpected result">>})
-    %end;
-    %i2hex(210000);
-    Gas=2000000,
-    To=try
-         decode_addr(proplists:get_value(<<"to">>,Params))
-       catch error:function_clause ->
-               <<>>
-       end,
-    Data=hex:decode(proplists:get_value(<<"data">>,Params)),
-    From=decode_addr(proplists:get_value(<<"from">>,Params,null),null,<<0>>),
-    S0=process_txs:new_state(fun mledger:getfun/2, mledger),
-    PTX=case To of
-          <<>> -> %deploy
-            Tx=tx:construct_tx(#{from=>From,
-                                 seq=>1,
-                                 kind=>deploy,
-                                 txext=>#{
-                                          "code"=>Data,
-                                          "vm"=>"evm"
-                                         },
-                                 ver=>2,
-                                 t=>0,
-                                 payload=>[]
-                                }),
-            process_txs:process_tx(Tx, Gas, S0#{cur_tx=>Tx},#{});
-          _ -> %generic
-            Tx=tx:construct_tx(
-                 #{ver=>2,
-                   kind=>generic,
-                   from=>From,
-                   to=>To,
-                   payload=>[],
-                   seq=>1,
-                   t=>erlang:system_time(second)}),
-            process_txs:process_itx(From,
-                                    To,
-                                    0,
-                                    Data,
-                                    Gas,
-                                    S0#{cur_tx=>Tx},
-                                    [])
-        end,
-
+h(<<"eth_estimateGas">>,[_Params,_Block,_Patched]=Params, _Context) ->
+    PTX=eth_call(Params, _Context),
     case PTX of
-      {1,_RetData,GasLeft,_} ->
+      {1,_RetData,GasUsed,_} ->
         ?LOG_INFO("Ret ~w~n",[_RetData]),
-        i2hex(Gas-GasLeft+21000);
+        i2hex((GasUsed)+21000);
       {0,RetData, _GasLeft, _} ->
         throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(RetData)});
       _Err ->
@@ -268,42 +216,37 @@ h(<<"eth_estimateGas">>,[{Params}|_OptionalBlock], _Context) ->
             throw({jsonrpc2, 10000, <<"evm_run unexpected result">>})
     end;
 
-h(<<"eth_call">>,[{Params},_Block], _Context) ->
-    %?LOG_INFO("Got req for eth_call arg1 ~p",[Params]),
-    To=try
-         decode_addr(proplists:get_value(<<"to">>,Params))
-       catch error:function_clause ->
-               throw({jsonrpc2, 32000, <<"missing trie node">>})
-       end,
-    Data=hex:decode(proplists:get_value(<<"data">>,Params)),
-    From=decode_addr(proplists:get_value(<<"from">>,Params,null),null,<<0>>),
-    S0=process_txs:new_state(fun mledger:getfun/2, mledger),
-    case process_txs:process_itx(From,
-                                 To,
-                                 0,
-                                 Data,
-                                 2000000,
-                                 S0#{cur_tx=>tx:construct_tx(
-                                               #{ver=>2,
-                                                 kind=>generic,
-                                                 from=>From,
-                                                 to=>To,
-                                                 payload=>[],
-                                                 seq=>1,
-                                                 t=>erlang:system_time(second)})
-                                    },
-                                 []) of
-      {1,RetData,_GasLeft,_} ->
-        hex:encodex(RetData);
-      {0,RetData, _GasLeft, _} ->
-        throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(RetData)});
-      _Err ->
-        ?LOG_INFO("Res err: ~p",[_Err]),
-            throw({jsonrpc2, 10000, <<"evm_run unexpected result">>})
-    end;
+h(<<"eth_call">>,[_Params,_Block,_Patched]=Params, _Context) ->
+  PTX=eth_call(Params, _Context),
+  case PTX of
+    {1,RetData,GasUsed,_} ->
+      ?LOG_INFO("Gas burned ~w",[GasUsed]),
+      hex:encodex(RetData);
+    {0,RetData, _GasLeft, _} ->
+      throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(RetData)});
+    _Err ->
+      ?LOG_INFO("Res err: ~p",[_Err]),
+      throw({jsonrpc2, 10000, <<"evm_run unexpected result">>})
+  end;
 
-h(<<"eth_call">>,_, _Context) ->
-  ?LOG_INFO("err: eth_call"),
+h(<<"eth_call">>,[{Params},_Block], _Context) ->
+  h(<<"eth_call">>,[{Params},_Block,{[]}], _Context);
+
+h(<<"eth_call">>,[{Params}], _Context) ->
+  h(<<"eth_call">>,[{Params},<<"latest">>,{[]}], _Context);
+
+h(<<"eth_call">>,_Args, _Context) ->
+  ?LOG_INFO("err: eth_call ~p",[_Args]),
+  throw({jsonrpc2, 32000, <<"incorrect arguments">>});
+
+h(<<"eth_estimateGas">>,[{Params},_Block], _Context) ->
+  h(<<"eth_estimateGas">>,[{Params},_Block,{[]}], _Context);
+
+h(<<"eth_estimateGas">>,[{Params}], _Context) ->
+  h(<<"eth_estimateGas">>,[{Params},<<"latest">>,{[]}], _Context);
+
+h(<<"eth_estimateGas">>,_Args, _Context) ->
+  ?LOG_INFO("err: eth_call ~p",[_Args]),
   throw({jsonrpc2, 32000, <<"incorrect arguments">>});
 
 h(<<"eth_getBlockByHash">>,[Hash|Details], Context) ->
@@ -407,42 +350,33 @@ h(<<"eth_getLogs">>, #{}=Map, _Context) ->
       true ->
           ok
     end,
-    Topics=[ hex2bin(T) || T <-
-                           case maps:get(<<"topics">>,Map,[]) of
-                             N when is_binary(N) ->
-                               [N];
-                             N when is_list(N) ->
-                               N
-                           end
-           ],
-    Addresses=[ hex2bin(A) || A <-
-                              case maps:get(<<"address">>,Map,[]) of
-                                N when is_binary(N) ->
-                                  [N];
-                                N when is_list(N) ->
-                                  N
-                              end ],
-    T0=erlang:system_time(millisecond),
-    BloomRequired=lists:foldl(fun eth_bloom:bloom_filter/2, 0, Topics++Addresses),
-    {_,Res}=lists:foldl(
-              fun
-                  (_,{Cnt,_}) when Cnt>10000 ->
-                      throw({jsonrpc2, 32005, <<"query returned more than 10000 results">>});
-                  (Number,{Cnt,Acc}) ->
-                      T1=erlang:system_time(millisecond),
-                      if(T1-T0) > 10000 ->
-                            throw({jsonrpc2, 32005, <<"query timeout exceeded">>});
-                        true -> ok
-                      end,
-                      Block=logs_db:get(Number),
-                      if is_map(Block) ->
-                             Logs=process_log(Block, Topics, Addresses),
-                             NC=length(Acc),
-                             {Cnt+NC, Acc++Logs};
-                         true ->
-                             {Cnt,Acc}
-                      end
-              end, {0,[]}, lists:seq(FromBlock,ToBlock)),
+    Topics=lists:map(
+             fun(T) ->
+                 I=binary:decode_unsigned(hex:decode(T)),
+                 <<I:256/big>>
+             end,
+             case maps:get(<<"topics">>,Map,[]) of
+               N when is_binary(N) ->
+                 [N];
+               N when is_list(N) ->
+                 N
+             end
+            ),
+
+    Addresses=lists:map(
+                fun(T) ->
+                    I=binary:decode_unsigned(hex:decode(T)),
+                    binary:encode_unsigned(I)
+                end,
+                case maps:get(<<"address">>,Map,[]) of
+                  N2 when is_binary(N2) ->
+                    [N2];
+                  N2 when is_list(N2) ->
+                    N2
+                end
+               ),
+
+    Res=search_log(Topics, Addresses, FromBlock, ToBlock, 20000),
     Res;
 
 h(<<"eth_sendTransaction">>, [{Param}|_], _Context) ->
@@ -529,6 +463,51 @@ cmp_topic([],_) ->
     true;
 cmp_topic([_|_],[]) ->
     false.
+
+process_log2(Receipts, BloomRequired, Filter, Addr, #{blockhash:=BHash, blocknumber:=BHei}) ->
+  lists:filtermap(
+    fun([TxNo,TxID,TxHash,Res,Ret,Gas,_Gas2,Logs|Other]) ->
+        Allow=case Other of
+                [] ->
+                  true;
+                [Bloom|_] ->
+                  binary:decode_unsigned(Bloom) band BloomRequired == BloomRequired
+              end,
+        if Allow ->
+             R1=lists:foldl(
+                  fun([<<"evm">>, EFrom, To, Data,Topics],Acc) ->
+                      [{[
+                         {address,b2hex(EFrom)},
+                         {blockHash, b2hex(BHash)},
+                         {blockNumber, i2hex(BHei)},
+                         {transactionId, TxID},
+                         {transactionHash, b2hex(TxHash)},
+                         {transactionIndex, i2hex(TxNo)},
+                         {logIndex, i2hex(1)},
+                         {data, b2hex(Data)},
+                         {topics, [ b2hex(ET) || ET <- Topics]},
+                         {removed, false}
+                        ]}|Acc];
+                     (_,Acc) ->
+                      Acc
+                  end,
+                  [], Logs),
+             if(R1==[]) ->
+                 false;
+               true ->
+                 {true, R1}
+             end;
+           true ->
+             false
+        end;
+       (_) ->
+        false
+    end,
+    Receipts);
+
+process_log2([],_Bloom,_Filter,_Addr,_) ->
+    [].
+
 
 process_log(#{logs:=Logs}=Data, Filter, Addr) ->
     lists:filtermap(
@@ -783,3 +762,83 @@ show_tx(#{kind:=_,from:=From,seq:=Nonce}=Tx) ->
     <<"s">> => i2hex(1)
    }.
 
+eth_call([{Params},_Block,_Patched], _Context) ->
+    To=decode_addr(proplists:get_value(<<"to">>,Params,null),null,<<>>),
+    Data=hex:decode(proplists:get_value(<<"data">>,Params)),
+    From=decode_addr(proplists:get_value(<<"from">>,Params,null),null,<<0>>),
+    S0=process_txs:new_state(fun mledger:getfun/2, mledger),
+    Gas=2000000,
+    R0=case To of
+      <<>> -> %deploy
+        Tx=tx:construct_tx(#{from=>From,
+                             seq=>1,
+                             kind=>deploy,
+                             txext=>#{
+                                      "code"=>Data,
+                                      "vm"=>"evm"
+                                     },
+                             ver=>2,
+                             t=>0,
+                             payload=>[]
+                            }),
+        process_txs:process_tx(Tx, Gas, S0#{cur_tx=>Tx},#{});
+      _ -> %generic
+        Tx=tx:construct_tx(
+             #{ver=>2,
+               kind=>generic,
+               from=>From,
+               to=>To,
+               payload=>[],
+               seq=>1,
+               t=>erlang:system_time(second)}),
+        process_txs:process_itx(From,
+                                To,
+                                0,
+                                Data,
+                                Gas,
+                                S0#{cur_tx=>Tx},
+                                [])
+    end,
+    case R0 of
+      {Code,RetData,GasLeft,S1} ->
+        {Code,RetData,Gas-GasLeft,S1};
+      Any -> Any
+    end.
+
+search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt) ->
+  T0=erlang:system_time(millisecond),
+  BloomRequired=lists:foldl(fun eth_bloom:bloom_filter/2, 0, Topics++Addresses),
+  {_,Res}=lists:foldl(
+            fun
+              (_,{Cnt,_}) when Cnt>MaxCnt ->
+                throw({jsonrpc2, 32005, <<"query returned too much results">>});
+              (Number,{Cnt,Acc}) ->
+                T1=erlang:system_time(millisecond),
+                if(T1-T0) > 10000 ->
+                    throw({jsonrpc2, 32005, <<"query timeout exceeded">>});
+                  true -> ok
+                end,
+                case blockchain_reader:get_block(Number) of
+                  #{header:=Hdr,receipt:=Reciept,hash:=Hash} ->
+                    Match=case proplists:get_value(<<"bloom">>,maps:get(roots,Hdr)) of
+                            undefined -> true;
+                            X when is_binary(X) ->
+                              binary:decode_unsigned(X) band BloomRequired == BloomRequired
+                          end,
+                    if Match ->
+                         Logs=process_log2(Reciept, BloomRequired, Topics, Addresses,
+                                           #{
+                                             blockhash=>Hash,
+                                             blocknumber=>maps:get(height,Hdr)
+                                            }),
+                         NC=length(Acc),
+                         {Cnt+NC, Acc++Logs};
+                       true ->
+                         {Cnt,Acc}
+                    end;
+                  _ ->
+                    {Cnt,Acc}
+                end
+
+            end, {0,[]}, lists:seq(FromBlock,ToBlock)),
+  Res.
