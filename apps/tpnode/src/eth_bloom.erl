@@ -1,5 +1,5 @@
 -module(eth_bloom).
--export([bloom_filter/2]).
+-export([bloom_filter/2, bloom_filter20/2, bloom_filter32/2]).
 
 %% We define the Bloom filter function, M, to reduce a log
 %% entry into a single 256-byte hash:
@@ -24,6 +24,17 @@ bloom_filter(Data, Filter) ->
     Hash = contract_evm_abi:keccak(Data),
     Bits = bloom_bits(Hash),
     Filter bor Bits.
+
+bloom_filter20(Data, Filter) when 20 >= size(Data) ->
+    Hash = contract_evm_abi:keccak(<<0:((20-size(Data))*8)/big, Data/binary>>),
+    Bits = bloom_bits(Hash),
+    Filter bor Bits.
+
+bloom_filter32(Data, Filter) when 32 >= size(Data) ->
+    Hash = contract_evm_abi:keccak(<<0:((32-size(Data))*8)/big, Data/binary>>),
+    Bits = bloom_bits(Hash),
+    Filter bor Bits.
+
 
 bloom_bits(Hash) ->
     {Bit1, Hash1} = bloom_bit(Hash),
