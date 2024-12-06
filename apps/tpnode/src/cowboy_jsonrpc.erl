@@ -17,7 +17,7 @@ init(Req0, {Target, Opts}) ->
         {ok, ReqBody, Req1} = cowboy_req:read_body(Req0),
         case jsonrpc2:handle(ReqBody, {fun Target:handle/3, QS}, fun jiffy:decode/1, fun jiffy:encode/1) of
           {reply, RespBin} ->
-            {ok, cowboy_req:reply(200, #{}, RespBin, do_cors(Req1)), Opts}
+            {ok, cowboy_req:reply(200, #{}, RespBin, do_cors(do_content_type(Req1))), Opts}
         end;
       <<"OPTIONS">> ->
         {ok, cowboy_req:reply(200, #{}, <<>>, do_cors(Req0)), Opts};
@@ -31,6 +31,9 @@ init(Req0, {Target, Opts}) ->
       _Any ->
         {ok, cowboy_req:reply(400, #{}, <<"Bad request">>, Req0), Opts}
     end.
+
+do_content_type(Req0) ->
+  cowboy_req:set_resp_header(<<"content-type">>,<<"application/json">>,Req0).
 
 do_cors(Req0) ->
   Origin=cowboy_req:header(<<"origin">>, Req0, <<"*">>),
