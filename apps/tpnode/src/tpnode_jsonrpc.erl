@@ -447,7 +447,7 @@ h(Method,_Params, _Context) ->
   throw(method_not_found).
 
 b2hex(B) when is_binary(B) ->
-    <<"0x",(binary:encode_hex(B))/binary>>.
+    <<"0x",(string:lowercase(binary:encode_hex(B)))/binary>>.
 
 i2hex(I) when is_integer(I) ->
     <<"0x",(string:lowercase(integer_to_binary(I,16)))/binary>>.
@@ -487,33 +487,37 @@ process_log2(Receipts, BloomRequired, Filter, Addr, #{blockhash:=BHash, blocknum
               end,
         if Allow ->
              lists:foldl(
-                  fun([<<"evm">>, EFrom, _ETo, Data,TopicsS],Acc) ->
-                      Topics=lists:map(
-                               fun(TS) ->
-                                   <<(binary:decode_unsigned(TS)):256/big>>
-                               end, TopicsS),
-                      AddrFound=lists:member(EFrom,Addr) orelse Addr==[],
-                      TopicFound=match_topics(Filter,Topics),
-                      if AddrFound andalso TopicFound ->
-                           [{[
-                              {address,b2hex(EFrom)},
-                              {blockHash, b2hex(BHash)},
-                              {blockNumber, i2hex(BHei)},
-                              {transactionId, TxID},
-                              {transactionHash, b2hex(TxHash)},
-                              {transactionIndex, i2hex(TxNo)},
-                              {logIndex, i2hex(1)},
-                              {data, b2hex(Data)},
-                              {topics, [ b2hex(ET) || ET <- Topics]},
-                              {removed, false}
-                             ]}|Acc];
-                         true ->
-                           Acc
-                      end;
-                     (_,Acc) ->
-                      Acc
-                  end,
-                  AccT, Logs);
+               fun([<<"evm">>, EFrom, _ETo, Data,TopicsS],Acc) ->
+                   case lists:member(EFrom,Addr) orelse Addr==[] of
+                     true ->
+                       Topics=lists:map(
+                                fun(TS) ->
+                                    <<(binary:decode_unsigned(TS)):256/big>>
+                                end, TopicsS),
+                       TopicFound=match_topics_pi(Filter,Topics),
+                       if TopicFound ->
+                            [{[
+                               {address,b2hex(EFrom)},
+                               {blockHash, b2hex(BHash)},
+                               {blockNumber, i2hex(BHei)},
+                               {transactionId, TxID},
+                               {transactionHash, b2hex(TxHash)},
+                               {transactionIndex, i2hex(TxNo)},
+                               {logIndex, i2hex(1)},
+                               {data, b2hex(Data)},
+                               {topics, [ b2hex(ET) || ET <- Topics]},
+                               {removed, false}
+                              ]}|Acc];
+                          true ->
+                            Acc
+                       end;
+                     false ->
+                       Acc
+                   end;
+                  (_,Acc) ->
+                   Acc
+               end,
+               AccT, Logs);
            true ->
              AccT
         end;
@@ -884,7 +888,34 @@ match_bloom(Bloom, BloomRequired) when is_list(BloomRequired) ->
     end, false, BloomRequired).
 
 
-% match_topics(FilterRules, Event) -> true|false
+% match_topic_pi(FilterRules, EventTopics) -> true|false
+
+match_topics_pi([],_) ->
+  true;
+match_topics_pi([Filter|Rest],Topics) when is_binary(Filter) ->
+  case lists:member(Filter,Topics) of
+    true ->
+      match_topics_pi(Rest,Topics);
+    false ->
+      false
+  end;
+match_topics_pi([[]|Rest],Topics) -> %match any
+  match_topics_pi(Rest,Topics);
+match_topics_pi([Filter|Rest],Topics) when is_list(Filter) ->
+  case lists:foldl(
+         fun(_,true) ->
+             true;
+            (Filter1,false) ->
+             lists:member(Filter1,Topics)
+         end, false, Filter) of
+    true ->
+      match_topics_pi(Rest,Topics);
+    false ->
+      false
+  end.
+
+
+% match_topics(FilterRules, EventTopics) -> true|false
 
 match_topics([],_) ->
   true;
