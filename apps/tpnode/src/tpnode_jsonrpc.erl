@@ -318,7 +318,7 @@ h(<<"eth_gasPrice">>,[], _Context) ->
   end;
 
 h(<<"eth_getLogs">>,[{PList}], _Context) ->
-    handle(<<"eth_getLogs">>,maps:from_list(PList));
+    handle(<<"eth_getLogs">>,maps:from_list(PList), _Context);
 
 h(<<"eth_getLogs">>, #{<<"blockHash">>:=HexBlockHash}=Map, _Context) ->
   %?LOG_INFO("eth_getLogs"),
@@ -332,7 +332,7 @@ h(<<"eth_getLogs">>, #{<<"blockHash">>:=HexBlockHash}=Map, _Context) ->
     logger:info("eth_getLogs ~p(~p)~n",[Topics,BlockHash]),
     process_log(Block,Topics,Addresses);
 
-h(<<"eth_getLogs">>, #{}=Map, _Context) ->
+h(<<"eth_getLogs">>, #{}=Map, Context) ->
   %?LOG_INFO("eth_getLogs"),
     #{header:=#{height:=LBH}}=blockchain:last_permanent_meta(),
     FromBlock=case maps:get(<<"fromBlock">>,Map,undefined) of
@@ -351,7 +351,9 @@ h(<<"eth_getLogs">>, #{}=Map, _Context) ->
           ok
     end,
     Topics=lists:map(
-             fun (T) when is_binary(T) ->
+             fun (null) ->
+                 null;
+                 (T) when is_binary(T) ->
                  I=binary:decode_unsigned(hex:decode(T)),
                  <<I:256/big>>;
                  (L) when is_list(L) ->
@@ -382,7 +384,13 @@ h(<<"eth_getLogs">>, #{}=Map, _Context) ->
                 end
                ),
 
-    Res=search_log(Topics, Addresses, FromBlock, ToBlock, 20000),
+    EthMatch = case Context of
+                 #{<<"pwrmatch">> := _} ->
+                   false;
+                 _ ->
+                   true
+               end,
+    Res=search_log(Topics, Addresses, FromBlock, ToBlock, 20000, EthMatch),
     Res;
 
 h(<<"eth_sendTransaction">>, [{Param}|_], _Context) ->
@@ -470,7 +478,10 @@ cmp_topic([],_) ->
 cmp_topic([_|_],[]) ->
     false.
 
-process_log2(Receipts, BloomRequired, Filter, Addr, #{blockhash:=BHash, blocknumber:=BHei}) ->
+process_log2(Receipts, BloomRequired, Filter, Addr,
+             #{blockhash:=BHash,
+               blocknumber:=BHei,
+               ethmatch:=EthMatch }) ->
   lists:foldl(
     fun([TxNo,TxID,TxHash,_Res,_Ret,_Gas,_Gas2,Logs|Other],AccT) ->
         Allow=case Other of
@@ -494,7 +505,11 @@ process_log2(Receipts, BloomRequired, Filter, Addr, #{blockhash:=BHash, blocknum
                                 fun(TS) ->
                                     <<(binary:decode_unsigned(TS)):256/big>>
                                 end, TopicsS),
-                       TopicFound=match_topics_pi(Filter,Topics),
+                       TopicFound=if EthMatch ->
+                                    match_topics(Filter,Topics);
+                                     true ->
+                                    match_topics_pi(Filter,Topics)
+                                  end,
                        if TopicFound ->
                             [{[
                                {address,b2hex(EFrom)},
@@ -827,19 +842,23 @@ eth_call([{Params},_Block,_Patched], _Context) ->
       Any -> Any
     end.
 
-search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt) ->
+search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt, EthMatch) ->
   T0=erlang:system_time(millisecond),
   BloomRequired=case Topics of
-                  [[_|_]=Topic0s|_RestTopics] ->
-                    lists:foldl(
+                  [[_|_]=Topic0s|RestTopics] ->
+                    ExtraBloom=lists:foldl(
                       fun eth_bloom:bloom_filter32/2,
                       0,
-                      Topic0s);
+                      [ T || T <- RestTopics, is_binary(T) ]),
+                    lists:foldl(
+                      fun eth_bloom:bloom_filter32/2,
+                      ExtraBloom,
+                      [ T || T <- Topic0s, is_binary(T) ]);
                   [_|_] ->
                     lists:foldl(
                       fun eth_bloom:bloom_filter32/2,
                       0,
-                      Topics)
+                      [ T || T <- Topics, is_binary(T) ])
                 end,
   {_,Res}=lists:foldl(
             fun
@@ -862,7 +881,8 @@ search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt) ->
                          Logs=process_log2(Reciept, BloomRequired, Topics, Addresses,
                                            #{
                                              blockhash=>Hash,
-                                             blocknumber=>maps:get(height,Hdr)
+                                             blocknumber=>maps:get(height,Hdr),
+                                             ethmatch=>EthMatch
                                             }),
                          NC=length(Acc),
                          {Cnt+NC, Acc++Logs};
@@ -901,6 +921,8 @@ match_topics_pi([Filter|Rest],Topics) when is_binary(Filter) ->
   end;
 match_topics_pi([[]|Rest],Topics) -> %match any
   match_topics_pi(Rest,Topics);
+match_topics_pi([null|Rest],Topics) -> %match any
+  match_topics_pi(Rest,Topics);
 match_topics_pi([Filter|Rest],Topics) when is_list(Filter) ->
   case lists:foldl(
          fun(_,true) ->
@@ -925,6 +947,8 @@ match_topics([Filter|_Rest],[Topic|_Topics]) when is_binary(Filter),
                                                   Filter=/=Topic ->
   false;
 match_topics([[]|Rest],[_|Topics]) -> %match any
+  match_topics(Rest,Topics);
+match_topics([null|Rest],[_|Topics]) -> %match any
   match_topics(Rest,Topics);
 match_topics([Filter|Rest],[Topic|Topics]) when is_list(Filter) ->
   case lists:member(Topic,Filter) of

@@ -1,5 +1,5 @@
 -module(eth_bloom).
--export([bloom_filter/2, bloom_filter20/2, bloom_filter32/2]).
+-export([bloom_filter/2, bloom_filter20/2, bloom_filter32/2, bloom_pop_bits/1]).
 
 %% We define the Bloom filter function, M, to reduce a log
 %% entry into a single 256-byte hash:
@@ -45,3 +45,14 @@ bloom_bits(Hash) ->
 
 bloom_bit(<<Bits:16/integer, Rest/bitstring>>) ->
     {Bits band 2047, Rest}.
+
+bloom_pop_bits(Bloom) ->
+  pop_bits(Bloom,0,[]).
+
+pop_bits(_,2048,A) -> A;
+pop_bits(0,_,A) -> A;
+pop_bits(I,N,A) when I band 1 == 1 ->
+  pop_bits(I bsr 1, N+1,[N|A]);
+pop_bits(I,N,A) ->
+  pop_bits(I bsr 1, N+1,A).
+
