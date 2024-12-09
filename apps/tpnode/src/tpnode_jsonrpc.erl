@@ -481,6 +481,7 @@ cmp_topic([_|_],[]) ->
 process_log2(Receipts, BloomRequired, Filter, Addr,
              #{blockhash:=BHash,
                blocknumber:=BHei,
+               timestamp:=Timestamp,
                ethmatch:=EthMatch }) ->
   lists:foldl(
     fun([TxNo,TxID,TxHash,_Res,_Ret,_Gas,_Gas2,Logs|Other],AccT) ->
@@ -488,13 +489,7 @@ process_log2(Receipts, BloomRequired, Filter, Addr,
                 [] ->
                   true;
                 [Bloom|_] ->
-                  %io:format("Bloom2 cmp ~n~s with ~n~s~n",
-                  %          [
-                  %           hex:encodex(Bloom),
-                  %           hex:encodex(<<BloomRequired:2048/big>>)
-                  %          ]),
-                  %binary:decode_unsigned(Bloom) band BloomRequired == BloomRequired
-                  match_bloom(Bloom,BloomRequired) orelse true
+                  match_bloom(Bloom,BloomRequired)
               end,
         if Allow ->
              lists:foldl(
@@ -515,6 +510,7 @@ process_log2(Receipts, BloomRequired, Filter, Addr,
                                {address,b2hex(EFrom)},
                                {blockHash, b2hex(BHash)},
                                {blockNumber, i2hex(BHei)},
+                               {blockTimestamp, i2hex(Timestamp)},
                                {transactionId, TxID},
                                {transactionHash, b2hex(TxHash)},
                                {transactionIndex, i2hex(TxNo)},
@@ -871,18 +867,31 @@ search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt, EthMatch) ->
                   true -> ok
                 end,
                 case blockchain_reader:get_block(Number) of
-                  #{header:=Hdr,receipt:=Reciept,hash:=Hash} ->
-                    Match=case proplists:get_value(<<"bloom">>,maps:get(roots,Hdr)) of
-                            undefined -> true;
+                  #{header:=Hdr=#{roots:=Roots},receipt:=Reciept,hash:=Hash} ->
+                    Timestamp=case proplists:get_value(mean_time,Roots) of
+                                undefined -> 0;
+                                <<T:64/big>> ->
+                                  T div 1000
+                              end,
+
+                    Match=case proplists:get_value(<<"bloom">>,Roots) of
+                            undefined ->
+                              case proplists:get_value(bloom,Roots) of
+                                undefined ->
+                                  true;
+                                X1 when is_binary(X1) ->
+                                  match_bloom(X1,BloomRequired)
+                              end;
                             X when is_binary(X) ->
-                              match_bloom(X,BloomRequired) orelse true
+                              match_bloom(X,BloomRequired)
                           end,
                     if Match ->
                          Logs=process_log2(Reciept, BloomRequired, Topics, Addresses,
                                            #{
                                              blockhash=>Hash,
                                              blocknumber=>maps:get(height,Hdr),
-                                             ethmatch=>EthMatch
+                                             ethmatch=>EthMatch,
+                                             timestamp=>Timestamp
                                             }),
                          NC=length(Acc),
                          {Cnt+NC, Acc++Logs};
