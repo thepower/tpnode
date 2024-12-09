@@ -1411,6 +1411,70 @@ evm_revert_test() ->
        ?assertMatch(true,true)
       ].
 
+eip211_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+      SkAddr=naddress:construct_public(1, OurChain, 4),
+      Code=eevm_asm:asm(
+              [calldatasize,
+               {push,1,1},
+               add,
+               {push,1,0},
+               mstore,
+               {push,1,32},
+               {push,1,0},
+               return]
+             ),
+
+      TX1=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr,
+              call=>#{
+                %function => "0x095EA7B3", %"approve(address,uint256)",
+                %function => "approve(address,uint256)",
+                %args => [Addr2,1024]
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+      TxList1=[
+               {<<"1log">>, maps:put(sigverify,#{valid=>1},TX1)}
+              ],
+      TestFun=fun(#{block:=#{receipt:=Rec,header:=Hdr}=_Block,
+                    emit:=_Emit,
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,Rec,Hdr}
+              end,
+      Ledger=[
+              {Addr1,
+               #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+              },
+              {SkAddr,
+               #{amount => #{<<"SK">> => 1},
+                 code => Code,
+                 vm => <<"evm">>
+                }
+              }
+             ],
+      {ok,Log,Rec,Hdr}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+    [
+     ?assertMatch([0,_,_,1,<<1:256/big>>|_], hd(Rec))
+    ].
+
+
 evm_log_test() ->
       OurChain=150,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
