@@ -451,8 +451,8 @@ handle_msg(#{null := <<"new_block">>,
         ok ->
            ok;
         {error,need_sync} ->
-          ?LOG_NOTICE("apply error, resynchronization needed"),
-          ok;
+          ?LOG_NOTICE("apply error, resynchronization needed, restarting repl_worker"),
+          throw(restart);
         _ ->
           ?LOG_INFO("apply error ~w",[R])
       end;
