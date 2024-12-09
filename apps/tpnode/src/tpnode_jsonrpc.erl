@@ -797,7 +797,7 @@ show_tx(#{kind:=_,from:=From,seq:=Nonce}=Tx) ->
 
 eth_call([{Params},_Block,_Patched], _Context) ->
     To=decode_addr(proplists:get_value(<<"to">>,Params,null),null,<<>>),
-    Data=hex:decode(proplists:get_value(<<"data">>,Params)),
+    Data=hex:decode(proplists:get_value(<<"data">>,Params,<<>>)),
     From=decode_addr(proplists:get_value(<<"from">>,Params,null),null,<<0>>),
     S0=process_txs:new_state(fun mledger:getfun/2, mledger),
     Gas=2000000,
