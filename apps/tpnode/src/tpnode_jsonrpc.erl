@@ -874,16 +874,21 @@ search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt, EthMatch) ->
                                   T div 1000
                               end,
 
-                    Match=case proplists:get_value(<<"bloom">>,Roots) of
+                    BlockBloom=case proplists:get_value(<<"bloom">>,Roots) of
                             undefined ->
                               case proplists:get_value(bloom,Roots) of
                                 undefined ->
-                                  true;
+                                  undefined;
                                 X1 when is_binary(X1) ->
-                                  match_bloom(X1,BloomRequired)
+                                  X1
                               end;
                             X when is_binary(X) ->
-                              match_bloom(X,BloomRequired)
+                                   X
+                          end,
+                    Match=case BlockBloom of
+                            undefined -> true;
+                            _ when is_binary(BlockBloom) ->
+                              match_bloom(BlockBloom,BloomRequired)
                           end,
                     if Match ->
                          Logs=process_log2(Reciept, BloomRequired, Topics, Addresses,
