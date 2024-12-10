@@ -647,7 +647,7 @@ chain_id() ->
   case maps:get(chain,maps:get(header,blockchain:last_permanent_meta())) of
     N when N > 10000 ->
       N;
-    true ->
+    N ->
       N + 1000000000
   end.
 
