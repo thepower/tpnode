@@ -644,8 +644,12 @@ decode_addr(<<Addr:20/binary>>) ->
   naddress:decode(Addr).
 
 chain_id() ->
-  maps:get(chain,maps:get(header,blockchain:last_permanent_meta()))+1000000000.
-
+  case maps:get(chain,maps:get(header,blockchain:last_permanent_meta())) of
+    N when N > 10000 ->
+      N;
+    true ->
+      N + 1000000000
+  end.
 
 display_block(noblock, _, _) -> %this might come from rewind
   null;
