@@ -153,18 +153,18 @@ h(<<"POST">>, #{ <<"call">>:=Call, <<"args">>:=Args, <<"from">>:=From,
                }=ReqData,Req) ->
   BinPacker=packer(Req),
   case tpnode_evmrun:evm_run(
-         hex:decode(To),
+         fix_addr(hex:decode(To)),
          Call,
          tpnode_evmrun:decode_json_args(Args),
          case maps:is_key(<<"blockHeight">>,ReqData) of
            false ->
              #{
-               caller=>hex:decode(From),
+               caller=>fix_addr(hex:decode(From)),
                gas=>GasLimit
               };
            true ->
              #{
-               caller=>hex:decode(From),
+               caller=>fix_addr(hex:decode(From)),
                gas=>GasLimit,
                block_height=>maps:get(<<"blockHeight">>,ReqData)
               }
@@ -2408,3 +2408,9 @@ format_ledger_patch(Patches, BinPacker) ->
 				lists:map(Fix, Any)
 		   end,
 	lists:map(FmtP, Patches).
+
+fix_addr(<<X:8/binary>>) -> X;
+fix_addr(<<0:96/big,X:8/binary>>) -> X;
+fix_addr(<<0:160/big>>) -> <<0>>;
+fix_addr(<<X:20/binary>>) -> X.
+
