@@ -208,7 +208,7 @@ h(<<"eth_estimateGas">>,[_Params,_Block,_Patched]=Params, _Context) ->
     case PTX of
       {1,_RetData,GasUsed,_} ->
         ?LOG_INFO("Ret ~w~n",[_RetData]),
-        i2hex((GasUsed)+21000);
+        i2hex((GasUsed)+23000);
       {0,RetData, _GasLeft, _} ->
         throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(RetData)});
       _Err ->
