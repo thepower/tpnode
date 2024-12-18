@@ -131,7 +131,7 @@ h(<<"eth_getTransactionReceipt">>,[TxHash0], _Context) ->
         lists:filtermap(
           fun([<<"evm">>,To1, _From, Data, Topics]) ->
               {true,
-              #{ address => hex:encodex(To1),
+              #{ address => hex:encodex(address:make_ether(To1)),
                  topics => [ hex:encodex(<<(binary:decode_unsigned(T)):256/big>>) || T <- Topics ],
                  data => hex:encodex(Data),
                  blockNumber => i2hex(BlkHei),
