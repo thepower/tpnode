@@ -446,6 +446,7 @@ h(<<"GET">>, [<<"where">>, TAddr], Req) ->
   BinPacker=packer(Req),
   try
     Addr=case TAddr of
+           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
            <<"0x", Hex/binary>> ->
              hex:parse(Hex);
            _ ->
@@ -515,9 +516,10 @@ h(<<"GET">>, [<<"nodes">>, Chain], Req) ->
 h(<<"GET">>, [<<"address">>, TAddr, <<"dump">>], Req) ->
   try
     Addr=case TAddr of
-			 <<"0x", Hex/binary>> -> hex:parse(Hex);
-			 _ -> naddress:decode(TAddr)
-		 end,
+           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
+           <<"0x", Hex/binary>> -> hex:parse(Hex);
+           _ -> naddress:decode(TAddr)
+         end,
 	RawKeys=mledger:db_get_multi(mledger,Addr,'_','_',[height]),
 
 	F=case maps:get(req_format,Req) of
@@ -562,6 +564,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"dump">>], Req) ->
 h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], Req) ->
   try
     Addr=case TAddr of
+           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
@@ -606,6 +609,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], Req) ->
 h(<<"GET">>, [<<"address">>, TAddr, <<"lstore">>|Path0], Req) ->
   try
     Addr=case TAddr of
+           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
@@ -645,6 +649,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"lstore">>|Path0], Req) ->
 h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
   try
     Addr=case TAddr of
+           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
@@ -702,6 +707,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
 h(<<"GET">>, [<<"address">>, TAddr, <<"seq">>], _Req) ->
   try
     Addr=case TAddr of
+           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
@@ -749,6 +755,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"seq">>], _Req) ->
 h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
   try
     Addr=case TAddr of
+           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
@@ -785,6 +792,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
   try
     BinPacker=packer(Req),
     Addr=case TAddr of
+           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
@@ -857,6 +865,7 @@ h(<<"GET">>, [<<"address">>, TAddr], Req) ->
   try
     BinPacker=packer(Req),
     Addr=case TAddr of
+           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
            <<"0x", Hex/binary>> -> hex:parse(Hex);
            _ -> naddress:decode(TAddr)
          end,
