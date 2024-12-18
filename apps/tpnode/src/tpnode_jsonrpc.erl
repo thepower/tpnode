@@ -117,7 +117,7 @@ h(<<"eth_getTransactionReceipt">>,[TxHash0], _Context) ->
         <<"blockNumber">> => i2hex(BlkHei),
         <<"contractAddress">> => if Kind == deploy andalso Res==1 ->
                                       hex:encodex(Ret);
-                                    Kind == ether andalso To0==<<>> ->
+                                    Kind == ether andalso To0==<<>> andalso Res==1 ->
                                       hex:encodex(Ret);
                                     true ->
                                       null
