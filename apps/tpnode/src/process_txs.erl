@@ -355,8 +355,8 @@ process_tx(#{from:=From,
 							   _ ->
 								   State4
 						   end,
-					?LOG_INFO("State changed ~p",[debug_tools:compare_pstate(State1,State5)]),
-					{1, Address, GasLeft, State5};
+					?LOG_DEBUG("State changed ~p",[debug_tools:compare_pstate(State1,State5)]),
+					{1, address:make_ether(Address), GasLeft, State5};
 				{0, <<>>, 0, _} ->
 					{0, <<"nogas">>, 0,
 					 maps:without([cur_tx,tstorage], State)

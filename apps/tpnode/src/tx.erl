@@ -453,6 +453,7 @@ unpack_payload(Amounts) when is_list(Amounts) ->
   lists:map(
     fun([Purpose, Cur, Amount]) ->
         if is_integer(Amount) -> ok;
+           is_binary(Amount) -> ok;
            true -> throw('bad_amount')
         end,
         #{amount=>dec_amount(Amount),
