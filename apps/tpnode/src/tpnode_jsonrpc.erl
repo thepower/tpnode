@@ -667,7 +667,7 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
   BlockHash=hex:encodex(Hash),
   BlockNumber=i2hex(Hei),
   {[
-    {<<"baseFeePerGas">>,<<"0x0">>},
+    %{<<"baseFeePerGas">>,<<"0x0">>},
     {<<"difficulty">>,<<"0x2">>}, %QUANTITY
     {<<"totalDifficulty">>,<<"0x12">>}, %QUANTITY
     {<<"extraData">>,hex:encodex(<<"preved">>)}, %DATA
@@ -744,23 +744,29 @@ to_hex_or_null(Bin) ->
 
 show_tx(#{chain_id:=CID, body:=TxBody}) ->
   Tx0=maps:from_list(
-        lists:filtermap(
-          fun({K,V}) when is_integer(V) ->
-              {true,{atom_to_binary(K,utf8),i2hex(V)}};
-             ({to,V}) ->
-              {true,{<<"to">>,to_hex_or_null(V)}};
-             ({v,<<>>}) ->
-              {true,{<<"v">>,<<"0x0">>}};
-             ({v,<<0>>}) ->
-              {true,{<<"v">>,<<"0x0">>}};
-             ({v,<<1>>}) ->
-              {true,{<<"v">>,<<"0x1">>}};
-             ({pubkey,V}) when is_binary(V) ->
-              {true,{<<"publicKey">>,hex:encodex(V)}};
-             ({K,V}) when is_binary(V) ->
-              {true,{atom_to_binary(K,utf8),hex:encodex(V)}};
-             (_) ->
-              false end,
+        lists:foldr(
+          fun
+            ({maxFeePerGas,G},A) ->
+              [{<<"maxPriorityFeePerGas">>,i2hex(G)},
+               {<<"maxFeePerGas">>,i2hex(G)}|A];
+            ({K,V},A) when is_integer(V) ->
+              [{atom_to_binary(K,utf8),i2hex(V)}|A];
+             ({to,V},A) ->
+              [{<<"to">>,to_hex_or_null(V)}|A];
+             ({v,<<>>},A) ->
+              [{<<"v">>,<<"0x0">>}|A];
+             ({v,<<0>>},A) ->
+              [{<<"v">>,<<"0x0">>}|A];
+             ({v,<<1>>},A) ->
+              [{<<"v">>,<<"0x1">>}|A];
+             ({pubkey,V},A) when is_binary(V) ->
+              [{<<"publicKey">>,hex:encodex(V)}|A];
+             ({K,V},A) when is_binary(V) ->
+              [{atom_to_binary(K,utf8),hex:encodex(V)}|A];
+             (_,A) ->
+              A
+              end,
+          [],
           eth:decode_tx(CID,TxBody) )),
   %      #{
   %       "gas": "0xf478",
@@ -902,7 +908,7 @@ search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt, EthMatch) ->
                                              ethmatch=>EthMatch,
                                              timestamp=>Timestamp
                                             }),
-                         NC=length(Acc),
+                         NC=length(Logs),
                          {Cnt+NC, Acc++Logs};
                        true ->
                          {Cnt,Acc}
