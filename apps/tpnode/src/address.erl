@@ -1,6 +1,6 @@
 -module(address).
 
--export([encode/1, encode_ether/1,make_ether/1]).
+-export([encode/1, encode_ether/1,make_ether/1,make_ether_any/1]).
 
 -export([pub2caddr/2, pub2addr/2, pub2addrraw/2, check/1,
          encodekey/1, parsekey/1, paddr/1,
@@ -127,6 +127,15 @@ make_ether(<<I:64/big>>) ->
   <<I:160/big>>;
 make_ether(<<I>>) -> %one byte address <<0>>
   <<I:160/big>>.
+
+
+make_ether_any(<<_:160/big>>=A) ->
+  A;
+make_ether_any(<<I:64/big>>) ->
+  <<I:160/big>>;
+make_ether_any(<<I/binary>>) -> %one byte address <<0>>
+  PadBits=(20-size(I))*8,
+  <<0:PadBits/big,I/binary>>.
 
 encode_ether(<<_:160/big>>=A) ->
   encode(A);

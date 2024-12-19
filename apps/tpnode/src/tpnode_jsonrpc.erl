@@ -493,7 +493,8 @@ process_log2(Receipts, BloomRequired, Filter, Addr,
               end,
         if Allow ->
              lists:foldl(
-               fun([<<"evm">>, EFrom, _ETo, Data,TopicsS],Acc) ->
+               fun([<<"evm">>, EFrom0, _ETo, Data,TopicsS],Acc) ->
+                   EFrom=address:make_ether_any(EFrom0),
                    case lists:member(EFrom,Addr) orelse Addr==[] of
                      true ->
                        Topics=lists:map(
