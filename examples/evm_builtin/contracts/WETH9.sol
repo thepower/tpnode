@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unknown
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.1;
 
 contract WETH9 {
@@ -50,13 +50,19 @@ contract WETH9 {
         require(allowance[src][msg.sender] >= wad);
         allowance[src][msg.sender] -= wad;
       }
+      if (dst == address(this)) {
+        balanceOf[src] -= wad;
+        payable(src).transfer(wad);
+        emit Withdrawal(src, wad);
+        return true;
+      }else{
+        balanceOf[src] -= wad;
+        balanceOf[dst] += wad;
 
-      balanceOf[src] -= wad;
-      balanceOf[dst] += wad;
+        emit Transfer(src, dst, wad);
 
-      emit Transfer(src, dst, wad);
-
-      return true;
+        return true;
+      }
     }
 }
 
