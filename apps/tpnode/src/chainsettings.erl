@@ -368,12 +368,24 @@ checksum() ->
 
 emulate_legacy_nodes(ChainState) ->
   #{bin:=<<Mask:256/big>>}=tpnode_evmrun:evm_run(ChainState, <<"consensus_mask()">>,[],#{}),
-  Off=case tpnode_evmrun:evm_run(ChainState,<<"chainmgmt() returns (address)">>,[],#{}) of
-    #{result:=return} ->
-      0;
-    #{result:=revert} ->
-      1
-  end,
+  %Off=case tpnode_evmrun:evm_run(ChainState,<<"chainmgmt() returns (address)">>,[],#{}) of
+  %  #{result:=return} ->
+  %    0;
+  %  #{result:=revert} ->
+  %    1
+  %end,
+  %Off=case tpnode_evmrun:evm_run(ChainState,<<"node_keys(uint256) returns (bytes)">>,[0],#{}) of
+  %  #{result:=return,bin:=<<32:256/big,0:256/big,_/binary>>} ->
+  %        1;
+  %  #{result:=return,bin:=<<32:256/big,_Len:256/big,_/binary>>} ->
+  %        0
+  %end,
+  Off=case Mask band 1 == 1 of
+        true ->
+          1;
+        false ->
+          0
+      end,
   lists:foldl(
     fun(Bit,Keys) ->
         #{decode:=[Key]}
