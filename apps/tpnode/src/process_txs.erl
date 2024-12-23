@@ -586,7 +586,7 @@ process_itx(From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opts) ->
 
 process_code_itx(<<>>,From, To, Value, _CallData, GasLimit, #{acc:=_}=State0, _Opts) ->
 	if GasLimit == 0 -> ok;
-	   true -> ?LOG_INFO("== process call without code ~p~n",[To])
+	   true -> ?LOG_INFO("== process call without code to ~s cd size ~w~n",[hex:encodex(To),size(_CallData)])
 	end,
 	State1=transfer(From, To, Value, <<"SK">>, State0),
 	{ 1, <<>>, GasLimit, State1};
@@ -662,10 +662,11 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opt
 				[<<"evm:invalid">>,To,From,<<>>],
 				State0)
 			};
-		{done, {revert, Revert}, #{ gas:=GasLeft}} ->
+		{done, {revert, Revert}, _State=#{ gas:=GasLeft}} ->
+      %io:format("State ~p~n",[_State]),
 			{ 0, Revert, gas_left(GasLeft,GasLimit),
 			  append_log(
-				[<<"evm:revert">>,To,From,Revert],
+				[<<"evm:revert">>,To,From,Revert,maps:with([pc],_State)],
 				State0)
 			};
 		{error, nogas, #{}} ->
