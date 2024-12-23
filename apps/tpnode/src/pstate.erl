@@ -35,19 +35,20 @@ new_state(GetFun, GetFunArg) when is_function(GetFun,2) ->
 	 }.
 
 patch(#{acc:=Acc}) ->
-	maps:fold(
-	  fun(Address, Data, A0) ->
-			  maps:fold(
-				fun(lstore_map, _, A1) -> %lstore_map is just a cache. Ignore it
-						A1;
-				   (_, {_, undefined}, A1) ->
-						A1;
-				   (_, {OldValue, NewValue}, A1) when OldValue == NewValue ->
-						A1;
-				   ({Field, Path}, {OldValue, NewValue}, A1) ->
-						[{Address,Field,Path,OldValue,NewValue}|A1]
-				end, A0, Data)
-	  end, [], Acc).
+  lists:sort(
+    maps:fold(
+      fun(Address, Data, A0) ->
+          maps:fold(
+            fun(lstore_map, _, A1) -> %lstore_map is just a cache. Ignore it
+                A1;
+               (_, {_, undefined}, A1) ->
+                A1;
+               (_, {OldValue, NewValue}, A1) when OldValue == NewValue ->
+                A1;
+               ({Field, Path}, {OldValue, NewValue}, A1) ->
+                [{Address,Field,Path,OldValue,NewValue}|A1]
+            end, A0, Data)
+      end, [], Acc)).
 
 extract_state(#{acc:=Acc}) ->
 	maps:fold(
