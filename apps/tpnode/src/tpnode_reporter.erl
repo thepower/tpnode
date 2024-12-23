@@ -365,13 +365,14 @@ register(ToContract) ->
     %tx:rate(Tx0,fun(E) -> io:format("~p~n",[E]),
     %                      #{<<"base">>=>Base, <<"kb">>=>KB}
     %            end).
-    io:format("Tx ~p~n",[Tx0]),
+    %io:format("Tx ~p~n",[Tx0]),
+    ?LOG_INFO("Register tx for node key"),
     Tx=tx:sign(Tx0,nodekey:get_priv()),
     post_tx_and_wait(Tx,20000).
 
 
 prepare(ToContract, FromBlock, ToBlock, Attributes) ->
-    io:format("To ~p rom ~p to ~p~n",[ToContract, FromBlock, ToBlock]),
+    %io:format("To ~p rom ~p to ~p~n",[ToContract, FromBlock, ToBlock]),
     {ok,Address} = get_account(),
     BI=band_info(FromBlock, ToBlock),
     KVs1=[ [Ki, if is_integer(Vi) -> Vi;
