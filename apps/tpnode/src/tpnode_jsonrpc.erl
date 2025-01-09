@@ -739,8 +739,9 @@ seq(Address) ->
     undefined -> 0
   end.
 
+to_hex_or_null(null) -> null;
 to_hex_or_null(<<>>) -> null;
-to_hex_or_null(Bin) ->
+to_hex_or_null(Bin) when is_binary(Bin) ->
   address:encode_ether(Bin).
 
 show_tx(#{chain_id:=CID, body:=TxBody}) ->
@@ -775,6 +776,20 @@ show_tx(#{chain_id:=CID, body:=TxBody}) ->
   %      }
 
   Tx0;
+
+show_tx(#{kind:=register,keysh:=KeysH}=_Tx) ->
+  #{
+    <<"from">> => <<"0x0000000000000000000000000000000000000000">>,
+    <<"gas">> => i2hex(0),
+    <<"gasPrice">> => i2hex(0),
+    <<"input">> => hex:encodex(KeysH),
+    <<"nonce">> => i2hex(0),
+    <<"to">> => null,
+    <<"value">> => i2hex(0),
+    <<"v">> => i2hex(1),
+    <<"r">> => i2hex(1),
+    <<"s">> => i2hex(1)
+   };
 
 show_tx(#{kind:=_,from:=From,seq:=Nonce}=Tx) ->
   %  <<"txID">> => TxID,
