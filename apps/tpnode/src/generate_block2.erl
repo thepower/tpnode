@@ -260,7 +260,7 @@ process_all([{TxID,TxBody}|Rest], #{transaction_receipt:=Rec ,
 							fun([<<"evm">>,_To1, From, _Data, Topics],Acc) ->
 									A1=eth_bloom:bloom_filter20(From,Acc),
 									lists:foldl(fun eth_bloom:bloom_filter32/2, A1, Topics);
-							   ([<<"evm:",_Reason/binary>>,_To,_From,_],Acc) ->
+							   ([<<"evm:",_Reason/binary>>,_To,_From,_|_],Acc) ->
 									Acc
 							end,
 							0,
