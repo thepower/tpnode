@@ -663,10 +663,10 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opt
 				State0)
 			};
 		{done, {revert, Revert}, _State=#{ gas:=GasLeft}} ->
-      %io:format("State ~p~n",[_State]),
+      ?LOG_INFO("revert at ~p~n",[maps:with([pc],_State)]),
 			{ 0, Revert, gas_left(GasLeft,GasLimit),
 			  append_log(
-				[<<"evm:revert">>,To,From,Revert,maps:with([pc],_State)],
+				[<<"evm:revert">>,To,From,Revert],
 				State0)
 			};
 		{error, nogas, #{}} ->
