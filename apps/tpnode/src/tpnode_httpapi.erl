@@ -24,13 +24,13 @@
 
 
 
-add_address(<<Address:8/binary>>, Map1) ->
-    TxtAddress = naddress:encode(Address),
+add_address(<<1:1,_:7,_:7/binary>>=Address, Map1) ->
+  TxtAddress = naddress:encode(Address),
 
-    maps:merge(Map1, #{
-                       <<"address">> => address:encode(Address),
-                       <<"txtaddress">> => TxtAddress
-                      });
+  maps:merge(Map1, #{
+                     <<"address">> => address:encode(Address),
+                     <<"txtaddress">> => TxtAddress
+                    });
 
 add_address(Address, Map1) ->
     maps:merge(Map1, #{
@@ -445,13 +445,7 @@ h(<<"POST">>, [<<"node">>, <<"hotfix">>], Req) ->
 h(<<"GET">>, [<<"where">>, TAddr], Req) ->
   BinPacker=packer(Req),
   try
-    Addr=case TAddr of
-           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
-           <<"0x", Hex/binary>> ->
-             hex:parse(Hex);
-           _ ->
-             naddress:decode(TAddr)
-         end,
+    Addr=parse_address(TAddr),
     #{block:=Blk}=naddress:parse(Addr),
     MyChain=blockchain:chain(),
     if
@@ -515,11 +509,7 @@ h(<<"GET">>, [<<"nodes">>, Chain], Req) ->
 
 h(<<"GET">>, [<<"address">>, TAddr, <<"dump">>], Req) ->
   try
-    Addr=case TAddr of
-           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
-           <<"0x", Hex/binary>> -> hex:parse(Hex);
-           _ -> naddress:decode(TAddr)
-         end,
+    Addr=parse_address(TAddr),
 	RawKeys=mledger:db_get_multi(mledger,Addr,'_','_',[height]),
 
 	F=case maps:get(req_format,Req) of
@@ -563,56 +553,48 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"dump">>], Req) ->
 
 h(<<"GET">>, [<<"address">>, TAddr, <<"statekeys">>], Req) ->
   try
-    Addr=case TAddr of
-           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
-           <<"0x", Hex/binary>> -> hex:parse(Hex);
-           _ -> naddress:decode(TAddr)
-         end,
-        RawKeys=mledger:get_kpvs(Addr,state,'_'),
+    Addr=parse_address(TAddr),
+    RawKeys=mledger:get_kpvs(Addr,state,'_'),
 
-        S1=case maps:get(req_format,Req) of
-             <<"mp">> ->
-               lists:foldl(
-                 fun({state,K,_},Acc) ->
-                     [K|Acc]
-                 end, [], RawKeys);
-             _ -> %default hex encode
-               lists:foldl(
-                 fun({state,K,_},Acc) ->
-                     [hex:encodex(K)|Acc]
-                 end, [], RawKeys)
-           end,
-        {200, [{"Content-Type","application/json"}],
-         #{
-           notice => <<"Only for debugging. Do not use it in scripts!!!">>,
-           keys => S1
-          }
-        }
+    S1=case maps:get(req_format,Req) of
+         <<"mp">> ->
+           lists:foldl(
+             fun({state,K,_},Acc) ->
+                 [K|Acc]
+             end, [], RawKeys);
+         _ -> %default hex encode
+           lists:foldl(
+             fun({state,K,_},Acc) ->
+                 [hex:encodex(K)|Acc]
+             end, [], RawKeys)
+       end,
+    {200, [{"Content-Type","application/json"}],
+     #{
+       notice => <<"Only for debugging. Do not use it in scripts!!!">>,
+       keys => S1
+      }
+    }
   catch
     throw:{error, address_crc} ->
       err(
-                  10004,
-                  <<"Invalid address">>,
-                  #{result => <<"error">>},
-                  #{http_code => 400}
-              );
-          throw:bad_addr ->
-              err(
-                  10005,
-                  <<"Invalid address (2)">>,
-                  #{result => <<"error">>},
-                  #{http_code => 400}
-              )
+        10004,
+        <<"Invalid address">>,
+        #{result => <<"error">>},
+        #{http_code => 400}
+       );
+    throw:bad_addr ->
+      err(
+        10005,
+        <<"Invalid address (2)">>,
+        #{result => <<"error">>},
+        #{http_code => 400}
+       )
   end;
 
 
 h(<<"GET">>, [<<"address">>, TAddr, <<"lstore">>|Path0], Req) ->
   try
-    Addr=case TAddr of
-           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
-           <<"0x", Hex/binary>> -> hex:parse(Hex);
-           _ -> naddress:decode(TAddr)
-         end,
+    Addr=parse_address(TAddr),
     Path=lists:map(fun(<<"0x",HexBin/binary>>) ->
                        hex:decode(HexBin);
                       (Any) ->
@@ -631,28 +613,24 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"lstore">>|Path0], Req) ->
     {200, [], {S2, #{} }}
   catch
     throw:{error, address_crc} ->
-              err(
-                  10004,
-                  <<"Invalid address">>,
-                  #{result => <<"error">>},
-                  #{http_code => 400}
-              );
-          throw:bad_addr ->
-              err(
-                  10005,
-                  <<"Invalid address (2)">>,
-                  #{result => <<"error">>},
-                  #{http_code => 400}
-              )
+      err(
+        10004,
+        <<"Invalid address">>,
+        #{result => <<"error">>},
+        #{http_code => 400}
+       );
+    throw:bad_addr ->
+      err(
+        10005,
+        <<"Invalid address (2)">>,
+        #{result => <<"error">>},
+        #{http_code => 400}
+       )
   end;
 
 h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
   try
-    Addr=case TAddr of
-           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
-           <<"0x", Hex/binary>> -> hex:parse(Hex);
-           _ -> naddress:decode(TAddr)
-         end,
+    Addr=parse_address(TAddr),
     case Path of
       [] ->
         RawKeys=mledger:get_kpvs(Addr,state,'_'),
@@ -706,11 +684,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"state",F/binary>>|Path], _Req) ->
 
 h(<<"GET">>, [<<"address">>, TAddr, <<"seq">>], _Req) ->
   try
-    Addr=case TAddr of
-           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
-           <<"0x", Hex/binary>> -> hex:parse(Hex);
-           _ -> naddress:decode(TAddr)
-         end,
+    Addr=parse_address(TAddr),
 	%case mledger:get_kpv(Addr, seq, []) of
 	case mledger:db_get_one(mledger,Addr,seq,[],[]) of
 		undefined ->
@@ -754,11 +728,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"seq">>], _Req) ->
 
 h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
   try
-    Addr=case TAddr of
-           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
-           <<"0x", Hex/binary>> -> hex:parse(Hex);
-           _ -> naddress:decode(TAddr)
-         end,
+    Addr=parse_address(TAddr),
     Ledger=mledger:get_kpv(Addr, code, []),
     case Ledger of
       undefined ->
@@ -791,11 +761,7 @@ h(<<"GET">>, [<<"address">>, TAddr, <<"code">>], _Req) ->
 h(<<"GET">>, [<<"address">>, TAddr, <<"verify">>], Req) ->
   try
     BinPacker=packer(Req),
-    Addr=case TAddr of
-           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
-           <<"0x", Hex/binary>> -> hex:parse(Hex);
-           _ -> naddress:decode(TAddr)
-         end,
+    Addr=parse_address(TAddr),
     Info=mledger:get_kv(Addr),
     case Info == [] of
       true ->
@@ -864,11 +830,7 @@ h(<<"GET">>, [<<"address">>, TAddr], Req) ->
   QS=cowboy_req:parse_qs(Req),
   try
     BinPacker=packer(Req),
-    Addr=case TAddr of
-           <<"0x000000000000000000000000", Hex/binary>> -> hex:parse(Hex);
-           <<"0x", Hex/binary>> -> hex:parse(Hex);
-           _ -> naddress:decode(TAddr)
-         end,
+    Addr=parse_address(TAddr),
     Info=mledger:get(Addr),
     case Info == undefined of
       true ->
@@ -1464,6 +1426,7 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 
 	#{block:=#{
 			   failed:=Fail,
+         txs:=Succ,
 			   ledger_patch:=LP,
 			   receipt:=Rec} = _Block}
 	= generate_block2:generate_block(
@@ -1513,7 +1476,8 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
 	  DbgOrNot#{ result => <<"ok">>,
 		 failed=>[ [TxID, Reason] || {TxID, Reason} <- Fail ],
 		 ledger_patch=>lists:map(FmtP, LP),
-		 receipt=>format_receipt(Rec, BinPacker)
+		 receipt=>format_receipt(Rec, BinPacker),
+     txs => [ N || {N,_} <- Succ]
 	   }
 	 );
 
@@ -2422,4 +2386,13 @@ fix_addr(<<X:8/binary>>) -> X;
 fix_addr(<<0:96/big,X:8/binary>>) -> X;
 fix_addr(<<0:160/big>>) -> <<0>>;
 fix_addr(<<X:20/binary>>) -> X.
+
+parse_address(<<"0x0000000000000000000000000000000000000000">>) ->
+  <<0:160/big>>;
+parse_address(<<"0x000000000000000000000000", Hex/binary>>) ->
+  hex:parse(Hex);
+parse_address(<<"0x", Hex/binary>>) ->
+  hex:parse(Hex);
+parse_address(TAddr) ->
+  naddress:decode(TAddr).
 
