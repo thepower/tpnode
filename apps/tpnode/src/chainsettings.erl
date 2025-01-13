@@ -393,6 +393,7 @@ emulate_legacy_nodes(ChainState) ->
            ChainState,
            <<"node_keys(uint256) returns (bytes)">>,
            [Bit+Off],#{}),
-        Name=chainsettings:is_our_node(hex:decode(Key)),
+        Name= <<"Node:",(integer_to_binary(Bit+Off))/binary>>,
+        %Name=chainsettings:is_our_node(hex:decode(Key)),
         maps:put(Name,Key,Keys)
     end, #{},bron_kerbosch:unpack_bitmask(Mask)).

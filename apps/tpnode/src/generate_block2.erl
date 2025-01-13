@@ -110,7 +110,7 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
              [
               {entropy, Entropy},
               {mean_time, <<MeanTime:64/big>>},
-			  {cumulative_gas, <<CumulativeGas:64/big>>}
+              {cumulative_gas, <<CumulativeGas:64/big>>}
              ];
            true ->
              LogsHash=crypto:hash(sha256, Logs),
@@ -132,9 +132,15 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
 									 check),
 	%io:format("Block receipt ~p~n",[Receipt]),
 	%
+  FailedMap=maps:from_list(Failed2),
+  Success = lists:filter(
+              fun({TxID,_}) ->
+                  not maps:is_key(TxID,FailedMap)
+              end, PreTXL),
+
 	BlkData=#{
-            txs=>PreTXL, %Success, %[{TxID,TxBody}|_]
-			receipt => Receipt,
+            txs=>Success,
+            receipt => Receipt,
             parent=>Parent_Hash,
             mychain=>MyChain,
             height=>Parent_Height+1,
@@ -142,7 +148,7 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
             failed=>Failed2,
             temporary=>proplists:get_value(temporary,Options),
             ledger_hash=>LedgerHash,
-			ledger_patch=>Patch,
+            ledger_patch=>Patch,
             settings=>[],
             extra_roots=>Roots,
             extdata=>ExtraData
@@ -174,7 +180,7 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
              [
               Parent_Height+1,
               block:blkid(maps:get(hash, Blk)),
-              length(PreTXL),
+              length(Success),
 			  length(Patch),
               case LedgerHash of
                 undefined ->

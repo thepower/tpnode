@@ -2,7 +2,7 @@
 -export([prepare/1,prepare/2,prepare/4, blockinfo/1, band_info/2, encode_data/2, ensure_account/0, register/1,
         post_tx_and_wait/2, get_ver/0, get_iver/1, attributes/0, attributes_changed/2,
         set_attributes/2, ask_nextblock/1, id2attr/1, run/0, run/1,
-        chain_nodes/0
+        consensus_nodes/0, chain_nodes/0, csversion/1
         ]).
 
 -include("include/tplog.hrl").
@@ -256,13 +256,14 @@ prepare(ToContract, Opts) ->
     prepare(ToContract, attributes_changed(ToContract,attributes()), Opts).
 
 prepare(ToContract, Attributes, Opts) ->
-    KeyId=case tpnode_evmrun:evm_run(ToContract,
-                                     <<"node_id(bytes nodekey) returns (uint256)">>,
-                                     [nodekey:get_pub()],
-                                     #{ gas=>50000 }) of
-              #{result:=return, decode:=[Result2]} -> Result2
-          end,
-    ?LOG_INFO("KeyID ~p",[KeyId]),
+  Version=csversion(ToContract),
+  KeyId=case tpnode_evmrun:evm_run(ToContract,
+                                   <<"node_id(bytes nodekey) returns (uint256)">>,
+                                   [nodekey:get_pub()],
+                                   #{ gas=>50000 }) of
+          #{result:=return, decode:=[Result2]} -> Result2
+        end,
+  ?LOG_INFO("KeyID ~p ver ~p",[KeyId, Version]),
 
     Info=case tpnode_evmrun:evm_run(ToContract,
                                      <<"info() returns (uint256 current_epoch, uint256 start_blk, uint256 end_blk,uint256 end_time,uint256 block_number)">>,
@@ -275,15 +276,19 @@ prepare(ToContract, Attributes, Opts) ->
           #{height:=LBH} = maps:get(header,blockchain:last_meta()),
 
           {Time,Blk}=tpnode_reporter:ask_nextblock(ToContract),
+          
           Wait=Time-os:system_time(second),
           ?LOG_INFO("LBH ~p time ~p wait ~p blk ~p~n",[LBH, Time, Wait, Blk]),
           Nowait = maps:is_key(nowait,Opts),
 
-          if(Nowait orelse Wait =< 2 orelse LBH==Blk-1) ->
-                SCH=case tpnode_evmrun:evm_run(
-                           ToContract,
-                           <<"last_height(uint256) returns (uint256)">>, [KeyId],
-                           #{ gas=>50000 }) of
+          if(Nowait orelse (
+                      (Wait =< 2 orelse LBH==Blk-1) andalso Time=/=0 andalso Blk=/=0
+                     )
+            ) ->
+              SCH=case tpnode_evmrun:evm_run(
+                         ToContract,
+                         <<"last_height(uint256) returns (uint256)">>, [KeyId],
+                         #{ gas=>50000 }) of
                         #{result:=return, bin:= <<Result:256/big>>} ->
                             Result
                     end,
@@ -476,27 +481,83 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
+csversion(Address) ->
+  case tpnode_evmrun:evm_run(Address,<<"supportsInterface(bytes4)">>,[<<16#1F4486E6:32/big>>],#{}) of
+    #{bin:=<<1:256/big>>} ->
+      1;
+    _Any ->
+      0
+  end.
+
+consensus_nodes() ->
+  csnodes(consensus).
+
 chain_nodes() ->
+  csnodes(known).
+
+chain_nodes0(Address) ->
+  S0=process_txs:new_state( fun mledger:getfun/2, mledger),
+  {Keys,_}
+  =lists:foldl(
+     fun(N, {A,S}) ->
+         {1, Ret, _, S1}
+         =process_txs:process_itx(<<>>,
+                                  Address,
+                                  0,
+                                  contract_evm_abi:encode_abi_call([N], "node_keys(uint256)"),
+                                  10000,
+                                  S,
+                                  #{}),
+         case contract_evm_abi:decode_abi(Ret,[{<<>>,bytes}]) of
+           [{<<>>,<<>>}] ->
+             {A,S1};
+           [{<<>>,<<Key:32/binary>>}] ->
+             {[Key|A],S1}
+         end
+     end,{[],S0},lists:seq(1,240)),
+  Keys.
+
+chain_nodes1(Address, Kind) ->
+  S0=process_txs:new_state( fun mledger:getfun/2, mledger),
+  {1, <<Mask:256/big>>, _, S01}=process_txs:process_itx(<<>>,
+                                                        Address,
+                                                        0,
+                                                        case Kind of
+                                                          known ->
+                                                            contract_evm_abi:encode_abi_call([], "exist_mask()");
+                                                          consensus ->
+                                                            contract_evm_abi:encode_abi_call([], "consensus_mask()")
+                                                        end,
+                                                        10000,
+                                                        S0,
+                                                        #{}),
+  {Keys,_}
+  =lists:foldl(
+     fun(N, {A,S}) ->
+         {1, Ret, _, S1}
+         =process_txs:process_itx(<<>>,
+                                  Address,
+                                  0,
+                                  contract_evm_abi:encode_abi_call([N], "node_keys(uint256)"),
+                                  10000,
+                                  S,
+                                  #{}),
+         case contract_evm_abi:decode_abi(Ret,[{<<>>,bytes}]) of
+           [{<<>>,<<>>}] ->
+             {A,S1};
+           [{<<>>,<<Key:32/binary>>}] ->
+             {[Key|A],S1}
+         end
+     end,{[],S01},bron_kerbosch:unpack_bitmask(Mask)),
+  Keys.
+
+csnodes(Kind) ->
   case mledger:db_get_one(mledger,<<0>>,lstore,[<<"chainstate">>],[]) of
     {ok, Address} ->
-      S0=process_txs:new_state( fun mledger:getfun/2, mledger),
-      {Keys,_}
-      =lists:foldl(
-         fun(N, {A,S}) ->
-             {1, Ret, _, S1}
-             =process_txs:process_itx(<<>>,
-                                      Address,
-                                      0,
-                                      contract_evm_abi:encode_abi_call([N], "node_keys(uint256)"),
-                                      10000,
-                                      S,
-                                      #{}),
-             case contract_evm_abi:decode_abi(Ret,[{<<>>,bytes}]) of
-               [{<<>>,<<>>}] ->
-                 {A,S1};
-               [{<<>>,<<Key:32/binary>>}] ->
-                 {[Key|A],S1}
-             end
-         end,{[],S0},lists:seq(1,240)),
-      Keys
+      case csversion(Address) of
+        0 ->
+          chain_nodes0(Address);
+        1 ->
+          chain_nodes1(Address, Kind)
+      end
   end.

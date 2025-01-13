@@ -205,11 +205,7 @@ handle_cast(prepare, #{mychain:=MyChain, inprocess:=InProc0, queue:=Queue, lost_
     ?LOG_DEBUG("txs for mkblock: ~p", [TxMap]),
     Entropy = crypto:strong_rand_bytes(32),
 
-    SentTo=[ begin
-              {ed25519,Pub} = tpecdsa:cmp_pubkey(RPK),
-              Pub
-            end || {RPK,_,_} <- tpic2:cast_prepare(<<"mkblock">>)
-          ],
+    SentTo=[ tpecdsa:shortpub(RPK) || {RPK,_,_} <- tpic2:cast_prepare(<<"mkblock">>) ],
 
     MRes = msgpack:pack(
              #{

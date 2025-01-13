@@ -203,7 +203,7 @@ handle_call(rollback, _From, #{
   end;
 
 handle_call({new_block, #{hash:=BlockHash,
-                          header:=#{height:=Hei}=Header,
+                          header:=#{height:=Hei,roots:=Roots}=Header,
                           sign:=Signatures}=Blk, PID}=_Message,
             _From,
             #{candidates:=Candidates,
@@ -258,6 +258,9 @@ handle_call({new_block, #{hash:=BlockHash,
         T1=erlang:system_time(),
         Txs=maps:get(txs, Blk, []),
         Txsl=length(Txs),
+        BlockTime=binary:decode_unsigned(proplists:get_value(mean_time,Roots,<<>>)),
+        Ago=(T0/1000000)-BlockTime,
+
         if LenSucc>0 ->
              Names=[case lists:keyfind(pubkey,1, maps:get(extra,R,[])) of
                       {pubkey, PK} ->
@@ -266,9 +269,10 @@ handle_call({new_block, #{hash:=BlockHash,
                         unknown
                     end || R<- Success ],
 
-             ?LOG_INFO("Block ~w verified ~s, txs ~b, sig ~w:~s (~.3f ms)",
+             ?LOG_INFO("Block ~w verified ~s, txs ~b, sig ~w:~s (~.3f ms) ~.3f sec ago",
                         [maps:get(height, maps:get(header, Blk)),
-                         blkid(BlockHash), Txsl, length(Success),lists:join(",", Names), (T1-T0)/1000000]),
+                         blkid(BlockHash), Txsl, length(Success),lists:join(",", Names),
+                         (T1-T0)/1000000, Ago/1000 ]),
              ok;
            true ->
              ?LOG_INFO("New block ~w arrived ~s, txs ~b, no sigs (~.3f ms)",
@@ -291,7 +295,7 @@ handle_call({new_block, #{hash:=BlockHash,
         SigLen=length(maps:get(sign, MBlk)),
         ?LOG_DEBUG("Signs ~p", [Success]),
         %MinSig=getset(<<"minsig">>,State),
-		MinSig=chainsettings:get_val(minsig),
+        MinSig=chainsettings:get_val(minsig),
 
         if SigLen>=MinSig ->
              IsTemp=maps:get(temporary,Blk,false) =/= false,
@@ -367,7 +371,12 @@ handle_call({new_block, #{hash:=BlockHash,
                             }),
                   gen_server:cast(blockchain_reader,{update,MBlk}),
                   gen_server:cast(tpnode_ws_dispatcher, {new_block, MBlk}),
-                  gen_server:cast(tpnode_reporter, {new_block, maps:get(height, maps:get(header, Blk)), maps:get(temporary,Blk,false)}),
+
+                  if(Ago<10000) ->
+                      gen_server:cast(tpnode_reporter, {new_block, Hei, maps:get(temporary,Blk,false)});
+                    true ->
+                      ok
+                  end,
 
                   {reply, ok, State#{
                                 tmpblock=>MBlk
@@ -822,7 +831,9 @@ save_sets(LDB, #{hash:=Hash, header:=#{parent:=Parent}}, OldSettings, Settings) 
 
 save_block(ignore, _Block, _IsLast) -> ok;
 save_block(LDB, #{hash:=BlockHash, txs:=TXs, header:=#{height:=Hei}}=Block, IsLast) ->
+  ?LOG_INFO("Save block ~s",[hex:encodex(BlockHash)]),
   ldb:put_key(LDB, <<"block:", BlockHash/binary>>, Block),
+  store_block_parts(LDB, Block),
   ldb:put_key(LDB, <<"h:", Hei:64/big>>, BlockHash),
   case maps:get(receipt,Block,[]) of
 	  [] -> ok;
@@ -847,8 +858,8 @@ save_block(LDB, #{hash:=BlockHash, txs:=TXs, header:=#{height:=Hei}}=Block, IsLa
 									  }
 									 );
 					  true ->
-						  ?LOG_ERROR("Block ~s txn ~w txid ~s mismatch ~s",
-									 [blkid(BlockHash),TxIndex,TxID,TxID1])
+						  ?LOG_ERROR("Block ~w ~s txn ~w txid ~s mismatch ~s",
+									 [Hei, blkid(BlockHash),TxIndex,TxID,TxID1])
 					end
 			end,
 			[],
@@ -1164,4 +1175,23 @@ send_success(#{bals:=_,txs:=Txs,hash:=BlockHash,header:=#{height:=Hei}}) ->
 	  Txs
 	 ).
 				  
+
+store_block_parts(LDB, #{header:=#{height:=Hei,roots:=Roots}}) ->
+  %block bloom
+  ldb:put_key(LDB, <<"bb:",Hei:64/big>>, Roots),
+  case proplists:get_value(<<"bloom">>,Roots) of
+    undefined ->
+      no_bloom;
+    Value when is_binary(Value) ->
+      Bits=eth_bloom:bloom_pop_bits(binary:decode_unsigned(Value)),
+      %TODO:
+      ?LOG_DEBUG("Store bits ~w~n",[Bits]),
+      ok
+  end,
+
+
+
+  %ldb:put_key(LDB, <<"lp:",Hei:64/big>>, LedgerPatch),
+  %ldb:put_key(LDB, <<"rc:",Hei:64/big>>, Receipt),
+  ok.
 
