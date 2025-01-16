@@ -5,6 +5,7 @@
     id_from_pubkey/1,
     encode_tx/8,
     encode_tx2/2,
+    decode_tx/1,
     decode_tx/2,
     parse_signature/1
     ]).
@@ -109,6 +110,9 @@ encode_tx(ChainId, PrivKey, Nonce, GasPrice, GasLimit, To, Value, Data) ->
  erlp:encode(FinalTx).
 
 
+decode_tx(FinalTxRLP) ->
+  decode_tx(0,FinalTxRLP).
+
 decode_tx(_ChainId, <<2,FinalTxRLP/binary>>) ->
   [BChid,
    BNonce,
@@ -120,8 +124,8 @@ decode_tx(_ChainId, <<2,FinalTxRLP/binary>>) ->
    Data,
    List,
    BV,
-   R,
-   S ] = erlp:decode(FinalTxRLP),
+   Rr,
+   Sr ] = erlp:decode(FinalTxRLP),
   PrepTxRLP = erlp:encode([BChid,
                            BNonce,
                            MaxPriorityFeePerGas,
@@ -133,6 +137,8 @@ decode_tx(_ChainId, <<2,FinalTxRLP/binary>>) ->
                            List]),
   %hex:hexdump(PrepTxRLP),
   {ok,Digest} = ksha3:hash(256,<<2,PrepTxRLP/binary>>),
+  R=pad32(Rr),
+  S=pad32(Sr),
   {ok,PubKey} = ecrecover:recover(Digest, <<R/binary, S/binary>>, erlp:bin_to_int(BV)),
   From = id_from_pubkey(PubKey),
   [{from,(From)},
@@ -155,25 +161,33 @@ decode_tx(_ChainId, <<2,FinalTxRLP/binary>>) ->
   ];
 
 decode_tx(ChainId, FinalTxRLP) ->
- [Nonce, BGasPrice, BGasLimit, To, BValue, Data, BV, R, S] = erlp:decode(FinalTxRLP),
- {PrepTx, EIP, V} =  case erlp:bin_to_int(BV) of
-    X when X == 0; X == 1 -> %no EIP-155
-        {[Nonce, BGasPrice, BGasLimit, To, BValue, Data], false, X };
-    X when X == 27; X == 28 -> %no EIP-155
-        {[Nonce, BGasPrice, BGasLimit, To, BValue, Data], false, X - 1 };
-    X when X - ChainId * 2 == 35 ; X - ChainId * 2 == 36 -> % EIP-155
-        {[Nonce, BGasPrice, BGasLimit, To, BValue, Data,
-          erlp:int_to_bin(ChainId), <<>>, <<>>], true,  X  - 2 * ChainId- 35};
-    _Other ->
-                         io:format("Other ~p~n",[_Other]),
-                         error(badarg)
- end,
+ [Nonce, BGasPrice, BGasLimit, To, BValue, Data, BV, Rr, Sr] = erlp:decode(FinalTxRLP),
+ R=pad32(Rr),
+ S=pad32(Sr),
+ {PrepTx, EIP, V}
+ = case erlp:bin_to_int(BV) of
+     X when X == 0; X == 1 -> %no EIP-155
+       {[Nonce, BGasPrice, BGasLimit, To, BValue, Data], 0, X };
+     X when X == 27; X == 28 -> %no EIP-155
+       {[Nonce, BGasPrice, BGasLimit, To, BValue, Data], 0, X - 27 };
+     X when ChainId==0 -> % EIP-155
+       LChid=(X-35)div 2,
+       {[Nonce, BGasPrice, BGasLimit, To, BValue, Data,
+         erlp:int_to_bin(LChid), <<>>, <<>>], LChid,  X-(LChid*2)-35};
+     X when X - ChainId * 2 == 35 ; X - ChainId * 2 == 36 -> % EIP-155
+       {[Nonce, BGasPrice, BGasLimit, To, BValue, Data,
+         erlp:int_to_bin(ChainId), <<>>, <<>>], (X-35)div 2,  X  - 2 * ChainId- 35};
+     _Other ->
+       logger:error("eth tx decode error, v=~w requested chainid ~w",[_Other, ChainId]),
+       error(badarg)
+   end,
  PrepTxRLP = erlp:encode(PrepTx),
  {ok,Digest} = ksha3:hash(256,PrepTxRLP),
  {ok,PubKey} = ecrecover:recover(Digest, <<R/binary, S/binary>>, V),
  From = id_from_pubkey(PubKey),
  [{nonce, erlp:bin_to_int(Nonce)},
   {maxFeePerGas, erlp:bin_to_int(BGasPrice)},
+  {chainId, EIP},
   {gasPrice,erlp:bin_to_int(BGasPrice)},
   {gas, erlp:bin_to_int(BGasLimit)},
   {from, From},
@@ -185,5 +199,10 @@ decode_tx(ChainId, FinalTxRLP) ->
   {s, S},
   {hash, Digest},
   {pubkey, PubKey},
-  {eip155, EIP}].
+  {eip155, EIP>0}].
+
+pad32(<<X:32/binary>>) ->
+  X;
+pad32(X) when size(X)<32 ->
+  <<0:((32-size(X))*8)/big,X/binary>>.
 
