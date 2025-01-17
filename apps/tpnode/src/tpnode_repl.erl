@@ -89,6 +89,7 @@ state_init(cast, {new_block_notify,{Height, Hash, _Parent}, Origin}, #{loaders:=
   case R of
     {ok, {200, _Headers, Body}, PidList1} ->
       Block=block:unpack(Body),
+      ?LOG_INFO("Got block ~p",[maps:with([height],maps:get(header,Block))]),
       gen_server:call(blockchain_updater,{new_block, Block, self()}),
       {keep_state, Data#{loaders=>PidList1}};
     {error, PidList1} ->
@@ -162,14 +163,14 @@ do_connect(URL) ->
   Opts=case Sch of
          "http" -> #{};
          "https" -> 
-           %CaCerts = certifi:cacerts(),
+           CaCerts = certifi:cacerts(),
            CHC=[
                 {match_fun, public_key:pkix_verify_hostname_match_fun(https)}
                ],
            #{ transport=>tls,
               protocols => [http],
               transport_opts => [{verify, verify_peer},
-                                 %{cacerts, CaCerts},
+                                 {cacerts, CaCerts},
                                  {customize_hostname_check, CHC}
                                 ]}
        end,
