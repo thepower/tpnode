@@ -327,7 +327,7 @@ process_tx(#{from:=From,
 			end,
 	case Allow of
 		false ->
-			?LOG_NOTICE("Deploy to address ~p unsuccess, address occupied",[Address]),
+			?LOG_NOTICE("Deploy to address ~s failed, address occupied",[hex:encodex(Address)]),
 			{1,<<>>,GasLimit,State0};
 		true ->
 			CD=contract_evm:tx_cd(Tx),
@@ -347,7 +347,7 @@ process_tx(#{from:=From,
 								  Value, <<>>, GasLimit-3200, State1, Opts) of
 				{1, DeployedCode, GasLeft, State2} ->
 					State3=pstate:set_state(Address, code, [], DeployedCode, State2),
-					?LOG_INFO("Deploy to address ~p success",[Address]),
+					?LOG_INFO("Deploy to address ~s success ~w gas used",[hex:encodex(Address),GasLimit-GasLeft]),
 					State4=maps:without([cur_tx,tstorage], State3),
 					State5=case TxExt of
 							   #{ "setkey":= Key } when is_binary(Key) ->
