@@ -62,21 +62,22 @@ run(Opts) ->
        end,
     if is_binary(CS) ->
            case tpnode_reporter:prepare(CS, Opts) of
-               nokey ->
-                   logger:error("Cannot report, key is not registered");
-               Tx when is_map(Tx) ->
-                   %{ok,TxID}=gen_server:call(txpool,txid),
-                   %gen_server:cast(txqueue,{push_head,TxID,tx:pack(Tx)}),
-                   {ok, TxID} = txpool:push_head(tx:pack(Tx)),
-                   ?LOG_INFO("----[RUN TX ~s]----",[TxID]),
-                   {ok, {TxID, Tx}};
-                   %?LOG_INFO("Ignore tx yet"),
-                   %ignore;
-               noledger ->
-                   ?LOG_NOTICE("Ledger unavailable, ignoring"),
-                   ignore;
-               ignore ->
-                   ignore
+             nokey ->
+               logger:error("Cannot report, key is not registered"),
+               nokey;
+             Tx when is_map(Tx) ->
+               %{ok,TxID}=gen_server:call(txpool,txid),
+               %gen_server:cast(txqueue,{push_head,TxID,tx:pack(Tx)}),
+               {ok, TxID} = txpool:push_head(tx:pack(Tx)),
+               ?LOG_INFO("----[RUN TX ~s]----",[TxID]),
+               {ok, {TxID, Tx}};
+             noledger ->
+               ?LOG_NOTICE("Ledger unavailable, ignoring"),
+               ignore;
+             {wait,_,_} ->
+               ignore;
+             ignore ->
+               ignore
            end;
        true ->
            no_chainstate_specified
@@ -265,82 +266,75 @@ prepare(ToContract, Attributes, Opts) ->
         end,
   ?LOG_INFO("KeyID ~p ver ~p",[KeyId, Version]),
 
-    Info=case tpnode_evmrun:evm_run(ToContract,
-                                     <<"info() returns (uint256 current_epoch, uint256 start_blk, uint256 end_blk,uint256 end_time,uint256 block_number)">>,
-                                     [],
-                                     #{ gas=>50000 }) of
-              #{result:=return, decode:=Res2} -> Res2
+  Info=case tpnode_evmrun:evm_run(ToContract,
+                                  <<"info() returns (uint256 current_epoch, uint256 start_blk, uint256 end_blk,uint256 end_time,uint256 block_number)">>,
+                                  [],
+                                  #{ gas=>50000 }) of
+         #{result:=return, decode:=Res2} -> Res2
+       end,
+  ?LOG_INFO("Info ~p",[Info]),
+  if(KeyId > 0) ->
+      #{height:=LBH} = maps:get(header,blockchain:last_meta()),
+
+      {Time,Blk}=tpnode_reporter:ask_nextblock(ToContract),
+
+      Wait=Time-os:system_time(second),
+      ?LOG_INFO("LBH ~p time ~p wait ~p blk ~p~n",[LBH, Time, Wait, Blk]),
+      Nowait = maps:is_key(nowait,Opts),
+
+      if(Nowait orelse (
+                  (Wait =< 2 orelse LBH==Blk-1) andalso Time=/=0 andalso Blk=/=0
+                 )
+        ) ->
+          SCH=case tpnode_evmrun:evm_run(
+                     ToContract,
+                     <<"last_height(uint256) returns (uint256)">>, [KeyId],
+                     #{ gas=>50000 }) of
+                #{result:=return, bin:= <<Result:256/big>>} ->
+                  Result
+              end,
+          ?LOG_INFO("SCH ~p LBH ~p~n",[SCH,LBH]),
+          {F,T}=if LBH-SCH>30 ->
+                     {LBH-10,LBH-1};
+                   true ->
+                     {SCH+1,min(SCH+10,LBH-1)}
+                end,
+
+
+
+          %ToBlk=(LBH div 10) * 10,
+          %FromBlk=max(LBH-30,SCH),
+          prepare(ToContract,F,T, Attributes);
+        true ->
+          {wait, Time, Blk}
+      end;
+    true ->
+      case tpnode_evmrun:evm_run(ToContract,
+                                 <<"self_registration()">>, [],
+                                 #{ gas=>50000 }) of
+        #{result:=return, bin:= <<1:256/big>>} ->
+          {ok,Address} = get_account(),
+          Seq=seq(Address),
+          if Seq==undefined ->
+               throw(noledger);
+             true ->
+               ok
           end,
-    ?LOG_INFO("Info ~p",[Info]),
-    if(KeyId > 0) ->
-          #{height:=LBH} = maps:get(header,blockchain:last_meta()),
-
-          {Time,Blk}=tpnode_reporter:ask_nextblock(ToContract),
-          
-          Wait=Time-os:system_time(second),
-          ?LOG_INFO("LBH ~p time ~p wait ~p blk ~p~n",[LBH, Time, Wait, Blk]),
-          Nowait = maps:is_key(nowait,Opts),
-
-          if(Nowait orelse (
-                      (Wait =< 2 orelse LBH==Blk-1) andalso Time=/=0 andalso Blk=/=0
-                     )
-            ) ->
-              SCH=case tpnode_evmrun:evm_run(
-                         ToContract,
-                         <<"last_height(uint256) returns (uint256)">>, [KeyId],
-                         #{ gas=>50000 }) of
-                        #{result:=return, bin:= <<Result:256/big>>} ->
-                            Result
-                    end,
-                ?LOG_INFO("SCH ~p LBH ~p~n",[SCH,LBH]),
-                {F,T}=if LBH-SCH>30 ->
-                             {LBH-10,LBH-1};
-                         true ->
-                             {SCH+1,min(SCH+10,LBH-1)}
-                      end,
-
-
-
-                %ToBlk=(LBH div 10) * 10,
-                %FromBlk=max(LBH-30,SCH),
-                prepare(ToContract,F,T, Attributes);
-            true ->
-                ignore
-          end;
-      true ->
-          case tpnode_evmrun:evm_run(ToContract,
-                                     <<"self_registration()">>, [],
-                                     #{ gas=>50000 }) of
-              #{result:=return, bin:= <<1:256/big>>} ->
-                  {ok,Address} = get_account(),
-                  Seq=case mledger:get_kpv(Address,seq,[]) of
-                        {ok, ISeq} -> ISeq+1;
-                        undefined ->
-                          case mledger:get_kpv(Address,pubkey,[]) of
-                            {ok, _} -> 0;
-                            undefined ->
-                              undefined
-                          end
-                      end,
-                  if Seq==undefined ->
-                         noledger;
-                     true ->
-                         Tx0=tx:construct_tx(#{
-                                               ver=>2,
-                                    kind=>generic,
-                                    to=>ToContract,
-                                    from=>Address,
-                                    t=>os:system_time(millisecond),
-                                    seq=>Seq,
-                                    payload=>[],
-                                    call=>#{function=>"register()",args=>[]}
-                                              }),
-                         tx:sign(Tx0,nodekey:get_priv())
-                  end;
-              _Any ->
-                  nokey
-          end
-    end.
+          Tx0=tx:construct_tx(#{
+                                ver=>2,
+                                kind=>generic,
+                                to=>ToContract,
+                                from=>Address,
+                                t=>os:system_time(millisecond),
+                                seq=>Seq,
+                                payload=>[],
+                                call=>#{function=>"register()",args=>[]}
+                               }),
+          tx:sign(Tx0,nodekey:get_priv());
+        _Any ->
+          nokey
+      end
+  end.
 
 register(ToContract) ->
     {ok,Address} = get_account(),
@@ -384,11 +378,11 @@ prepare(ToContract, FromBlock, ToBlock, Attributes) ->
                    is_binary(Vi) -> binary:decode_unsigned(Vi)
                 end ] || {Ki, Vi} <- Attributes ],
     Args=[encode_data(BI, KVs1) ],
-    Seq=case mledger:get_kpv(Address,seq,[]) of
-            {ok, ISeq} -> ISeq+1;
-            undefined -> 1
-        end,
-
+    Seq=seq(Address),
+    if(Seq==undefined) ->
+        throw(noledger);
+      true -> ok
+    end,
     tx:sign(tx:construct_tx(#{
       ver=>2,
       kind=>generic,
@@ -439,9 +433,9 @@ post_tx_and_wait(TXConstructed, Timeout) ->
     receive
         {_From, _Timestamp, Messages} ->
             case Messages of
-                [{true,E}] ->
+                [{TxID,true,E}] ->
                     {true, E};
-                [{false,E}] ->
+                [{TxID,false,E}] ->
                     {false, E}
             end
     after Timeout ->
@@ -451,25 +445,98 @@ post_tx_and_wait(TXConstructed, Timeout) ->
 
 init(_Args) ->
     logger:set_process_metadata(#{domain=>[tpnode,reporter]}),
-  {ok, #{}}.
+    Account=case get_account() of
+              {ok, Address } ->
+                Address;
+              register ->
+                erlang:send_after(10000,self(), register),
+                false
+            end,
+    {ok, #{address=>Account, last_tx_t=>0}}.
+
 
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
-handle_cast({new_block,H,T}, State) ->
-    R=run(),
-    case R of
-      {ok,TxID,#{}=TxBody} ->
-        ?LOG_INFO("run ~p new blk ~p ~p",
-                  [ {ok,TxID,maps:without([body],TxBody)}, H, T]);
-      _ ->
-        ?LOG_INFO("run ~p new blk ~p ~p",[R, H, T])
-    end,
-    {noreply, State};
+handle_cast({new_block,_H,_T}, State) ->
+%    R=run(),
+%    case R of
+%      {ok,TxID,#{}=TxBody} ->
+%        ?LOG_INFO("run ~p new blk ~p ~p",
+%                  [ {ok,TxID,maps:without([body],TxBody)}, H, T]);
+%      _ ->
+%        ?LOG_INFO("run ~p new blk ~p ~p",[ignore, H, T]),
+%    end,
+%    {noreply, State};
+  handle_info(report, State);
 
 handle_cast(_Msg, State) ->
   ?LOG_ERROR("Unknown cast ~p", [_Msg]),
   {noreply, State}.
+
+handle_info(report, #{address:=_Addr, last_tx_t:=LT}=State) ->
+  Now=os:system_time(millisecond),
+  CS=case application:get_env(tpnode,chainstate,undefined) of
+       undefined ->
+         case chainsettings:by_path([<<"current">>,<<"chainstate">>]) of
+           Y when is_binary(Y) -> Y;
+           _ ->
+             case mledger:db_get_one(mledger,<<0>>,lstore,[<<"chainstate">>],[]) of
+               undefined ->
+                 undefined;
+               {ok, Address} ->
+                 Address
+             end
+         end;
+       X ->
+         naddress:decode(X)
+     end,
+  ToWait=maps:get(wait_t,State,0)*1000,
+  WaitBlk=maps:get(wait_blk,State,0),
+  #{height:=LBH} = maps:get(header,blockchain:last_meta()),
+  if Now-LT<180000 -> %wait 3 min before next try
+       ?LOG_NOTICE("Last tx ~s still unconfirmed",[maps:get(last_tx_id,State,"")]),
+       {noreply, State};
+     ToWait>Now andalso WaitBlk>LBH ->
+       {noreply, State};
+     is_binary(CS) ->
+       case tpnode_reporter:prepare(CS, #{}) of
+         nokey ->
+           {noreply, State};
+         Tx when is_map(Tx) ->
+           T0=tinymq:now(1),
+           {ok, TxID} = txpool:push_head(tx:pack(Tx)),
+           ?LOG_INFO("----[sent tx ~s]----",[TxID]),
+           tinymq:subscribe(TxID, T0, self()),
+           {noreply, State#{last_tx_t=>Now, last_tx_id=>TxID}};
+         noledger ->
+           ?LOG_NOTICE("Ledger unavailable, ignoring"),
+           {noreply, State};
+         {wait,T,H} ->
+           {noreply, State#{wait_t=>T,wait_blk=>H}};
+         ignore ->
+           {noreply, State}
+       end;
+     true ->
+       ?LOG_DEBUG("no chainstate"),
+       {noreply, State}
+  end;
+
+handle_info({_From, _Timestamp, [{TxID,Result,E}]}, #{last_tx_id:=TxID}=State)
+  when is_pid(_From),
+       is_integer(_Timestamp),
+       (Result==true orelse Result==false) ->
+  case E of
+    #{block:=_,blockn:=Hei,retval:=_,success:=Res} ->
+      ?LOG_INFO("tx done ~s ~w block ~w res ~w",[TxID, Result, Hei, Res]);
+    _ ->
+      ?LOG_INFO("tx done ~s ~w ~p",[TxID, Result, E])
+  end,
+  {noreply, maps:remove(last_tx_id,State#{last_tx_t=>0})};
+
+handle_info(register, State) ->
+  {ok,Account}=tpnode_reporter:ensure_account(),
+  {noreply, State#{address=>Account}};
 
 handle_info(_Info, State) ->
   ?LOG_NOTICE("~s Unknown info ~p", [?MODULE,_Info]),
@@ -559,5 +626,18 @@ csnodes(Kind) ->
           chain_nodes0(Address);
         1 ->
           chain_nodes1(Address, Kind)
+      end
+  end.
+
+
+
+seq(Address) ->
+  case mledger:get_kpv(Address,seq,[]) of
+    {ok, ISeq} -> ISeq+1;
+    undefined ->
+      case mledger:get_kpv(Address,pubkey,[]) of
+        {ok, _} -> 0;
+        undefined ->
+          undefined
       end
   end.
