@@ -1288,10 +1288,13 @@ dec_amount(I) when is_integer(I) ->
 dec_amount(I) when is_binary(I) ->
 	binary:decode_unsigned(I).
 
-enc_amount(I) when I<16#FFFFFFFFFFFFFFF0 ->
-	I;
-enc_amount(I) ->
-	binary:encode_unsigned(I).
+enc_amount(I) when is_integer(I) ->
+  I.
+
+%enc_amount(I) when I<16#FFFFFFFFFFFFFFF0 ->
+%	I;
+%enc_amount(I) ->
+%	binary:encode_unsigned(I).
 
 unpack_ext(66, BigInt, _) ->
 	%decoder for JS library
