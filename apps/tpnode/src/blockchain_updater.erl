@@ -13,7 +13,9 @@
          apply_block_conf_meta/2,
          apply_ledger/2,
          apply_ledger/3,
-         backup/1, restore/1]).
+         backup/1, restore/1,
+         rollback/0
+        ]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -34,6 +36,9 @@ new_block(Blk) ->
 
 new_sig(BlockHash, Sigs) ->
   gen_server:cast(blockchain_updater, {signature, BlockHash, Sigs}).
+
+rollback() ->
+  gen_server:call(blockchain_updater, rollback).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -448,7 +453,7 @@ handle_call({new_block, #{hash:=BlockHash,
                   gen_server:cast(tpnode_reporter, {new_block, maps:get(height, maps:get(header, Blk)), maps:get(temporary,Blk,false)}),
 
 
-				  SendSuccess=send_success(Blk),
+                  SendSuccess=send_success(Blk),
 				 
                   stout:log(blockchain_success, [{result, SendSuccess}, {failed, nope}]),
                   gen_server:cast(txqueue, {done, SendSuccess}),
