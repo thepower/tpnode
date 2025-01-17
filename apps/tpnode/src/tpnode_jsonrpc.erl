@@ -163,7 +163,20 @@ h(<<"eth_sendRawTransaction">>,[Tx], _Context) ->
                              chain_id=>chain_id()
                             }),
     ?LOG_INFO("Got req for eth_sendRawTransaction with ~p",
-              [maps:with( [kind,from,to,seq], Decode)]),
+              [
+               maps:fold(
+                 fun(kind,V,A) ->
+                     maps:put(kind,V,A);
+                    (seq,V,A) ->
+                     maps:put(seq,V,A);
+                    (from,V,A) ->
+                     maps:put(from,hex:encodex(V),A);
+                    (to,V,A) ->
+                     maps:put(to,hex:encodex(V),A);
+                    (_,_,A) ->
+                     A
+                 end,#{}, Decode)
+              ]),
     case txpool:new_tx(Decode) of
       {ok,TxID} ->
         ?LOG_INFO("TxID ~s hash ~s",[TxID, hex:encodex(Hash)]),
@@ -207,7 +220,7 @@ h(<<"eth_estimateGas">>,[_Params,_Block,_Patched]=Params, _Context) ->
     PTX=eth_call(Params, _Context),
     case PTX of
       {1,_RetData,GasUsed,_} ->
-        ?LOG_INFO("Ret ~w~n",[_RetData]),
+        ?LOG_INFO("Ret ~w ~w~n",[_RetData, GasUsed]),
         i2hex((GasUsed)+23000);
       {0,RetData, _GasLeft, _} ->
         throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(RetData)});
@@ -824,13 +837,22 @@ show_tx(#{kind:=_,from:=From,seq:=Nonce}=Tx) ->
 eth_call([{Params},_Block,_Patched], _Context) ->
     To=decode_addr(proplists:get_value(<<"to">>,Params,null),null,<<>>),
     Data=hex:decode(proplists:get_value(<<"data">>,Params,<<>>)),
-    From=decode_addr(proplists:get_value(<<"from">>,Params,null),null,<<0>>),
+    TFrom=proplists:get_value(<<"from">>,Params,null),
+    From=decode_addr(TFrom,null,<<0>>),
     S0=process_txs:new_state(fun mledger:getfun/2, mledger),
     Gas=2000000,
     R0=case To of
       <<>> -> %deploy
+           D=get_ledger(TFrom, seq, [], <<"pending">>),
+           Seq=case D of
+             [{seq,[],S}] ->
+               S+1;
+             [] ->
+               0
+           end,
+
         Tx=tx:construct_tx(#{from=>From,
-                             seq=>1,
+                             seq=>Seq,
                              kind=>deploy,
                              txext=>#{
                                       "code"=>Data,
@@ -880,7 +902,12 @@ search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt, EthMatch) ->
                     lists:foldl(
                       fun eth_bloom:bloom_filter32/2,
                       0,
-                      [ T || T <- Topics, is_binary(T) ])
+                      [ T || T <- Topics, is_binary(T) ]);
+                  [] ->
+                    lists:foldl(
+                      fun eth_bloom:bloom_filter20/2,
+                      0,
+                      [ T || T <- Addresses, is_binary(T) ])
                 end,
   {_,Res}=lists:foldl(
             fun
