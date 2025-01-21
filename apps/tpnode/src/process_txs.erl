@@ -530,6 +530,22 @@ process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value,
 	RBin=contract_evm_abi:encode_abi(Ret, [{<<>>,uint256},{<<>>,bytes}]),
 	{1, RBin, GasLimit-100, State0};
 
+process_itx(_From, <<16#1:160/big>>=_To, Value, CallData, GasLimit, State0, _Opts) ->
+        ?ASSERT_NOVAL,
+        case CallData of
+            <<Hash:32/binary,V:256/big,R:32/binary,S:32/binary>> when V==27 orelse V==28 ->
+                {ok,<<_:8,PubKey/binary>>} = ecrecover:recover(Hash, <<R/binary, S/binary>>, V-27),
+                Ret=eth:id_from_pubkey(PubKey),
+                {1, <<0:96/big,Ret/binary>>, GasLimit-100, State0};
+            _ ->
+                throw({revert,<<"badarg">>})
+            end;
+
+process_itx(_From, <<16#2:160/big>>=_To, Value, CallData, GasLimit, State0, _Opts) ->
+		?ASSERT_NOVAL,
+		Ret=crypto:hash(sha256,CallData),
+		{1, Ret, GasLimit-100, State0};
+
 process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value, _CallData, GasLimit,
 			#{cur_tx:=Tx}=State0, _Opts) ->
 	?ASSERT_NOVAL,
@@ -736,4 +752,3 @@ evm_address(From,Nonce) ->
   D2Hash=erlp:encode([From,i2b(Nonce)]),
   {ok,<<_:12/binary,EVMAddress:20/binary>>}=ksha3:hash(256, D2Hash),
   EVMAddress.
-
