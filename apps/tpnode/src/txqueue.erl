@@ -93,6 +93,8 @@ handle_cast({done, Txs}, #{inprocess:=InProc0,
   InProc1 =
     lists:foldl(
       fun
+        ({<<"~",_/binary>>,_}, Acc) ->
+          Acc;
         ({Tx, _}, Acc) ->
           ?LOG_INFO("TX queue ext tx done ~p", [Tx]),
           hashqueue:remove(Tx, Acc);
@@ -114,9 +116,9 @@ handle_cast({done, Txs}, #{inprocess:=InProc0,
              ),
 
     lists:foreach(fun({TxID,Reason}) ->
-                      tinymq:push(TxID,{true,Reason});
+                      tinymq:push(TxID,{TxID,true,Reason});
                      (TxID) when is_binary(TxID) ->
-                      tinymq:push(TxID,{true,undefined})
+                      tinymq:push(TxID,{TxID,true,undefined})
                   end, Txs),
   gen_server:cast(txstatus, {done, true, Txs}),
   gen_server:cast(tpnode_ws_dispatcher, {done, true, Txs}),
@@ -153,7 +155,7 @@ handle_cast({failed, Txs}, #{inprocess:=InProc0,
            ),
 
   lists:foreach(fun({TxID,Reason}) ->
-                    tinymq:push(TxID,{false,Reason})
+                    tinymq:push(TxID,{TxID,false,Reason})
                 end, Txs),
   gen_server:cast(txstatus, {done, false, Txs}),
   gen_server:cast(tpnode_ws_dispatcher, {done, false, Txs}),
