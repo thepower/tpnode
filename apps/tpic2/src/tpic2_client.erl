@@ -133,15 +133,20 @@ parse_address(Host) ->
     {ok, {_,_,_,_,_,_,_,_}=Addr} ->
       {[inet6],Addr};
     {error, einval} ->
-      case inet:gethostbyname(Host) of
-        {ok,{hostent,_,_,inet,_, [IPv4Addr|_]}} ->
-          {[],IPv4Addr};
-        {ok, Any} ->
-          %?LOG_ERROR("Address ~p resolver unexpected result : ~p",[Host, Any]),
-          throw({unexpected_gethostbyname_answer,Any});
-        {error,nxdomain} ->
-          %?LOG_ERROR("Address ~p can't resolve",[Host]),
-          throw({bad_hostname,Host})
+      Mode=case string:tokens(Host,".") of
+             [_,"pk","ygg"] ->
+               {ok, Host};
+             _ ->
+               case inet:gethostbyname(Host) of
+                 {ok,{hostent,_,_,inet,_, [IPv4Addr|_]}} ->
+                   {[],IPv4Addr};
+                 {ok, Any} ->
+                   %?LOG_ERROR("Address ~p resolver unexpected result : ~p",[Host, Any]),
+                   throw({unexpected_gethostbyname_answer,Any});
+                 {error,nxdomain} ->
+                   %?LOG_ERROR("Address ~p can't resolve",[Host]),
+                   throw({bad_hostname,Host})
+               end
       end;
     {error, Err} ->
       %?LOG_ERROR("Address ~p error: ~p",[Host, Err]),
