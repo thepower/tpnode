@@ -277,7 +277,7 @@ run_generate(
             },
     HBlk=msgpack:pack(Msg),
     ?LOG_DEBUG("MB send blockvote ~p", [Msg]),
-    ?LOG_INFO("MB send blockvote My sign for block ~p chain ~p",
+    ?LOG_INFO("MB send blockvote My sign for block ~s chain ~p",
                 [
                  blockchain:blkid(maps:get(hash,SignedBlock)),
                  MyChain
