@@ -2,15 +2,16 @@
 pragma solidity ^0.8.24;
 
 import "contracts/BronKerbosch.sol";
-import "contracts/access/Ownable.sol";
+//import "contracts/access/Ownable.sol";
 import "contracts/access/StaticOwnable.sol";
 import "contracts/GetTx.sol";
 import "contracts/ChainFee.sol";
-import "contracts/ChainManagement.sol";
 import "contracts/IDManager.sol";
 import "contracts/Popcnt.sol";
+import "contracts/IChainState.sol";
+import "contracts/IChainManagement.sol";
 
-contract ChainState is StaticOwnable, IDManager, Popcnt {
+contract ChainState is StaticOwnable, IDManager, Popcnt, IChainState {
   enum NodeKind {
     NODE_UNKNOWN,
     NODE_SEED,
@@ -28,7 +29,7 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
   bool    public epoch_payed;
   bool    public self_registration;
 
-  mapping ( bytes pubkey => uint256 ) public node_ids;
+  mapping ( bytes pubkey => uint8 ) public node_ids;
   mapping ( uint256 id => bytes ) public node_keys;
   mapping ( uint256 id => NodeKind ) public node_kind;
   uint256 public alive_mask;
@@ -58,11 +59,12 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
   uint256 public constant STORE_CLIQUE_BLOCKS = 500;
 
   bool public test_mode;
-  ChainManagement public chainmgmt;
+  IChainManagement public chainmgmt;
   mapping ( uint256 id => uint256 ) public node_stat;
   uint256 public next_mask;
+  uint256 public exist_mask;
 
-  uint256[995] private _padding; //padding up to 1023 slot
+  uint256[994] private _padding; //padding up to 1023 slot
 
   //start it at slot 1024
   uint256[512] public alive_mask_history; //up to 512 epochs history of alive nodes mask
@@ -71,6 +73,12 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
   event NewEpoch (uint256,uint256,uint256,uint256);
   event Blk (uint256 indexed, uint256 indexed);
 
+  modifier onlyChainManagenet() {
+        require(msg.sender == address(chainmgmt), "Caller is not ChainManagement");
+        _;
+    }
+
+  //initial nodes must be already stripped: 32bytes long each key
   constructor(bool _selfreg, bytes[] memory initial_nodes)
     StaticOwnable(msg.sender)
     IDManager(1,240) {
@@ -78,7 +86,7 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
     uint8 i=0;
     require(initial_nodes.length<16, "Start with lower amount of nodes");
     if(initial_nodes.length==0){
-      for(i=0;i<16;i++){
+      for(i=0;i<16;i++){ //Try to realloc nodes in case of redeploy
         if (node_keys[i+1].length==32) {
           require(i==alloc(i),"Cannot allocate exists node id");
         }
@@ -88,9 +96,12 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
         uint256 nodeid=_register(initial_nodes[i]);
         _update_consensus(nodeid,true);
       }
+      consensus_nodes=uint8(popcnt(consensus_mask));
+      minsig=(consensus_nodes/2)+1;
       test_mode=false;
     }
   }
+
   function set_params(uint256 max_block_time, uint256 max_epoch_time, uint256 epoch_blocks) public onlyOwner {
     MAX_BLOCK_TIME = max_block_time;
     MAX_EPOCH_TIME = max_epoch_time;
@@ -100,7 +111,7 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
     chainfee=ChainFee(_new);
   }
   function set_chainmgmt(address _new) public onlyOwner {
-    chainmgmt=ChainManagement(_new);
+    chainmgmt=IChainManagement(_new);
   }
   function set_test(bool _value) public onlyOwner {
     test_mode=_value;
@@ -130,6 +141,9 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
     if (address(chainfee) != address(0)){
       chainfee.new_epoch(epoch);
     }
+    if(consensus_mask==0 && next_mask==0)
+      next_mask=exist_mask;
+
     if (next_mask>0) {
       consensus_mask=next_mask;
       consensus_nodes=uint8(popcnt(consensus_mask));
@@ -147,8 +161,9 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
     block_number=block.number;
   }
 
+  event Debug(string, uint256, uint256, uint256);
   event Calc(uint256, uint256);
-  event Payout(uint256 blk0, uint256 blk1, uint256 and_mask, uint256 or_mask);
+  event Payout(uint256 blk0, uint256 blk1, uint256 or_mask, uint256 and_mask);
   event PayoutRes(uint256 payed, uint256 burned);
   event PayOutFail(bytes);
   event RegisterNode(uint256,bytes);
@@ -175,14 +190,16 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
     if(block.number>=CALC_DELAY) {
       uint256 blk=block.number-CALC_DELAY;
       uint256 mask=calc_block(blk);
+      //uint256 mask = exist_mask;
       emit Calc(blk,mask);
       block_clique[blk]=mask;
       clean_block(blk);
-      calc_till=block.number-CALC_DELAY;
+      calc_till=blk;
       if(blk>STORE_CLIQUE_BLOCKS){ //cleanup after X blocks
         block_clique[blk-STORE_CLIQUE_BLOCKS]=0;
       }
     }
+    emit Debug("CT",calc_till, epoch_start_blk, epoch_end_blk);
     if(calc_till>=epoch_start_blk && !epoch_payed){
       return _payout();
     }
@@ -219,8 +236,8 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
       }
 
       (bool res, bytes memory result) = address(chainmgmt).call(
-        abi.encodeWithSignature("epoch_update(uint256,uint256,uint256,uint256,uint256[])",
-                                consensus_mask,cc_or,cc_and,alive_mask,hist)
+        abi.encodeWithSignature("epoch_update(uint256,uint256,uint256,uint256,uint256[],uint8,uint8)",
+                                consensus_mask,cc_or,cc_and,alive_mask,hist,consensus_nodes,minsig)
       );
       if(res) {
         (uint256 emergency_mask, uint256 new_next_mask) = abi.decode(result, (uint256, uint256));
@@ -249,6 +266,7 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
     uint blkn;
     uint cc_or=consensus_mask;
     uint cc_and=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
+    bool error=true;
     emit Payout(epoch_last_start_blk,epoch_start_blk-1,0,consensus_mask);
     for(blkn=epoch_last_start_blk;blkn<epoch_start_blk;blkn++){
       if(block_clique[blkn]==0)
@@ -256,9 +274,10 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
         emit Blk(blkn,block_clique[blkn]);
         cc_or|=block_clique[blkn];
         cc_and&=block_clique[blkn];
+        error=false;
     }
     emit Payout(epoch_last_start_blk,epoch_start_blk-1,cc_or,cc_and);
-    if (address(chainfee) != address(0)){
+    if (address(chainfee) != address(0) && !error){
       //function payout(address[] calldata _payto, uint256 _toburn) public returns (uint256 payed,
       uint winners=0;
       uint burn=0;
@@ -342,13 +361,28 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
     }
   }
 
-  function _register(bytes memory shortkey) internal returns (uint256) {
+  function cm_register(bytes calldata nodekey) public onlyChainManagenet returns (uint8) {
+    return _register(nodekey);
+  }
+  function cm_chkey(uint8 nodeid, bytes calldata nodekey) public onlyChainManagenet {
+    require(is_allocated(nodeid),"Node is not registered");
+    node_keys[nodeid]=nodekey;
+  }
+  function cm_unregister(uint8 nodeid) public onlyChainManagenet {
+    require(is_allocated(nodeid),"Node is not registered");
+    require(consensus_mask & (1<<nodeid) == 0,"Cannot unregister consensus node");
+    exist_mask&=~(1<<nodeid);
+    dealloc(uint8(nodeid));
+  }
+
+  function _register(bytes memory shortkey) internal returns (uint8) {
     if(node_ids[shortkey]==0){
       require(getAvailableLength()>0,"maximum number of nodes reached");
       uint8 id=alloc();
       require(id>0,"no more nodes available");
       node_ids[shortkey]=id;
       node_keys[id]=shortkey;
+      exist_mask|=1<<id;
       emit RegisterNode(id,shortkey);
     }
     return node_ids[shortkey];
@@ -429,18 +463,6 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
     return node_ids[nodekey[slice:]];
   }
 
-  struct hSig {
-    bytes pubkey;
-    uint256 created;
-    uint256 seen;
-  }
-  struct hUpd {
-    bytes32 hash;
-    uint256 height;
-    uint256 mean_time;
-    uint256 install_time;
-    hSig[] sigs;
-  }
   function updateData(hUpd[] calldata data) public returns (bool[] memory res) {
     bytes memory nodekey = GetTx(address(0xAFFFFFFFFF000002)).getTx().signatures[0].rawkey;
     uint256 nodeid=node_ids[nodekey];
@@ -452,6 +474,7 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
       res[i]=_updateData(nodeid, data[i]);
     }
   }
+
   function updateData(hUpd[] calldata data, uint256[2][] calldata attribs) public returns (bool[] memory res) {
     bytes memory nodekey = GetTx(address(0xAFFFFFFFFF000002)).getTx().signatures[0].rawkey;
     uint256 nodeid=node_ids[nodekey];
@@ -525,7 +548,7 @@ contract ChainState is StaticOwnable, IDManager, Popcnt {
       }
     }
 
-    blocknode_sigmask[data.height].push([from,sigmask]);
+    blocknode_sigmask[data.height].push([from-1,sigmask]);
     blocknode_sigcnt[data.height]=cnt+1;
 
     last_height[from]=data.height;

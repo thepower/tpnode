@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-contract GetTx {
+interface GetTx {
   struct tpTx {
     uint256 kind;
     address from;
@@ -25,8 +25,8 @@ contract GetTx {
     bytes signature;
   }
 
-  function getTx() public virtual view returns (tpTx memory) {}
-  function getExtra(string calldata keyname) public virtual view returns (uint256, bytes memory) {}
-  function getSigners() public virtual view returns (bytes[] memory) {}
+  function getTx() external view returns (tpTx memory);
+  function getExtra(string calldata keyname) external view returns (uint256, bytes memory);
+  function getSigners() external view returns (bytes[] memory);
 }
 

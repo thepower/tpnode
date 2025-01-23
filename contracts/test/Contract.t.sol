@@ -1,99 +1,16 @@
 // SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.26;
 
-import "forge-std/Test.sol";
-
-import "src/ChainState.sol";
+//import "src/ChainState.sol";
+import "test/Essentials.sol";
+import "src/ChainNode.sol";
+import "src/ChainManagement.sol";
 import "src/FakeChainFee.sol";
-//import "src/GetTx.sol";
-
-contract EvmCall is Test {
-  function iToHex(bytes memory buffer) public pure returns (string memory) {
-    // Fixed buffer size for hexadecimal convertion
-    bytes memory converted = new bytes(buffer.length * 2);
-    bytes memory _base = "0123456789abcdef";
-    for (uint256 i = 0; i < buffer.length; i++) {
-      converted[i * 2] = _base[uint8(buffer[i]) / _base.length];
-      converted[i * 2 + 1] = _base[uint8(buffer[i]) % _base.length];
-    }
-    return string(converted);
-  }
-  function h2i(uint8 c1, uint8 c2) private pure returns(uint8){
-    uint8 r0=0;
-    if(c1>=0x30 && c1<=0x39){ r0+=(c1-0x30)*16;
-    }else if(c1>=0x97 && c1<=0x102){ r0+=(c1-0x97+10)*16;
-    }else if(c1>=0x65 && c1<=0x70){ r0+=(c1-0x65+10)*16;
-    }
-
-    if(c2>=0x30 && c2<=0x39){ r0+=(c2-0x30);
-    }else if(c2>=0x97 && c2<=0x102){ r0+=(c2-0x97+10);
-    }else if(c2>=0x65 && c2<=0x70){ r0+=(c2-0x65+10);
-    }
-    return r0;
-  }
-  function rpc_call(address addr, bytes memory reqd) public returns (bytes memory){
-    string memory req= string(
-      abi.encodePacked(
-        "[{\"data\":\"0x",
-        iToHex(reqd),
-        "\",\"to\":\"0x",
-        iToHex(abi.encodePacked(addr)),
-        "\"},\"last\"]"
-      )
-    );
-    bytes memory s= vm.rpc("pwr","eth_call",req);
-    //looks like hex decoding does need anymore
-    //bytes memory ret = new bytes(s.length/2);
-    //for(uint16 i=0;i<s.length/2;i++){
-    //  ret[i]=bytes1(h2i(uint8(s[i*2]),uint8(s[i*2+1])));
-    //}
-    //return ret;
-    return s;
-  }
-}
-
-contract MockBronKerbosch is BronKerbosch, EvmCall {
-  function max_clique_mask(uint256[2][] calldata arg) public virtual override returns (uint256) {
-    bytes memory cd=abi.encodeWithSignature("max_clique_mask(uint256[2][])",arg);
-    bytes memory result = rpc_call(address(0xAFFFFFFFFF000007), cd);
-    (uint256 r) = abi.decode(result, (uint256));
-    return r;
-  }
-  function max_clique_list(uint256[2][] calldata arg) public virtual override returns (uint256[] memory) {
-    bytes memory cd=abi.encodeWithSignature("max_clique_list(uint256[2][])",arg);
-    //emit log_bytes(cd);
-    bytes memory result = rpc_call(address(0xAFFFFFFFFF000007), cd);
-    (uint256[] memory r) = abi.decode(result, (uint256[]));
-    return r;
-  }
-}
-
-contract MockGetTx is GetTx {
-  bytes32 public signer;
-  function setSigner(bytes32 _signer) public {
-    signer=_signer;
-  }
-  function getTx() public override view returns (tpTx memory) {
-    tpSig[] memory signatures = new tpSig[](1);
-    signatures[0].pubkey=abi.encodePacked(keccak256(abi.encodePacked(signer)));
-    signatures[0].rawkey=abi.encodePacked(keccak256(abi.encodePacked(signer)));
-    tpTx memory rtx;
-    rtx.signatures=signatures;
-    return rtx;
-  }
-  function getExtra(string calldata keyname) public override view returns (uint256, bytes memory) {
-    bytes memory r = abi.encodePacked(keccak256(abi.encodePacked(keyname,signer)));
-    return(0,r);
-  }
-  function getSigners() public override pure returns (bytes[] memory) {
-    bytes[] memory r;
-    return r;
-  }
-}
 
 contract TestContract is Test {
 	ChainState cs;
 	ChainManagement cm;
+  ChainNodes cn;
 
 	address admin;
 	address deployer;
@@ -110,14 +27,16 @@ contract TestContract is Test {
     node3      = address(0x0102030405060708090000000000000000000003);
     node4      = address(0x0102030405060708090000000000000000000004);
 
-    vm.prank(deployer);
-    cm=new ChainManagement(deployer);
-
+    
     bytes[] memory initial_nodes=new bytes[](0);
     vm.prank(deployer);
     cs=new ChainState(true,initial_nodes);
     vm.prank(deployer);
     cs.set_test(true);
+
+    vm.prank(deployer);
+    cm=new ChainManagement(address(cn), address(cs), 3, 11, 10);
+
     vm.prank(deployer);
     cs.set_chainmgmt(address(cm));
 
