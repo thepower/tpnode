@@ -18,7 +18,6 @@ RUN apt-get update -yqq && \
         automake \
         autoconf \
         libncurses5-dev \
-        elixir \
         erlang-base \
         erlang-public-key \
         erlang-asn1 \
@@ -29,7 +28,9 @@ RUN apt-get update -yqq && \
         erlang-common-test \
         rebar3 \
         iputils-ping && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+        curl https://sh.rustup.rs -sSf | sh /dev/stdin -y && \
+        apt-get clean && \
+        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 WORKDIR /opt/tpnode
 
@@ -42,6 +43,8 @@ FROM base AS build
 LABEL stage=build
 
 WORKDIR /opt/tpnode
+
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Install project dependencies and compile the application
 RUN rebar3 get-deps && \

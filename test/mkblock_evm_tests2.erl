@@ -1411,6 +1411,453 @@ evm_revert_test() ->
        ?assertMatch(true,true)
       ].
 
+
+precompiled_ecrecovery_test() ->
+    OurChain=150,
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+    248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+    Addr1=naddress:construct_public(1, OurChain, 1),
+    SkAddr=naddress:construct_public(1, OurChain, 4),
+    Code=eevm_asm:assemble(
+      <<"
+      // First place the parameters in memory
+      PUSH32 0x456e9aea5e197a1f1af7a3e85a3212fa4049a3ba34c2289b4c860fc0b0c64ef3 // hash
+      PUSH1 0
+      MSTORE
+      PUSH1 28 // v
+      PUSH1 0x20
+      MSTORE
+      PUSH32 0x9242685bf161793cc25603c231bc2f568eb630ea16aa137d2664ac8038825608 // r
+      PUSH1 0x40
+      MSTORE
+      PUSH32 0x4f8ae3bd7535248d0bd448298cc2e2071e56992d0774dc340c368ae950852ada // s
+      PUSH1 0x60
+      MSTORE
+
+      // Do the call
+      PUSH1 32 // retSize
+      PUSH1 0x80 // retOffset
+      PUSH1 0x80 // argsSize
+      PUSH1 0 // argsOffset
+      PUSH1 1 // address
+      PUSH4 0xFFFFFFFF // gas
+      STATICCALL
+
+      push1 0x20
+      push1 0x80
+      return
+      ">>,
+      #{}
+      ),
+
+          TX1=tx:sign(
+              tx:construct_tx(#{
+                  ver=>2,
+                  kind=>generic,
+                  from=>Addr1,
+                  to=>SkAddr,
+                  call=>#{},
+                  payload=>[
+                      #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                      #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                  ],
+                  seq=>3,
+                  t=>os:system_time(millisecond)
+              }), Pvt1),
+
+          TxList1=[
+              {<<"1log">>, maps:put(sigverify,#{valid=>1},TX1)}
+          ],
+          TestFun=fun(#{block:=#{receipt:=Rec,header:=Hdr}=_Block,
+              emit:=_Emit,
+              log:=Log,
+              failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,Rec,Hdr}
+              end,
+              Ledger=[
+                  {Addr1,
+                      #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+                  },
+                  {SkAddr,
+                      #{amount => #{<<"SK">> => 1},
+                          code => Code,
+                          vm => <<"evm">>
+                      }
+                  }
+              ],
+              {ok,_,Rec,_Hdr}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+              [
+                  ?assertMatch([0,_,_,1,<<16#7156526fbd7a3c72969b54f64e42c10fbb768c8a:256/big>>|_], hd(Rec))
+              ].
+
+
+precompiled_sha256_test() ->
+    OurChain=150,
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+    248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+    Addr1=naddress:construct_public(1, OurChain, 1),
+    SkAddr=naddress:construct_public(1, OurChain, 4),
+    Code=eevm_asm:assemble(
+<<"
+// First place the parameters in memory
+PUSH1 0xFF // data
+PUSH1 0
+MSTORE
+
+// Do the call
+PUSH1 0x20 // retSize
+PUSH1 0x20 // retOffset
+PUSH1 1 // argsSize
+PUSH1 0x1F // argsOffset
+PUSH1 2 // address
+PUSH4 0xFFFFFFFF // gas
+STATICCALL
+
+// Put the result alone on the stack
+//POP
+//PUSH1 0x20
+//MLOAD
+
+push1 0x20
+push1 0x20
+return
+">>,
+#{}
+),
+
+    TX1=tx:sign(
+        tx:construct_tx(#{
+            ver=>2,
+            kind=>generic,
+            from=>Addr1,
+            to=>SkAddr,
+            call=>#{},
+            payload=>[
+                #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+            ],
+            seq=>3,
+            t=>os:system_time(millisecond)
+        }), Pvt1),
+
+    TxList1=[
+        {<<"1log">>, maps:put(sigverify,#{valid=>1},TX1)}
+    ],
+    TestFun=fun(#{block:=#{receipt:=Rec,header:=Hdr}=_Block,
+        emit:=_Emit,
+        log:=Log,
+        failed:=Failed}) ->
+            io:format("Failed ~p~n",[Failed]),
+            ?assertMatch([],Failed),
+            {ok,Log,Rec,Hdr}
+        end,
+        Ledger=[
+            {Addr1,
+                #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+            },
+            {SkAddr,
+                #{amount => #{<<"SK">> => 1},
+                    code => Code,
+                    vm => <<"evm">>
+                }
+            }
+        ],
+        {ok,_,Rec,_Hdr}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+        [
+            ?assertMatch([0,_,_,1,<<16#a8100ae6aa1940d0b663bb31cd466142ebbdbd5187131b92d93818987832eb89:256/big>>|_], hd(Rec))
+        ].
+
+eip1167_test() ->
+      OurChain=150,
+      Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+              248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+      Addr1=naddress:construct_public(1, OurChain, 1),
+      SkAddr=naddress:construct_public(1, OurChain, 4),
+      Code=hex:decode("363d3d373d3d3d363d73"
+                      "bebebebebebebebebebebebebebebebebebebebe"
+                      "5af43d82803e903d91602b57fd5bf3"),
+
+      TX1=tx:sign(
+            tx:construct_tx(#{
+              ver=>2,
+              kind=>generic,
+              from=>Addr1,
+              to=>SkAddr,
+              call=>#{
+                %function => "0x095EA7B3", %"approve(address,uint256)",
+                %function => "approve(address,uint256)",
+                %args => [Addr2,1024]
+               },
+              payload=>[
+                        #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                       ],
+              seq=>3,
+              t=>os:system_time(millisecond)
+             }), Pvt1),
+
+      TxList1=[
+               {<<"1log">>, maps:put(sigverify,#{valid=>1},TX1)}
+              ],
+      TestFun=fun(#{block:=#{receipt:=Rec,header:=Hdr}=_Block,
+                    emit:=_Emit,
+                    log:=Log,
+                    failed:=Failed}) ->
+                  io:format("Failed ~p~n",[Failed]),
+                  ?assertMatch([],Failed),
+                  {ok,Log,Rec,Hdr}
+              end,
+      Ledger=[
+              {hex:decode("bebebebebebebebebebebebebebebebebebebebe"),
+               #{
+                }
+              },
+              {Addr1,
+               #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+              },
+              {SkAddr,
+               #{amount => #{<<"SK">> => 1},
+                 code => Code,
+                 vm => <<"evm">>
+                }
+              }
+             ],
+      {ok,_Log,Rec,_Hdr}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+    [
+     ?assertMatch([0,_,_,1,<<1:256/big>>|_], hd(Rec))
+    ].
+
+
+
+precompiled_ecadd_test() ->
+        OurChain=150,
+        Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+        248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+        Addr1=naddress:construct_public(1, OurChain, 1),
+        SkAddr=naddress:construct_public(1, OurChain, 4),
+        Code=eevm_asm:assemble(
+          <<"
+          PUSH1 1 // x1
+          PUSH1 0
+          MSTORE
+          PUSH1 2 // y1
+          PUSH1 0x20
+          MSTORE
+          PUSH1 1 // x2
+          PUSH1 0x40
+          MSTORE
+          PUSH1 2 // y2
+          PUSH1 0x60
+          MSTORE
+
+          // Do the call
+          PUSH1 0x40 // retSize
+          PUSH1 0x80 // retOffset
+          PUSH1 0x80 // argsSize
+          PUSH1 0 // argsOffset
+          PUSH1 6 // address
+          PUSH4 0xFFFFFFFF // gas
+          STATICCALL
+
+          push1 0x40
+          push1 0x80
+          return
+          ">>,
+          #{}
+          ),
+
+              TX1=tx:sign(
+                  tx:construct_tx(#{
+                      ver=>2,
+                      kind=>generic,
+                      from=>Addr1,
+                      to=>SkAddr,
+                      call=>#{},
+                      payload=>[
+                          #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                          #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                      ],
+                      seq=>3,
+                      t=>os:system_time(millisecond)
+                  }), Pvt1),
+
+              TxList1=[
+                  {<<"1log">>, maps:put(sigverify,#{valid=>1},TX1)}
+              ],
+              TestFun=fun(#{block:=#{receipt:=Rec,header:=Hdr}=_Block,
+                  emit:=_Emit,
+                  log:=Log,
+                  failed:=Failed}) ->
+                      io:format("Failed ~p~n",[Failed]),
+                      ?assertMatch([],Failed),
+                      {ok,Log,Rec,Hdr}
+                  end,
+                  Ledger=[
+                      {Addr1,
+                          #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+                      },
+                      {SkAddr,
+                          #{amount => #{<<"SK">> => 1},
+                              code => Code,
+                              vm => <<"evm">>
+                          }
+                      }
+                  ],
+                  {ok,_,Rec,_Hdr}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+                  Expect= <<
+                  16#30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd3:256/big,
+                  16#15ed738c0e0a7c92e7845f96b2ae9c0a68a6a449e3538fc7ff3ebf7a5a18a2c4:256/big>>,
+                  [
+                      ?assertMatch([0,_,_,1,Expect|_], hd(Rec))
+                  ].
+
+
+
+precompiled_ecmul_test() ->
+    OurChain=150,
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+    248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+    Addr1=naddress:construct_public(1, OurChain, 1),
+    SkAddr=naddress:construct_public(1, OurChain, 4),
+    Code=eevm_asm:assemble(
+        <<"
+        PUSH1 1 // x1
+        PUSH1 0
+        MSTORE
+        PUSH1 2 // y1
+        PUSH1 0x20
+        MSTORE
+        PUSH1 2 // s
+        PUSH1 0x40
+        MSTORE
+
+        // Do the call
+        PUSH1 0x40 // retSize
+        PUSH1 0x60 // retOffset
+        PUSH1 0x60 // argsSize
+        PUSH1 0 // argsOffset
+        PUSH1 7 // address
+        PUSH4 0xFFFFFFFF // gas
+        STATICCALL
+
+        push1 0x40
+        push1 0x60
+        return
+        ">>,
+        #{}
+    ),
+
+    TX1=tx:sign(
+        tx:construct_tx(#{
+            ver=>2,
+            kind=>generic,
+            from=>Addr1,
+            to=>SkAddr,
+            call=>#{},
+            payload=>[
+                #{purpose=>gas, amount=>3300, cur=><<"FTT">>},
+                #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+            ],
+            seq=>3,
+            t=>os:system_time(millisecond)
+        }), Pvt1),
+
+    TxList1=[
+        {<<"1log">>, maps:put(sigverify,#{valid=>1},TX1)}
+    ],
+    TestFun=fun(#{block:=#{receipt:=Rec,header:=Hdr}=_Block,
+        emit:=_Emit,
+        log:=Log,
+        failed:=Failed}) ->
+            io:format("Failed ~p~n",[Failed]),
+            ?assertMatch([],Failed),
+            {ok,Log,Rec,Hdr}
+        end,
+        Ledger=[
+            {Addr1,
+                #{amount => #{ <<"FTT">> => 1000000, <<"SK">> => 3, <<"TST">> => 26 }}
+            },
+            {SkAddr,
+                #{amount => #{<<"SK">> => 1},
+                    code => Code,
+                    vm => <<"evm">>
+                }
+            }
+        ],
+        {ok,_,Rec,_Hdr}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+        Expect= <<
+        16#30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd3:256/big,
+        16#15ed738c0e0a7c92e7845f96b2ae9c0a68a6a449e3538fc7ff3ebf7a5a18a2c4:256/big>>,
+        [
+            ?assertMatch([0,_,_,1,Expect|_], hd(Rec))
+        ].
+
+
+precompiled_pairing_test() ->
+    OurChain=150,
+    Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
+    248, 115, 150, 54, 239, 58, 218, 221, 145, 246, 158, 15, 210, 165>>,
+    Addr1=naddress:construct_public(1, OurChain, 1),
+
+    {ok,Bin} = file:read_file("examples/evm_builtin/build/builtinFunc.bin"),
+    Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
+
+    {done,{return,Code2},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
+    SkAddr=naddress:construct_public(1, OurChain, 2),
+
+    TX1=tx:sign(
+        tx:sign(
+            tx:construct_tx(#{
+                ver=>2,
+                kind=>generic,
+                from=>Addr1,
+                to=>SkAddr,
+                call=>#{
+                    function => "PairingTest()",
+                    args => []
+                    },
+                    payload=>[
+                        #{purpose=>gas, amount=>55300, cur=><<"FTT">>},
+                        #{purpose=>srcfee, amount=>2, cur=><<"FTT">>}
+                    ],
+                    seq=>3,
+                    t=>os:system_time(millisecond)
+            }), Pvt1),
+        tpecdsa:generate_priv(ed25519)),
+
+    TxList1=[
+        {<<"tx1">>, maps:put(sigverify,#{valid=>1},TX1)}
+    ],
+    TestFun=fun(#{block:=#{txs:=Txs,
+        receipt := Rec},
+    failed:=Failed}) ->
+        io:format("Failed ~p~n",[Failed]),
+        ?assertMatch([],Failed),
+        {ok,Txs, Rec}
+    end,
+    Ledger=[
+        {Addr1,
+            #{amount => #{
+                <<"FTT">> => 1000000,
+                <<"SK">> => 3,
+                <<"TST">> => 26
+            }
+            }
+        },
+        {SkAddr,
+            #{amount => #{<<"SK">> => 1},
+                code => Code2,
+                vm => <<"evm">>
+            }
+        }
+    ],
+    {ok,_Txs,Rec}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+    [
+        ?assertMatch([[0,<<"tx1">>,_,1,<<1:256/big>>,_,_,_Log]], Rec)
+    ].
+
 eip211_test() ->
       OurChain=150,
       Pvt1= <<194, 124, 65, 109, 233, 236, 108, 24, 50, 151, 189, 216, 23, 42, 215, 220, 24, 240,
@@ -1469,7 +1916,7 @@ eip211_test() ->
                 }
               }
              ],
-      {ok,Log,Rec,Hdr}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
+      {ok,_Log,Rec,_Hdr}=extcontract_template(OurChain, TxList1, Ledger, TestFun),
     [
      ?assertMatch([0,_,_,1,<<1:256/big>>|_], hd(Rec))
     ].
@@ -1758,11 +2205,11 @@ acc_sum(#{amount:=Amounts}, A) ->
 ledger_sum(L1) when is_list(L1) ->
 	lists:foldl(
 	  fun({_Address,Account},A) ->
-			  acc_sum(Account, A) 
+			  acc_sum(Account, A)
 	  end, #{}, L1);
 
 ledger_sum(L1) when is_map(L1) ->
 	maps:fold(
 	  fun(_Address,Account,A) ->
-			  acc_sum(Account, A) 
+			  acc_sum(Account, A)
 	  end, #{}, L1).

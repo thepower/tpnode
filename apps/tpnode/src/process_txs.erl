@@ -531,20 +531,78 @@ process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value,
 	{1, RBin, GasLimit-100, State0};
 
 process_itx(_From, <<16#1:160/big>>=_To, Value, CallData, GasLimit, State0, _Opts) ->
-        ?ASSERT_NOVAL,
-        case CallData of
-            <<Hash:32/binary,V:256/big,R:32/binary,S:32/binary>> when V==27 orelse V==28 ->
-                {ok,<<_:8,PubKey/binary>>} = ecrecover:recover(Hash, <<R/binary, S/binary>>, V-27),
-                Ret=eth:id_from_pubkey(PubKey),
-                {1, <<0:96/big,Ret/binary>>, GasLimit-100, State0};
+    ?ASSERT_NOVAL,
+    case CallData of
+        <<Hash:32/binary,V:256/big,R:32/binary,S:32/binary>> when V==27 orelse V==28 ->
+            {ok,<<_:8,PubKey/binary>>} = ecrecover:recover(Hash, <<R/binary, S/binary>>, V-27),
+            Ret=eth:id_from_pubkey(PubKey),
+            {1, <<0:96/big,Ret/binary>>, GasLimit-3000, State0};
             _ ->
                 throw({revert,<<"badarg">>})
             end;
 
 process_itx(_From, <<16#2:160/big>>=_To, Value, CallData, GasLimit, State0, _Opts) ->
-		?ASSERT_NOVAL,
-		Ret=crypto:hash(sha256,CallData),
-		{1, Ret, GasLimit-100, State0};
+    ?ASSERT_NOVAL,
+    Ret=crypto:hash(sha256,CallData),
+    {1, Ret, GasLimit-60-(((size(CallData)+31) div 32)*12), State0};
+
+process_itx(_From, <<16#3:160/big>>=_To, Value, CallData, GasLimit, State0, _Opts) ->
+    ?ASSERT_NOVAL,
+    Ret=crypto:hash(ripemd160,CallData),
+    {1, Ret, GasLimit-600-(((size(CallData)+31) div 32)*120), State0};
+
+process_itx(_From, <<16#4:160/big>>=_To, Value, CallData, GasLimit, State0, _Opts) ->
+    ?ASSERT_NOVAL,
+    {1, CallData, GasLimit-15-(((size(CallData)+31) div 32)*3), State0};
+
+process_itx(_From, <<16#6:160/big>>=_To, Value, CallData, GasLimit, State0, _Opts) ->
+    ?ASSERT_NOVAL,
+    ?LOG_INFO("Call to ~s cd ~w",[address:encode(_To),size(CallData)]),
+    case CallData of
+        <<A:64/binary,B:64/binary>> ->
+            case erl_bn128:add( A, B ) of
+                <<Res:64/binary>> ->
+                    {1, Res, GasLimit-150, State0};
+                R when is_atom(R) ->
+                    throw({revert,atom_to_binary(R)})
+            end;
+        _ ->
+            throw({revert,<<"badarg">>})
+    end;
+
+process_itx(_From, <<16#7:160/big>>=_To, Value, CallData, GasLimit, State0, _Opts) ->
+    ?ASSERT_NOVAL,
+    ?LOG_INFO("Call to ~s cd ~w",[address:encode(_To),size(CallData)]),
+    case CallData of
+        <<A:64/binary,B:32/binary>> ->
+            case erl_bn128:mul( A, B ) of
+                <<Res:64/binary>> ->
+                    {1, Res, GasLimit-6000, State0};
+                R when is_atom(R) ->
+                    throw({revert,atom_to_binary(R)})
+                end;
+        _ ->
+            throw({revert,<<"badarg">>})
+    end;
+
+
+process_itx(_From, <<16#8:160/big>>=_To, Value, CallData, GasLimit, State0, _Opts) ->
+    ?ASSERT_NOVAL,
+    case erl_bn128:pairing( CallData ) of
+        1 ->
+            ?LOG_INFO("Call to ~s cd ~w ret 1",[address:encode(_To),size(CallData)]),
+            {1, <<1:256/big>>, GasLimit-45000, State0};
+        0 ->
+            ?LOG_INFO("Call to ~s cd ~w ret 0",[address:encode(_To),size(CallData)]),
+            {0, <<0:256/big>>, 0, State0};
+        R when is_atom(R) ->
+            ?LOG_INFO("Call to ~s cd ~w ret ~p",[address:encode(_To),size(CallData),R]),
+            throw({revert,atom_to_binary(R)})
+    end;
+
+process_itx(_From, <<N:160/big>>=_To, _Value, _CallData, _GasLimit, _State0, _Opts) when N<32 ->
+    ?LOG_ERROR("Call to embedded address ~s",[address:encode(_To)]),
+        throw({revert,<<"unimplemented">>});
 
 process_itx(_From, <<16#AFFFFFFFFF000002:64/big>>=_To, Value, _CallData, GasLimit,
 			#{cur_tx:=Tx}=State0, _Opts) ->

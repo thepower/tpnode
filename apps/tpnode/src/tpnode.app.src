@@ -32,6 +32,7 @@
       jsonrpc2,
       jiffy,
       yggerl,
+      erl_bn128,
       rockstable
     ]},
     {mod, {tpnode, []}},
