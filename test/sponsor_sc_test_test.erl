@@ -53,7 +53,7 @@ evm_sponsored_call_test() ->
       Addr1=naddress:construct_public(1, OurChain, 1),
 
       SpCode=fun() ->
-                 {ok,Bin} = file:read_file("examples/evm_builtin/build/sponsor.bin"),
+                 {ok,Bin} = file:read_file("examples/evm_builtin/build/Sponsor.bin"),
 
                  Code1=hex:decode(hd(binary:split(Bin,<<"\n">>))),
                  {done,{return,Code2},_}=eevm:eval(Code1,#{},#{ gas=>1000000, extra=>#{} }),
