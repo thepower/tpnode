@@ -207,7 +207,7 @@ run(VMType, #{to:=To}=Tx, Ledger, {GCur,GAmount,{GNum,GDen}=GRate}, GetFun, Opaq
       {error, Reason} ->
         throw({'run_failed', Reason});
       Any ->
-        io:format("Contract return error ~p", [Any]),
+        %io:format("Contract return error ~p", [Any]),
         ?LOG_ERROR("Contract return error ~p", [Any]),
         throw({'run_failed', other})
     end

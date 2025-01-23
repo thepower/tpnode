@@ -219,9 +219,8 @@ h(<<"eth_getCode">>,[Address, Block], _Context) ->
 h(<<"eth_estimateGas">>,[_Params,_Block,_Patched]=Params, _Context) ->
     PTX=eth_call(Params, _Context),
     case PTX of
-      {1,_RetData,GasUsed,_} ->
-        ?LOG_INFO("Ret ~w ~w~n",[_RetData, GasUsed]),
-        i2hex((GasUsed)+23000);
+      {1,_RetData,_GasUsed,#{gas_required:=GasReq}} ->
+        i2hex((GasReq)+23000);
       {0,RetData, _GasLeft, _} ->
         throw({jsonrpc2, 32000, <<"execution reverted">>, hex:encodex(RetData)});
       _Err ->
@@ -881,8 +880,8 @@ eth_call([{Params},_Block,_Patched], _Context) ->
                                 [])
     end,
     case R0 of
-      {Code,RetData,GasLeft,S1} ->
-        {Code,RetData,Gas-GasLeft,S1};
+      {Code,RetData,GasLeft,#{min_gas:=MinGas}=S1} ->
+        {Code,RetData,Gas-GasLeft,S1#{gas_required=>Gas-min(Gas,MinGas)}};
       Any -> Any
     end.
 

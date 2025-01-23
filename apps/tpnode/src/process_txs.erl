@@ -200,7 +200,7 @@ process_tx(#{kind:=Kind,from:=From,seq:=_Seq}=Tx, #{cumulative_gas := GasC0} = S
 	   true ->
 
 		   try
-			   ?LOG_INFO("Process tx ~p",[maps:with([from,to,kind,seq],Tx)]),
+			   ?LOG_INFO("Process tx ~p",[tx:display(Tx,[from,to,kind,seq])]),
 			   {Valid, Data, GasLeft, State5} = process_tx(Tx, GasLimit, State4, Opts),
 			   ?LOG_INFO("Gas left ~p of ~p",[GasLeft, GasLimit]),
 
@@ -393,7 +393,7 @@ process_tx(#{from:=From,
 			 tx:get_payloads(Tx, transfer)
 			),
 	case process_code_itx(CD, From, Address,
-						  Value, <<>>, GasLimit-3200, State1, Opts) of
+						  Value, <<>>, GasLimit-32000, State1, Opts) of
 		{1, DeployedCode, GasLeft, State2} ->
 			State3=pstate:set_state(Address, code, [], DeployedCode, State2),
 			?LOG_INFO("Deploy to address ~p success",[Address]),
@@ -666,12 +666,12 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opt
 			   end
 			  ]),
 	case Result of
-		{done, {return,RetVal}, #{gas:=GasLeft, extra:=State3}} ->
-			{ 1, RetVal, gas_left(GasLeft,GasLimit), State3};
-		{done, 'stop', #{gas:=GasLeft, extra:=State3}} ->
-			{ 1, <<>>, gas_left(GasLeft,GasLimit), State3};
-		{done, 'eof', #{gas:=GasLeft, extra:=State3}} ->
-			{ 1, <<>>, gas_left(GasLeft,GasLimit), State3};
+		{done, {return,RetVal}, #{gas_min:=MinGasLeft, gas:=GasLeft, extra:=State3}} ->
+			{ 1, RetVal, gas_left(GasLeft,GasLimit), State3#{min_gas=>min(GasLeft,MinGasLeft)}};
+		{done, 'stop', #{gas_min:=MinGasLeft, gas:=GasLeft, extra:=State3}} ->
+			{ 1, <<>>, gas_left(GasLeft,GasLimit), State3#{min_gas=>min(GasLeft,MinGasLeft)}};
+		{done, 'eof', #{gas_min:=MinGasLeft, gas:=GasLeft, extra:=State3}} ->
+			{ 1, <<>>, gas_left(GasLeft,GasLimit), State3#{min_gas=>min(GasLeft,MinGasLeft)}};
 		{done, 'invalid', #{gas:=GasLeft, extra:=_FailState}} ->
 			{ 0, <<>>, gas_left(GasLeft,GasLimit),
 			  append_log(
@@ -679,7 +679,7 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opt
 				State0)
 			};
 		{done, {revert, Revert}, _State=#{ gas:=GasLeft}} ->
-      ?LOG_INFO("revert at ~p~n",[maps:with([pc],_State)]),
+            ?LOG_INFO("revert call to ~s at ~p~n",[address:encode(To), maps:with([pc],_State)]),
 			{ 0, Revert, gas_left(GasLeft,GasLimit),
 			  append_log(
 				[<<"evm:revert">>,To,From,Revert],

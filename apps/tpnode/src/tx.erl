@@ -10,6 +10,7 @@
 -export([complete_tx/2]).
 -export([hashdiff/1,upgrade/1]).
 -export([hash/1]).
+-export([display/2]).
 -export([unpack_ext/3]).
 
 -include("apps/tpnode/include/tx_const.hrl").
@@ -1299,3 +1300,20 @@ enc_amount(I) when is_integer(I) ->
 unpack_ext(66, BigInt, _) ->
 	%decoder for JS library
 	{ok,binary:decode_unsigned(BigInt)}.
+
+display(Tx, Fields) ->
+    maps:fold(fun display_fun/3,
+        #{},
+        maps:with(Fields,Tx)
+    ).
+
+display_fun(from,V,Acc) ->
+    maps:put(from,address:encode(V),Acc);
+display_fun(to,V,Acc) ->
+    maps:put(from,address:encode(V),Acc);
+display_fun(kind,V,Acc) ->
+    maps:put(kind,V,Acc);
+display_fun(seq,V,Acc) ->
+    maps:put(seq,V,Acc);
+display_fun(_,_,Acc) ->
+    Acc.
