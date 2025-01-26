@@ -880,9 +880,11 @@ eth_call([{Params},_Block,_Patched], _Context) ->
                                 [])
     end,
     case R0 of
-      {Code,RetData,GasLeft,#{min_gas:=MinGas}=S1} ->
-        {Code,RetData,Gas-GasLeft,S1#{gas_required=>Gas-min(Gas,MinGas)}};
-      Any -> Any
+        {Code,RetData,GasLeft,#{min_gas:=MinGas}=S1} ->
+            {Code,RetData,Gas-GasLeft,S1#{gas_required=>Gas-min(GasLeft,MinGas)}};
+        {Code,RetData,GasLeft,S1} ->
+            {Code,RetData,Gas-GasLeft,S1#{gas_required=>Gas-GasLeft}};
+        Any -> Any
     end.
 
 search_log(Topics, Addresses, FromBlock, ToBlock, MaxCnt, EthMatch) ->
