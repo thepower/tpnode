@@ -15,7 +15,8 @@
          apply_ledger/3,
          backup/1, restore/1,
          rollback/0,
-         reindex_block/2
+         reindex_block/2,
+         reindex_interval/3
         ]).
 
 %% ------------------------------------------------------------------
@@ -455,7 +456,6 @@ handle_call({new_block, #{hash:=BlockHash,
 
 
                   SendSuccess=send_success(Blk),
-				 
                   stout:log(blockchain_success, [{result, SendSuccess}, {failed, nope}]),
                   gen_server:cast(txqueue, {done, SendSuccess}),
                   case maps:get(failed, MBlk, []) of
@@ -1180,7 +1180,6 @@ send_success(#{bals:=_,txs:=Txs,hash:=BlockHash,header:=#{height:=Hei}}) ->
 	  end,
 	  Txs
 	 ).
-				  
 
 store_block_parts(LDB, #{header:=#{height:=Hei,roots:=Roots}}) ->
   %block bloom
@@ -1200,6 +1199,54 @@ store_block_parts(LDB, #{header:=#{height:=Hei,roots:=Roots}}) ->
   %ldb:put_key(LDB, <<"lp:",Hei:64/big>>, LedgerPatch),
   %ldb:put_key(LDB, <<"rc:",Hei:64/big>>, Receipt),
   ok.
+
+
+reindex_interval(_, BlockHeight=1, 0) ->
+      BlockHeight;
+reindex_interval(_, BlockHeight, 0) ->
+    BlockHeight;
+
+reindex_interval(LDB, BlockHeight, Depth) ->
+    BlockHash=ldb:read_key(LDB,<<"h:",BlockHeight:64/big>>,undefined),
+    case BlockHash of
+        undefined ->
+            throw({done_at,BlockHeight});
+        _ ->
+            ok
+    end,
+    Block=ldb:read_key(LDB, <<"block:", BlockHash/binary>>, undefined),
+    true=is_map(Block),
+    Failed=maps:from_list(maps:get(failed, Block, [])),
+    io:format("Block keys ~p~n",[maps:keys(Block)]),
+    LTXs=maps:get(txs, Block, []),
+    lists:foldl(
+      fun
+        ({<<"~",_/binary>>,_},Id) -> Id+1;
+        ({TxID,#{hash:=TxHash}=TxBody},TxIndex) ->
+        case ldb:read_key(LDB,<<"tx:", TxHash/binary>>, undefined) of
+            undefined ->
+          IsFailed=maps:is_key(TxID,Failed),
+          Idx={TxID,BlockHeight,BlockHash,TxIndex,tx:pack(TxBody)},
+          io:format("Tx ~w ~s failed ~p rec ~p~n",[TxIndex,TxID,IsFailed,Idx]),
+          ldb:put_key(LDB, <<"id:", TxID/binary>>, TxHash ),
+          ldb:put_key(LDB,
+                      <<"tx:", TxHash/binary>>,
+                      {
+                       TxID,
+                       BlockHeight,
+                       BlockHash,
+                       TxIndex,
+                       tx:pack(TxBody)
+                      }
+                     );
+                     _ ->
+                         ignore
+                 end,
+          TxIndex+1
+      end,
+      0,
+      LTXs),
+    reindex_interval(LDB, BlockHeight-1, Depth-1).
 
 reindex_block(LDB, BlockHeight) ->
   BlockHash=ldb:read_key(LDB,<<"h:",BlockHeight:64/big>>,undefined),
