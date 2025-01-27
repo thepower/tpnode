@@ -142,9 +142,9 @@ h(<<"eth_getTransactionReceipt">>,[TxHash0], _Context) ->
         <<"blockHash">> => BHash,
         <<"blockNumber">> => i2hex(BlkHei),
         <<"contractAddress">> => if Kind == deploy andalso Res==1 ->
-                                      hex:encodex(Ret);
+                                      address:encode_ether(Ret);
                                     Kind == ether andalso To0==<<>> andalso Res==1 ->
-                                      hex:encodex(Ret);
+                                      address:encode_ether(Ret);
                                     true ->
                                       null
                                  end,
@@ -216,9 +216,9 @@ h(<<"eth_getTransactionReceipt">>,[TxHash0], _Context) ->
         <<"blockHash">> => BHash,
         <<"blockNumber">> => i2hex(BlkHei),
         <<"contractAddress">> => if Kind == deploy andalso Res==1 ->
-                                      hex:encodex(Ret);
+                                      address:encode_ether(Ret);
                                     Kind == ether andalso To0==<<>> andalso Res==1 ->
-                                      hex:encodex(Ret);
+                                      address:encode_ether(Ret);
                                     true ->
                                       null
                                  end,
