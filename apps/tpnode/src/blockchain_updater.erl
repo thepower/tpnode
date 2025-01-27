@@ -14,7 +14,8 @@
          apply_ledger/2,
          apply_ledger/3,
          backup/1, restore/1,
-         rollback/0
+         rollback/0,
+         reindex_block/2
         ]).
 
 %% ------------------------------------------------------------------
@@ -1200,3 +1201,36 @@ store_block_parts(LDB, #{header:=#{height:=Hei,roots:=Roots}}) ->
   %ldb:put_key(LDB, <<"rc:",Hei:64/big>>, Receipt),
   ok.
 
+reindex_block(LDB, BlockHeight) ->
+  BlockHash=ldb:read_key(LDB,<<"h:",BlockHeight:64/big>>,undefined),
+  true=is_binary(BlockHash),
+  Block=ldb:read_key(LDB, <<"block:", BlockHash/binary>>, undefined),
+  true=is_map(Block),
+  hex:hexdump(BlockHash),
+  Failed=maps:from_list(maps:get(failed, Block, [])),
+  io:format("Block keys ~p~n",[maps:keys(Block)]),
+  LTXs=maps:get(txs, Block, []),
+  io:format("Rec ~p~n",[maps:get(receipt,Block,[])]),
+  io:format("~p~n",[[ {Id,hex:encodex(H)} || {Id,#{hash:=H}} <- LTXs]]),
+  lists:foldl(
+    fun
+      ({<<"~",_/binary>>,_},Id) -> Id+1;
+      ({TxID,#{hash:=TxHash}=TxBody},TxIndex) ->
+        IsFailed=maps:is_key(TxID,Failed),
+        Idx={TxID,BlockHeight,BlockHash,TxIndex,tx:pack(TxBody)},
+        io:format("Tx ~w ~s failed ~p rec ~p~n",[TxIndex,TxID,IsFailed,Idx]),
+        ldb:put_key(LDB, <<"id:", TxID/binary>>, TxHash ),
+        ldb:put_key(LDB,
+                    <<"tx:", TxHash/binary>>,
+                    {
+                     TxID,
+                     BlockHeight,
+                     BlockHash,
+                     TxIndex,
+                     tx:pack(TxBody)
+                    }
+                   ),
+        TxIndex+1
+    end,
+    0,
+    LTXs).

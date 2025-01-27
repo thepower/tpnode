@@ -93,8 +93,11 @@ handle_call({txhash, Hash, GetRep}, _From, #{ldb:=LDB}=State) ->
                 false -> T;
                 true ->
                   case ldb:read_key(LDB,
-                               <<"block:", BlockHash/binary>>,
-                               undefined) of
+                                    <<"block:", BlockHash/binary>>,
+                                    undefined) of
+                    #{receipt:=RL,failed:=[_|_]} ->
+                      Rec = search_receipt(TxID,RL),
+                      T#{receipt=> Rec};
                     #{receipt:=RL} ->
                       Rec = lists:nth(TxIndex+1,RL),
                       T#{receipt=> Rec};
@@ -677,3 +680,12 @@ get_block(H=last) ->
 get_block(H) when is_integer(H) ->
   gen_server:call(?SERVER,{get_block, H}).
 
+
+search_receipt(_TxID0,[]) ->
+  null;
+search_receipt(TxID0,[[_Idx,TxID|_]=Rec|Rest]) ->
+  if TxID0==TxID ->
+       Rec;
+     true ->
+       search_receipt(TxID0,Rest)
+  end.

@@ -46,6 +46,25 @@ h(<<"eth_getTransactionByHash">>,[TxHash0|_], _Context) ->
     not_found ->
       null;
     #{block:=BlkHash,
+    hei:=BlkHei,
+    hash:=TxHash,
+    index:=Idx,
+    id:=TxID,
+    receipt:=null,
+    tx:=TxContainer
+    } ->
+    Tx0=show_tx(tx:unpack(TxContainer)),
+    THash=hex:encodex(TxHash),
+    BHash=hex:encodex(BlkHash),
+    TIdx=i2hex(Idx),
+    Tx0#{
+        <<"txID">> => TxID,
+        <<"blockHash">> => BHash,
+        <<"blockNumber">> => i2hex(BlkHei),
+        <<"transactionIndex">> => TIdx,
+        <<"hash">> => THash
+        };
+       #{block:=BlkHash,
       hei:=BlkHei,
       hash:=TxHash,
       index:=Idx,
@@ -82,11 +101,92 @@ h(<<"eth_getTransactionReceipt">>,[TxHash0], _Context) ->
       hei:=BlkHei,
       hash:=TxHash,
       index:=Idx,
+      id:=TxID,
+      receipt:=null,
+      tx:=TxBody
+     } ->
+      Tx=#{kind:=Kind}=tx:unpack(TxBody),
+      Res=0,
+      Ret= <<>>,
+      BlkGas=0,
+      Gas=0,
+      Logs=[],
+      BloomOrNot=[],
+
+      THash=hex:encodex(TxHash),
+      BHash=hex:encodex(BlkHash),
+      TIdx=i2hex(Idx),
+      To0=maps:get(to,Tx,undefined),
+      Bloom=case BloomOrNot of
+              [] ->
+                case Logs of
+                  [] -> hex:encodex(<<0:2048/big>>);
+                  [_|_] ->
+                    Int=lists:foldl(
+                          fun([<<"evm">>, From, _To1, _Data, Topics],Acc) ->
+                              A1=eth_bloom:bloom_filter20(From,Acc),
+                              lists:foldl(fun eth_bloom:bloom_filter32/2, A1, Topics);
+                             ([<<"evm:",_Reason/binary>>,_To,_From,_],Acc) ->
+                              Acc
+                          end,
+                          0,
+                          Logs),
+                    hex:encodex(<<Int:2048/big>>)
+                end;
+              [Yes] ->
+                hex:encodex(Yes)
+            end,
+
+      #{
+        <<"txID">> => TxID,
+        <<"blockHash">> => BHash,
+        <<"blockNumber">> => i2hex(BlkHei),
+        <<"contractAddress">> => if Kind == deploy andalso Res==1 ->
+                                      hex:encodex(Ret);
+                                    Kind == ether andalso To0==<<>> andalso Res==1 ->
+                                      hex:encodex(Ret);
+                                    true ->
+                                      null
+                                 end,
+        <<"return">> => hex:encodex(Ret),
+        <<"cumulativeGasUsed">> => i2hex(BlkGas),
+        <<"effectiveGasPrice">> => i2hex(Gas),
+        <<"from">> => address:encode_ether(maps:get(from,Tx,<<0:160/big>>)),
+        <<"gasUsed">> => i2hex(Gas),
+        <<"logs">> =>
+        lists:filtermap(
+          fun([<<"evm">>,To1, _From, Data, Topics]) ->
+              {true,
+               #{ address => hex:encodex(address:make_ether(To1)),
+                  topics => [ hex:encodex(<<(binary:decode_unsigned(T)):256/big>>) || T <- Topics ],
+                  data => hex:encodex(Data),
+                  blockNumber => i2hex(BlkHei),
+                  transactionHash => THash,
+                  transactionIndex => TIdx,
+                  blockHash => BHash,
+                  logIndex => i2hex(1),
+                  removed => false
+                }};
+             ([<<"evm:",_Reason/binary>>,_To,_From,_]) ->
+              false
+          end, Logs),
+        <<"logsBloom">> =>  Bloom,
+        <<"status">> => i2hex(Res),
+        <<"to">> => to_hex_or_null(maps:get(to,Tx,<<>>)),
+        <<"transactionHash">> => THash,
+        <<"transactionIndex">> => TIdx,
+        <<"type">> =>  <<"0x2">>
+       };
+
+    #{block:=BlkHash,
+      hei:=BlkHei,
+      hash:=TxHash,
+      index:=Idx,
       receipt:=Rec,
       tx:=TxBody
      } ->
       Tx=#{kind:=Kind}=tx:unpack(TxBody),
-      [_,TxID,TxHash,Res,Ret,Gas,BlkGas,Logs|BloomOrNot]=Rec,
+      [_,TxID,_TxHash,Res,Ret,Gas,BlkGas,Logs|BloomOrNot]=Rec,
       THash=hex:encodex(TxHash),
       BHash=hex:encodex(BlkHash),
       TIdx=i2hex(Idx),
