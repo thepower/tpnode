@@ -22,6 +22,7 @@ restart() ->
   spawn(
     fun() ->
         tpnode:stop(),
+        rockstable:close_db(mledger),
         timer:sleep(3000),
         tpnode:start()
     end).
@@ -263,4 +264,3 @@ resolve_ports(Rules) ->
         end
     end,
     [],Rules).
-
