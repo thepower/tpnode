@@ -1307,10 +1307,14 @@ display(Tx, Fields) ->
         maps:with(Fields,Tx)
     ).
 
+display_fun(from,<<>>,Acc) ->
+    maps:put(from,<<>>,Acc);
 display_fun(from,V,Acc) ->
     maps:put(from,address:encode(V),Acc);
+display_fun(to,<<>>,Acc) ->
+    maps:put(to,<<>>,Acc);
 display_fun(to,V,Acc) ->
-    maps:put(from,address:encode(V),Acc);
+    maps:put(to,address:encode(V),Acc);
 display_fun(kind,V,Acc) ->
     maps:put(kind,V,Acc);
 display_fun(seq,V,Acc) ->
