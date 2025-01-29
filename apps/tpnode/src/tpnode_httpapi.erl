@@ -1418,23 +1418,24 @@ h(<<"POST">>, [<<"tx">>, <<"simulate">>], Req) ->
                    [{ledger_pid, mledger},
                     {entropy, <<>>},
                     {mean_time, os:system_time(millisecond)},
+                    {offchain, true},
                     {no_afterblock, true}       ],
                    [{ WithDebug, {trace,fun(E) -> Me ! {trace, E} end}},
                     {IgnoreSeq, {ignoreseq, true}}
                    ]
                   ),
 
-	#{block:=#{
-			   failed:=Fail,
-         txs:=Succ,
-			   ledger_patch:=LP,
-			   receipt:=Rec} = _Block}
-	= generate_block2:generate_block(
-		TxList,
-		{1, <<1:256/big>>},
-		[],
-    Opts
-		),
+  #{block:=#{
+             failed:=Fail,
+             txs:=Succ,
+             ledger_patch:=LP,
+             receipt:=Rec} = _Block}
+  = generate_block2:generate_block(
+      TxList,
+      {1, <<1:256/big>>},
+      [],
+      Opts
+     ),
   Debug=fun F() -> receive
                      {trace,N} -> [list_to_binary(io_lib:format("~w",[N]))|F()]
                    after 0 -> []
@@ -2395,4 +2396,3 @@ parse_address(<<"0x", Hex/binary>>) ->
   hex:parse(Hex);
 parse_address(TAddr) ->
   naddress:decode(TAddr).
-

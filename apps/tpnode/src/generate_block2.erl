@@ -43,7 +43,7 @@ generate_block(PreTXL0, {Parent_Height, Parent_Hash}, ExtraData, Options) ->
                end
            end,
            State00,
-           [{trace,trace}, {ignoreseq,ignoreseq}]
+           [{trace,trace}, {ignoreseq,ignoreseq}, {offchain,offchain}]
           ),
 
 	PreTXL
@@ -317,4 +317,3 @@ ensure_verified([{TxID, TxBody}|Rest], LedgerName) ->
 		bad_sig ->
 			{PreS, [{TxID,<<"bad_sig">>}|PreF]}
 	end.
-

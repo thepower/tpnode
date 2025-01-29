@@ -631,15 +631,27 @@ process_itx(From, <<16#AFFFFFFFFF000007:64/big>>, Value, CallData, GasLimit, Sta
 	process_embedded:bronkerbosch_service(From, CallData, GasLimit, State0, Opts);
 
 process_itx(From, <<16#AFFFFFFFFF000008:64/big>>, Value, CallData, GasLimit, State0, Opts) ->
+  ?ASSERT_NOVAL,
+  %will be burned 10000 gas on successful mint
+  %if denied - 50000 gas will be burned
+  %if decoding error - 100 gas
+  if GasLimit<50000 ->
+       throw({revert,<<"at least 50000 gas needed for minter">>});
+     true -> ok
+  end,
+  process_embedded:native_minter_service(From, CallData, GasLimit, State0, Opts);
+
+process_itx(From, <<16#AFFFFFFFFF000009:64/big>>, Value, CallData, GasLimit, State0, Opts) ->
 	?ASSERT_NOVAL,
 	%will be burned 10000 gas on successful mint
 	%if denied - 50000 gas will be burned
 	%if decoding error - 100 gas
 	if GasLimit<50000 ->
-		   throw({revert,<<"at least 50000 gas needed for minter">>});
-	   true -> ok
+       ?LOG_INFO("Patcher called from ~s with gas ~w",[address:encode(From),GasLimit]),
+       throw({revert,<<"at least 50000 gas needed for patcher">>});
+     true -> ok
 	end,
-	process_embedded:native_minter_service(From, CallData, GasLimit, State0, Opts);
+	process_embedded:patcher_service(From, CallData, GasLimit, State0, Opts);
 
 process_itx(From, From, 0, CallData, GasLimit,
 			#{acc:=_,

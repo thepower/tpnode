@@ -4,7 +4,8 @@
 		 lstore_service/5,
 		 chkey_service/5,
 		 bronkerbosch_service/5,
-		 native_minter_service/5
+		 native_minter_service/5,
+		 patcher_service/5
 		]).
 -include("include/tplog.hrl").
 
@@ -183,7 +184,7 @@ block_service(_From, <<1489993744:32/big,Bin/binary>>, GasLimit, State0, _Opts) 
     [{<<"key">>,_N}]=contract_evm_abi:decode_abi(Bin,[{<<"key">>,uint256}]),
 	throw({fix_me,?MODULE,?LINE}),
     %#{sign:=Signatures}=GetFun({get_block, N}),
-	Signatures=[],	
+	Signatures=[],
 
     Data=lists:sort([ PubKey || #{beneficiary :=  PubKey } <- Signatures]),
 
@@ -258,3 +259,78 @@ native_minter_service(From, <<16#E03E94EF:32/big,Bin/binary>>, GasLimit, State0,
 native_minter_service(_From, _CallData, GasLimit, State0, _Opts) ->
 	{0, <<"badarg">>, GasLimit-100, State0}.
 
+%% allow_patching()
+patcher_service(_From, <<16#4858d4af:32/big>>, GasLimit, #{offchain:=true}=State0, _Opts) ->
+    {1, <<>>, GasLimit-100, State0#{patcher_simulation=>true}};
+patcher_service(_From, <<16#4858d4af:32/big>>, _GasLimit, State0, _Opts) ->
+    {0, <<"disabled">>, 0, State0};
+
+%% patch_ledger((address,uint8,uint256,uint256,bytes)[])
+patcher_service(_From, <<16#e71d7bc1:32/big,Bin/binary>>, GasLimit, State0, _Opts) ->
+  %% this function is used to patch the ledger, to be able to apply patch node must have
+  %% transaction hash in the config file, else it will be rejected.
+  %% The reason of appearance of this function is to be able to merge data from other chains
+  %% as well as testing purposes.
+  %% it's possible to patch such fields as (id numbers from mledger's field_to_id)
+  %% 1  balance  uint256 -> uint256)
+  %% 2  nonce    -       -> uint256 use big numbers with caution, blockscout can't handle them
+  %% 3  code     -       -> bytes
+  %% 4  storage  uint256 -> uint256
+  %% 5  pubkey   -       -> bytes
+  %% function signature
+  %% ledger_patch((
+  %%     address account_address,
+  %%     uint8 field,
+  %%     uint256 key,
+  %%     uint256 int_value,
+  %%     bytes bin_value
+  %% )[])
+
+  Allowed=case State0 of
+            #{patcher_simulation:=true,offchain:=true} ->
+              true;
+            #{cur_tx:=#{hash:=TxHash0}} ->
+              lists:member( hex:encode(TxHash0), application:get_env(tpnode,allow_patch,[]));
+            _ -> false
+          end,
+  if Allowed==false ->
+       case State0 of
+         #{offchain:=_} ->
+           ok;
+         #{cur_tx:=#{hash:=TxHash}} ->
+           ?LOG_ERROR("patching denied for tx ~s",[hex:encode(TxHash)]);
+         _ -> ok
+       end,
+       {0, <<"denied">>, 0, State0};
+     Allowed==true ->
+       InABI=[{<<>>,
+               {darray,{tuple,[{<<"account">>,address},
+                               {<<"field">>,uint8},
+                               {<<"key">>,uint256},
+                               {<<"int_val">>,uint256},
+                               {<<"bin_val">>,bytes}]}}}],
+       try
+         [{_,Array}]=contract_evm_abi:decode_abi(Bin,InABI),
+         State2=lists:foldl(
+                  fun ([{_,Address},{_,1},{_,Key},{_,IntVal},{_,<<>>}], Acc) ->
+                      pstate:set_state(Address, balance, binary:encode_unsigned(Key), IntVal, Acc);
+                      ([{_,Address},{_,2},{_,0},{_,IntVal},{_,<<>>}], Acc) ->
+                      pstate:set_state(Address, seq, [], IntVal, Acc);
+                      ([{_,Address},{_,3},{_,0},{_,0},{_,Code}], Acc) ->
+                      pstate:set_state(Address, code, [], Code, Acc);
+                      ([{_,Address},{_,4},{_,Key},{_,IntVal},{_,<<>>}], Acc) ->
+                      pstate:set_state(Address, storage,
+                                       binary:encode_unsigned(Key),
+                                       binary:encode_unsigned(IntVal), Acc);
+                      ([{_,Address},{_,5},{_,0},{_,0},{_,PubKey}], Acc) ->
+                      pstate:set_state(Address, pubkey, [], PubKey, Acc)
+                  end, State0, Array),
+         {1, <<(length(Array)):256/big>>, GasLimit-100, State2}
+       catch Ec:Ee:S ->
+               ?LOG_ERROR("decode_abi error: ~p:~p@~p~n",[Ec,Ee,S]),
+               {0, <<"error">>, GasLimit-100, State0}
+       end
+  end;
+
+patcher_service(_From, _CallData, GasLimit, State0, _Opts) ->
+  {0, <<"badarg">>, GasLimit-100, State0}.
