@@ -1302,22 +1302,33 @@ unpack_ext(66, BigInt, _) ->
 	{ok,binary:decode_unsigned(BigInt)}.
 
 display(Tx, Fields) ->
-    maps:fold(fun display_fun/3,
-        #{},
-        maps:with(Fields,Tx)
-    ).
+  Display=fun(from,<<>>,Acc) ->
+              maps:put(from,<<>>,Acc);
+             (from,V,Acc) when is_binary(V) ->
+              maps:put(from,address:encode(V),Acc);
+             (to,<<>>,Acc) ->
+              maps:put(to,<<>>,Acc);
+             (to,V,Acc) when is_binary(V) ->
+              maps:put(to,address:encode(V),Acc);
+             (kind,V,Acc) ->
+              maps:put(kind,V,Acc);
+             (seq,V,Acc) when is_integer(V) ->
+              maps:put(seq,V,Acc);
+             (gas, undefined, Acc) ->
+              V=case get_payload(Tx, gas) of
+                  undefined -> 0;
+                  #{amount:=Am,cur:=Cur} ->
+                    <<(integer_to_binary(Am))/binary," ",Cur/binary>>
+                end,
+              maps:put(gas, V, Acc);
+             (_,_,Acc) ->
+              Acc
+          end,
+  tx_fold(Display, #{}, Fields, Tx ).
 
-display_fun(from,<<>>,Acc) ->
-    maps:put(from,<<>>,Acc);
-display_fun(from,V,Acc) ->
-    maps:put(from,address:encode(V),Acc);
-display_fun(to,<<>>,Acc) ->
-    maps:put(to,<<>>,Acc);
-display_fun(to,V,Acc) ->
-    maps:put(to,address:encode(V),Acc);
-display_fun(kind,V,Acc) ->
-    maps:put(kind,V,Acc);
-display_fun(seq,V,Acc) ->
-    maps:put(seq,V,Acc);
-display_fun(_,_,Acc) ->
-    Acc.
+tx_fold(Fun, Acc0, Fields, Tx) ->
+  lists:foldl(
+    fun(Field, Acc) ->
+        Value=maps:get(Field,Tx,undefined),
+        Fun(Field, Value, Acc)
+    end, Acc0, Fields).
