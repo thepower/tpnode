@@ -111,7 +111,7 @@ evm_custom_call(call, IFrom, ITo, Value, CallData, Gas, Extra, _InternalState) -
 
 evm_logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}) ->
   LArgs=[binary:encode_unsigned(I) || I <- LArgs0],
-  ?LOG_INFO("EVM log ~s ~p",[hex:encodex(Message), [hex:encodex(I) || I <-LArgs]
+  ?LOG_INFO("EVM log ~s ~p",[hex:encodex(Message), [hex:encodex(I) || I <-LArgs]]),
   %io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
   Xtra#{log=>[([<<"evm">>,encode_iaddr(A),encode_iaddr(O),Message,LArgs])|PreLog]}.
 
@@ -218,7 +218,7 @@ static_call(Address, CallData, Gas, State) ->
 	  fun(S) ->
 			  process_txs:process_itx(
 				<<0>>, Address, 0, CallData, Gas, S, #{}
-			   ) 
+			   )
 	  end, State).
 
 check_EIP165(Address, InterfaceId, State0) ->
@@ -249,5 +249,3 @@ proc_eip165_([{Call,Expected}|Rest], Address, State) ->
 		_ ->
 			{false, State}
 	end.
-
-
