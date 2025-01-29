@@ -45,7 +45,7 @@ run4test_mgmt() ->
         LBH;
        (Any) ->
         io:format("requested ~p~n",[Any]),
-        ok 
+        ok
     end).
 
 
@@ -67,7 +67,7 @@ run4test() ->
         %blockchain:last_meta();
        (Any) ->
         io:format("requested ~p~n",[Any]),
-        ok 
+        ok
     end).
 
 start_link(Sub0) when is_list(Sub0) ->
@@ -316,6 +316,7 @@ run(#{parent:=Parent, protocol:=_Proto, address:=Ip, port:=Port} = Sub, GetFun) 
     Parent ! {wrk_presync, self(), start},
     {ok,Sub1}=presync(Sub#{pid=>Pid,
                            getfun=>GetFun,
+                           syncto=>LastBlock,
                            last=>KnownBlock},
                       if KnownBlock==<<0:64>> ->
                            <<"genesis">>;
@@ -480,7 +481,7 @@ handle_msg(Msg, Sub) ->
   ?LOG_ERROR("Unhandled msg ~p",[Msg]),
   Sub.
 
-presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
+presync(#{pid:=Pid,getfun:=F,syncto:=#{header:=#{height:=TgtHei}}}=Sub, Ptr) ->
       URL= <<"/api/binblock/",Ptr/binary>>,
       ?LOG_INFO("Going to ~s",[URL]),
       T0=erlang:system_time(microsecond),
@@ -515,7 +516,8 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
                   ?LOG_ERROR("presync stop, returned ~p",[Other]),
                   {error, Other}
               end;
-            #{hash:=BH,header:=_} ->
+            #{hash:=BH,header:=#{height:=BlkHei}} when BlkHei >= TgtHei-1 ->
+                ?LOG_INFO("Latest block in chain h=~w expected sync to h=~w",[BlkHei,TgtHei]),
               Res=if BH==LBH ->
                        ok;
                      true ->
@@ -532,27 +534,12 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
                 Other ->
                   ?LOG_ERROR("presync stop, returned ~p",[Other]),
                   {error, Other}
-              end
+              end;
+            #{header:=#{height:=BlkHei}} ->
+                ?LOG_INFO("Possible fork detected h=~w expected sync to h=~w",[BlkHei,TgtHei]),
+                resolve_fork(Sub, Blk)
           end;
 
-          %?LOG_INFO("Child ~p",[maps:with([child,children],Blk)]),
-          %Stop=if(Hei==0) -> true;
-          %       (ParentHash==LastHas) ->
-          %         true;
-          %       (Hei==LastHei) ->
-          %         true;
-          %       (Hei<LastHei) ->
-          %         true;
-          %       true ->
-          %         false
-          %     end,
-          %?LOG_INFO("Stop ~p",[Stop]),
-          %if(Stop) ->
-          %    {ok, Sub};
-          %  true ->
-          %    HexPH=hex:encode(ParentHash),
-          %    presync(Sub, HexPH)
-          %end;
         {500, _Headers, #{<<"ecee">>:=ErrorBody}} ->
           io:format("~s~n",[ErrorBody]),
           ?LOG_ERROR("repl error 500 at ~s: ~s",[URL, ErrorBody]),
@@ -562,6 +549,39 @@ presync(#{pid:=Pid,getfun:=F}=Sub, Ptr) ->
           ?LOG_ERROR("Giving up",[]),
           error
       end.
+
+resolve_fork(#{pid:=Pid,getfun:=F}=Sub, #{hash:=MyHash, header:=#{height:=MyHei,parent:=MyParentHash}}) ->
+  Ptr=integer_to_binary(MyHei),
+  URL= <<"/api/binblockn/",Ptr/binary>>,
+  ?LOG_INFO("Going to ~s",[URL]),
+  case sync_get_decode(Pid,URL) of
+    {200, _Headers, #{
+                      hash:=Hash,
+                      header:=#{
+                                parent:=ParentHash,
+                                height:=Hei}
+                     }=Blk} ->
+      case Blk of
+        #{child:=Child} when Hash=/=MyHash andalso Hei==MyHei andalso ParentHash==MyParentHash ->
+          ?LOG_INFO("Fork detected on h=~w 0x~s parent 0x~s",
+                    [Hei, hex:encode(Hash), hex:encode(ParentHash)]),
+          blockchain_updater:rollback(),
+          Res=F({apply_block, Blk}),
+          case Res of
+            {ok, ignore} ->
+              HexPH=hex:encode(Child),
+              presync(maps:remove(last,Sub), HexPH);
+            ok ->
+              HexPH=hex:encode(Child),
+              presync(maps:remove(last,Sub), HexPH);
+            Other ->
+              ?LOG_ERROR("presync stop, returned ~p",[Other]),
+              {error, Other}
+          end;
+        _ ->
+          throw('unexpected_response')
+      end
+  end.
 
 %make_ws_req(Pid, Request) ->
 %  receive {gun_ws,Pid, {binary, _}} ->
@@ -636,4 +656,3 @@ blkinfo(#{hash:=H,header:=#{height:=Hei,chain:=Ch}}) ->
   io_lib:format("~s h=~w ch=~w",[blockchain:blkid(H),Hei,Ch]);
 blkinfo(<<H:32/binary>>) ->
   io_lib:format("~s",[blockchain:blkid(H)]).
-
