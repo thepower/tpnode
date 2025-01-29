@@ -111,7 +111,7 @@ evm_custom_call(call, IFrom, ITo, Value, CallData, Gas, Extra, _InternalState) -
 
 evm_logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}) ->
   LArgs=[binary:encode_unsigned(I) || I <- LArgs0],
-  ?LOG_INFO("EVM log ~p ~p",[Message,LArgs]),
+  ?LOG_INFO("EVM log ~s ~p",[hex:encodex(Message), [hex:encodex(I) || I <-LArgs]
   %io:format("==>> EVM log ~p ~p~n",[Message,LArgs]),
   Xtra#{log=>[([<<"evm">>,encode_iaddr(A),encode_iaddr(O),Message,LArgs])|PreLog]}.
 
