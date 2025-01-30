@@ -313,17 +313,17 @@ patcher_service(_From, <<16#e71d7bc1:32/big,Bin/binary>>, GasLimit, State0, _Opt
          [{_,Array}]=contract_evm_abi:decode_abi(Bin,InABI),
          State2=lists:foldl(
                   fun ([{_,Address},{_,1},{_,Key},{_,IntVal},{_,<<>>}], Acc) ->
-                      pstate:set_state(Address, balance, binary:encode_unsigned(Key), IntVal, Acc);
+                      pstate:set_state(addr2bin(Address), balance, binary:encode_unsigned(Key), IntVal, Acc);
                       ([{_,Address},{_,2},{_,0},{_,IntVal},{_,<<>>}], Acc) ->
-                      pstate:set_state(Address, seq, [], IntVal, Acc);
+                      pstate:set_state(addr2bin(Address), seq, [], IntVal, Acc);
                       ([{_,Address},{_,3},{_,0},{_,0},{_,Code}], Acc) ->
-                      pstate:set_state(Address, code, [], Code, Acc);
+                      pstate:set_state(addr2bin(Address), code, [], Code, Acc);
                       ([{_,Address},{_,4},{_,Key},{_,IntVal},{_,<<>>}], Acc) ->
-                      pstate:set_state(Address, storage,
+                      pstate:set_state(addr2bin(Address), storage,
                                        binary:encode_unsigned(Key),
                                        binary:encode_unsigned(IntVal), Acc);
                       ([{_,Address},{_,5},{_,0},{_,0},{_,PubKey}], Acc) ->
-                      pstate:set_state(Address, pubkey, [], PubKey, Acc)
+                      pstate:set_state(addr2bin(Address), pubkey, [], PubKey, Acc)
                   end, State0, Array),
          {1, <<(length(Array)):256/big>>, GasLimit-100, State2}
        catch Ec:Ee:S ->
@@ -334,3 +334,6 @@ patcher_service(_From, <<16#e71d7bc1:32/big,Bin/binary>>, GasLimit, State0, _Opt
 
 patcher_service(_From, _CallData, GasLimit, State0, _Opts) ->
   {0, <<"badarg">>, GasLimit-100, State0}.
+
+addr2bin(B) when is_binary(B) -> B;
+addr2bin(I) when is_integer(I) -> binary:encode_unsigned(I).
