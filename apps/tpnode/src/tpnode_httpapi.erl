@@ -445,37 +445,52 @@ h(<<"POST">>, [<<"node">>, <<"hotfix">>], Req) ->
 h(<<"GET">>, [<<"where">>, TAddr], Req) ->
   BinPacker=packer(Req),
   try
-    Addr=parse_address(TAddr),
-    #{block:=Blk}=naddress:parse(Addr),
     MyChain=blockchain:chain(),
-    if
-        (MyChain == Blk) ->
-            case mledger:get(Addr) of
-                undefined ->
+    case parse_address(TAddr) of
+        <<Addr:20/binary>> ->
+            answer(
+                #{
+                    result => <<"ether">>,
+                    chain => MyChain,
+                    chain_nodes => get_nodes(MyChain,BinPacker)
+                },
+                #{address => Addr}
+            );
+        <<Addr:8/binary>> ->
+            #{block:=Blk}=naddress:parse(Addr),
+            case mledger:db_get_one(mledger, Addr, pubkey, [], []) of
+                {ok,_} ->
+                    answer(
+                        #{
+                            result => <<"found">>,
+                            chain => MyChain,
+                            chain_nodes => get_nodes(Blk,BinPacker)
+                        },
+                        #{address => Addr}
+                    );
+                undefined when (MyChain == Blk) ->
                     err(
                         10000,
                         <<"Not found">>,
                         #{result=><<"not_found">>},
                         #{address => Addr, http_code => 404}
                     );
-                #{} ->
+                undefined ->
                     answer(
                         #{
-                            result => <<"found">>,
+                            result => <<"other_chain">>,
                             chain => Blk,
                             chain_nodes => get_nodes(Blk,BinPacker)
                         },
-                        #{address => Addr}
+                        #{ address => Addr }
                     )
             end;
-        true ->
-            answer(
-                #{
-                    result => <<"other_chain">>,
-                    chain => Blk,
-                    chain_nodes => get_nodes(Blk,BinPacker)
-                },
-                #{ address => Addr }
+        _ ->
+            err(
+                10000,
+                <<"Not found">>,
+                #{result=><<"not_found">>},
+                #{http_code => 404}
             )
     end
   catch throw:{error, address_crc} ->
@@ -2391,7 +2406,12 @@ fix_addr(<<X:20/binary>>) -> X.
 parse_address(<<"0x0000000000000000000000000000000000000000">>) ->
   <<0:160/big>>;
 parse_address(<<"0x000000000000000000000000", Hex/binary>>) ->
-  hex:parse(Hex);
+    case hex:parse(Hex) of
+        <<H:8,R:7/binary>> when H >= 128 andalso H < 192 ->
+            <<H:8,R:7/binary>>;
+        <<R:8/binary>> ->
+            <<0:96/big,R/binary>>
+        end;
 parse_address(<<"0x", Hex/binary>>) ->
   hex:parse(Hex);
 parse_address(TAddr) ->
