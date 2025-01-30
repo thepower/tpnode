@@ -29,6 +29,7 @@
 -export([apply_backup/1]).
 -export([tables/0]).
 -export([account_to_mt/2, account_mt_check/2]).
+-export([fold/3]).
 
 -record(bal_items, { address,version,key,path,introduced,value }).
 -record(address_storage, { address,key,value }).
@@ -934,4 +935,16 @@ id_to_field(64) -> view;
 id_to_field(65) -> lastblk;
 id_to_field(_) -> throw(unknown).
 
-
+fold(Pred, A, DB) ->
+  case rockstable:get(DB,
+                      undefined,
+                      #bal_items{address='_',
+                                 version=latest,
+                                 key='_',
+                                 path='_',
+                                 _='_'}, []) of
+    not_found -> [];
+    [] -> [];
+    List ->
+        lists:foldl(Pred, A, List)
+    end.
