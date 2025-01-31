@@ -84,7 +84,7 @@ evm_custom_call(callcode, IFrom, ITo, Value, CallData, Gas, Extra, _InternalStat
 	  CallData,
 	  Gas,
 	  Extra1,
-	  #{});
+	  maps:put(depth,maps:get(depth,_InternalState,0)+1,maps:with([trace],_InternalState)));
 
 evm_custom_call(delegatecall, _IFrom, ITo, Value, CallData, Gas, Extra,
 				#{data:=#{address:=OrigTo, caller:=OrigFrom}} =_InternalState) ->
@@ -97,7 +97,7 @@ evm_custom_call(delegatecall, _IFrom, ITo, Value, CallData, Gas, Extra,
 	  CallData,
 	  Gas,
 	  Extra1,
-	  #{});
+	  maps:put(depth,maps:get(depth,_InternalState,0)+1,maps:with([trace],_InternalState)));
 
 evm_custom_call(call, IFrom, ITo, Value, CallData, Gas, Extra, _InternalState) ->
 	process_txs:process_itx(
@@ -107,7 +107,7 @@ evm_custom_call(call, IFrom, ITo, Value, CallData, Gas, Extra, _InternalState) -
 	  CallData,
 	  Gas,
 	  Extra,
-	  #{}).
+	  maps:put(depth,maps:get(depth,_InternalState,0)+1,maps:with([trace],_InternalState))).
 
 evm_logger(Message,LArgs0,#{log:=PreLog}=Xtra,#{data:=#{address:=A,caller:=O}}) ->
   LArgs=[binary:encode_unsigned(I) || I <- LArgs0],

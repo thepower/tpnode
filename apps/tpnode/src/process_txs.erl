@@ -695,6 +695,7 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opt
 						 maps:with([static],State0),
 						 #{
 						   gas=>GasLimit,
+               depth=>maps:get(depth,Opts,0),
 						   sload=>fun process_evm:evm_sload/4,
 						   sstore=>fun process_evm:evm_sstore/5,
 						   custom_call => fun process_evm:evm_custom_call/8,
