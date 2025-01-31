@@ -344,7 +344,7 @@ process_tx(#{from:=From,
 					 tx:get_payloads(Tx, transfer)
 					),
 			case process_code_itx(<<Code/binary,CD/binary>>, From, Address,
-								  Value, <<>>, GasLimit-3200, State1, Opts) of
+								  Value, <<>>, GasLimit-32000, State1, Opts) of
 				{1, DeployedCode, GasLeft, State2} ->
 					State3=pstate:set_state(Address, code, [], DeployedCode, State2),
 					?LOG_INFO("Deploy to address ~s success ~w gas used",[hex:encodex(Address),GasLimit-GasLeft]),
