@@ -961,7 +961,7 @@ eth_call([{Params},_Block,_Patched], _Context) ->
                              t=>0,
                              payload=>[]
                             }),
-        process_txs:process_tx(Tx, Gas, S0#{cur_tx=>Tx},#{});
+        process_txs:process_tx(Tx, Gas-21000, S0#{cur_tx=>Tx},#{});
       _ -> %generic
         Tx=tx:construct_tx(
              #{ver=>2,
@@ -975,7 +975,7 @@ eth_call([{Params},_Block,_Patched], _Context) ->
                                 To,
                                 0,
                                 Data,
-                                Gas,
+                                Gas-21000,
                                 S0#{cur_tx=>Tx},
                                 [])
     end,
