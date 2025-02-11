@@ -36,6 +36,15 @@ h(<<"net_version">>,[],_) ->
   %?LOG_INFO("Got req for net_version",[]),
   i2hex(chain_id());
 
+h(<<"web3_clientVersion">>, _Params, _Context) ->
+    ?LOG_INFO("web3_clientVersion ~p",[_Params]),
+    {TPNodeVer,_}=tpnode:ver(),
+    {_,OS}=os:type(),
+    OTP=erlang:system_info(otp_release),
+    list_to_binary(
+        io_lib:format("tpnode/~s/~s/otp~s",[TPNodeVer,OS,OTP])
+    );
+
 h(<<"eth_getTransactionByHash">>,[TxHash0|_], _Context) ->
   %?LOG_INFO("Got req for eth_getTransactionByHash ~s",[TxHash0]),
   case
