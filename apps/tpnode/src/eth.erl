@@ -140,6 +140,7 @@ decode_tx(_ChainId, <<2,FinalTxRLP/binary>>) ->
   R=pad32(Rr),
   S=pad32(Sr),
   {ok,PubKey} = ecrecover:recover(Digest, <<R/binary, S/binary>>, erlp:bin_to_int(BV)),
+  {ok,Hash} = ksha3:hash(256,<<2,FinalTxRLP/binary>>),
   From = id_from_pubkey(PubKey),
   [{from,(From)},
    {type,2},
@@ -156,7 +157,7 @@ decode_tx(_ChainId, <<2,FinalTxRLP/binary>>) ->
    {v, BV},
    {r, R},
    {s, S},
-   {hash, Digest},
+   {hash, Hash},
    {pubkey, PubKey}
   ];
 
@@ -185,6 +186,7 @@ decode_tx(ChainId, FinalTxRLP) ->
  {ok,Digest} = ksha3:hash(256,PrepTxRLP),
  {ok,PubKey} = ecrecover:recover(Digest, <<R/binary, S/binary>>, V),
  From = id_from_pubkey(PubKey),
+ {ok,TxHash} = ksha3:hash(256,FinalTxRLP),
  [{nonce, erlp:bin_to_int(Nonce)},
   {maxFeePerGas, erlp:bin_to_int(BGasPrice)},
   {chainId, EIP},
@@ -197,7 +199,7 @@ decode_tx(ChainId, FinalTxRLP) ->
   {v, V},
   {r, R},
   {s, S},
-  {hash, Digest},
+  {hash, TxHash},
   {pubkey, PubKey},
   {eip155, EIP>0}].
 
@@ -205,4 +207,3 @@ pad32(<<X:32/binary>>) ->
   X;
 pad32(X) when size(X)<32 ->
   <<0:((32-size(X))*8)/big,X/binary>>.
-
