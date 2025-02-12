@@ -290,7 +290,14 @@ patcher_service(_From, <<16#e71d7bc1:32/big,Bin/binary>>, GasLimit, State0, _Opt
             #{patcher_simulation:=true,offchain:=true} ->
               true;
             #{cur_tx:=#{hash:=TxHash0}} ->
-              lists:member( hex:encode(TxHash0), application:get_env(tpnode,allow_patch,[]));
+                case lists:member( hex:encode(TxHash0), application:get_env(tpnode,allow_patch,[])) of
+                    true ->
+                        ?LOG_INFO("Patch ~s authenticated by node's config",[hex:encodex(TxHash0)]),
+                        true;
+                    false ->
+                        ?LOG_ERROR("patching denied for tx ~s",[hex:encode(TxHash0)]),
+                        false
+                end;
             _ -> false
           end,
   if Allowed==false ->
