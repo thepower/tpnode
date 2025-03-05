@@ -1,5 +1,5 @@
 -module(process_txs_sponsor).
--export([process_sponsors/3]).
+-export([process_sponsors/3, process_callcode/1]).
 -include("include/tplog.hrl").
 
 process_sponsors([],#{payload:=P},State0) ->
@@ -36,7 +36,7 @@ sponsor_pays(Address, Tx, State0) ->
 	")",
 	try
 		OutABI=[{<<"pays">>,uint256},{<<"pay">>,{darray,{tuple,[{<<"purpose">>,uint256},{<<"cur">>,string},{<<"amount">>,uint256}]}}}],
-		{ok,PTx}=contract_evm:preencode_tx(Tx,[]),
+		{ok,PTx}=contract_evm:preencode_tx(process_callcode(Tx),[]),
 		CallData = contract_evm_abi:encode_abi_call([PTx], Function),
 
 		case process_evm:static_call(Address, CallData, 30000, State0) of
@@ -66,3 +66,9 @@ sponsor_pays(Address, Tx, State0) ->
 			  {false, [], State0}
 	end.
 
+
+process_callcode(#{from:=F,to:=F,txext:=#{"callcode":=To}}=Tx) ->
+    Tx#{to=>To};
+
+process_callcode(Tx) ->
+    Tx.
