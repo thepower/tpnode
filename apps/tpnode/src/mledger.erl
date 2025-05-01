@@ -13,7 +13,7 @@
 
 %OLD API
 -compile({no_auto_import,[get/1]}).
--export([start_db/0,  deploy4test/2, put/2,get/1,get_vers/1,hash/1,hashl/1]).
+-export([start_db/0, start_db/2, deploy4test/2, put/2,get/1,get_vers/1,hash/1,hashl/1]).
 -export([bi_create/6,bi_set_ver/2]).
 -export([bals2patch/1, apply_patch/2]).
 -export([patch_pstate2mledger/1]).
@@ -120,7 +120,10 @@ start_db() ->
   start_db(mledger).
 
 start_db(DbName) ->
-  Path=utils:dbpath(DbName),
+    Path=utils:dbpath(DbName),
+    start_db(DbName, Path).
+
+start_db(DbName, Path) ->
   case rockstable:open_db(DbName,Path,tables(DbName)) of
     ok -> ok;
     {error,alias_in_use} -> ok
