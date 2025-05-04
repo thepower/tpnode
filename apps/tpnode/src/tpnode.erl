@@ -5,6 +5,7 @@
 %% Application callbacks
 -export([start/2, stop/1, start/0, stop/0, restart/0, reload/0, die/1, resolve_ports/1]).
 -export([run_yggstack/1]).
+-export([set_override/2]).
 
 -include("include/version.hrl").
 -include("include/tplog.hrl").
@@ -33,6 +34,23 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     ok.
+
+set_override(Key, Value) ->
+  case file:consult(utils:dbpath('config_override')) of
+    {ok, Overrides} ->
+      case lists:keyfind(Key, 1, Overrides) of
+        false ->
+          file:write_file(utils:dbpath('config_override'),
+                          [ io_lib:format("~p.~n", [{K1, V1}]) ||
+                            {K1, V1} <- [{Key, Value} | Overrides]]
+                         );
+        _ ->
+          ok
+      end;
+    _ ->
+      file:write_file(utils:dbpath('config_override'),
+                      io_lib:format("~p.~n", [{Key, Value}]))
+  end.
 
 reload() ->
   ConfigFile=application:get_env(tpnode, config, "node.config"),

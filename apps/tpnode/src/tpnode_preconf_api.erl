@@ -93,6 +93,20 @@ h(<<"GET">>, [<<"tea_progress">>,T], _Req) ->
       answer( #{error=> <<"timeout">>, data => null})
   end;
 
+h(<<"POST">>, [<<"set_pw">>], Req) ->
+  {RemoteIP, _Port}=cowboy_req:peer(Req),
+  io:format("set pw from ~p~n", [inet:ntoa(RemoteIP)]),
+  Body=apixiom:bodyjs(Req),
+  io:format("Body: ~p~n", [Body]),
+  case Body of
+    #{<<"password">>:=Password} ->
+      Hash=crypto:hash(sha256, Password),
+      tpnode:set_override(conf_secret, Hash),
+      answer( #{});
+    _ ->
+      err(<<"invalid_request">>, <<"Invalid request">>)
+  end;
+
 h(<<"POST">>, [<<"set_role">>], Req) ->
   {RemoteIP, _Port}=cowboy_req:peer(Req),
   io:format("Join from ~p~n", [inet:ntoa(RemoteIP)]),
