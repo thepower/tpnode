@@ -140,221 +140,217 @@ init([repl_sup]) ->
   {ok, Sup};
 
 init([]) ->
-	case proplists:get_value("WORKDIR",os:env()) of
-		undefined -> ok;
-		L when is_list(L) ->
-			file:set_cwd(L)
-	end,
+  case proplists:get_value("WORKDIR",os:env()) of
+    undefined -> ok;
+    L when is_list(L) ->
+      file:set_cwd(L)
+  end,
   {ok, Cwd} = file:get_cwd(),
-	case tpnode:reload() of
-		ok -> ok;
-		{error,enoent} ->
-			throw({no_config_file_in,Cwd});
-		{error, Reason} ->
-			throw(Reason)
-	end,
 
-    case check_key() of
-      ok -> ok;
-      {error, Reason1} ->
-        throw(Reason1)
-    end,
-
-    VMHost=case application:get_env(tpnode,vmaddr,undefined) of
-             XHost when is_list(XHost) ->
-               {ok,Tuple}=inet:parse_address(XHost),
-               Tuple;
-             _ ->
-               XHost="127.0.0.1",
-               application:set_env(tpnode,vmaddr,XHost),
-               {ok,Tuple}=inet:parse_address(XHost),
-               Tuple
-           end,
-    VMPort=case application:get_env(tpnode,vmport,undefined) of
-             XPort when is_integer(XPort) ->
-               XPort;
-             _ ->
-               XPort=utils:alloc_tcp_port(),
-               application:set_env(tpnode,vmport,XPort),
-               XPort
-           end,
-    RestRes=try_restore_db(application:get_env(tpnode,upstream, [])),
-    logger:info("Restore result ~p",[RestRes]),
-
-    filelib:ensure_dir( utils:dbpath(db) ),
-    %DBPath=application:get_env(tpnode,dbpath,"db"),
-    %filelib:ensure_dir([DBPath,"/"]),
-    ok=mledger:start_db(),
-    ok=logs_db:start_db(),
-
-    Management=case application:get_env(tpnode,management,undefined) of
-                 X when is_list(X) ->
-                   X;
-                 _ ->
-                   case utils:read_cfg(mgmt_cfg,[]) of
-                     Cfg when is_list(Cfg) ->
-                       proplists:get_value(management,Cfg,undefined);
-                     {error, _} ->
-                       undefined
-                   end
-               end,
-
-    MgChildren=case Management of
-                  undefined ->
-                    [];
-                  _ ->
-                    [
-                     { mgmt_sup, {tpnode_netmgmt_sup, start_link, [mgmt, Management]},
-                       permanent, 5000, worker, []}
-                    ]
-                end,
-
-    case application:get_env(tpnode,watchdog,undefined) of
-      true ->
-        tpwdt:start();
-      false ->
-        ok;
-      undefined ->
-        ok
-    end,
-
-    Yggdrasil = case application:get_env(tpnode,yggstack,false) of
-                  true ->
-                    Peers=application:get_env(tpnode,yggdrasil_peers,[<<"tls://asia.deinfra.org:15015">>]),
-                    YggArg=#{
-                             priv=>nodekey:get_priv(),
-                             listen=>application:get_env(tpnode,yggport,15015),
-                             admin=>filename:join(Cwd,"yggstack_admin.sock"),
-                             peers=>Peers,
-                             export=>tpnode:resolve_ports([{80,rpcport},{443,rpcsport},{1800,tpicport}])
-                            },
-                    [
-                     {yggstack,
-                       {ygg,start_stack,[YggArg]},
-                       permanent, 5000, worker, []},
-                     {yggpeers,
-                      {tpnode_yggpeers,start_link,[]},
-                      permanent, 5000, worker, []}
-                    ];
-                  false ->
-                    []
-                end,
-
-
-    MandatoryServices = if Yggdrasil == [] ->
-                             [ api ];
-                           true ->
-                             [ api, ygg ]
-                        end,
-    Discovery=#{name=>discovery, services=>MandatoryServices},
-
-    Services=case application:get_env(tpnode,replica,false) of
-               true -> %slave node
-                 case application:get_env(tpnode,upstream, undefined) of
-                   undefined ->
-                     case application:get_env(tpnode,connect_chain) of
-                       {ok, Number} ->
-                         Upstream=tpnode_peerfinder:check_peers(tpnode_peerfinder:propose_seed(Number,[]),2),
-                         application:set_env(tpnode,upstream,Upstream);
-                       _ -> ok
-                     end;
-                   _ -> ok
-                 end,
-                 [
-                  { tpnode_repl, {tpnode_repl, start_link, []}, permanent, 5000, worker, []},
-                  { repl_sup,
-                    {supervisor, start_link, [ {local, repl_sup}, ?MODULE, [repl_sup]]},
-                    permanent, 20000, supervisor, []
-                  }
-                 ];
-               false -> %consensus node
-                 VM_CS=case application:get_env(tpnode,run_wanode,true) of
-                         true ->
-                           [{ wasm_vm, {vm_wasm, start_link, []}, permanent, 5000, worker, []}];
-                         _ ->
-                           []
-                       end,
-                 [
-                  { blockchain_sync, {blockchain_sync, start_link, []}, permanent, 5000, worker, []},
-                  { synchronizer, {synchronizer, start_link, []}, permanent, 5000, worker, []},
-                  { mkblock, {mkblock, start_link, []}, permanent, 5000, worker, []},
-                  { tpnode_reporter, {tpnode_reporter, start_link, []}, permanent, 5000, worker, []},
-                  { topology, {topology, start_link, []}, permanent, 5000, worker, []},
-                  { xchain_client, {xchain_client, start_link, [#{}]}, permanent, 5000, worker, []},
-                  { xchain_dispatcher, {xchain_dispatcher, start_link, []}, permanent, 5000, worker, []},
-                  { chainkeeper, {chainkeeper, start_link, []}, permanent, 5000, worker, []}
-                  |VM_CS]
-                 ++ xchain:childspec()
-                 ++ tpnode_vmproto:childspec(VMHost, VMPort)
+  ConfigMode=case tpnode:reload() of
+               {error,enoent} ->
+                 %logger:notice("No node.config file found, using default configuration"),
+                 %{ok, _} = file:write_file("node.config", "[]"),
+                 true;
+               ok ->
+                 lists:all(
+                   fun(E) ->
+                       application:get_env(tpnode, E, false)==false
+                   end,
+                   [tpic, hostname, replica, ygg_peers, yggdrasil_peers, upstream])
              end,
-    GetTPICPeers=fun(_) ->
-                     SP=try
-                          {ok,[DBPeers]}=file:consult(utils:dbpath(peers)),
-                          DBPeers
-                        catch _:_ ->
-                                []
-                        end,
-                     if(SP==[]) ->
-                         case application:get_env(tpnode,connect_chain,undefined) of
-                           I when is_integer(I) ->
-                             TPIC_Port=maps:get(port,application:get_env(tpnode,tpic,#{}),1800),
-                             tpnode_peerfinder:propose_tpic(I,TPIC_Port);
+
+  case ConfigMode of
+    true ->
+      Secret=base58:encode(crypto:strong_rand_bytes(16)),
+      HttpPort=1080,
+      HttpsPort=1443,
+      application:set_env(tpnode, rpcport, HttpPort),
+      application:set_env(tpnode, rpcsport, HttpsPort),
+      case application:get_env(tpnode, privkey, false) of
+        false -> application:set_env(tpnode, privkey, tpecdsa:generate_priv(ed25519));
+        _ -> ok
+      end,
+      application:set_env(tpnode, nodename, <<"unconfigured_node">>),
+      application:set_env(tpnode, hostname, string:chomp(os:cmd("hostname"))),
+      application:set_env(tpnode, conf_secret, crypto:hash(sha256, Secret)),
+      Msg=[
+           io_lib:format("No tpnode config file found, starting with preconfiguration mode~n",[]),
+           io_lib:format("Visit one of the following urls to configure your node:~n",[]),
+           io_lib:format(" - https://~s:~w/start~n",[application:get_env(tpnode,hostname,"127.0.0.1"),
+                                                     HttpsPort]),
+           io_lib:format(" - http://~s:~w/start~n",[application:get_env(tpnode,hostname,"127.0.0.1"),
+                                                    HttpPort]),
+           io_lib:format(" - https://locahost:~w/start~n",[HttpsPort]),
+           io_lib:format(" - http://locahost:~w/start~n",[HttpPort]),
+           io_lib:format(" Your password is ~s~n",[Secret])
+          ],
+
+      io:format("~s",[Msg]),
+      lists:foreach( fun(X) -> logger:notice("~s",[X]) end, Msg),
+      Childs = tpnode_http:childspec_ssl() ++ tpnode_http:childspec(),
+      {ok, { {one_for_one, 5, 10}, Childs } };
+    false ->
+      case check_key() of
+        ok -> ok;
+        {error, Reason1} ->
+          throw(Reason1)
+      end,
+
+      RestRes=try_restore_db(application:get_env(tpnode,upstream, [])),
+      logger:info("Restore result ~p",[RestRes]),
+
+      filelib:ensure_dir( utils:dbpath(db) ),
+      %DBPath=application:get_env(tpnode,dbpath,"db"),
+      %filelib:ensure_dir([DBPath,"/"]),
+      ok=mledger:start_db(),
+      ok=logs_db:start_db(),
+
+      case application:get_env(tpnode,watchdog,undefined) of
+        true ->
+          tpwdt:start();
+        false ->
+          ok;
+        undefined ->
+          ok
+      end,
+
+      Yggdrasil = case application:get_env(tpnode,yggstack,false) of
+                    true ->
+                      Peers=application:get_env(tpnode,yggdrasil_peers,[<<"tls://asia.deinfra.org:15015">>]),
+                      YggArg=#{
+                               priv=>nodekey:get_priv(),
+                               listen=>application:get_env(tpnode,yggport,15015),
+                               admin=>filename:join(Cwd,"yggstack_admin.sock"),
+                               peers=>Peers,
+                               export=>tpnode:resolve_ports([{80,rpcport},{443,rpcsport},{1800,tpicport}])
+                              },
+                      [
+                       {yggstack,
+                        {ygg,start_stack,[YggArg]},
+                        permanent, 5000, worker, []},
+                       {yggpeers,
+                        {tpnode_yggpeers,start_link,[]},
+                        permanent, 5000, worker, []}
+                      ];
+                    false ->
+                      []
+                  end,
+
+
+      MandatoryServices = if Yggdrasil == [] ->
+                               [ api ];
+                             true ->
+                               [ api, ygg ]
+                          end,
+      Discovery=#{name=>discovery, services=>MandatoryServices},
+
+      Services=case application:get_env(tpnode,replica,false) of
+                 true -> %slave node
+                   case application:get_env(tpnode,upstream, undefined) of
+                     undefined ->
+                       case application:get_env(tpnode,connect_chain) of
+                         {ok, Number} ->
+                           Upstream=tpnode_peerfinder:check_peers(tpnode_peerfinder:propose_seed(Number,[]),2),
+                           application:set_env(tpnode,upstream,Upstream);
+                         _ -> ok
+                       end;
+                     _ -> ok
+                   end,
+                   [
+                    { tpnode_repl, {tpnode_repl, start_link, []}, permanent, 5000, worker, []},
+                    { repl_sup,
+                      {supervisor, start_link, [ {local, repl_sup}, ?MODULE, [repl_sup]]},
+                      permanent, 20000, supervisor, []
+                    }
+                   ];
+                 false -> %consensus node
+                   VM_CS=case application:get_env(tpnode,run_wanode,true) of
+                           true ->
+                             [{ wasm_vm, {vm_wasm, start_link, []}, permanent, 5000, worker, []}];
                            _ ->
-                             [{undefined,maps:get(peers,application:get_env(tpnode,tpic,#{}),[])}]
-                         end;
-                       true ->
-                         SP
-                     end
-                 end,
-    TpicOpts=#{get_peers=>GetTPICPeers},
+                             []
+                         end,
+                   [
+                    { blockchain_sync, {blockchain_sync, start_link, []}, permanent, 5000, worker, []},
+                    { synchronizer, {synchronizer, start_link, []}, permanent, 5000, worker, []},
+                    { mkblock, {mkblock, start_link, []}, permanent, 5000, worker, []},
+                    { tpnode_reporter, {tpnode_reporter, start_link, []}, permanent, 5000, worker, []},
+                    { topology, {topology, start_link, []}, permanent, 5000, worker, []},
+                    { xchain_client, {xchain_client, start_link, [#{}]}, permanent, 5000, worker, []},
+                    { xchain_dispatcher, {xchain_dispatcher, start_link, []}, permanent, 5000, worker, []},
+                    { chainkeeper, {chainkeeper, start_link, []}, permanent, 5000, worker, []}
+                    |VM_CS]
+                   ++ xchain:childspec()
+               end,
+      GetTPICPeers=fun(_) ->
+                       SP=try
+                            {ok,[DBPeers]}=file:consult(utils:dbpath(peers)),
+                            DBPeers
+                          catch _:_ ->
+                                  []
+                          end,
+                       if(SP==[]) ->
+                           case application:get_env(tpnode,connect_chain,undefined) of
+                             I when is_integer(I) ->
+                               TPIC_Port=maps:get(port,application:get_env(tpnode,tpic,#{}),1800),
+                               tpnode_peerfinder:propose_tpic(I,TPIC_Port);
+                             _ ->
+                               [{undefined,maps:get(peers,application:get_env(tpnode,tpic,#{}),[])}]
+                           end;
+                         true ->
+                           SP
+                       end
+                   end,
+      TpicOpts=#{get_peers=>GetTPICPeers},
 
-        Childs=[
-            { rdb_dispatcher, {rdb_dispatcher, start_link, []},
-              permanent, 5000, worker, []},
+      Childs=[
+              { rdb_dispatcher, {rdb_dispatcher, start_link, []},
+                permanent, 5000, worker, []},
 
-            { blockchain_updater, {blockchain_updater, start_link, []},
-              permanent, 5000, worker, []},
+              { blockchain_updater, {blockchain_updater, start_link, []},
+                permanent, 5000, worker, []},
 
-            { blockchain_reader, {blockchain_reader, start_link, []},
-              permanent, 5000, worker, []},
+              { blockchain_reader, {blockchain_reader, start_link, []},
+                permanent, 5000, worker, []},
 
-            { blockvote, {blockvote, start_link, []},
-              permanent, 5000, worker, []},
+              { blockvote, {blockvote, start_link, []},
+                permanent, 5000, worker, []},
 
-            { ws_dispatcher, {tpnode_ws_dispatcher, start_link, []},
-              permanent, 5000, worker, []},
+              { ws_dispatcher, {tpnode_ws_dispatcher, start_link, []},
+                permanent, 5000, worker, []},
 
-            { txqueue, {txqueue, start_link, []},
-              permanent, 5000, worker, []},
+              { txqueue, {txqueue, start_link, []},
+                permanent, 5000, worker, []},
 
-            { txstorage, {tpnode_txstorage, start_link,
-                          [#{name => txstorage}]},
-              permanent, 5000, worker, []},
+              { txstorage, {tpnode_txstorage, start_link,
+                            [#{name => txstorage}]},
+                permanent, 5000, worker, []},
 
-            { txpool, {txpool, start_link, []},
-              permanent, 5000, worker, []},
+              { txpool, {txpool, start_link, []},
+                permanent, 5000, worker, []},
 
-            { txstatus, {txstatus, start_link, [txstatus]},
-              permanent, 5000, worker, []},
+              { txstatus, {txstatus, start_link, [txstatus]},
+                permanent, 5000, worker, []},
 
-            { discovery, {discovery, start_link, [Discovery]},
-              permanent, 5000, worker, []},
+              { discovery, {discovery, start_link, [Discovery]},
+                permanent, 5000, worker, []},
 
-            { tpnode_announcer, {tpnode_announcer, start_link, [#{}]},
-              permanent, 5000, worker, []},
+              { tpnode_announcer, {tpnode_announcer, start_link, [#{}]},
+                permanent, 5000, worker, []},
 
-%            { tpnode_cert, {tpnode_cert, start_link, []},
-%              permanent, 5000, worker, []},
+              %            { tpnode_cert, {tpnode_cert, start_link, []},
+              %              permanent, 5000, worker, []},
 
-            { tpnode_vmsrv, {tpnode_vmsrv, start_link, []},
-              permanent, 5000, worker, []}
+              { tpnode_vmsrv, {tpnode_vmsrv, start_link, []},
+                permanent, 5000, worker, []}
 
-           ]
-            ++ Services
-            ++ MgChildren
-            ++ Yggdrasil
-            ++ tpic2:childspec(TpicOpts)
-            ++ tpnode_http:childspec_ssl()
-            ++ tpnode_http:childspec(),
-    {ok, { {one_for_one, 5, 10}, Childs } }.
+             ]
+      ++ Services
+      ++ Yggdrasil
+      ++ tpic2:childspec(TpicOpts)
+      ++ tpnode_http:childspec_ssl()
+      ++ tpnode_http:childspec(),
+      {ok, { {one_for_one, 5, 10}, Childs } }
+  end.
 

@@ -13,7 +13,7 @@ priv_file(Module, KeyName) ->
   Filename=Module:prefix()++KeyName++".priv",
   case file:read_file(Filename) of
     {ok, Bin} ->
-      hex:decode(Bin);
+      hex:decode(string:chomp(Bin));
     {error,enoent} ->
       Module:key_absend(KeyName, Filename)
   end.

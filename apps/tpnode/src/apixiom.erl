@@ -27,32 +27,37 @@ get_file(Req, State={Path, {direct, #file_info{size=Size}}, _}) ->
 
 %% API
 init(Req0, {Target, Opts}) ->
-    Method = cowboy_req:method(Req0),
-    {Format, Req1} = get_format(Req0),
-    Path = cowboy_req:path_info(Req1),
-%%    ?LOG_INFO("request: ~p ~p", [Format, Req1]),
-    PRes = handle_request(Method, Path, Req1, Target, Format, Opts),
-    case PRes of
-      {raw, R} ->
-        R;
-      _ ->
-        Req2 =
-    case erlang:function_exported(Target, before_filter, 1) of
-          true ->
-            Target:before_filter(Req1);
-          false ->
-            Req1
-        end,
-        {Status, Body, ResReq} = process_response(PRes, Format, Req2),
-    Response =
-    case erlang:function_exported(Target, after_filter, 1) of
-          true ->
-            Target:after_filter(ResReq);
-          false ->
-            ResReq
-        end,
-        %?LOG_DEBUG("Res ~p", [Response]),
-        {ok, cowboy_req:reply(Status, #{}, Body, Response), Opts}
+  Method = cowboy_req:method(Req0),
+  {Format, Req1} = get_format(Req0),
+  Path = cowboy_req:path_info(Req1),
+  %%    ?LOG_INFO("request: ~p ~p", [Format, Req1]),
+
+  Req2 = case erlang:function_exported(Target, before_filter, 1) of
+           true ->
+             Target:before_filter(Req1);
+           false ->
+             Req1
+         end,
+  case Req2 of
+    {reply, Code, Headers, Body, Req3} ->
+      {ok, cowboy_req:reply(Code, Headers, Body, Req3), Opts};
+    #{} ->
+        PRes = handle_request(Method, Path, Req2, Target, Format, Opts),
+        case PRes of
+          {raw, R} ->
+            R;
+          _ ->
+            {Status, Body, ResReq} = process_response(PRes, Format, Req2),
+            Response =
+            case erlang:function_exported(Target, after_filter, 1) of
+              true ->
+                Target:after_filter(ResReq);
+              false ->
+                ResReq
+            end,
+            %?LOG_DEBUG("Res ~p", [Response]),
+            {ok, cowboy_req:reply(Status, #{}, Body, Response), Opts}
+        end
     end.
 
 bodyjs(Req) ->

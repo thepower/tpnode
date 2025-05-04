@@ -8,9 +8,15 @@
 
 
 get_http_conn_type() ->
+  ConfAPI=case application:get_env(tpnode, conf_secret, undefined) of
+    undefined ->
+      [];
+    _ ->
+      [{"/preconf/[...]", apixiom, {tpnode_preconf_api, #{}}}]
+  end,
   HTTPDispatch = cowboy_router:compile(
     [
-      {'_', [
+      {'_', ConfAPI++[
         {"/api/ws", tpnode_ws, []},
         {"/api/[...]", apixiom, {tpnode_httpapi, #{}}},
         {"/jsonrpc", cowboy_jsonrpc, {tpnode_jsonrpc, #{}}},
@@ -18,8 +24,27 @@ get_http_conn_type() ->
         {"/xchain/ws", xchain_server, []},
         {"/xchain/api/[...]", apixiom, {xchain_api, #{}}},
         {"/", cowboy_static, {priv_file, tpnode, "index.html"}},
-        {"/[...]", cowboy_static,
+        {"/start", cowboy_static, {priv_file, tpnode, "start.html"}},
+        {"/favicon.ico", cowboy_static, {priv_file, tpnode, "favicon.ico"}},
+        {"/robots.txt", cowboy_static, {priv_file, tpnode, "robots.txt"}},
+        {"/static/[...]", cowboy_static,
+          {priv_dir, tpnode, "",
+            [
+              {mimetypes, cow_mimetypes, all},
+              {dir_handler, directory_handler}
+            ]
+          }
+        },
+        {"/public/[...]", cowboy_static,
           {dir, "public",
+            [
+              {mimetypes, cow_mimetypes, all},
+              {dir_handler, directory_handler}
+            ]
+          }
+        },
+        {"/[...]", cowboy_static,
+          {priv_dir, tpnode, "",
             [
               {mimetypes, cow_mimetypes, all},
               {dir_handler, directory_handler}
@@ -77,7 +102,7 @@ childspec_ssl() ->
   childspec_ssl(CertFile, KeyFile).
 
 childspec_ssl(CertFile, KeyFile) ->
-  Port = get_ssl_port(false),
+  Port = get_ssl_port(),
   if(is_integer(Port)) ->
       case ensure_cert(CertFile, KeyFile) of
         true ->
@@ -131,30 +156,26 @@ child_names_ssl() ->
   [https, https6].
 
 ensure_cert(CertFile, KeyFile) ->
-  Hostname=application:get_env(tpnode, hostname, false),
-  if Hostname==false ->
-       false;
-     true ->
-       case file:read_file(KeyFile) of
-         {ok, _} ->
-           ok;
-         _ ->
-           filelib:ensure_dir(KeyFile),
-           gen_priv(KeyFile)
-       end,
-       CertExists=case file:read_file(CertFile) of
-                    {ok, _} -> true;
-                    _ -> false
-                  end,
-       if(not CertExists) ->
-           selfsigned(CertFile, KeyFile, Hostname),
-           case file:read_file(CertFile) of
-             {ok, _} -> true;
-             _ -> false
-           end;
-         (CertExists) ->
-           true
-       end
+  case file:read_file(KeyFile) of
+    {ok, _} ->
+      ok;
+    _ ->
+      filelib:ensure_dir(KeyFile),
+      gen_priv(KeyFile)
+  end,
+  CertExists=case file:read_file(CertFile) of
+               {ok, _} -> true;
+               _ -> false
+             end,
+  if(not CertExists) ->
+      Hostname=application:get_env(tpnode, hostname, string:chomp(os:cmd("hostname"))),
+      selfsigned(CertFile, KeyFile, Hostname),
+      case file:read_file(CertFile) of
+        {ok, _} -> true;
+        _ -> false
+      end;
+    (CertExists) ->
+      true
   end.
 
 gen_priv(KeyFile) ->
