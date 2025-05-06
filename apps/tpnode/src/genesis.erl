@@ -2,14 +2,14 @@
 -export([genesis/0, new/2, new/1, settings/0, settings/1]).
 
 genesis() ->
-  case file:consult(application:get_env(tpnode,genesis,"genesis.txt")) of
-    {ok, [Genesis]} ->
-      Genesis;
-    {error,enoent} ->
-      case file:read_file("genesis.bin") of
+  case file:read_file("genesis.bin") of
         {ok, Bin} ->
           block:unpack(Bin);
         {error, enoent} ->
+      case file:consult(application:get_env(tpnode,genesis,"genesis.txt")) of
+        {ok, [Genesis]} ->
+          Genesis;
+        {error,enoent} ->
           case application:get_env(tpnode,replica,false) of
             true ->
               case application:get_env(tpnode,upstream,[]) of
