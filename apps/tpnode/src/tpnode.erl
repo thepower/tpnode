@@ -58,7 +58,7 @@ reload() ->
     {ok, Config} ->
       Config2=case file:consult(utils:dbpath('config_override')) of
                 {ok, Overrides} ->
-                  logger:info("Applying config overrides: ~p", [Overrides]),
+                  logger:info("Applying config overrides: ~p", [proplists:get_keys(Overrides)]),
                   lists:foldl(
                     fun({keyfile, Value}, Acc) ->
                         [{keyfile, Value} | lists:keydelete(privkey,1,Acc)];

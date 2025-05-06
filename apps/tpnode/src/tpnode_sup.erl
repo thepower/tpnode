@@ -265,7 +265,7 @@ init([]) ->
                     }
                    ];
                  false -> %consensus node
-                   VM_CS=case application:get_env(tpnode,run_wanode,true) of
+                   VM_CS=case application:get_env(tpnode,run_wanode,false) of
                            true ->
                              [{ wasm_vm, {vm_wasm, start_link, []}, permanent, 5000, worker, []}];
                            _ ->

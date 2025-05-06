@@ -36,7 +36,6 @@ document.addEventListener("DOMContentLoaded", function () {
       <select class="w-full p-2 text-black" id="role">
         <option value="">-- select role --</option>
         <option value="rejoin">Rejoin Existing Chain</option>
-        <option value="start-new">Start New Chain (Genesis)</option>
         <option value="tea">Start New Chain (Tea Ceremony)</option>
         <option value="replica">Join as Replica Node</option>
       </select>
@@ -85,11 +84,6 @@ document.addEventListener("DOMContentLoaded", function () {
     if (state.role === "rejoin") {
       html += inputField("privateKey", "Private Key (HEX)", state.privateKey);
       html += inputField("bootstrapUrl", "Bootstrap Node URL", state.bootstrapUrl);
-    } else if (state.role === "start-new") {
-      html += inputField("privateKey", "Private Key (HEX)", state.privateKey);
-      html += `<input type="file" id="genesisFile" class="w-full p-2 mt-2 text-white">`;
-      html += inputError("genesisFile");
-      html += inputField("peerUrls", "Peer Node URLs (comma-separated)", state.peerUrls);
     } else if (state.role === "tea") {
       html += `
         <input type="checkbox" id="backupConfirm"> <label for="backupConfirm">I have backed up my private key</label>
@@ -250,7 +244,9 @@ ${inputError("privateKey")}
 
   // Logging logic
   var logTimestamp = 0;
-  let logsRunning = false;
+  var logsRunning = false;
+  var logRetryDelay = 1000; // initial delay
+  const logRetryMax = 600000; // 10 minutes max
 
   function startLogPolling() {
     if (logsRunning || !state.authToken) return;
@@ -263,17 +259,29 @@ ${inputError("privateKey")}
       const res = await fetch(`/preconf/tea_progress/${logTimestamp}`, {
         headers: { "Authorization": state.authToken }
       });
+      if (res.status === 403) {
+        Toastify({ text: "Token expired or invalid. Returning to step 1.", duration: 4000, gravity: "top", position: "right", backgroundColor: "orange" }).showToast();
+        state.authToken = "";
+        state.screen = 0;
+        logsRunning = false;
+        render();
+        return;
+      }
       const data = await res.json();
       if (data.ok) {
         if (data.data) {
           data.data.forEach(line => appendLog(line));
+          logRetryDelay = 1000; // reset delay on success
           logTimestamp = data.t;
         }
       }
     } catch (err) {
+      logRetryDelay = Math.min(logRetryDelay * 2, logRetryMax);
       // Ignore error, keep polling with same timestamp
     } finally {
-      setTimeout(pollLogs, 1000);
+      if (logsRunning) {
+        setTimeout(pollLogs, logRetryDelay);
+      }
     }
   }
 

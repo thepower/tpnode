@@ -131,15 +131,24 @@ h(<<"POST">>, [<<"set_role">>], Req) ->
                                        token=>Token,
                                        conn_opts=>ConOpts,
                                        status_update=>fun(Kind, Data, Sub) ->
-                                                          tinymq:push(tea,#{k=>Kind,
-                                                                           d=>Data}),
+                                                          tinymq:push(tea,#{k=>Kind, d=>Data}),
                                                           io:format("Kind: ~p~n", [Kind]),
-                                                          io:format("Data: ~p~n", [Data]),
                                                           {ok, Sub}
                                                       end,
                                        nodename=>NodeName})
             end),
-      answer( #{ client => list_to_binary(inet:ntoa(RemoteIP)) });
+      answer( #{});
+    #{<<"nodeName">> := NodeName,
+      <<"peerUrls">> := UpstreamUrl,
+      %<<"privateKey">> => _,
+      <<"role">> := <<"replica">>} ->
+
+      tpnode:set_override(upstream,[
+                                    binary_to_list(B) || B <- binary:split(UpstreamUrl,<<",">>,[global])
+                                   ]),
+      tpnode:set_override(name, NodeName),
+      tpnode:set_override(replica, true),
+      answer( #{});
     _ ->
       io:format("Body: ~p~n", [Body]),
       err(<<"invalid_request">>, <<"Invalid request">>)

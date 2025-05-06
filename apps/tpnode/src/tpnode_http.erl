@@ -12,7 +12,9 @@ get_http_conn_type() ->
     undefined ->
       [];
     _ ->
-      [{"/preconf/[...]", apixiom, {tpnode_preconf_api, #{}}}]
+      [{"/preconf/[...]", apixiom, {tpnode_preconf_api, #{}}},
+       {"/start", cowboy_static, {priv_file, tpnode, "start.html"}}
+      ]
   end,
   HTTPDispatch = cowboy_router:compile(
     [
@@ -24,7 +26,6 @@ get_http_conn_type() ->
         {"/xchain/ws", xchain_server, []},
         {"/xchain/api/[...]", apixiom, {xchain_api, #{}}},
         {"/", cowboy_static, {priv_file, tpnode, "index.html"}},
-        {"/start", cowboy_static, {priv_file, tpnode, "start.html"}},
         {"/favicon.ico", cowboy_static, {priv_file, tpnode, "favicon.ico"}},
         {"/robots.txt", cowboy_static, {priv_file, tpnode, "robots.txt"}},
         {"/static/[...]", cowboy_static,

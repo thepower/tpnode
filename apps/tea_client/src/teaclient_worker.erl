@@ -286,16 +286,19 @@ handle_msg(#{null := <<"progress">>,<<"step">>:=Step, <<"goal">> := Req,<<"got">
   Sub#{lastprogress=>M};
 
 handle_msg(#{null := <<"genesis">>,<<"block">>:=BinBlock}, Sub) ->
+  status_update(got_genesis, #{}, Sub),
   #{hash:=H}=Block=block:unpack(BinBlock),
   file:write_file("genesis.bin",BinBlock),
-  file:write_file("genesis.txt",io_lib:format("~p.~n",[Block])),
+  file:write_file("genesis.bin.txt",io_lib:format("~p.~n",[Block])),
   {true,_} = block:verify(Block),
   io:format("-=-= [ Cerenomy done ] =-=-~n",[]),
   io:format("=== [ Genesis hash ~s ] === ~n",[hex:encode(H)]),
+  timer:sleep(5000),
   init:stop(),
   Sub;
 
 handle_msg(#{null := <<"node_config">>,<<"config">>:=BinCfg}, Sub) ->
+  status_update(got_config, #{}, Sub),
   case file:consult("node.config") of
     {ok,[{privkey,PK}]} ->
       file:rename("node.config","node.config_old"),
