@@ -162,6 +162,7 @@ init([]) ->
 
   case ConfigMode of
     true ->
+      tpwdt:stop(),
       Secret=base58:encode(crypto:strong_rand_bytes(16)),
       HttpPort=1080,
       HttpsPort=1443,
