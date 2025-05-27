@@ -36,7 +36,7 @@ stop(_State) ->
     ok.
 
 set_override(Key, Value) ->
-  case file:consult(utils:dbpath('config_override')) of
+  ok=case file:consult(utils:dbpath('config_override')) of
     {ok, Overrides} ->
       case lists:keyfind(Key, 1, Overrides) of
         false ->
@@ -50,7 +50,9 @@ set_override(Key, Value) ->
     _ ->
       file:write_file(utils:dbpath('config_override'),
                       io_lib:format("~p.~n", [{Key, Value}]))
-  end.
+  end,
+  ok=application:set_env(tpnode,Key, Value),
+  ok.
 
 reload() ->
   ConfigFile=application:get_env(tpnode, config, "node.config"),

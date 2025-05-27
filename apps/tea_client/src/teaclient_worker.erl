@@ -1,6 +1,7 @@
 -module(teaclient_worker).
 -export([start_link/1,run/1,ws_mode/2,get_privkey/1]).
 -export([run/2]).
+-export([register/1]).
 
 start_link(Sub) ->
   Pid=spawn(xchain_client_worker,run,[Sub#{parent=>self()}]),
@@ -14,38 +15,45 @@ run(CeremonyID, NodeName) when is_binary(CeremonyID), is_binary(NodeName) ->
                          token=>CeremonyID,
                          nodename=>NodeName}).
 
-run(#{host:=Ip, port:=Port} = Sub) ->
+register(#{ hostname:=Hostname } = Sub) ->
+  {ok, Pid}= connect(Sub),
+  {[<<"websocket">>],UpgradeHdrs}=upgrade(Pid),
+  logger:info("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
+  Priv=get_privkey(Sub),
+  Pub=tpecdsa:calc_pub(Priv,true),
+  R=make_ws_req(Pid, #{
+                       null=><<"challenge">>,
+                       pubkey => Pub
+                      }),
+  R1=case R of
+       #{null := <<"challenge_ack">>,<<"challenge">> := Challenge} ->
+         status_update(logged_in, #{}, Sub),
+         Msg=msgpack:pack(#{ "register" =>  true,
+                             "hostname" => binary_to_list(Hostname),
+                             "ports" => [ 1080, 1443, 1800, 15015 ] }),
+         Message = <<Msg/binary, Challenge/binary>>,
+         Signature = tpecdsa:sign(Message, Priv),
+         case make_ws_req(Pid, #{
+                                 null=><<"signed_msg">>,
+                                 msg => Msg,
+                                 signature => Signature,
+                                 pubkey => Pub
+                                }) of
+           #{<<"registered">>:=true, <<"host">>:=Hostname1} ->
+             status_update(registered, #{hostname=>list_to_binary([Hostname1])}, Sub);
+           Any ->
+             logger:notice("Unknown response from teapot ~p",[Any]),
+             status_update(unexpected_response, #{}, Sub)
+         end
+     end,
+  gun:close(Pid),
+  R1.
+
+
+run(Sub) ->
   process_flag(trap_exit, true),
-  CaCerts = certifi:cacerts(),
-
-  CHC=[
-       {match_fun, public_key:pkix_verify_hostname_match_fun(https)}
-      ],
-
-  logger:info("ceremony client connecting to ~s:~w", [Ip, Port]),
-  io:format("ceremony client connecting to ~s:~w~n", [Ip, Port]),
-
-  DefaultOpts=#{ transport=>tls,
-                 protocols => [http],
-                 transport_opts => [{verify, verify_none},
-                                    {depth, 5},
-                                    {customize_hostname_check, CHC},
-                                    {cacerts, CaCerts}
-                                   ]},
-  ConnOpts=maps:get(conn_opts, Sub, DefaultOpts),
-  {ok, Pid} = gun:open(Ip, Port, ConnOpts),
+  {ok, Pid}= connect(Sub),
   try
-    receive
-      {gun_up, Pid, _HTTP} ->
-        status_update(connected, #{}, Sub),
-        ok;
-      {gun_down, Pid, _Protocol, closed, _, _} ->
-        status_update(connection_error, #{reason=>closed}, Sub),
-        throw(up_error)
-    after 5000 ->
-            status_update(connection_error, #{reason=>timeout}, Sub),
-            throw('up_timeout')
-    end,
     {[<<"websocket">>],UpgradeHdrs}=upgrade(Pid),
     logger:info("Conn upgrade hdrs: ~p",[UpgradeHdrs]),
     Priv=get_privkey(Sub),
@@ -60,11 +68,11 @@ run(#{host:=Ip, port:=Port} = Sub) ->
     NodeName=maps:get(nodename, Sub, <<(hex:encode(PubH))/binary>>),
     check_ports(Pid, Sub#{pubkey=>Pub,token=>Token,nodename=>NodeName}),
     R=make_ws_req(Pid, #{
-                     null=><<"hello">>,
-                     pubkey => Pub,
-                     token => Token,
-                     nodename => NodeName
-                    }),
+                         null=><<"hello">>,
+                         pubkey => Pub,
+                         token => Token,
+                         nodename => NodeName
+                        }),
     logger:info("Hello response is ~p",[R]),
     case R of
       #{null := <<"hello">>,<<"ok">> := true} ->
@@ -93,22 +101,22 @@ run(#{host:=Ip, port:=Port} = Sub) ->
       gun:close(Pid),
       io:format("ceremony client error ~p~n",[Ee]),
       logger:error("ceremony client error ~p",[Ee]),
-          lists:foreach(
-            fun(SE) ->
-                io:format("@ ~p", [SE]),
-                logger:error("@ ~p", [SE])
-            end, S),
-          Ee;
+      lists:foreach(
+        fun(SE) ->
+            io:format("@ ~p", [SE]),
+            logger:error("@ ~p", [SE])
+        end, S),
+      Ee;
     Ec:Ee:S ->
       status_update(error, #{ec=>Ec, ee=>Ee, s=>S}, Sub),
       gun:close(Pid),
-          io:format("ceremony client error ~p:~p~n",[Ec,Ee]),
-          logger:error("ceremony client error ~p:~p",[Ec,Ee]),
-          lists:foreach(
-            fun(SE) ->
-                logger:error("@ ~p", [SE])
-            end, S),
-          {Ec,Ee}
+      io:format("ceremony client error ~p:~p~n",[Ec,Ee]),
+      logger:error("ceremony client error ~p:~p",[Ec,Ee]),
+      lists:foreach(
+        fun(SE) ->
+            logger:error("@ ~p", [SE])
+        end, S),
+      {Ec,Ee}
   end.
 
 status_update(Kind, Data, Sub=#{status_update:=F}) when is_function(F,3) ->
@@ -117,7 +125,6 @@ status_update(Kind, Data, Sub=#{status_update:=F}) when is_function(F,3) ->
 status_update(_Kind, _Data, Sub) ->
   logger:info("Status update ignore: ~p ~p",[_Kind,_Data]),
   {ok, Sub}.
-  
 
 check_ports(_Pid, Sub=#{ncp:=true}) ->
   Sub;
@@ -271,6 +278,7 @@ handle_msg(#{null := <<"signblk">>,<<"block">>:=BinBlock}, #{pid:=Pid, privkey:=
   Sub;
 
 handle_msg(#{null := <<"progress">>,<<"step">>:=Step, <<"goal">> := Req,<<"got">> := Got}=M, Sub) ->
+  io:format("handle progress ~p~n",[M]),
   status_update(progress, #{step=>Step, progress=>(100*Got) div Req}, Sub),
   TStep = case Step of
             1 -> "waiting for all nodes";
@@ -286,17 +294,21 @@ handle_msg(#{null := <<"progress">>,<<"step">>:=Step, <<"goal">> := Req,<<"got">
   Sub#{lastprogress=>M};
 
 handle_msg(#{null := <<"genesis">>,<<"block">>:=BinBlock}, Sub) ->
-  status_update(got_genesis, #{}, Sub),
   #{hash:=H}=Block=block:unpack(BinBlock),
-  file:write_file("genesis.bin",BinBlock),
-  file:write_file("genesis.bin.txt",io_lib:format("~p.~n",[Block])),
-  {true,_} = block:verify(Block),
-  io:format("-=-= [ Cerenomy done ] =-=-~n",[]),
-  io:format("=== [ Genesis hash ~s ] === ~n",[hex:encode(H)]),
-  timer:sleep(5000),
-  init:stop(),
-  Sub;
-
+  case block:verify(Block) of
+    {true,_} ->
+      status_update(got_genesis, #{hash=>H}, Sub),
+      save_block(BinBlock, Sub),
+      timer:sleep(5000),
+      init:stop(),
+      Sub;
+    {false,_} ->
+      status_update(error, #{reason=>invalid_block}, Sub),
+      logger:error("Invalid genesis block ~p",[Block]),
+      gun:close(maps:get(pid, Sub)),
+      Sub
+  end;
+ 
 handle_msg(#{null := <<"node_config">>,<<"config">>:=BinCfg}, Sub) ->
   status_update(got_config, #{}, Sub),
   case file:consult("node.config") of
@@ -349,6 +361,9 @@ upgrade(Pid) ->
           throw(upgrade_timeout)
   end.
 
+get_privkey(#{ privkey:= Priv}) ->
+  Priv;
+
 get_privkey(Sub) ->
   Priv=case maps:is_key(legacy,Sub) of
          false -> tpecdsa:generate_priv(ed25519);
@@ -378,4 +393,43 @@ get_privkey(Sub) ->
       Priv
   end.
 
+connect(#{host:=Ip, port:=Port} = Sub) ->
+  logger:info("ceremony client connecting to ~s:~w", [Ip, Port]),
+  ConnOpts=case maps:get(conn_opts, Sub, undefined) of
+             undefined ->
+               CaCerts = certifi:cacerts(),
+
+               CHC=[
+                    {match_fun, public_key:pkix_verify_hostname_match_fun(https)}
+                   ],
+               #{ transport=>tls,
+                  protocols => [http],
+                  transport_opts => [{verify, verify_none},
+                                     {depth, 5},
+                                     {customize_hostname_check, CHC},
+                                     {cacerts, CaCerts}
+                                    ]};
+             Opts when is_map(Opts) ->
+               Opts
+           end,
+  {ok, Pid} = gun:open(Ip, Port, ConnOpts),
+  receive
+    {gun_up, Pid, _HTTP} ->
+      status_update(connected, #{}, Sub),
+      {ok, Pid};
+    {gun_down, Pid, _Protocol, closed, _, _} ->
+      status_update(connection_error, #{reason=>closed}, Sub),
+      gun:close(Pid),
+      {error, up_error}
+  after 5000 ->
+          status_update(connection_error, #{reason=>timeout}, Sub),
+          {error, up_timeout}
+  end.
+
+save_block(BinBlock, Sub=#{save_block:=F}) when is_function(F,2) ->
+  F(BinBlock, Sub);
+save_block(BinBlock, Sub) ->
+  file:write_file("genesis.bin",BinBlock),
+  io:format("-=-= [ Cerenomy done ] =-=-~n",[]),
+  Sub.
 

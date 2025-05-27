@@ -2,7 +2,7 @@
 -include("include/tplog.hrl").
 
 -export([alloc_tcp_port/0,make_binary/1, make_list/1, apply_macro/2,
-  print_error/4, log_stacktrace/1, check_tcp_port/1]).
+  print_error/4, log_stacktrace/1, check_tcp_port/1, tcp_port_or_other/1]).
 
 -export([logger/1, logger/2]).
 
@@ -65,6 +65,14 @@ dbpath(DB) ->
   DBPath=application:get_env(tpnode,dbpath,"db"),
   Suffix=application:get_env(tpnode,dbsuffix,"_" ++ atom_to_list(node())),
   filename:join(DBPath,[DB,Suffix]).
+
+tcp_port_or_other(Number) ->
+  case check_tcp_port(Number) of
+    true ->
+      Number;
+    false ->
+      alloc_tcp_port()
+  end.
 
 alloc_tcp_port() ->
   {ok,S}=gen_tcp:listen(0,[]),

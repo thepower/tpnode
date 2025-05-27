@@ -1,13 +1,11 @@
 -module(tpnode_preconf_api).
 -include("include/tplog.hrl").
+-include_lib("public_key/include/public_key.hrl").
 
 -export([h/3,
          after_filter/1,
-         before_filter/1,
-         packer/2,
-         binjson/1]).
-
--export([answer/0, answer/1, answer/2, err/1, err/2, err/3, err/4]).
+         before_filter/1
+        ]).
 
 
 -ifdef(TEST).
@@ -15,56 +13,26 @@
 -compile(nowarn_export_all).
 -endif.
 
-err(ErrorCode) ->
-    err(ErrorCode, <<"">>, #{}, #{}).
-
-err(ErrorCode, ErrorMessage) ->
-    err(ErrorCode, ErrorMessage, #{}, #{}).
-
-err(ErrorCode, ErrorMessage, Data) ->
-    err(ErrorCode, ErrorMessage, Data, #{}).
-
-err(ErrorCode, ErrorMessage, Data, Options) ->
-    Required1 =
-        #{
-            <<"ok">> => false,
-            <<"code">> => ErrorCode,
-            <<"msg">> => ErrorMessage
-        },
-
-    {
-        maps:get(http_code, Options, 200),
-        maps:merge(Data, Required1)
-    }.
-
-answer() ->
-    answer(#{}).
-
-answer(Data) ->
-    answer(Data, #{}).
-
-answer(Data, Options) when is_map(Data) ->
-  Data2=maps:put(<<"ok">>, true, Data),
-  MS=maps:with([jsx,msgpack],Options),
-  case(maps:size(MS)>0) of
-    true ->
-      { 200, {Data2,MS} };
-    false ->
-      { 200, Data2 }
-  end.
 
 before_filter(Req) ->
-  % check authentication header:
-  case cowboy_req:header(<<"authorization">>, Req) of
-    undefined ->
-      {reply, 403, #{}, <<"Unauthorized">>, Req};
-    Auth ->
-      PwHash=crypto:hash(sha256,Auth),
-      case application:get_env(tpnode, conf_secret, none) of
-        Hash1 when Hash1==PwHash ->
-          Req;
-        _ ->
-          {reply, 403, #{}, <<"Unauthorized">>, Req}
+  case cowboy_req:method(Req) of
+    <<"OPTIONS">> ->
+      Req;
+    _ ->
+      % check authentication header:
+      case cowboy_req:header(<<"authorization">>, Req) of
+        undefined ->
+          logger:info("No authorization header found in request"),
+          {reply, 403, #{}, <<"Unauthorized">>, Req};
+        Auth ->
+          PwHash=crypto:hash(sha256,Auth),
+          case application:get_env(tpnode, conf_secret, none) of
+            Hash1 when Hash1==PwHash ->
+              Req;
+            _ ->
+              logger:info("Invalid authorization header found in request"),
+              {reply, 403, #{}, <<"Unauthorized">>, Req}
+          end
       end
   end.
 
@@ -74,15 +42,127 @@ after_filter(Req) ->
                                   Origin, Req),
   Req2=cowboy_req:set_resp_header(<<"access-control-allow-methods">>,
                                   <<"GET, POST, OPTIONS">>, Req1),
-%  Req3=cowboy_req:set_resp_header(<<"access-control-allow-credentials">>,
-%                                  <<"true">>, Req2),
-  Req4=cowboy_req:set_resp_header(<<"access-control-max-age">>,
+  Req3=cowboy_req:set_resp_header(<<"access-control-max-age">>,
                                   <<"86400">>, Req2),
   cowboy_req:set_resp_header(<<"access-control-allow-headers">>,
-                             <<"content-type,authorization">>, Req4).
+                             <<"content-type,authorization">>, Req3).
 
 h(<<"OPTIONS">>, _, _Req) ->
   {200, [], ""};
+
+h(<<"GET">>, [<<"info">>], _Req) ->
+  {pub,ed25519, Pub} = tpecdsa:rawkey(nodekey:get_pub()),
+  PubKey = hex:encodex(Pub),
+  {200, [], #{ pubkey => PubKey,
+               hostname => list_to_binary([
+                                           application:get_env(tpnode,hostname,"localhost")
+                                          ])
+             }
+  };
+
+h(<<"POST">>, [<<"dh">>], Req) ->
+  {PubKey, PrivKey} = crypto:generate_key(ecdh, x25519),
+  #{<<"pubkey">>:=UserPubB64}=apixiom:bodyjs(Req),
+  UserPub= base64:decode(UserPubB64),
+  case size(UserPub) == 32 of
+    true ->
+      SharedSecret = crypto:compute_key(ecdh, UserPub, PrivKey, x25519),
+      application:set_env(tpnode, ed_ss, SharedSecret),
+      {200, [], base64:encode(PubKey)};
+    false ->
+      {400, [], <<"Invalid public key size">>}
+  end;
+
+h(<<"POST">>, [<<"update_hostname">>], Req) ->
+  {RemoteIP, _Port}=cowboy_req:peer(Req),
+  logger:info("Update hostname from ~p~n", [inet:ntoa(RemoteIP)]),
+  Body=apixiom:bodyjs(Req),
+  case Body of
+    #{<<"hostname">> := Hostname} ->
+      tpnode:set_override(hostname, binary_to_list(Hostname)),
+      case Body of
+        #{<<"role">>:= <<"new_chain">>} ->
+          spawn(fun() ->
+                    application:ensure_all_started(teaclient),
+                    URL=tea_url(),
+                    Request = URL#{
+                        privkey => nodekey:get_priv(),
+                        hostname=>Hostname,
+                        status_update=>fun log/3},
+                    teaclient_worker:register(Request)
+                end),
+          ok;
+        _ ->
+          ok
+      end,
+      {200, [], <<"OK">>};
+    _ ->
+      io:format("Invalid request body: ~p~n", [Body]),
+      {400, [], <<"Invalid request">>}
+  end;
+
+h(<<"POST">>, [<<"update_privkey">>], Req) ->
+  {RemoteIP, _Port}=cowboy_req:peer(Req),
+  logger:info("Update privkey from ~p~n", [inet:ntoa(RemoteIP)]),
+  Body=apixiom:bodyjs(Req),
+  case Body of
+    #{<<"ciphertext">> := CipherText,
+      <<"iv">> := IV
+     } ->
+      case application:get_env(tpnode, ed_ss, none) of
+        SharedKey when is_binary(SharedKey) ->
+          CipherTextBin = base64:decode(CipherText),
+          IVBin = base64:decode(IV),
+          TagSize = 16,
+          CipherTextLen = byte_size(CipherTextBin) - TagSize,
+          <<CipherBin:CipherTextLen/binary, Tag:TagSize/binary>> = CipherTextBin,
+
+          try
+            PlainBin = crypto:crypto_one_time_aead(
+                         aes_256_gcm,
+                         SharedKey,
+                         IVBin,
+                         CipherBin,
+                         <<>>,      % No additional authenticated data (AAD)
+                         Tag,
+                         false
+                        ),
+            DerKey = public_key:der_encode('PrivateKeyInfo',
+                        #'ECPrivateKey'{
+                           version = 1,
+                           privateKey = PlainBin,
+                           parameters = {
+                             namedCurve,
+                             pubkey_cert_records:namedCurves(ed25519)
+                            }
+                          }
+                       ),
+            application:set_env(tpnode, privkey, binary_to_list(hex:encodex(DerKey))),
+            Keyfile= utils:dbpath("node.key"),
+            file:write_file(Keyfile,
+                            io_lib:format("{privkey,\"~s\"}.~n",
+                                          [hex:encodex(DerKey)])),
+            tinymq:push(tea, list_to_binary([
+                                             io_lib:format("private key saved to file ~s",[Keyfile])
+                                            ])),
+            application:unset_env(tpnode, pubkey),
+            application:unset_env(tpnode,privkey_dec),
+            tinymq:push(tea,list_to_binary([
+                                            io_lib:format("new public key ~s",[hex:encodex(nodekey:get_pub())])
+                                           ])),
+            {200, [], <<"OK">>}
+          catch
+            error:badarg ->
+              {400, [], <<"Decryption failed">>}
+          end;
+        _ ->
+          {400, [], <<"no key negotiated">>}
+      end;
+    _ ->
+      io:format("Invalid request body: ~p~n", [Body]),
+      {400, [], <<"Invalid request">>}
+  end;
+
 
 h(<<"GET">>, [<<"tea_progress">>,T], _Req) ->
   {ok,_T0}=tinymq:subscribe(tea,binary_to_integer(T),self()),
@@ -116,25 +196,13 @@ h(<<"POST">>, [<<"set_role">>], Req) ->
     #{<<"role">>:=<<"tea">>,
       <<"nodeName">> := NodeName,
       <<"ceremonyToken">> := Token} ->
-      %spawn(fun() ->
-      %          timer:sleep(1000),
-      %          tpnode:restart()
-      %      end),
       application:ensure_all_started(teaclient),
-      {Host,Port,ConOpts,_Extra}=tpapi2:parse_url(
-        application:get_env(tpnode,tea_server,"https://tea.thepower.io:443/")
-       ),
+      URL=tea_url(),
       spawn(fun() ->
-                teaclient_worker:run(#{
-                                       host=>Host,
-                                       port=>Port,
+                teaclient_worker:run(URL#{
                                        token=>Token,
-                                       conn_opts=>ConOpts,
-                                       status_update=>fun(Kind, Data, Sub) ->
-                                                          tinymq:push(tea,#{k=>Kind, d=>Data}),
-                                                          io:format("Kind: ~p~n", [Kind]),
-                                                          {ok, Sub}
-                                                      end,
+                                       privkey => nodekey:get_priv(),
+                                       status_update=>fun log/3,
                                        nodename=>NodeName})
             end),
       answer( #{});
@@ -163,49 +231,56 @@ h(_Method, [<<"status">>], Req) ->
 
 %PRIVATE API
 
-% ----------------------------------------------------------------------
+tea_url() ->
+  {Host,Port,ConOpts,_Extra}=tpapi2:parse_url(
+    application:get_env(tpnode,tea_server,"https://tea.thepower.io:443/")
+   ),
+  #{ host=>Host, port=>Port, conn_opts=>ConOpts }.
 
-packer(#{req_format := <<"mp">>}=Req) ->
-  packer(Req, raw);
-packer(Req) ->
-  packer(Req, hex).
+log(connected, #{}, Sub) ->
+  tinymq:push(tea, <<"Connected to tea server">>),
+  Sub;
+log(logged_in, #{}, Sub) ->
+  tinymq:push(tea,<<"Logged in to tea server">>),
+  Sub;
+log(registered, #{hostname := Hostname}, Sub) ->
+  tinymq:push(tea,
+              list_to_binary([
+                              io_lib:format("Node ~s registered successfully", [Hostname])
+                             ])
+             ),
+  Sub;
 
-packer(Req,Default) ->
-  QS=cowboy_req:parse_qs(Req),
-  case proplists:get_value(<<"bin">>, QS) of
-    <<"b64">>  -> fun(Bin) -> base64:encode(Bin) end;
-    <<"phex">> -> fun(Bin) -> hex:encode(Bin) end;
-    <<"hex">>  -> fun(<<_:160/big>>=Bin) ->
-						  address:encode(Bin);
-					 (Bin) -> hex:encodex(Bin) end;
-    <<"xhex">> -> fun(<<_:160/big>>=Bin) ->
-						  address:encode(Bin);
-					 (Bin) -> hex:encodex(Bin) end;
-	<<"0xhex">>-> fun(Bin) -> <<"0x",(hex:encode(Bin))/binary>> end;
-    <<"raw">>  -> fun(Bin) -> Bin end;
-    _ -> case Default of
-           phex-> fun(Bin) -> hex:encode(Bin) end;
-           hex -> fun(<<_:160/big>>=Bin) ->
-						  address:encode(Bin);
-					 (Bin) -> hex:encodex(Bin) end;
-           xhex-> fun(<<_:160/big>>=Bin) ->
-						  address:encode(Bin);
-					 (Bin) -> hex:encodex(Bin) end;
-           b64 -> fun(Bin) -> base64:encode(Bin) end;
-           raw -> fun(Bin) -> Bin end
-         end
+log(Kind, Data, Sub) ->
+  tinymq:push(tea, #{k => Kind, d => Data}),
+  Sub.
+
+err(ErrorCode, ErrorMessage) ->
+    err(ErrorCode, ErrorMessage, #{}, #{}).
+
+err(ErrorCode, ErrorMessage, Data, Options) ->
+    Required1 =
+        #{
+            <<"ok">> => false,
+            <<"code">> => ErrorCode,
+            <<"msg">> => ErrorMessage
+        },
+
+    {
+        maps:get(http_code, Options, 200),
+        maps:merge(Data, Required1)
+    }.
+
+answer(Data) ->
+    answer(Data, #{}).
+
+answer(Data, Options) when is_map(Data) ->
+  Data2=maps:put(<<"ok">>, true, Data),
+  MS=maps:with([jsx,msgpack],Options),
+  case(maps:size(MS)>0) of
+    true ->
+      { 200, {Data2,MS} };
+    false ->
+      { 200, Data2 }
   end.
-
-% ----------------------------------------------------------------------
-
-binjson(Term) ->
-  EHF=fun([{Type, Str}|Tokens],{parser, State, Handler, Stack}, Conf) ->
-          Conf1=jsx_config:list_to_config(Conf),
-          jsx_parser:resume([{Type, base64:encode(Str)}|Tokens],
-                            State, Handler, Stack, Conf1)
-      end,
-   jsx:encode(
-     Term,
-     [ strict, {error_handler, EHF} ]
-    ).
 

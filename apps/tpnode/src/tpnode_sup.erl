@@ -164,12 +164,19 @@ init([]) ->
     true ->
       tpwdt:stop(),
       Secret=base58:encode(crypto:strong_rand_bytes(16)),
-      HttpPort=1080,
-      HttpsPort=1443,
+      HttpPort=utils:tcp_port_or_other(1080),
+      HttpsPort=utils:tcp_port_or_other(1443),
       application:set_env(tpnode, rpcport, HttpPort),
       application:set_env(tpnode, rpcsport, HttpsPort),
       case application:get_env(tpnode, privkey, false) of
-        false -> application:set_env(tpnode, privkey, tpecdsa:generate_priv(ed25519));
+        false ->
+          case file:consult(utils:dbpath("node.key")) of
+            {error,enoent} ->
+              application:set_env(tpnode, privkey,
+                                  binary_to_list(hex:encodex(tpecdsa:generate_priv(ed25519))));
+            {ok,[{privkey,Priv}]} ->
+              application:set_env(tpnode, privkey, Priv)
+          end;
         _ -> ok
       end,
       application:set_env(tpnode, nodename, <<"unconfigured_node">>),
@@ -189,6 +196,7 @@ init([]) ->
 
       io:format("~s",[Msg]),
       lists:foreach( fun(X) -> logger:notice("~s",[X]) end, Msg),
+      tpwdt:stop(),
       Childs = tpnode_http:childspec_ssl() ++ tpnode_http:childspec(),
       {ok, { {one_for_one, 5, 10}, Childs } };
     false ->

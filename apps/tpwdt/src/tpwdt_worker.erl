@@ -33,30 +33,44 @@ handle_cast(_Msg, State) ->
 handle_info(check, #{tmr:=T0}=State) ->
   erlang:cancel_timer(T0),
   Now=os:system_time(millisecond),
-  LBH=maps:get(hash,blockchain:last_meta()),
-
-  case maps:get(lbh,State, <<>>) of
-    L when L==LBH ->
-      LBT=maps:get(lbt,State),
-      if (Now-LBT > 55000) ->
-           logger:error("Last block does not change for ~p ms, restarting",[Now-LBT]),
-           tpnode:restart(),
-           {noreply, State#{
-                       lc=>Now,
-                       tmr=>erlang:send_after(120000,self(),check)
-                      }};
-         true ->
-           {noreply, maps:merge(#{lbt=>Now},
-                                State#{lbh=>LBH,
-                                       lc=>Now,
-                                       tmr=>erlang:send_after(10000,self(),check)}
-                               )}
-      end;
+  LastMeta = try
+               blockchain:last_meta()
+             catch _:_ ->
+                     error
+             end,
+  case LastMeta of
+    error ->
+      ?LOG_ERROR("Failed to get last meta, waiting"),
+      {noreply, State#{
+                  lc=>Now,
+                  tmr=>erlang:send_after(120000,self(),check)
+                 }};
     _ ->
-      {noreply, State#{lbt=>Now,
-                       lbh=>LBH,
-                       lc=>Now,
-                       tmr=>erlang:send_after(10000,self(),check)}}
+      LBH=maps:get(hash,LastMeta),
+
+      case maps:get(lbh,State, <<>>) of
+        L when L==LBH ->
+          LBT=maps:get(lbt,State),
+          if (Now-LBT > 55000) ->
+               logger:error("Last block does not change for ~p ms, restarting",[Now-LBT]),
+               tpnode:restart(),
+               {noreply, State#{
+                           lc=>Now,
+                           tmr=>erlang:send_after(120000,self(),check)
+                          }};
+             true ->
+               {noreply, maps:merge(#{lbt=>Now},
+                                    State#{lbh=>LBH,
+                                           lc=>Now,
+                                           tmr=>erlang:send_after(10000,self(),check)}
+                                   )}
+          end;
+        _ ->
+          {noreply, State#{lbt=>Now,
+                           lbh=>LBH,
+                           lc=>Now,
+                           tmr=>erlang:send_after(10000,self(),check)}}
+      end
   end;
 
 handle_info(_Info, State) ->
