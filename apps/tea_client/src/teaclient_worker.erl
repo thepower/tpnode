@@ -318,8 +318,8 @@ handle_msg(#{null := <<"node_config">>,<<"config">>:=BinCfg}, Sub) ->
       io:format("-=-= [ Config generated ] =-=-~n",[]),
       ok;
     _ ->
-      file:write_file("node_example.config",BinCfg),
-      io:format("-=-= [ Config template written to node_example.config ] =-=-~n",[]),
+      file:write_file("node.config",BinCfg),
+      io:format("-=-= [ Config template written to node.config ] =-=-~n",[]),
       ok
   end,
   Sub;

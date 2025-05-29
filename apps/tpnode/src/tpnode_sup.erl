@@ -131,6 +131,19 @@ try_restore_db(FetchFrom) ->
       Res
   end.
 
+load_priv() ->
+  case application:get_env(tpnode, privkey, false) of
+    false ->
+      case file:consult(utils:dbpath("node.key")) of
+        {error,enoent} ->
+          application:set_env(tpnode, privkey,
+                              binary_to_list(hex:encodex(tpecdsa:generate_priv(ed25519))));
+        {ok,[{privkey,Priv}]} ->
+          application:set_env(tpnode, privkey, Priv)
+      end;
+    _ -> ok
+  end.
+
 init([repl_sup]) ->
   Sup={_SupFlags = {simple_one_for_one, 5, 10},
        [
@@ -147,19 +160,14 @@ init([]) ->
   end,
   {ok, Cwd} = file:get_cwd(),
 
-  ConfigMode=case tpnode:reload() of
-               {error,enoent} ->
-                 %logger:notice("No node.config file found, using default configuration"),
-                 %{ok, _} = file:write_file("node.config", "[]"),
-                 true;
-               ok ->
-                 lists:all(
-                   fun(E) ->
-                       application:get_env(tpnode, E, false)==false
-                   end,
-                   [tpic, hostname, replica, ygg_peers, yggdrasil_peers, upstream])
-             end,
+  tpnode:reload(),
+  ConfigMode=lists:all(
+               fun(E) ->
+                   application:get_env(tpnode, E, false)==false
+               end,
+               [tpic, replica, ygg_peers, yggdrasil_peers, upstream]),
 
+  load_priv(),
   case ConfigMode of
     true ->
       tpwdt:stop(),
@@ -168,17 +176,6 @@ init([]) ->
       HttpsPort=utils:tcp_port_or_other(1443),
       application:set_env(tpnode, rpcport, HttpPort),
       application:set_env(tpnode, rpcsport, HttpsPort),
-      case application:get_env(tpnode, privkey, false) of
-        false ->
-          case file:consult(utils:dbpath("node.key")) of
-            {error,enoent} ->
-              application:set_env(tpnode, privkey,
-                                  binary_to_list(hex:encodex(tpecdsa:generate_priv(ed25519))));
-            {ok,[{privkey,Priv}]} ->
-              application:set_env(tpnode, privkey, Priv)
-          end;
-        _ -> ok
-      end,
       application:set_env(tpnode, nodename, <<"unconfigured_node">>),
       application:set_env(tpnode, hostname, string:chomp(os:cmd("hostname"))),
       application:set_env(tpnode, conf_secret, crypto:hash(sha256, Secret)),
