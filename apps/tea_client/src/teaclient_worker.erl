@@ -329,7 +329,7 @@ handle_msg(Msg, Sub) ->
   Sub.
   
 make_ws_req(Pid, Request) ->
-  make_ws_req(Pid, Request, 5000).
+  make_ws_req(Pid, Request, 20000).
 
 make_ws_req(Pid, Request, Timeout) ->
   receive {gun_ws,Pid, {binary, _}} ->
@@ -410,7 +410,12 @@ connect(#{host:=Ip, port:=Port} = Sub) ->
                                      {cacerts, CaCerts}
                                     ]};
              Opts when is_map(Opts) ->
-               Opts
+               maps:merge(
+                 #{
+                   protocols => [http]
+                  },
+                 Opts
+                )
            end,
   {ok, Pid} = gun:open(Ip, Port, ConnOpts),
   receive

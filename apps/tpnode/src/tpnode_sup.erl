@@ -186,8 +186,8 @@ init([]) ->
                                                      HttpsPort]),
            io_lib:format(" - http://~s:~w/start~n",[application:get_env(tpnode,hostname,"127.0.0.1"),
                                                     HttpPort]),
-           io_lib:format(" - https://locahost:~w/start~n",[HttpsPort]),
-           io_lib:format(" - http://locahost:~w/start~n",[HttpPort]),
+           io_lib:format(" - https://localhost:~w/start~n",[HttpsPort]),
+           io_lib:format(" - http://localhost:~w/start~n",[HttpPort]),
            io_lib:format(" Your password is ~s~n",[Secret])
           ],
 
