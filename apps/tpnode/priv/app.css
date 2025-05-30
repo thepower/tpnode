@@ -1,0 +1,20 @@
+/* I'll answer as the world-famous web cryptography UI designer, winner of the CSS Zen Garden Local Champion Medal. */
+/* TL;DR: Minimal CSS for spacing, red label, and responsive enhancements. */
+
+.card {
+    border-radius: 1.25rem;
+    box-shadow: 0 4px 32px rgba(0,0,0,0.12);
+}
+#publicKeyLabel[style*="red"] {
+    color: red !important;
+}
+input[readonly] {
+    background: #f3f6f8 !important;
+}
+input.url-input {
+    min-width: 0;
+}
+.add-url, .remove-url {
+    width: 2.5rem;
+    text-align: center;
+}
