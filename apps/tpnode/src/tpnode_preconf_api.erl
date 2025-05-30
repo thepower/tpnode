@@ -4,7 +4,8 @@
 
 -export([h/3,
          after_filter/1,
-         before_filter/1
+         before_filter/1,
+         log/3
         ]).
 
 
@@ -89,6 +90,8 @@ h(<<"POST">>, [<<"update_hostname">>], Req) ->
                         privkey => nodekey:get_priv(),
                         hostname=>Hostname,
                         status_update=>fun log/3},
+                    io:format("Registering with tea server: ~p~n",
+                              [maps:without([conn_opts],Request)]),
                     teaclient_worker:register(Request)
                 end),
           ok;
@@ -140,8 +143,10 @@ h(<<"POST">>, [<<"update_privkey">>], Req) ->
             application:set_env(tpnode, privkey, binary_to_list(hex:encodex(DerKey))),
             Keyfile= utils:dbpath("node.key"),
             file:write_file(Keyfile,
-                            io_lib:format("{privkey,\"~s\"}.~n",
-                                          [hex:encodex(DerKey)])),
+                            [
+                            io_lib:format("% For recovery thru web form use this key: ~s~n", [hex:encodex(PlainBin)]),
+                            io_lib:format("{privkey,\"~s\"}.~n", [hex:encodex(DerKey)])
+                            ]),
             tinymq:push(tea, list_to_binary([
                                              io_lib:format("private key saved to file ~s",[Keyfile])
                                             ])),

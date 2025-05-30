@@ -174,6 +174,8 @@ init([]) ->
       Secret=base58:encode(crypto:strong_rand_bytes(16)),
       HttpPort=utils:tcp_port_or_other(1080),
       HttpsPort=utils:tcp_port_or_other(1443),
+
+      application:set_env(tpnode, dbsuffix, ""),
       application:set_env(tpnode, rpcport, HttpPort),
       application:set_env(tpnode, rpcsport, HttpsPort),
       application:set_env(tpnode, nodename, <<"unconfigured_node">>),
@@ -184,11 +186,8 @@ init([]) ->
            io_lib:format("Visit one of the following urls to configure your node:~n",[]),
            io_lib:format(" - https://~s:~w/start~n",[application:get_env(tpnode,hostname,"127.0.0.1"),
                                                      HttpsPort]),
-           io_lib:format(" - http://~s:~w/start~n",[application:get_env(tpnode,hostname,"127.0.0.1"),
-                                                    HttpPort]),
            io_lib:format(" - https://localhost:~w/start~n",[HttpsPort]),
-           io_lib:format(" - http://localhost:~w/start~n",[HttpPort]),
-           io_lib:format(" Your password is ~s~n",[Secret])
+           io_lib:format(" Your configuration token is ~s~n",[Secret])
           ],
 
       io:format("~s",[Msg]),
