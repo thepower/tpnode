@@ -158,8 +158,7 @@ child_names_ssl() ->
 
 ensure_cert(CertFile, KeyFile) ->
   case file:read_file(KeyFile) of
-    {ok, _} ->
-      ok;
+    {ok, _} -> ok;
     _ ->
       filelib:ensure_dir(KeyFile),
       gen_priv(KeyFile)
@@ -171,12 +170,26 @@ ensure_cert(CertFile, KeyFile) ->
   if(not CertExists) ->
       Hostname=application:get_env(tpnode, hostname, string:chomp(os:cmd("hostname"))),
       selfsigned(CertFile, KeyFile, Hostname),
+      wait_for_cert(CertFile, 20),
       case file:read_file(CertFile) of
-        {ok, _} -> true;
-        _ -> false
+        {ok, _} ->
+          true;
+        _Res ->
+          false
       end;
     (CertExists) ->
       true
+  end.
+
+wait_for_cert(CertFile, N) ->
+  case file:read_file(CertFile) of
+    {ok, _} ->
+      true;
+    _ when N>0 ->
+      timer:sleep(10),
+      wait_for_cert(CertFile, N-1);
+    Any ->
+      throw({error, waiting_for_cert, Any})
   end.
 
 gen_priv(KeyFile) ->
