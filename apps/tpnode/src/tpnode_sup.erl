@@ -6,7 +6,7 @@
 -export([start_link/0]).
 
 %% Supervisor callbacks
--export([init/1, check_key/0, try_restore_db/1, try_restore_db/0]).
+-export([init/1, check_key/0, try_restore_db/1, try_restore_db/0, tpic_port/0]).
 
 %% Helper macro for declaring children of supervisor
 -define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
@@ -170,7 +170,6 @@ init([]) ->
   load_priv(),
   case ConfigMode of
     true ->
-      tpwdt:stop(),
       Secret=base58:encode(crypto:strong_rand_bytes(16)),
       HttpPort=utils:tcp_port_or_other(1080),
       HttpsPort=utils:tcp_port_or_other(1443),
@@ -298,7 +297,7 @@ init([]) ->
                        if(SP==[]) ->
                            case application:get_env(tpnode,connect_chain,undefined) of
                              I when is_integer(I) ->
-                               TPIC_Port=maps:get(port,application:get_env(tpnode,tpic,#{}),1800),
+                               TPIC_Port=tpic_port(),
                                tpnode_peerfinder:propose_tpic(I,TPIC_Port);
                              _ ->
                                [{undefined,maps:get(peers,application:get_env(tpnode,tpic,#{}),[])}]
@@ -359,3 +358,7 @@ init([]) ->
       {ok, { {one_for_one, 5, 10}, Childs } }
   end.
 
+tpic_port() ->
+  maps:get(port,application:get_env(tpnode,tpic,#{}),
+           application:get_env(tpnode,tpicport,1800)
+          ).

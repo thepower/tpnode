@@ -10,9 +10,11 @@
 %% ===================================================================
 
 start() ->
+  logger:info("Starting tpwdt"),
     application:ensure_all_started(?MODULE).
 
 stop() ->
+  logger:info("Stopping tpwdt"),
     application:stop(tpwdt).
 
 start(_StartType, _StartArgs) ->

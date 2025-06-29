@@ -20,7 +20,10 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(_Args) ->
-  {ok, #{tmr=>erlang:send_after(5000,self(),check)}}.
+  {ok, #{
+         tmr=>erlang:send_after(5000,self(),check),
+         last_res=>none
+        }}.
 
 handle_call(_Request, _From, State) ->
     ?LOG_NOTICE("Unknown call ~p",[_Request]),
@@ -30,7 +33,7 @@ handle_cast(_Msg, State) ->
     ?LOG_NOTICE("Unknown cast ~p",[_Msg]),
     {noreply, State}.
 
-handle_info(check, #{tmr:=T0}=State) ->
+handle_info(check, #{tmr:=T0, last_res:=LR}=State) ->
   erlang:cancel_timer(T0),
   Now=os:system_time(millisecond),
   LastMeta = try
@@ -39,10 +42,19 @@ handle_info(check, #{tmr:=T0}=State) ->
                      error
              end,
   case LastMeta of
-    error ->
-      ?LOG_ERROR("Failed to get last meta, waiting"),
+    error when LR==error ->
+      ?LOG_ERROR("Failed to get last meta 2nd time, restarting"),
+      tpnode:restart(),
       {noreply, State#{
                   lc=>Now,
+                  last_res=>restart,
+                  tmr=>erlang:send_after(120000,self(),check)
+                 }};
+    error ->
+      ?LOG_ERROR("Failed to get last meta, waiting 2min"),
+      {noreply, State#{
+                  lc=>Now,
+                  last_res=>error,
                   tmr=>erlang:send_after(120000,self(),check)
                  }};
     _ ->
@@ -56,12 +68,14 @@ handle_info(check, #{tmr:=T0}=State) ->
                tpnode:restart(),
                {noreply, State#{
                            lc=>Now,
+                           last_res=>restart,
                            tmr=>erlang:send_after(120000,self(),check)
                           }};
              true ->
                {noreply, maps:merge(#{lbt=>Now},
                                     State#{lbh=>LBH,
                                            lc=>Now,
+                                           last_res=>ok,
                                            tmr=>erlang:send_after(10000,self(),check)}
                                    )}
           end;
@@ -69,6 +83,7 @@ handle_info(check, #{tmr:=T0}=State) ->
           {noreply, State#{lbt=>Now,
                            lbh=>LBH,
                            lc=>Now,
+                           last_res=>ok,
                            tmr=>erlang:send_after(10000,self(),check)}}
       end
   end;
