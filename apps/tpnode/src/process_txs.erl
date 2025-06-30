@@ -681,6 +681,10 @@ process_code_itx(_Code,_From, _To, Value, _CallData, GasLimit, State0=#{static:=
 	  Value>0 ->
 	{ 0, <<"static_call_with_value">>, GasLimit, State0};
 
+process_code_itx(_Code, From, To, Value, _CallData, 0, #{acc:=_}=State0, _Opts0) when Value>0 ->
+	State1=transfer(From, To, Value, <<"SK">>, State0),
+  { 1, <<>>, 0, State1};
+
 process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opts0) ->
 	?LOG_DEBUG("Call proc code size ~p",[size(Code)]),
 	Opts=if is_list(Opts0) ->
@@ -749,14 +753,27 @@ process_code_itx(Code,From, To, Value, CallData, GasLimit, #{acc:=_}=State0, Opt
 				[<<"evm:invalid">>,To,From,<<>>],
 				State0)
 			};
-		{done, {revert, Revert}, _State=#{ gas:=GasLeft}} ->
-            ?LOG_INFO("revert call to ~s at ~p~n",[address:encode(To), maps:with([pc],_State)]),
+		{done, {revert, Revert}, _State=#{ gas:=GasLeft,
+                                       data:=#{
+                                               address := DAddr,
+                                               caller := DCaller,
+                                               callvalue := DVal,
+                                               origin := DOrig
+                                              }}} ->
+      %[bad_instruction,cd,code,custom_call,data,depth,extra,gas,gas_max,gas_min,get,logger,memory,pc,return,sload,sstore,stack,storage,trace]
+            ?LOG_INFO("revert call to ~s at ~p",[address:encode(To), maps:with([pc,depth],_State)]),
+            ?LOG_INFO("ctx Addr ~s caller ~s origin ~s value ~w",
+                      [ hex:encodex(DAddr),
+                        hex:encodex(DCaller),
+                        hex:encodex(DOrig),
+                        DVal]),
 			{ 0, Revert, gas_left(GasLeft,GasLimit),
 			  append_log(
 				[<<"evm:revert">>,To,From,Revert],
 				State0)
 			};
 		{error, nogas, #{}} ->
+      ?LOG_INFO("Out of gas from ~s to ~s",[hex:encodex(From), hex:encodex(To)]),
 			{ 0, <<>>, 0,
 			  append_log(
 				[<<"evm:nogas">>,To,From,<<>>],
