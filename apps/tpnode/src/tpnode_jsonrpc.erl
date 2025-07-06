@@ -782,6 +782,11 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
   Roots=maps:get(roots,Hdr,[]),
   Miner = <<160,0,0,0,10,0,0,1>>,
   Txs=maps:get(txs,Block,[]),
+  FixHash=case Context of
+         #{<<"fixhash">> := <<"0">>} -> false;
+         _ -> true
+       end,
+
   PWTx=case Context of
          #{<<"pwrtx">> := <<"1">>} -> true;
          _ -> false
@@ -826,10 +831,16 @@ display_block(#{hash:=Hash,header:=#{height:=Hei,parent:=Parent}=Hdr}=Block, Det
               % [ hex:encodex(B) | A ];
               ({TxID,#{kind:=Kind,body:=_,hash:=TxHash}=Tx},{A,N}) when PWTx orelse Kind==ether ->
               % [ hex:encodex(tx:pack(Tx)) | A ];
-               {[maps:merge(Tx0#{<<"txID">> => TxID,
+               TTx=Tx0#{<<"txID">> => TxID,
                                  <<"hash">> => hex:encodex(TxHash),
                                  <<"transactionIndex">> => i2hex(N) %TODO: FIX ME!!!
-                                },show_tx(Tx)) | A ],N+1};
+                                },
+              DTx=show_tx(Tx),
+              {[if FixHash ->
+                     maps:merge(TTx,DTx);
+                   true ->
+                     maps:merge(DTx, TTx)
+                end | A ],N+1};
               (_,A) ->
                A
            end, {[],0}, Txs),
